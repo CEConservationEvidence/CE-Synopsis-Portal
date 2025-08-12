@@ -73,8 +73,34 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 
 ---
 
-## Roadmap (subject to change initially)
+## Ultimate outcome (what “good” would looks like to the CE Team)
 
-Please see CE Roadmap here (TODO: link roadmap.md here when WIP).
+- **A single, reliable platform** used by the CE team for all new synopses.
+- **No manual copy–paste** to build the final PDF or website entries.
+- **Consistent summaries and tags**, enforceable by templates and vocabularies.
+- **Clear accountability** via roles, reviews and auditable history.
+- **Portable design** that can be reused for other “living evidence” domains.
+- **Easy to use interface** via UI, UX design and implemenation choices.
 
 ---
+
+## Roles & permissions
+
+N.B. This is a first draft, and will be refined with the CE team.
+- **Author**: create/edit summaries; propose tags; submit for review.
+- **CE Manager**: approve/reject; edit; assign tasks; see all dashboards.
+- **Data Manager**: manage imports; vocabularies; data validation; merges.
+- **Advisory Board**: comment/approve protocol and actions; read-only summaries.
+- **Admin**: user management; configuration; environment settings.
+- **External Guest**: to be defined, likely read-only access to specific summaries or protocols.
+
+---
+
+## Technical stack
+TODO: Define the technical stack (e.g., programming languages, frameworks, libraries, etc.).
+
+---
+
+## Roadmap
+
+Please see CE Roadmap here (TODO: link roadmap.md here when WIP).
