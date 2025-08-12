@@ -50,3 +50,19 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 8. **Interoperability**
    - Clean exports (PDF, CSV/Excel, JSON/API) for CE website and reporting.
 
+9. **Open-source & community-driven**
+   - Built with open-source tools, extensible by the community, with clear contribution guidelines.
+   - Documentation and codebase in a single repository for easy access.
+   - Transparent development process with regular updates and community feedback.
+
+## Minimal Viable Product (MVP)
+
+- Protocol drafting + board feedback (basic version history).
+- RIS import with validation, de-duplication and (initial) basic screening UI.
+- Summary editor with required metadata (action, threat, taxon, habitat, location, research design).
+- Review/approval workflow (submit → review → approve/revise).
+- Chapter/action assembly page + **one-click PDF** of a sample chapter.
+- Manager dashboard with high-level progress and task list.
+
+---
+
