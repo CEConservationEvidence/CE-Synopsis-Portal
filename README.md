@@ -54,6 +54,13 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
    - Built with open-source tools, extensible by the community, with clear contribution guidelines.
    - Documentation and codebase in a single repository for easy access.
    - Transparent development process with regular updates and community feedback.
+  
+10. **Scalability & maintainability**
+    - Modular architecture to support future features (e.g., advanced search, AI-assisted tagging).
+    - Clear code structure, documentation, and testing to ensure long-term sustainability, with a focus on reducing technical debt.
+
+11. **Security & privacy**
+    - Secure user authentication and role-based access control.
 
 ## Minimal Viable Product (MVP)
 
@@ -66,3 +73,8 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 
 ---
 
+## Roadmap (subject to change initially)
+
+Please see CE Roadmap here (TODO: link roadmap.md here when WIP).
+
+---
