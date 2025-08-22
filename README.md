@@ -1,4 +1,4 @@
-# "CE Synthesis Portal" (working title, name to be agreed with the CE team)
+# "CE Synopsis Portal" (working title, name to be agreed with the CE team)
 
 A unified, open-source workspace to **plan, search, screen, summarise, review, assemble and publish** Conservation Evidence synopses — with one source of truth, clear roles, and minimal copy–paste. This repository will be self-contained, meaning it will house both the documentation and the codebase.
 
@@ -82,8 +82,6 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 - **Portable design** that can be reused for other “living evidence” domains.
 - **Easy to use interface** via UI, UX design and implemenation choices.
 
----
-
 ## Roles & permissions
 
 N.B. This is a first draft, and will be refined with the CE team.
@@ -94,13 +92,22 @@ N.B. This is a first draft, and will be refined with the CE team.
 - **Admin**: user management; configuration; environment settings.
 - **External Guest**: to be defined, likely read-only access to specific summaries or protocols.
 
----
-
 ## Technical stack
 TODO: Define the technical stack (e.g., programming languages, frameworks, libraries, etc.).
-
----
 
 ## Roadmap
 
 Please see CE Roadmap here (TODO: link roadmap.md here when WIP).
+
+## License
+---
+License: MIT License (see LICENSE for details).
+
+## Acknowledgements
+---
+
+Maintainer and Main Developer: **Ibrahim Alhas** (alhasacademy@gmail.com)
+
+---
+
+TODO: refactor README.md. 
