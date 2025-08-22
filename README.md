@@ -14,7 +14,7 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 
 - **Authors** – import/search, screen, write 200-word summaries, tag studies.
 - **[CE] Project Manager** – officially invite advisory board members, oversee progress, review/approve, manage timelines.
-- **Data Manager** – manage imports, vocabularies, consistency checks.
+- **Data Manager** – manage imports, vocabularies, consistency checks (*role will likely become redundant*).
 - **Advisory Board** – view protocols, comment, approve scope/actions; provide their input directly.
 
 ---
