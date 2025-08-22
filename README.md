@@ -110,4 +110,8 @@ Maintainer and Main Developer: **Ibrahim Alhas** (alhasacademy@gmail.com)
 
 ---
 
+# Contributing
+
+Please read the [Contributing Guidelines](CONTRIBUTING.md) before making a pull request.
+
 TODO: refactor README.md. 
