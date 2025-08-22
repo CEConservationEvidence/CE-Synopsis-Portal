@@ -1,24 +1,7 @@
 # Pull Request
+<!-- Please fill out the following sections to the best of your ability. You may skip any sections that are not mandatory or relevant by putting 'N/A' inside the sub-section. -->
 
 _Please answer the following sections before submitting your PR:_
-
-#### 1 Why was this PR needed?
-Please explain the motivation behind this PR clearly (i.e. added a new feature, fixed a bug, etc.).
-
-#### 2 What changed?
-Describe Exactly what was changed in the codebase.
-
-#### 3 Backward compatibility & risk
-Please describe any potential risks or backward compatibility issues that may arise from this PR.
-
-#### 4 Files changed
-Please list all files that were changed in this PR and reasons.
-
-#### 5 Results and testing
-Please describe the results of your changes, including any relevant metrics or outcomes.
-
-#### Other changes
-Were there any other changes made that are not covered above (i.e. documentation updates, typo fixes, code refactoring, etc.)?
 
 ## Type of Change
 <!-- Mandatory -->
@@ -35,9 +18,24 @@ Fixes #(issue number)
 Addresses #(issue number)
 Enhancements #(issue number)
 
-## Testing
+#### 1 Why was this PR needed?
+Please briefly explain the motivation behind this PR clearly (i.e. added a new feature, fixed a bug, etc.).
+
+#### 2 What changed?
+Describe exactly what was changed in the codebase (i.e. new classes, methods, or files).
+
+#### 3 Backward compatibility & risk
+Please describe any potential risks or backward compatibility issues that may arise from this PR.
+
+#### 4 Files changed
+Please list all files that were changed in this PR and reasons.
+
+#### 5 Other changes
+Were there any other changes made that are not covered above (i.e. documentation updates, typo fixes, code refactoring, etc.)?
+
+## Testing & Results
 <!-- Mandatory -->
-Please describe the tests you've performed to verify your changes (e.g. unit tests, integration tests, manual tests).
+Please describe the tests you've performed to verify your changes (e.g. unit tests, integration tests, manual tests), including any relevant metrics or outcomes.
 
 ## Checklist
 <!-- Mandatory -->
