@@ -1,0 +1,69 @@
+name: Auto-label Issues
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label based on issue content
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const body = context.payload.issue.body || '';
+            const title = context.payload.issue.title || '';
+            const labels = [];
+            
+            // Check for bug indicators
+            if (body.includes('Steps to Reproduce') || 
+                title.toLowerCase().includes('bug') || 
+                title.toLowerCase().includes('error') ||
+                body.toLowerCase().includes('error') ||
+                body.toLowerCase().includes('crash')) {
+              labels.push('bug');
+            }
+            
+            // Check for feature requests
+            if (title.toLowerCase().includes('feature') || 
+                title.toLowerCase().includes('enhancement') ||
+                body.toLowerCase().includes('new feature')) {
+              labels.push('enhancement');
+            }
+            
+            // Check for documentation issues
+            if (title.toLowerCase().includes('documentation') || 
+                title.toLowerCase().includes('docs') ||
+                body.toLowerCase().includes('documentation')) {
+              labels.push('documentation');
+            }
+            
+            // Browser-specific labels based on Environment section
+            if (body.includes('Chrome')) labels.push('browser:chrome');
+            if (body.includes('Safari')) labels.push('browser:safari');
+            if (body.includes('Firefox')) labels.push('browser:firefox');
+            if (body.includes('Edge')) labels.push('browser:edge');
+            
+            // OS-specific labels
+            if (body.includes('Windows')) labels.push('os:windows');
+            if (body.includes('macOS') || body.includes('Mac')) labels.push('os:macos');
+            if (body.includes('Linux') || body.includes('Ubuntu')) labels.push('os:linux');
+            
+            // Priority based on keywords
+            if (body.toLowerCase().includes('critical') || 
+                body.toLowerCase().includes('urgent') ||
+                title.toLowerCase().includes('critical')) {
+              labels.push('priority:high');
+            }
+            
+            // Add needs-triage to all new issues
+            labels.push('needs-triage');
+            
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                labels: labels
+              });
+            }

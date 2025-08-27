@@ -1,0 +1,52 @@
+name: Auto-label PRs
+on:
+  pull_request:
+    types: [opened, edited]
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label based on PR type
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const body = context.payload.pull_request.body || '';
+            const labels = [];
+            
+            // Check Type of Change checkboxes
+            if (body.includes('- [x] Bug fix')) labels.push('bug-fix');
+            if (body.includes('- [x] New feature')) labels.push('feature');
+            if (body.includes('- [x] Enhancement')) labels.push('enhancement');
+            if (body.includes('- [x] Documentation update')) labels.push('documentation');
+            if (body.includes('- [x] Code refactoring')) labels.push('refactoring');
+            
+            // Check if all checklist items are completed
+            const checklistItems = body.match(/- \[x\]/g) || [];
+            const totalChecklist = body.match(/- \[ \]/g) || [];
+            
+            if (checklistItems.length >= 6 && totalChecklist.length === 0) {
+              labels.push('ready-for-review');
+            } else {
+              labels.push('work-in-progress');
+            }
+            
+            // Check for testing mentions
+            if (body.toLowerCase().includes('test') && 
+                body.includes('- [x] All new and existing tests pass')) {
+              labels.push('tested');
+            }
+            
+            // Check for documentation updates
+            if (body.includes('- [x] I have updated the documentation accordingly')) {
+              labels.push('docs-updated');
+            }
+            
+            if (labels.length > 0) {
+              await github.rest.issues.addLabels({
+                issue_number: context.payload.pull_request.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                labels: labels
+              });
+            }

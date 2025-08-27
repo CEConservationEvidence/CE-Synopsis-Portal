@@ -1,0 +1,44 @@
+name: Issue Management
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  welcome-and-assign:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Welcome new contributors
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // Check if this is the user's first issue
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              creator: context.payload.issue.user.login,
+              state: 'all'
+            });
+            
+            if (issues.data.length === 1) {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `Welcome @${context.payload.issue.user.login}! Thank you for opening your first issue. 
+
+            The CE Synthesis Portal team will review your issue soon. Please make sure you've filled out all the mandatory sections in the issue template.
+
+            For more information about contributing, please see our [Contributing Guidelines](https://github.com/CEConservationEvidence/CE-Synthesis-Portal/blob/main/CONTRIBUTING.md).`
+              });
+            }
+      
+      - name: Auto-assign to maintainer
+        uses: actions/github-script@v6
+        with:
+          script: |
+            await github.rest.issues.addAssignees({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              assignees: ['alhasacademy']
+            });
