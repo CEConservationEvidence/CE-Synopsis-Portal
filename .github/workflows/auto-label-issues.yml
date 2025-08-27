@@ -3,6 +3,10 @@ on:
   issues:
     types: [opened, edited]
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   label:
     runs-on: ubuntu-latest
@@ -11,59 +15,51 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            const body = context.payload.issue.body || '';
-            const title = context.payload.issue.title || '';
+            const body = (context.payload.issue && context.payload.issue.body) || '';
+            const title = (context.payload.issue && context.payload.issue.title) || '';
             const labels = [];
-            
-            // Check for bug indicators
-            if (body.includes('Steps to Reproduce') || 
-                title.toLowerCase().includes('bug') || 
-                title.toLowerCase().includes('error') ||
-                body.toLowerCase().includes('error') ||
-                body.toLowerCase().includes('crash')) {
-              labels.push('bug');
-            }
-            
-            // Check for feature requests
-            if (title.toLowerCase().includes('feature') || 
-                title.toLowerCase().includes('enhancement') ||
-                body.toLowerCase().includes('new feature')) {
+
+            // Bug indicators
+            if (
+              body.includes('Steps to Reproduce') ||
+              /bug|error|crash/i.test(title) ||
+              /error|crash/i.test(body)
+            ) labels.push('bug');
+
+            // Feature / enhancement
+            if (/feature|enhancement/i.test(title) || /new feature/i.test(body)) {
               labels.push('enhancement');
             }
-            
-            // Check for documentation issues
-            if (title.toLowerCase().includes('documentation') || 
-                title.toLowerCase().includes('docs') ||
-                body.toLowerCase().includes('documentation')) {
+
+            // Documentation
+            if (/documentation|docs/i.test(title) || /documentation/i.test(body)) {
               labels.push('documentation');
             }
-            
-            // Browser-specific labels based on Environment section
-            if (body.includes('Chrome')) labels.push('browser:chrome');
-            if (body.includes('Safari')) labels.push('browser:safari');
-            if (body.includes('Firefox')) labels.push('browser:firefox');
-            if (body.includes('Edge')) labels.push('browser:edge');
-            
+
+            // Browser-specific labels
+            if (/Chrome/.test(body)) labels.push('browser:chrome');
+            if (/Safari/.test(body)) labels.push('browser:safari');
+            if (/Firefox/.test(body)) labels.push('browser:firefox');
+            if (/Edge/.test(body)) labels.push('browser:edge');
+
             // OS-specific labels
-            if (body.includes('Windows')) labels.push('os:windows');
-            if (body.includes('macOS') || body.includes('Mac')) labels.push('os:macos');
-            if (body.includes('Linux') || body.includes('Ubuntu')) labels.push('os:linux');
-            
-            // Priority based on keywords
-            if (body.toLowerCase().includes('critical') || 
-                body.toLowerCase().includes('urgent') ||
-                title.toLowerCase().includes('critical')) {
+            if (/Windows/.test(body)) labels.push('os:windows');
+            if (/macOS|Mac/.test(body)) labels.push('os:macos');
+            if (/Linux|Ubuntu/.test(body)) labels.push('os:linux');
+
+            // Priority
+            if (/critical|urgent/i.test(body) || /critical/i.test(title)) {
               labels.push('priority:high');
             }
-            
-            // Add needs-triage to all new issues
+
+            // Always add needs-triage
             labels.push('needs-triage');
-            
-            if (labels.length > 0) {
+
+            if (labels.length) {
               await github.rest.issues.addLabels({
-                issue_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                labels: labels
+                issue_number: context.issue.number,
+                labels
               });
             }

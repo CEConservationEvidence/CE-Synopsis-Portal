@@ -3,6 +3,10 @@ on:
   issues:
     types: [opened]
 
+permissions:
+  contents: read
+  issues: write
+
 jobs:
   welcome-and-assign:
     runs-on: ubuntu-latest
@@ -11,34 +15,51 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            // Check if this is the user's first issue
+            const { owner, repo } = context.repo;
+            const creator = context.payload.issue.user.login;
+
             const issues = await github.rest.issues.listForRepo({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              creator: context.payload.issue.user.login,
-              state: 'all'
+              owner, repo, creator, state: 'all', per_page: 1
             });
-            
+
             if (issues.data.length === 1) {
               await github.rest.issues.createComment({
+                owner, repo,
                 issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: `Welcome @${context.payload.issue.user.login}! Thank you for opening your first issue. 
+                body: `Welcome @${creator}! Thank you for opening your first issue.
 
             The CE Synthesis Portal team will review your issue soon. Please make sure you've filled out all the mandatory sections in the issue template.
 
-            For more information about contributing, please see our [Contributing Guidelines](https://github.com/CEConservationEvidence/CE-Synthesis-Portal/blob/main/CONTRIBUTING.md).`
-              });
-            }
-      
-      - name: Auto-assign to maintainer
+            For more information about contributing, please see our [Contributing Guidelines](https://github.com/${owner}/${repo}/blob/main/CONTRIBUTING.md).`
+                        });
+                        }
+
+      - name: Auto-assign to maintainer (only if collaborator)
         uses: actions/github-script@v6
         with:
           script: |
-            await github.rest.issues.addAssignees({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              assignees: ['alhasacademy']
-            });
+            const { owner, repo } = context.repo;
+            const assignee = 'alhasacademy96';
+
+            // Check if the assignee is a collaborator (assignable)
+            let canAssign = false;
+            try {
+              await github.rest.repos.checkCollaborator({ owner, repo, username: assignee });
+              canAssign = true;
+            } catch {
+              canAssign = false; // not a collaborator (or invite not accepted)
+            }
+
+            if (canAssign) {
+              await github.rest.issues.addAssignees({
+                owner, repo,
+                issue_number: context.issue.number,
+                assignees: [assignee]
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo,
+                issue_number: context.issue.number,
+                body: `Heads up: attempted to auto-assign @${assignee}, but they are not an assignable collaborator on this repository.`
+              });
+            }
