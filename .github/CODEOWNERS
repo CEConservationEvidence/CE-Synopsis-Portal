@@ -1,0 +1,7 @@
+# Default code owner for the repository
+# Files not matched by a more specific rule below will be owned by @alhasacademy96
+* @alhasacademy96
+
+# Add more specific ownership rules below as needed, for example:
+# docs/** @alhasacademy96
+# .github/** @alhasacademy96
