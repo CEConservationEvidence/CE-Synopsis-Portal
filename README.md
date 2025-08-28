@@ -1,16 +1,18 @@
-# "CE Synopsis Portal" (working title, name to be agreed with the CE team)
+# CE Synopsis Portal
 
-A unified, open-source workspace to **plan, search, screen, summarise, review, assemble and publish** Conservation Evidence synopses — with one source of truth, clear roles, and minimal copy–paste. This repository will be self-contained, meaning it will house both the documentation and the codebase.
+Working title — final name to be agreed with the Conservation Evidence (CE) team.
+
+A unified, open-source workspace to **plan, search, screen, summarise, review, assemble, and publish** Conservation Evidence synopses — with one source of truth, clear roles, and minimal copy–paste. This repository is self-contained and houses both the documentation and the codebase.
 
 ---
 
 ## Purpose
 
-Create a single, central tool that replaces scattered Word/Excel files and manual CMS steps. This tool will (eventaully) make it **faster, clearer, and less error-prone** for the CE team to produce synopses, while remaining flexible enough to reuse for other “living evidence” topics.
+Create a single, central tool that replaces scattered Word/Excel files and manual CMS steps. This tool will (eventually) make it **faster, clearer, and less error‑prone** for the CE team to produce synopses, while remaining flexible enough to reuse for other “living evidence” topics.
 
 ---
 
-## Who it serves
+## Who It Serves
 
 - **Authors** – import/search, screen, write 200-word summaries, tag studies.
 - **[CE] Project Manager** – officially invite advisory board members, oversee progress, review/approve, manage timelines.
@@ -19,17 +21,17 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 
 ---
 
-## Core expectations (high-level, v1, subject to change)
+## Core Expectations (high‑level, v1, subject to change)
 
 1. **Single source of truth**
-   - All references, summaries, tags, backgrounds, key messages, actions and search logs live in the database.
+   - All references, summaries, tags, backgrounds, key messages, actions, and search logs live in the database.
    - No hard-coded domain lists (e.g., species); use editable controlled vocabularies.
 
 2. **End-to-end workflow**
    - Plan & protocol: draft, version, share with the board.
    - Import & screen: ingest RIS, detect duplicates, include/exclude with reasons.
-   - Summarise & tag: rich editor with 200-word guardrails and structured fields.
-   - Review & approve: role-based workflows, comments, change requests.
+   - Summarise & tag: rich editor with 200‑word guardrails and structured fields.
+   - Review & approve: role‑based workflows, comments, change requests.
    - Assemble & publish: compile chapters/actions, generate PDF/HTML, publish.
 
 3. **Zero duplicate data entry**
@@ -45,24 +47,24 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
    - Clear, consistent UI, keyboard-friendly, supports non-English references.
 
 7. **Data quality & integrity**
-   - Validation on import (e.g., titles, authors, special characters), required fields at the right steps, duplicate detection and merge tools.
+   - Validation on import (e.g., titles, authors, special characters), required fields at the right steps, duplicate detection, and merge tools.
 
 8. **Interoperability**
    - Clean exports (PDF, CSV/Excel, JSON/API) for CE website and reporting.
 
 9. **Open-source & community-driven**
-   - Built with open-source tools, extensible by the community, with clear contribution guidelines.
+   - Built with open‑source tools, extensible by the community, with clear contribution guidelines.
    - Documentation and codebase in a single repository for easy access.
    - Transparent development process with regular updates and community feedback.
   
 10. **Scalability & maintainability**
-    - Modular architecture to support future features (e.g., advanced search, AI-assisted tagging).
-    - Clear code structure, documentation, and testing to ensure long-term sustainability, with a focus on reducing technical debt.
+    - Modular architecture to support future features (e.g., advanced search, AI‑assisted tagging).
+    - Clear code structure, documentation, and testing to ensure long‑term sustainability, with a focus on reducing technical debt.
 
 11. **Security & privacy**
     - Secure user authentication and role-based access control.
 
-## Minimal Viable Product (MVP)
+## Minimum Viable Product (MVP)
 
 - Protocol drafting + board feedback (basic version history).
 - RIS import with validation, de-duplication and (initial) basic screening UI.
@@ -73,45 +75,42 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 
 ---
 
-## Ultimate outcome (what “good” would looks like to the CE Team)
+## Ultimate Outcome (what “good” looks like to the CE team)
 
 - **A single, reliable platform** used by the CE team for all new synopses.
 - **No manual copy–paste** to build the final PDF or website entries.
 - **Consistent summaries and tags**, enforceable by templates and vocabularies.
-- **Clear accountability** via roles, reviews and auditable history.
+- **Clear accountability** via roles, reviews, and auditable history.
 - **Portable design** that can be reused for other “living evidence” domains.
-- **Easy to use interface** via UI, UX design and implemenation choices.
+- **Easy‑to‑use interface** enabled by sound UI/UX design and implementation choices.
 
-## Roles & permissions
+## Roles & Permissions
 
-N.B. This is a first draft, and will be refined with the CE team.
+Note: This is a first draft and will be refined with the CE team.
 - **Author**: create/edit summaries; propose tags; submit for review.
 - **CE Manager**: approve/reject; edit; assign tasks; see all dashboards.
-- **Data Manager**: manage imports; vocabularies; data validation; merges.
+- **Data Manager**: manage imports; vocabularies; data validation; merges. *(This role may become redundant as automation improves.)*
 - **Advisory Board**: comment/approve protocol and actions; read-only summaries.
 - **Admin**: user management; configuration; environment settings.
 - **External Guest**: to be defined, likely read-only access to specific summaries or protocols.
 
-## Technical stack
-TODO: Define the technical stack (e.g., programming languages, frameworks, libraries, etc.).
+## Technical Stack
+TBD: Define the technical stack (e.g., programming languages, frameworks, and libraries).
 
 ## Roadmap
 
-Please see CE Roadmap here (TODO: link roadmap.md here when WIP).
+Roadmap to be published in `docs/` (TBD). For now, see `docs/index.md`.
 
 ## License
----
-License: MIT License (see LICENSE for details).
+
+MIT License — see `LICENSE` for details.
 
 ## Acknowledgements
----
 
-Maintainer and Main Developer: **Ibrahim Alhas** (alhasacademy@gmail.com)
+Maintainer and main developer: **Ibrahim Alhas** (alhasacademy@gmail.com)
 
 ---
 
 # Contributing
 
 Please read the [Contributing Guidelines](CONTRIBUTING.md) before making a pull request.
-
-TODO: refactor README.md. 
