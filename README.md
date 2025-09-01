@@ -126,7 +126,7 @@ TODO: add version numbers per tool after final validation.
   - Converts final synopses (HTML) into high-quality PDFs.
   - Supports custom styling, date stamps, and inclusion of advisory board info.
 
-- **Wagtail (optional, recommended)**
+- **Wagtail**
   - Rich-text editing layer for authors.
   - Provides a user-friendly interface for narrative sections like protocols, backgrounds, and "About this synopsis."
   - Used internally — not for rendering the public site (however, it may possibly replace the current main CE website later so there is potential for public use).
