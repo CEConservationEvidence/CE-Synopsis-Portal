@@ -95,7 +95,49 @@ Note: This is a first draft and will be refined with the CE team.
 - **External Guest**: to be defined, likely read-only access to specific summaries or protocols.
 
 ## Technical Stack
-TBD: Define the technical stack (e.g., programming languages, frameworks, and libraries).
+
+This project is (to be) built entirely with open-source, mature, and well-supported tools designed to be maintainable, secure, and easy to contribute to. The stack is expandable if needed.
+
+TODO: add version numbers per tool after final validation.
+
+- **Python**
+  - Modern and widely supported programming language.
+  - All backend logic is written in Python.
+
+- **Django**
+  - Core backend framework.
+  - Handles user permissions, data models, workflows, and the admin dashboard.
+  - Long-Term Support release with stability until at least April 2026.
+
+- **PostgreSQL**
+  - Robust, relational database system.
+  - Stores all data including references, summaries, tags, workflows, and users.
+  - Chosen for reliability, scalability, and Django compatibility.
+
+- **Django REST Framework (DRF)**
+  - Used to expose data through a clean, maintainable JSON API.
+  - Allows the CE website to pull public data directly (e.g. summaries, chapters).
+
+- **Celery + Redis**
+  - Task queue system for background jobs.
+  - Used for long-running tasks like RIS file imports, PDF generation, and data exports.
+
+- **WeasyPrint**
+  - Converts final synopses (HTML) into high-quality PDFs.
+  - Supports custom styling, date stamps, and inclusion of advisory board info.
+
+- **Wagtail (optional, recommended)**
+  - Rich-text editing layer for authors.
+  - Provides a user-friendly interface for narrative sections like protocols, backgrounds, and "About this synopsis."
+  - Used internally — not for rendering the public site (however, it may possibly replace the current main CE website later so there is potential for public use).
+
+- **Docker (local development)**
+  - Standardises development and deployment environments.
+  - Will just run Postgres, Redis, and the Django app with a single command.
+
+- **psycopg 3.x**
+  - PostgreSQL driver used by Django to connect to the database.
+
 
 ## Roadmap
 
