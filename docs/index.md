@@ -13,6 +13,9 @@ TODO: update here and create the files below.
 
 TODO: update here!
 
+- [Features](./features.md)
+- [Roadmap](./roadmap.md)
+
 ## Documentation
 
 TODO: update here with actual files and links.
