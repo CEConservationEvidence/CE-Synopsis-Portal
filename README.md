@@ -92,7 +92,7 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 Note: This is a first draft and will be refined with the CE team.
 - **Author**: create/edit summaries; propose tags; submit for review.
 - **CE Manager**: approve/reject; edit; assign tasks; see all dashboards.
-- **Data Manager**: manage imports; vocabularies; data validation; merges. *(This role may become redundant as automation improves.)*
+- **Data Manager**: manage imports; vocabularies; data validation; merges. *(This role will become redundant as automation improves.)*
 - **Advisory Board**: comment/approve protocol and actions; read-only summaries.
 - **Admin**: user management; configuration; environment settings.
 - **External Guest**: to be defined, likely read-only access to specific summaries or protocols.
@@ -129,7 +129,7 @@ This project is (to be) built entirely with open-source, mature, and well-suppor
   - Supports custom styling, date stamps, and inclusion of advisory board info.
 
 - **Wagtail 6.3.x (LTS)**
-  - Rich-text editing layer for authors.
+  - Rich-text editing layer for authors, including support for templates and custom styling.
   - Provides a user-friendly interface for narrative sections like protocols, backgrounds."
   - Used internally — not for rendering the public site (however, it may possibly replace the current main CE website later so there is potential for public use).
 
