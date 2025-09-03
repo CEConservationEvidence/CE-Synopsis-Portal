@@ -1,6 +1,6 @@
 # CE Synopsis Portal Documentation Homepage
 
-Welcome to the CE Synopsis Portal documentation. This portal provides tools and resources for Computer Engineering synthesis processes.
+Welcome to the CE Synopsis Portal documentation. This portal provides a comprehensive set of tools and resources for the Conservation Evidence (CE) team to streamline their synthesis processes. Here, you will find information on how to get started, the features available, and the roadmap for future development.
 
 ## Getting Started
 
