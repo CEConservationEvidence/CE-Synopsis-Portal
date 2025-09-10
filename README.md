@@ -135,7 +135,7 @@ This project is built entirely with open-source, mature, and well-supported tool
   - Handles user permissions, data models, workflows, and the admin dashboard.
   - Long-Term Support release with stability until at least April 2026.
 
-- **PostgreSQL 15**
+- **PostgreSQL 16**
   - Robust, relational database system.
   - Stores all data including references, summaries, tags, workflows, and users.
   - Chosen for reliability, scalability, and Django compatibility.
