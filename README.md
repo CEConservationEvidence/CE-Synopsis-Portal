@@ -55,7 +55,8 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
    - Import & screen: ingest RIS, detect duplicates, include/exclude with reasons; update database efficiently.
    - Summarise & tag: rich editor with approx. 200‑word guardrails and structured fields.
    - Review & approve: role‑based workflows, comments, change requests and final approval.
-   - Assemble & publish: compile chapters/actions systematically, generate PDF/HTML, publish to main CE Website.
+   - Assemble & publish: compile chapters/actions systematically, generate final synopsis PDF document, publish to main CE Website.
+   - Automatically upload synopsis-related data to CE website via API integration, bypassing manual copy and pasting of data by authors.
 
 3. **Zero duplicate data entry**
    - Data entered once is reused everywhere (exports, PDFs, website, etc.).
