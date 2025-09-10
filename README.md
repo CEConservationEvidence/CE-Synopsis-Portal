@@ -1,6 +1,6 @@
-# CE Synopsis Portal
+# CE Synopsis Portal*
 
-_Working title — final name to be agreed with the Conservation Evidence (CE) team._
+_*Working title — final name to be agreed with the Conservation Evidence (CE) team._
 
 A unified, open-source workspace to **plan, search, screen, summarise, review, assemble, and publish** Conservation Evidence synopses — with one source of truth, clear roles, and minimal copy–paste. This repository is self-contained and houses both the documentation and the codebase.
 
@@ -8,21 +8,22 @@ A unified, open-source workspace to **plan, search, screen, summarise, review, a
 
 ## Getting Started
 
-TODO: update here and create the files below.
+TODO: WIP.
 
 - [Installation](./installation.md)
 - [Quick Start Guide](./quick-start.md)
 
 ## Features
 
-TODO: update here!
+TODO: WIP.
 
-- [Features](./features.md)
-- [Roadmap](./roadmap.md)
+- [Features](./features.md) (drafting)
+- [Roadmap](./roadmap.md) (done)
 
 ## Documentation
 
-TODO: update here with actual files and links.
+TODO: WIP.
+
 - [User Guide](./user-guide/index.md) (for end users)
 - [API Reference](./api/index.md)
 - [Tutorials](./tutorials/index.md)
