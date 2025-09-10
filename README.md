@@ -6,6 +6,8 @@ A unified, open-source workspace to **plan, search, screen, summarise, review, a
 
 ---
 
+TODO: cleanup and reorganize readme.md content.
+
 ## Getting Started
 
 TODO: WIP.
