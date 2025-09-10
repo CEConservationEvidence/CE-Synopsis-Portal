@@ -1,23 +1,43 @@
 # CE Synopsis Portal
 
-Working title — final name to be agreed with the Conservation Evidence (CE) team.
+_Working title — final name to be agreed with the Conservation Evidence (CE) team._
 
 A unified, open-source workspace to **plan, search, screen, summarise, review, assemble, and publish** Conservation Evidence synopses — with one source of truth, clear roles, and minimal copy–paste. This repository is self-contained and houses both the documentation and the codebase.
 
 ---
 
-## Purpose
+## Getting Started
 
-Create a single, central tool that replaces scattered Word/Excel files and manual CMS steps. This tool will (eventually) make it **faster, clearer, and less error‑prone** for the CE team to produce synopses, while remaining flexible enough to reuse for other “living evidence” topics.
+TODO: update here and create the files below.
 
----
+- [Installation](./installation.md)
+- [Quick Start Guide](./quick-start.md)
 
-## Who It Serves
+## Features
 
-- **Authors** – import/search, screen, write 200-word summaries, tag studies.
-- **[CE] Project Manager** – officially invite advisory board members, oversee progress, review/approve, manage timelines.
-- **Data Manager** – manage imports, vocabularies, consistency checks.
-- **Advisory Board** – view protocols, comment, approve scope/actions; provide their input directly.
+TODO: update here!
+
+- [Features](./features.md)
+- [Roadmap](./roadmap.md)
+
+## Documentation
+
+TODO: update here with actual files and links.
+- [User Guide](./user-guide/index.md) (for end users)
+- [API Reference](./api/index.md)
+- [Tutorials](./tutorials/index.md)
+- [FAQ](./faq.md)
+
+## Purpose & Users
+
+**This system is being built originally for the Conservation Evidence team, but may be adopted by other related teams in the future.**
+
+Create a single, central tool that replaces scattered Word/Excel files and manual CMS steps. This tool will (eventually) make it **faster, clearer, and less error‑prone** for the CE team to produce synopses, while remaining flexible enough to reuse for other “living evidence” topics. 
+
+- **Authors** – import/search, screen, write approx. 200-word summaries, tag studies, update records and metadata on website for public consumption.
+- **Project Manager** – draft synopsis protocol document, invite advisory board members, oversee synopsis and team progress, review/approve, manage timelines.
+- **Data Manager** – manage imports, vocabularies, consistency checks (role will likely become redundant).
+- **Advisory Board** – accepts official invitation to participate in a synopsis, view protocols, comment on scope/actions; provide their input directly on the draft synopsis document.
 
 ---
 
@@ -95,15 +115,16 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 Note: This is a first draft and will be refined with the CE team.
 - **Author**: create/edit summaries; propose tags; submit for review.
 - **CE Manager**: approve/reject; edit; assign tasks; see all dashboards.
-- **Data Manager**: manage imports; vocabularies; data validation; merges. *(This role will become redundant as automation improves.)*
+- **Data Manager**: manage imports; vocabularies; data validation (this role will become redundant as automation is implemented).
 - **Advisory Board**: comment/approve protocol and actions; read-only summaries.
 - **Admin**: user management; configuration; environment settings.
 - **External Guest**: to be defined, likely read-only access to specific summaries or protocols.
 
 ## Technical Stack
 
-This project is built entirely with open-source, mature, and well-supported tools designed to be maintainable, secure, and easy to contribute to. The stack is expandable if needed (note that 'x' for version numbers indicates the latest compatible release).
+This project is built entirely with open-source, mature, and well-supported tools designed to be maintainable, secure, and easy to contribute to. Note that 'x' for version numbers indicates the latest compatible release.
 
+### Main
 - **Python 3.12.x+**
   - Modern and widely supported programming language.
   - All backend logic is written in Python.
@@ -139,14 +160,17 @@ This project is built entirely with open-source, mature, and well-supported tool
 - **psycopg 3.2.x**
   - PostgreSQL driver used by Django to connect to the database.
 
-- **Docker (development)**
-  - Standardises development and deployment environments.
-  - Will just run Postgres, Redis, and the Django app with a single command.
-
-- **GitHub (development & maintenance)**
+### Development & Maintenance
+- **GitHub**
   - Used for version control, collaboration, and issue tracking.
   - GitHub Actions for CI/CD pipelines.
   - GitHub Pages for documentation hosting.
+  - GitHub Discussions for community engagement and support.
+
+- **Docker**
+  - Standardises development and deployment environments.
+  - Will just run Postgres, Redis, and the Django app with a single command.
+  - Simplifies the setup process for new developers and collaborators.
 
 ## Roadmap
 
