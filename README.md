@@ -88,9 +88,6 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 11. **Security & privacy**
     - Secure user authentication and role-based access control.
 
-12. **Offline Support (TBD)**
-    - Basic functionality available without an internet connection.
-
 ## Minimum Viable Product (MVP)
 
 - Protocol drafting + board feedback (basic version history).
