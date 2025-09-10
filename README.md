@@ -20,7 +20,7 @@ TODO: WIP.
 TODO: WIP.
 
 - [Features](./features.md) (drafting)
-- [Roadmap](./roadmap.md) (done)
+- [Roadmap](./docs/roadmap.md/) (done)
 
 ## Documentation
 
