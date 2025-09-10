@@ -16,7 +16,7 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 
 - **Authors** – import/search, screen, write 200-word summaries, tag studies.
 - **[CE] Project Manager** – officially invite advisory board members, oversee progress, review/approve, manage timelines.
-- **Data Manager** – manage imports, vocabularies, consistency checks (*role will likely become redundant*).
+- **Data Manager** – manage imports, vocabularies, consistency checks.
 - **Advisory Board** – view protocols, comment, approve scope/actions; provide their input directly.
 
 ---
@@ -71,10 +71,12 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 
 - Protocol drafting + board feedback (basic version history).
 - RIS import with validation, de-duplication and (initial) basic screening UI.
-- Summary editor with required metadata (action, threat, taxon, habitat, location, research design).
-- Review/approval workflow (submit → review → approve/revise) within authors and manager.
-- Chapter/action assembly page + **one-click PDF** of a sample chapter.
+- Summary editor with required metadata for CE (action, threat, taxon, species, habitat, location, research design).
+- Review/approval workflow (submit → review → approve/revise) with authors and synopsis manager.
+- Chapter/action assembly page + one-click PDF of final synopsis document for website upload.
 - Manager dashboard with high-level progress and task list.
+- Automatic synopsis data upload to CE website via API integration.
+- Comprehensive testing and validation of all features, as well as documentation and user guides.
 
 ---
 
@@ -86,6 +88,7 @@ Create a single, central tool that replaces scattered Word/Excel files and manua
 - **Clear accountability** via roles, reviews, and auditable history.
 - **Portable design** that can be reused for other “living evidence” domains.
 - **Easy‑to‑use interface** enabled by sound UI/UX design and implementation choices.
+- **Open‑source codebase** that the community can contribute to and extend.
 
 ## Roles & Permissions
 
@@ -99,7 +102,7 @@ Note: This is a first draft and will be refined with the CE team.
 
 ## Technical Stack
 
-This project is (to be) built entirely with open-source, mature, and well-supported tools designed to be maintainable, secure, and easy to contribute to. The stack is expandable if needed (note that 'x' for version numbers indicates the latest compatible release).
+This project is built entirely with open-source, mature, and well-supported tools designed to be maintainable, secure, and easy to contribute to. The stack is expandable if needed (note that 'x' for version numbers indicates the latest compatible release).
 
 - **Python 3.12.x+**
   - Modern and widely supported programming language.
@@ -136,14 +139,18 @@ This project is (to be) built entirely with open-source, mature, and well-suppor
 - **psycopg 3.2.x**
   - PostgreSQL driver used by Django to connect to the database.
 
-- **Docker (local development)**
+- **Docker (development)**
   - Standardises development and deployment environments.
   - Will just run Postgres, Redis, and the Django app with a single command.
 
+- **GitHub (development & maintenance)**
+  - Used for version control, collaboration, and issue tracking.
+  - GitHub Actions for CI/CD pipelines.
+  - GitHub Pages for documentation hosting.
 
 ## Roadmap
 
-Roadmap to be published in `docs/` (TBD). For now, see `docs/index.md`.
+Roadmap - see `docs/roadmap.md` for details.
 
 ## License
 
