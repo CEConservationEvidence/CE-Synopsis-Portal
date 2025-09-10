@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+*.sqlite3
+*.log
+
+# Env files
+.env
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# VSCode or IDEs
+.vscode/
+.idea/
+
+**/migrations/*.py
+!**/migrations/__init__.py
+
+staticfiles/
+media/
+
+# WeasyPrint temp files
+tmp/
