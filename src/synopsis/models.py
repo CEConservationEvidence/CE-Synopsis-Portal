@@ -26,6 +26,30 @@ class Project(models.Model):
         return self.title
 
 
+class UserRole(models.Model):
+    ROLE_CHOICES = [
+        ("manager", "Manager"),
+        ("author", "Author"),
+        ("advisory_board", "Advisory Board Member"),
+        (
+            "external_collaborator",
+            "External Collaborator",  # outside the core team, with limited access and permissions.
+        ),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    project = models.ForeignKey(Project, on_delete=models.CASCADE)
+    role = models.CharField(max_length=30, choices=ROLE_CHOICES)
+
+    class Meta:
+        unique_together = ("user", "project", "role")
+
+    def __str__(self):
+        return (
+            f"{self.user.username} as {self.get_role_display()} in {self.project.title}"
+        )
+
+
 class Funder(models.Model):
     """A funder(s) for a project. It captures basic information about funders, related to a Project."""
 
