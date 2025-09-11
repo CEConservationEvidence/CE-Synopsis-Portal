@@ -13,8 +13,8 @@ _Tasks overlap to maximize the 5-month window. Foundations first, then the heavi
 - [x] Draft advisory board invitation.
 - [x] Draft user roles and permissions.
 
-## Sprint 2: Core Features & Functionality
-- [ ] Finalize data models and database schema (or at the very least, have a solid working version). **Note that the data model and database schema are likely to change throughout development.**
+## Sprint 2: Core Features & Functionality (current sprint)
+- [x] Finalize data models and database schema (or at the very least, have a solid working version). **Note that the data model and database schema are likely to change throughout development.**
 - [ ] Build the synopsis protocol builder.
 - [ ] Build the advisory board invitation UI.
 - [ ] Build the import and screening functionality (i.e. RIS file ingestion, duplicate detection, and initial screening UI).
