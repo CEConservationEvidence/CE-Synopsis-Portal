@@ -173,6 +173,16 @@ This project is built entirely with open-source, mature, and well-supported tool
   - Will just run Postgres, Redis, and the Django app with a single command.
   - Simplifies the setup process for new developers and collaborators.
 
+### (Local Dev Setup)
+
+1. Duplicate `.env.template` and rename it to `.env`
+2. Edit `.env` and insert your actual PostgreSQL credentials (full instructions in `.env.template`).
+3. Create and activate your virtual environment.
+4. Install the dependencies.
+5. Run the database migrations.
+
+---
+
 ## Roadmap
 
 Roadmap - see `docs/roadmap.md` for details.
