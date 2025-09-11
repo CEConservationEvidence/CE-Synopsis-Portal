@@ -32,6 +32,38 @@ class Project(models.Model):
         return self.title
 
 
+class VocabularyTerm(models.Model):
+    """
+    Table for all controlled lists; type distinguishes the list.
+    This model is specifically for CE but can be adapted by other teams or dropped entirelyß.
+    """
+
+    TYPE_CHOICES = [
+        ("action", "Action / Intervention"),
+        ("threat", "Threat"),
+        ("taxon", "Taxon"),
+        ("species", "Species"),
+        ("habitat", "Habitat"),
+        ("location", "Location"),
+        ("design", "Research design"),
+        ("keyword", "Keyword"),
+    ]
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    label = models.CharField(max_length=255)
+    parent = models.ForeignKey(
+        "self",
+        null=True,
+        blank=True,
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["type", "label"])]
+
+    def __str__(self):
+        return f"{self.get_type_display()}: {self.label}"
+
+
 class UserRole(models.Model):
     ROLE_CHOICES = [
         ("manager", "Manager"),
