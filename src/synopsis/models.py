@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+import uuid
 
 """
 TODO: Modularise models into synopsis/models/* (project.py, funding.py, protocol.py, etc.)
