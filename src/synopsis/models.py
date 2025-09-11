@@ -1,4 +1,5 @@
 from django.db import models
+from django.contrib.auth.models import User
 
 """
 TODO: Modularise models into synopsis/models/* (project.py, funding.py, protocol.py, etc.)
@@ -57,8 +58,8 @@ class Funder(models.Model):
         Project, on_delete=models.CASCADE, related_name="funders"
     )
     name = models.CharField(max_length=255)
-    start_date = models.DateField(null=False, blank=True)
-    end_date = models.DateField(null=False, blank=True)
+    fund_start_date = models.DateField(null=True, blank=True)
+    fund_end_date = models.DateField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.name} ({self.project.title})"
