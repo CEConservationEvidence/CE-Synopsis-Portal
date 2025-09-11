@@ -35,7 +35,7 @@ class Project(models.Model):
 class VocabularyTerm(models.Model):
     """
     Table for all controlled lists; type distinguishes the list.
-    This model is specifically for CE but can be adapted by other teams or dropped entirelyß.
+    This model is specifically for CE but can be adapted by other teams or dropped entirely.
     """
 
     TYPE_CHOICES = [
@@ -54,6 +54,8 @@ class VocabularyTerm(models.Model):
         "self",
         null=True,
         blank=True,
+        on_delete=models.SET_NULL,
+        related_name="children",
     )
     is_active = models.BooleanField(default=True)
 
