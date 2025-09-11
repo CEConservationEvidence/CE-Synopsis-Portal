@@ -22,4 +22,4 @@ staticfiles/
 media/
 
 # WeasyPrint temp files
-tmp/
+tmp/.venv/
