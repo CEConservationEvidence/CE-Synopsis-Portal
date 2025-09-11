@@ -85,6 +85,10 @@ class Protocol(models.Model):
 
 
 class AdvisoryBoardMember(models.Model):
+    """An advisory board member for a project, where there can be multiple members per project.
+    Note that this datamodel is speficific to CE and may need to be dropped by other teams.
+    """
+
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="advisory_board_members"
     )
