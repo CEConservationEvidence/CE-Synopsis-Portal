@@ -4,6 +4,10 @@ from django.contrib.auth.models import User
 """
 TODO: Modularise models into synopsis/models/* (project.py, funding.py, protocol.py, etc.)
       once the schema stabilises. Everything is in one file for develpment but this should be made modular for other living evidence teams to easily adapt to their workflows.
+TODO: Add permissions to models to restrict access based on user roles.
+TODO: Add signals to notify users of changes in project status or roles.
+TODO: Add versioning to protocol model to track changes over time. Furthermore, this should be extended to other models like the draft final synopsis document, summaries, actions, etc.
+TODO: Add audit trails to track changes made to critical fields in models (define the data model for this).
 """
 
 
@@ -63,3 +67,18 @@ class Funder(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.project.title})"
+
+
+class Protocol(models.Model):
+    """The protocol document for a project, drafted by an author and finalized by manager."""
+
+    project = models.OneToOneField(
+        Project, on_delete=models.CASCADE, related_name="protocol"
+    )
+    document = models.FileField(upload_to="protocols/")
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_updated = models.DateTimeField(auto_now=True)
+    text_version = models.TextField(blank=True)
+
+    def __str__(self):
+        return f"Protocol for {self.project.title}"
