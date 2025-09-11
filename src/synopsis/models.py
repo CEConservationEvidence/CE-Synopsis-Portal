@@ -82,3 +82,56 @@ class Protocol(models.Model):
 
     def __str__(self):
         return f"Protocol for {self.project.title}"
+
+
+class AdvisoryBoardMember(models.Model):
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="advisory_board_members"
+    )
+
+    # Basic information on the member
+    first_name = models.CharField(max_length=100)
+    last_name = models.CharField(max_length=100, blank=True)
+    organisation = models.CharField(max_length=255, blank=True)
+    email = models.EmailField()
+    location = models.CharField(max_length=100, blank=True)
+    continent = models.CharField(max_length=100, blank=True)
+    notes = models.TextField(blank=True)
+
+    # Invitation & communication tracking
+    invite_sent = models.BooleanField(default=False)
+    response_date = models.DateField(null=True, blank=True)
+    response = models.CharField(
+        max_length=100, blank=True
+    )  # e.g. "accepted", "declined", etc.
+    feedback_on_list = models.BooleanField(default=False)
+    feedback_on_actions_received = models.BooleanField(default=False)
+    wm_replied = models.BooleanField(default=False)  # TODO: What is wm? Clarify.
+    feedback_added_to_action_list = models.BooleanField(default=False)
+    reminder_sent = models.BooleanField(default=False)
+
+    # Protocol interaction
+    sent_protocol = models.BooleanField(default=False)
+    feedback_on_protocol_deadline = models.DateField(null=True, blank=True)
+    feedback_on_protocol_received = models.DateField(null=True, blank=True)
+    added_to_protocol_doc = models.BooleanField(default=False)
+    feedback_on_guidance = models.BooleanField(default=False)
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name or ''} ({self.email})"
+
+
+class AdvisoryBoardInvitation(models.Model):
+    """Simply tracks invitations sent to advisory board members for a project."""
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="invitations"
+    )
+    email = models.EmailField()
+    invited_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    accepted = models.BooleanField(default=False)
+    responded_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"Invite to {self.email} for {self.project.title}"
