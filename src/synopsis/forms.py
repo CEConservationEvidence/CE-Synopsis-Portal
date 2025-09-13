@@ -1,6 +1,13 @@
 from django import forms
 from django.contrib.auth.models import User
-from .models import Protocol, UserRole
+from .models import Protocol, UserRole  # keep for now (project roles)
+from django.contrib.auth.models import Group
+
+GLOBAL_ROLE_CHOICES = [
+    ("author", "Author"),
+    ("external_collaborator", "External Collaborator"),
+    ("manager", "Manager"),
+]
 
 
 class ProtocolUpdateForm(forms.ModelForm):
@@ -16,6 +23,9 @@ class CreateUserForm(forms.Form):
     email = forms.EmailField(help_text="Used as the username")
     password = forms.CharField(
         max_length=128, required=False, widget=forms.PasswordInput
+    )
+    global_role = forms.ChoiceField(
+        choices=GLOBAL_ROLE_CHOICES, help_text="Global role (not tied to a project)"
     )
 
 
