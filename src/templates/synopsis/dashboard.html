@@ -1,0 +1,90 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Dashboard – CE Portal{% endblock %}
+{% block content %}
+<h1 class="mb-3">Synopses</h1>
+<p>
+    <a class="btn btn-primary btn-sm" href="{% url 'synopsis:project_create' %}">Create Synopsis</a>
+</p>
+
+<h2 class="h5 mt-4">Active synopses</h2>
+<table class="table table-striped align-middle">
+    <thead>
+        <tr>
+            <th>Title</th>
+            <th>Authors</th>
+            <th>Current Phase</th>
+            <th>Created</th>
+            <th class="text-end">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in active_projects %}
+        <tr>
+            <td>{{ p.title }}</td>
+            <td class="small">
+                {% if p.author_list %}
+                    {% for user in p.author_list %}
+                        {{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                {% else %}
+                    <span class="text-muted">No authors assigned</span>
+                {% endif %}
+            </td>
+            <td>{{ p.get_phase_display }}</td>
+            <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
+            <td class="text-end">
+                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' p.id %}">Open</a>
+                {% if can_manage_projects %}
+                <a class="btn btn-outline-danger btn-sm" href="{% url 'synopsis:project_delete' p.id %}">Delete</a>
+                {% endif %}
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="5" class="text-muted">No active projects yet.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2 class="h5 mt-5">Completed / Archived synopses</h2>
+<table class="table table-striped align-middle">
+    <thead>
+        <tr>
+            <th>Title</th>
+            <th>Authors</th>
+            <th>Status</th>
+            <th>Last Updated</th>
+            <th class="text-end">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for p in completed_projects %}
+        <tr>
+            <td>{{ p.title }}</td>
+            <td class="small">
+                {% if p.author_list %}
+                    {% for user in p.author_list %}
+                        {{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}
+                    {% endfor %}
+                {% else %}
+                    <span class="text-muted">No authors assigned</span>
+                {% endif %}
+            </td>
+            <td>{{ p.get_status_display|default:p.status|title }}</td>
+            <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
+            <td class="text-end">
+                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' p.id %}">Open</a>
+                {% if can_manage_projects %}
+                <a class="btn btn-outline-danger btn-sm" href="{% url 'synopsis:project_delete' p.id %}">Delete</a>
+                {% endif %}
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="5" class="text-muted">No completed or archived projects yet.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

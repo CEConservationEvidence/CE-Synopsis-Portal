@@ -1,0 +1,6 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Signed out{% endblock %}
+{% block content %}
+<div class="alert alert-info">You have been signed out.</div>
+<a class="btn btn-primary" href="{% url 'synopsis:login' %}">Sign in again</a>
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Protocol Feedback – {{ project.title }}{% endblock %}
+{% block content %}
+<h1 class="mb-3">Protocol feedback – {{ project.title }}</h1>
+<div class="card">
+  <div class="card-body">
+    <form method="post">
+      {% csrf_token %}
+      <div class="mb-3">
+        <label class="form-label">Your comments</label>
+        <textarea class="form-control" name="content" rows="8">{{ feedback.content }}</textarea>
+      </div>
+      <button class="btn btn-primary">Submit feedback</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+

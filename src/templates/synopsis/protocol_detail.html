@@ -1,0 +1,86 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Protocol – {{ project.title }}{% endblock %}
+
+{% block content %}
+<h1 class="mb-3">Protocol – {{ project.title }}</h1>
+<div class="row g-3">
+    <div class="col-md-7">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Upload / edit protocol</h5>
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        {{ form.document.label_tag }} {{ form.document }}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Stage</label>
+                        {{ form.stage }}
+                        <div class="form-text">Set to Final when agreed by authors.</div>
+                    </div>
+                    <div class="mb-3">
+                        {{ form.text_version.label_tag }} {{ form.text_version }}
+                        <div class="form-text">Rich text editor enabled for convenience; you can also upload a file.</div>
+                    </div>
+                    <button class="btn btn-primary">Save</button>
+                    <a class="btn btn-light" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-5">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Current details</h5>
+                {% if protocol %}
+                <p class="mb-2">
+                    <strong>Stage:</strong>
+                    {% if protocol.stage == 'final' %}
+                        <span class="badge text-bg-success">Final</span>
+                    {% else %}
+                        <span class="badge text-bg-warning">Draft</span>
+                    {% endif %}
+                    <br>
+                    <strong>Updated:</strong> {{ protocol.last_updated|date:"Y-m-d H:i" }}
+                    <br>
+                    <strong>Text length:</strong> {{ protocol.text_version|length }} chars
+                </p>
+                {% if protocol.document %}
+                <div class="d-flex gap-2 flex-wrap">
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ protocol.document.url }}" target="_blank">
+                        View / Download file
+                    </a>
+                    <form method="post" action="{% url 'synopsis:protocol_delete_file' project.id %}">
+                        {% csrf_token %}
+                        <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Remove the uploaded protocol file?');">Delete file</button>
+                    </form>
+                </div>
+                {% else %}
+                <p class="text-muted">No file uploaded yet.</p>
+                {% endif %}
+                <div class="mt-2 d-flex gap-2 flex-wrap">
+                    {% if protocol.text_version %}
+                    <form method="post" action="{% url 'synopsis:protocol_clear_text' project.id %}">
+                        {% csrf_token %}
+                        <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Clear the protocol text content?');">Clear text</button>
+                    </form>
+                    {% endif %}
+                    <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}">
+                        {% csrf_token %}
+                        <button class="btn btn-danger btn-sm" onclick="return confirm('Delete the entire protocol (file and text)? This cannot be undone.');">Delete protocol</button>
+                    </form>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No protocol exists yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.ckeditor.com/4.22.1/standard/ckeditor.js"></script>
+<script>
+    if (window.CKEDITOR) {
+        CKEDITOR.replace('id_text_version');
+    }
+</script>
+{% endblock %}

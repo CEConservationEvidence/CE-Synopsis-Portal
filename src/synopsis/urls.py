@@ -1,23 +1,142 @@
-from django.urls import path
+from django.urls import path, reverse_lazy
 from django.contrib.auth import views as auth_views
 from . import views
 
 app_name = "synopsis"
 
 urlpatterns = [
-    # Simple shortcut for login
     path(
         "login/",
         auth_views.LoginView.as_view(template_name="registration/login.html"),
         name="login",
     ),
-    # very basic for now dashboard and hub
-    path("", views.dashboard, name="dashboard"),
+    path(
+        "logout/",
+        auth_views.LogoutView.as_view(next_page=reverse_lazy("synopsis:login")),
+        name="logout",
+    ),
+    path("project/new/", views.project_create, name="project_create"),
     path("project/<int:project_id>/", views.project_hub, name="project_hub"),
+    path(
+        "project/<int:project_id>/phase/confirm/<str:phase>/",
+        views.project_phase_confirm,
+        name="project_phase_confirm",
+    ),
+    path(
+        "project/<int:project_id>/team/",
+        views.project_authors_manage,
+        name="project_authors_manage",
+    ),
     path(
         "project/<int:project_id>/protocol/",
         views.protocol_detail,
         name="protocol_detail",
     ),
-    path("project/<int:project_id>/team/", views.team_manage, name="team_manage"),
+    path(
+        "project/<int:project_id>/protocol/delete-file/",
+        views.protocol_delete_file,
+        name="protocol_delete_file",
+    ),
+    path(
+        "project/<int:project_id>/protocol/clear-text/",
+        views.protocol_clear_text,
+        name="protocol_clear_text",
+    ),
+    path(
+        "project/<int:project_id>/protocol/delete/",
+        views.protocol_delete,
+        name="protocol_delete",
+    ),
+    path(
+        "project/<int:project_id>/funders/add/",
+        views.project_funder_add,
+        name="project_funder_add",
+    ),
+    path(
+        "project/<int:project_id>/funders/<int:funder_id>/edit/",
+        views.project_funder_edit,
+        name="project_funder_edit",
+    ),
+    path(
+        "project/<int:project_id>/funders/<int:funder_id>/delete/",
+        views.project_funder_delete,
+        name="project_funder_delete",
+    ),
+    path(
+        "project/<int:project_id>/delete/",
+        views.project_delete,
+        name="project_delete",
+    ),
+    path("manager/", views.manager_dashboard, name="manager_dashboard"),
+    path("manager/users/new/", views.user_create, name="user_create"),
+    path(
+        "project/<int:project_id>/advisory-board/",
+        views.advisory_board_list,
+        name="advisory_board_list",
+    ),
+    path(
+        "project/<int:project_id>/advisory-board/reminders/",
+        views.advisory_schedule_reminders,
+        name="advisory_schedule_reminders",
+    ),
+    path(
+        "project/<int:project_id>/advisory-board/invite/",
+        views.advisory_invite_create,
+        name="advisory_invite_create",
+    ),
+    path(
+        "project/<int:project_id>/advisory-board/member/<int:member_id>/invite/",
+        views.advisory_invite_create,
+        name="advisory_invite_create_for_member",
+    ),
+    path(
+        "advisory-board/invite/accept/<uuid:token>/",
+        views.advisory_invite_accept,
+        name="advisory_invite_accept",
+    ),
+    path(
+        "advisory/invite/<uuid:token>/<str:choice>/",
+        views.advisory_invite_reply,
+        name="advisory_invite_reply",
+    ),
+    path(
+        "project/<int:project_id>/advisory/send-invites/",
+        views.send_advisory_invites,
+        name="advisory_send_invites",
+    ),
+    path(
+        "project/<int:project_id>/advisory/compose-invites/all/",
+        views.advisory_send_invites_bulk,
+        name="advisory_invite_compose_all",
+    ),
+    path(
+        "project/<int:project_id>/advisory/send-invites/all/",
+        views.advisory_send_invites_bulk,
+        name="advisory_send_invites_bulk",
+    ),
+    path(
+        "project/<int:project_id>/advisory/invite/<int:invitation_id>/due-date/",
+        views.advisory_invite_update_due_date,
+        name="advisory_invite_update_due_date",
+    ),
+    path(
+        "project/<int:project_id>/advisory/send-protocol/all/",
+        views.advisory_send_protocol_compose_all,
+        name="advisory_send_protocol_compose_all",
+    ),
+    path(
+        "project/<int:project_id>/advisory/send-protocol/member/<int:member_id>/",
+        views.advisory_send_protocol_compose_member,
+        name="advisory_send_protocol_compose_member",
+    ),
+    path(
+        "advisory/protocol/feedback/<uuid:token>/",
+        views.protocol_feedback,
+        name="protocol_feedback",
+    ),
+    path(
+        "project/<int:project_id>/advisory/send-invite/member/<int:member_id>/",
+        views.advisory_send_invite_member,
+        name="advisory_send_invite_member",
+    ),
 ]

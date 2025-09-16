@@ -1,0 +1,38 @@
+{% extends "synopsis/base.html" %}
+{% block title %}
+{% if mode == "file" %}Remove Protocol File{% elif mode == "text" %}Clear Protocol Text{% else %}Delete Protocol{% endif %} – {{ project.title }}
+{% endblock %}
+{% block content %}
+<h1 class="mb-3">
+    {% if mode == "file" %}
+        Remove protocol file
+    {% elif mode == "text" %}
+        Clear protocol text
+    {% else %}
+        Delete protocol
+    {% endif %}
+</h1>
+<div class="alert alert-warning" role="alert">
+    {% if mode == "file" %}
+        This will remove the uploaded file for <strong>{{ project.title }}</strong>. Text content will remain.
+    {% elif mode == "text" %}
+        This will clear the rich text content for <strong>{{ project.title }}</strong>. Uploaded files will remain.
+    {% else %}
+        This will delete the protocol record, including any uploaded files and text content, for <strong>{{ project.title }}</strong>.
+    {% endif %}
+    This action cannot be undone.
+</div>
+<form method="post">
+    {% csrf_token %}
+    <button class="btn btn-danger">
+        {% if mode == "file" %}
+            Yes, remove file
+        {% elif mode == "text" %}
+            Yes, clear text
+        {% else %}
+            Yes, delete protocol
+        {% endif %}
+    </button>
+    <a class="btn btn-link" href="{% url 'synopsis:protocol_detail' project.id %}">Cancel</a>
+</form>
+{% endblock %}

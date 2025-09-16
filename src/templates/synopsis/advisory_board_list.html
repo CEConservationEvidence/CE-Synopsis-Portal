@@ -1,0 +1,240 @@
+{# templates/synopsis/advisory_board_list.html #}
+{% extends "synopsis/base.html" %}
+{% block title %}Advisory Board – {{ project.title }}{% endblock %}
+{% block content %}
+<h1 class="mb-3">Advisory Board – {{ project.title }}</h1>
+<div class="d-flex flex-wrap gap-2 mb-3">
+    <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
+    <a class="btn btn-primary" href="{% url 'synopsis:advisory_invite_create' project.id %}">Invite by email</a>
+    <a class="btn btn-outline-primary" href="{% url 'synopsis:advisory_invite_compose_all' project.id %}">Send invitations to all</a>
+    <a class="btn btn-outline-primary" href="{% url 'synopsis:advisory_send_protocol_compose_all' project.id %}">
+        Send protocol to all
+    </a>
+</div>
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="mb-3">Advisory board members</h5>
+                {% if members %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Name</th>
+                                <th>Organisation</th>
+                                <th>Email</th>
+                                <th>Location</th>
+                                <th>Continent</th>
+                                <th>Invite</th>
+                                <th>Response</th>
+                                <th>Reminder</th>
+                                <th>Feedback on list</th>
+                                <th>Actions feedback rec'd</th>
+                                <th>WM replied</th>
+                                <th>Added to action list</th>
+                                <th>Protocol sent</th>
+                                <th>Protocol deadline</th>
+                                <th>Protocol feedback rec'd</th>
+                                <th>Added to protocol doc</th>
+                                <th>Feedback on guidance</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in members %}
+                            <tr>
+                                <td>{{ m.first_name }} {% if m.middle_name %}{{ m.middle_name }}{% endif %} {{ m.last_name }}</td>
+                                <td>{{ m.organisation }}</td>
+                                <td>
+                                    <a href="mailto:{{ m.email }}">{{ m.email }}</a>
+                                </td>
+                                <td>{{ m.location }}</td>
+                                <td>{{ m.continent }}</td>
+                                <td>
+                                    {% if m.invite_sent %}
+                                        <span class="badge text-bg-success">Sent</span>
+                                        {% if m.invite_sent_at %}
+                                            <div><small class="text-muted">{{ m.invite_sent_at|date:"Y-m-d" }}</small></div>
+                                        {% endif %}
+                                    {% else %}
+                                        <a class="btn btn-sm btn-outline-primary" href="{% url 'synopsis:advisory_invite_create_for_member' project.id m.id %}">Compose invite</a>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if m.response %}
+                                        <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.response == 'N' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
+                                            {{ m.response }}
+                                        </span>
+                                        {% if m.response_date %}
+                                            <div><small class="text-muted">{{ m.response_date|date:"Y-m-d" }}</small></div>
+                                        {% endif %}
+                                    {% else %}
+                                        <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if m.reminder_sent %}
+                                        ✅ <small class="text-muted">{{ m.reminder_sent_at|date:"Y-m-d" }}</small>
+                                    {% else %}
+                                        {% if m.response_date %}
+                                            <span class="badge text-bg-warning">Scheduled</span>
+                                            <div><small class="text-muted">{{ m.response_date|date:"Y-m-d" }}</small></div>
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    {% endif %}
+                                </td>
+                                <td>{% if m.feedback_on_list %}✅{% else %}—{% endif %}</td>
+                                <td>{% if m.feedback_on_actions_received %}✅{% else %}—{% endif %}</td>
+                                <td>{% if m.wm_replied %}✅{% else %}—{% endif %}</td>
+                                <td>{% if m.feedback_added_to_action_list %}✅{% else %}—{% endif %}</td>
+                                <td>
+                                    {% if m.sent_protocol_at %}
+                                        ✅ <small class="text-muted">{{ m.sent_protocol_at|date:"Y-m-d" }}</small>
+                                    {% else %}
+                                        <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_protocol_compose_member' project.id m.id %}">Send</a>
+                                    {% endif %}
+                                </td>
+                                <td>{{ m.feedback_on_protocol_deadline|date:"Y-m-d" }}</td>
+                                <td>{{ m.feedback_on_protocol_received|date:"Y-m-d" }}</td>
+                                <td>{% if m.added_to_protocol_doc %}✅{% else %}—{% endif %}</td>
+                                <td>{% if m.feedback_on_guidance %}✅{% else %}—{% endif %}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No members yet.</p>
+                {% endif %}
+            </div>
+        </div>
+        <div class="card mt-4">
+            <div class="card-body">
+                <h5 class="mb-3">Invited directly (by email)</h5>
+                {% if direct_invites %}
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Email</th>
+                                <th>Invited on</th>
+                                <th>Due by</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for inv in direct_invites %}
+                            <tr>
+                                <td>{{ inv.email }}</td>
+                                <td>{{ inv.created_at|date:"Y-m-d" }}</td>
+                                <td>
+                                    <form class="d-flex align-items-center gap-1" method="post" action="{% url 'synopsis:advisory_invite_update_due_date' project.id inv.id %}">
+                                        {% csrf_token %}
+                                        <input
+                                            type="date"
+                                            class="form-control form-control-sm"
+                                            name="due_date"
+                                            value="{{ inv.due_date|date:'Y-m-d' }}"
+                                            style="min-width: 11.5rem;"
+                                        >
+                                        <button class="btn btn-sm btn-outline-secondary">Save</button>
+                                    </form>
+                                </td>
+                                <td>
+                                    {% if inv.accepted is True %}
+                                    <span class="badge text-bg-success">Accepted</span>
+                                    {% if inv.responded_at %}
+                                    <div>
+                                        <small class="text-muted">{{ inv.responded_at|date:"Y-m-d" }}</small>
+                                    </div>
+                                    {% endif %}
+                    {% elif inv.accepted is False %}
+                                    <span class="badge text-bg-danger">Declined</span>
+                                    {% if inv.responded_at %}
+                                    <div>
+                                        <small class="text-muted">{{ inv.responded_at|date:"Y-m-d" }}</small>
+                                    </div>
+                                    {% endif %}
+                    {% else %}
+                                    <span class="badge text-bg-secondary">Pending</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No direct email invites yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="mb-3">Add member</h5>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="add_member">
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label class="form-label">First name</label>
+                            {{ form.first_name }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Middle name</label>
+                            {{ form.middle_name }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Last name</label>
+                            {{ form.last_name }}
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Organisation</label>
+                            {{ form.organisation }}
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Email</label>
+                            {{ form.email }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Location</label>
+                            {{ form.location }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Continent</label>
+                            {{ form.continent }}
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label">Notes</label>
+                            {{ form.notes }}
+                        </div>
+                    </div>
+                    <button class="btn btn-primary mt-3">Add</button>
+                </form>
+            </div>
+        </div>
+        <div class="card mt-3">
+            <div class="card-body">
+                <h5 class="mb-3">Schedule reminder</h5>
+                <p class="text-muted small">
+                    Set a response deadline for members who have been added but not yet sent an invite. Our reminder job will email them two business days before that date.
+                </p>
+                <p class="small">Pending members: <strong>{{ pending_reminders }}</strong></p>
+                <form method="post" action="{% url 'synopsis:advisory_schedule_reminders' project.id %}">
+                    {% csrf_token %}
+                    <div class="mb-2">
+                        {{ reminder_form.reminder_date.label_tag }}
+                        {{ reminder_form.reminder_date }}
+                        {{ reminder_form.reminder_date.errors }}
+                        <div class="form-text">Choose the date reminders should reference.</div>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm">Set reminder date</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
