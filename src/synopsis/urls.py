@@ -5,6 +5,7 @@ from . import views
 app_name = "synopsis"
 
 urlpatterns = [
+    path("", views.dashboard, name="dashboard"),
     path(
         "login/",
         auth_views.LoginView.as_view(template_name="registration/login.html"),
@@ -78,6 +79,11 @@ urlpatterns = [
         "project/<int:project_id>/advisory-board/reminders/",
         views.advisory_schedule_reminders,
         name="advisory_schedule_reminders",
+    ),
+    path(
+        "project/<int:project_id>/advisory-board/protocol-reminders/",
+        views.advisory_schedule_protocol_reminders,
+        name="advisory_schedule_protocol_reminders",
     ),
     path(
         "project/<int:project_id>/advisory-board/invite/",

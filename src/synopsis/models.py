@@ -315,6 +315,8 @@ class AdvisoryBoardMember(models.Model):
 
     # Protocol interaction
     sent_protocol_at = models.DateTimeField(null=True, blank=True)
+    protocol_reminder_sent = models.BooleanField(default=False)
+    protocol_reminder_sent_at = models.DateTimeField(null=True, blank=True)
     feedback_on_protocol_deadline = models.DateField(null=True, blank=True)
     feedback_on_protocol_received = models.DateField(null=True, blank=True)
     added_to_protocol_doc = models.BooleanField(default=False)

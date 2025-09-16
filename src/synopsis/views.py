@@ -23,6 +23,7 @@ from .forms import (
     AdvisoryBulkInviteForm,
     ProtocolSendForm,
     ReminderScheduleForm,
+    ProtocolReminderScheduleForm,
 )
 from .models import (
     Project,
@@ -71,6 +72,84 @@ def _funder_contact_label(first: str | None, last: str | None) -> str:
         part.strip() for part in [first or "", last or ""] if part and part.strip()
     ]
     return " ".join(parts) if parts else "—"
+
+
+def _advisory_board_context(
+    project,
+    *,
+    member_form=None,
+    reminder_form=None,
+    protocol_form=None,
+):
+    members = project.advisory_board_members.order_by("last_name", "first_name")
+    accepted_members = members.filter(response="Y")
+    declined_members = members.filter(response="N")
+    pending_members = members.exclude(response__in=["Y", "N"])
+
+    direct_invites = project.invitations.filter(member__isnull=True).order_by(
+        "-created_at"
+    )
+
+    not_invited_members = project.advisory_board_members.filter(invite_sent=False)
+    pending_reminder_dates = [
+        d
+        for d in not_invited_members.filter(response_date__isnull=False)
+        .order_by("response_date")
+        .values_list("response_date", flat=True)
+    ]
+    if reminder_form is None:
+        reminder_initial = {}
+        if pending_reminder_dates:
+            reminder_initial["reminder_date"] = pending_reminder_dates[0]
+        reminder_form = ReminderScheduleForm(initial=reminder_initial)
+
+    protocol_members = project.advisory_board_members.filter(
+        sent_protocol_at__isnull=False
+    ).exclude(response="N")
+    protocol_pending_dates = [
+        d
+        for d in protocol_members.filter(
+            feedback_on_protocol_deadline__isnull=False
+        )
+        .order_by("feedback_on_protocol_deadline")
+        .values_list("feedback_on_protocol_deadline", flat=True)
+    ]
+    if protocol_form is None:
+        protocol_initial = {}
+        if protocol_pending_dates:
+            protocol_initial["deadline"] = protocol_pending_dates[0]
+        protocol_form = ProtocolReminderScheduleForm(initial=protocol_initial)
+
+    if member_form is None:
+        member_form = AdvisoryBoardMemberForm()
+
+    return {
+        "project": project,
+        "accepted_members": accepted_members,
+        "declined_members": declined_members,
+        "pending_members": pending_members,
+        "member_sections": [
+            ("Accepted members", accepted_members, "No accepted members yet."),
+            ("Pending members", pending_members, "No pending members yet."),
+            ("Declined members", declined_members, "No declined members yet."),
+        ],
+        "direct_invites": direct_invites,
+        "form": member_form,
+        "reminder_form": reminder_form,
+        "pending_reminders": not_invited_members.count(),
+        "pending_reminder_dates": pending_reminder_dates,
+        "initial_reminder_log": project.change_log.filter(action="Scheduled reminders")
+        .order_by("created_at")
+        .first(),
+        "protocol_reminder_form": protocol_form,
+        "protocol_pending_count": protocol_members.count(),
+        "protocol_pending_dates": protocol_pending_dates,
+        "initial_protocol_reminder_log": project.change_log.filter(
+            action="Scheduled protocol reminders"
+        )
+        .order_by("created_at")
+        .first(),
+    }
 
 
 # ---------------- Dashboard & Project Hub ----------------
@@ -729,10 +808,6 @@ def user_create(request):
 @login_required
 def advisory_board_list(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
-    members = project.advisory_board_members.order_by("last_name", "first_name")
-    direct_invites = project.invitations.filter(member__isnull=True).order_by(
-        "-created_at"
-    )
 
     if request.method == "POST" and request.POST.get("action") == "add_member":
         form = AdvisoryBoardMemberForm(request.POST)
@@ -742,25 +817,12 @@ def advisory_board_list(request, project_id):
             m.save()
             messages.success(request, "Advisory Board member added.")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
-    else:
-        form = AdvisoryBoardMemberForm()
+        context = _advisory_board_context(project, member_form=form)
+        return render(request, "synopsis/advisory_board_list.html", context)
 
-    reminder_form = ReminderScheduleForm()
-
-    return render(
-        request,
-        "synopsis/advisory_board_list.html",
-        {
-            "project": project,
-            "members": members,
-            "direct_invites": direct_invites,
-            "form": form,
-            "reminder_form": reminder_form,
-            "pending_reminders": project.advisory_board_members.filter(
-                invite_sent=False
-            ).count(),
-        },
-    )
+    form = AdvisoryBoardMemberForm()
+    context = _advisory_board_context(project, member_form=form)
+    return render(request, "synopsis/advisory_board_list.html", context)
 
 
 @login_required
@@ -770,37 +832,74 @@ def advisory_schedule_reminders(request, project_id):
         return HttpResponseBadRequest("POST required")
 
     form = ReminderScheduleForm(request.POST)
+    pending_members = project.advisory_board_members.filter(invite_sent=False)
+
     if not form.is_valid():
-        members = project.advisory_board_members.order_by("last_name", "first_name")
-        direct_invites = project.invitations.filter(member__isnull=True).order_by(
-            "-created_at"
-        )
-        add_form = AdvisoryBoardMemberForm()
-        return render(
-            request,
-            "synopsis/advisory_board_list.html",
-            {
-                "project": project,
-                "members": members,
-                "direct_invites": direct_invites,
-                "form": add_form,
-                "reminder_form": form,
-                "pending_reminders": project.advisory_board_members.filter(
-                    invite_sent=False
-                ).count(),
-            },
-        )
+        context = _advisory_board_context(project, reminder_form=form)
+        return render(request, "synopsis/advisory_board_list.html", context)
 
     reminder_date = form.cleaned_data["reminder_date"]
-    qs = project.advisory_board_members.filter(invite_sent=False)
     updated = 0
-    for member in qs:
+    for member in pending_members:
         member.response_date = reminder_date
         member.reminder_sent = False
         member.save(update_fields=["response_date", "reminder_sent"])
         updated += 1
 
-    messages.success(request, f"Scheduled reminders for {updated} member(s).")
+    if updated:
+        _log_project_change(
+            project,
+            request.user,
+            "Scheduled reminders",
+            f"Date set to {reminder_date} for {updated} pending member(s)",
+        )
+
+    messages.success(
+        request,
+        f"Scheduled reminders for {updated} member(s)."
+    )
+    return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
+def advisory_schedule_protocol_reminders(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    form = ProtocolReminderScheduleForm(request.POST)
+    pending_members = project.advisory_board_members.filter(
+        sent_protocol_at__isnull=False
+    ).exclude(response="N")
+
+    if not form.is_valid():
+        context = _advisory_board_context(project, protocol_form=form)
+        return render(request, "synopsis/advisory_board_list.html", context)
+
+    deadline = form.cleaned_data["deadline"]
+    updated = 0
+    for member in pending_members:
+        member.feedback_on_protocol_deadline = deadline
+        member.protocol_reminder_sent = False
+        member.protocol_reminder_sent_at = None
+        member.save(
+            update_fields=[
+                "feedback_on_protocol_deadline",
+                "protocol_reminder_sent",
+                "protocol_reminder_sent_at",
+            ]
+        )
+        updated += 1
+
+    if updated:
+        _log_project_change(
+            project,
+            request.user,
+            "Scheduled protocol reminders",
+            f"Protocol deadline {deadline} for {updated} member(s)",
+        )
+
+    messages.success(request, f"Protocol reminder scheduled for {updated} member(s).")
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -1156,7 +1255,15 @@ def send_protocol(request, project_id):
         )
         msg.send()
         m.sent_protocol_at = timezone.now()
-        m.save(update_fields=["sent_protocol_at"])
+        m.protocol_reminder_sent = False
+        m.protocol_reminder_sent_at = None
+        m.save(
+            update_fields=[
+                "sent_protocol_at",
+                "protocol_reminder_sent",
+                "protocol_reminder_sent_at",
+            ]
+        )
 
     messages.success(request, f"Sent protocol to {members.count()} member(s).")
     return redirect("synopsis:advisory_board_list", project_id=project.id)
@@ -1194,7 +1301,15 @@ def advisory_send_protocol_bulk(request, project_id):
         )
         msg.send()
         m.sent_protocol_at = timezone.now()
-        m.save(update_fields=["sent_protocol_at"])
+        m.protocol_reminder_sent = False
+        m.protocol_reminder_sent_at = None
+        m.save(
+            update_fields=[
+                "sent_protocol_at",
+                "protocol_reminder_sent",
+                "protocol_reminder_sent_at",
+            ]
+        )
         sent += 1
 
     messages.success(request, f"Sent protocol to {sent} member(s).")
@@ -1230,7 +1345,15 @@ def advisory_send_protocol_member(request, project_id, member_id):
     msg.send()
 
     m.sent_protocol_at = timezone.now()
-    m.save(update_fields=["sent_protocol_at"])
+    m.protocol_reminder_sent = False
+    m.protocol_reminder_sent_at = None
+    m.save(
+        update_fields=[
+            "sent_protocol_at",
+            "protocol_reminder_sent",
+            "protocol_reminder_sent_at",
+        ]
+    )
 
     messages.success(request, f"Sent protocol to {m.email}.")
     return redirect("synopsis:advisory_board_list", project_id=project.id)
@@ -1289,7 +1412,15 @@ def advisory_send_protocol_compose_all(request, project_id):
                     msg.extra_headers["List-Unsubscribe"] = f"<mailto:{inviter_email}>"
                 msg.send()
                 m.sent_protocol_at = timezone.now()
-                m.save(update_fields=["sent_protocol_at"])
+                m.protocol_reminder_sent = False
+                m.protocol_reminder_sent_at = None
+                m.save(
+                    update_fields=[
+                        "sent_protocol_at",
+                        "protocol_reminder_sent",
+                        "protocol_reminder_sent_at",
+                    ]
+                )
                 sent += 1
             messages.success(request, f"Sent protocol to {sent} member(s).")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
@@ -1343,8 +1474,17 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             )
             msg.attach_alternative(html, "text/html")
             msg.send()
+
             m.sent_protocol_at = timezone.now()
-            m.save(update_fields=["sent_protocol_at"])
+            m.protocol_reminder_sent = False
+            m.protocol_reminder_sent_at = None
+            m.save(
+                update_fields=[
+                    "sent_protocol_at",
+                    "protocol_reminder_sent",
+                    "protocol_reminder_sent_at",
+                ]
+            )
             messages.success(request, f"Sent protocol to {m.email}.")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:

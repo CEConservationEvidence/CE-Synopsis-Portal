@@ -13,102 +13,122 @@
 </div>
 <div class="row g-4">
     <div class="col-lg-8">
-        <div class="card">
+        {% for section in member_sections %}
+        <div class="card{% if not forloop.first %} mt-4{% endif %}">
             <div class="card-body">
-                <h5 class="mb-3">Advisory board members</h5>
-                {% if members %}
-                <div class="table-responsive">
-                    <table class="table table-sm align-middle">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Name</th>
-                                <th>Organisation</th>
-                                <th>Email</th>
-                                <th>Location</th>
-                                <th>Continent</th>
-                                <th>Invite</th>
-                                <th>Response</th>
-                                <th>Reminder</th>
-                                <th>Feedback on list</th>
-                                <th>Actions feedback rec'd</th>
-                                <th>WM replied</th>
-                                <th>Added to action list</th>
-                                <th>Protocol sent</th>
-                                <th>Protocol deadline</th>
-                                <th>Protocol feedback rec'd</th>
-                                <th>Added to protocol doc</th>
-                                <th>Feedback on guidance</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for m in members %}
-                            <tr>
-                                <td>{{ m.first_name }} {% if m.middle_name %}{{ m.middle_name }}{% endif %} {{ m.last_name }}</td>
-                                <td>{{ m.organisation }}</td>
-                                <td>
-                                    <a href="mailto:{{ m.email }}">{{ m.email }}</a>
-                                </td>
-                                <td>{{ m.location }}</td>
-                                <td>{{ m.continent }}</td>
-                                <td>
-                                    {% if m.invite_sent %}
-                                        <span class="badge text-bg-success">Sent</span>
-                                        {% if m.invite_sent_at %}
-                                            <div><small class="text-muted">{{ m.invite_sent_at|date:"Y-m-d" }}</small></div>
+                <h5 class="mb-3">{{ section.0 }}</h5>
+                {% with members_list=section.1 empty_text=section.2 %}
+                    {% if members_list %}
+                    <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Organisation</th>
+                                    <th>Email</th>
+                                    <th>Location</th>
+                                    <th>Continent</th>
+                                    <th>Invite</th>
+                                    <th>Response</th>
+                                    <th>Reminder</th>
+                                    <th>Feedback on list</th>
+                                    <th>Actions feedback rec'd</th>
+                                    <th>WM replied</th>
+                                    <th>Added to action list</th>
+                                    <th>Protocol sent</th>
+                                    <th>Protocol deadline</th>
+                                    <th>Protocol feedback rec'd</th>
+                                    <th>Added to protocol doc</th>
+                                    <th>Feedback on guidance</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for m in members_list %}
+                                <tr>
+                                    <td>{{ m.first_name }} {% if m.middle_name %}{{ m.middle_name }}{% endif %} {{ m.last_name }}</td>
+                                    <td>{{ m.organisation }}</td>
+                                    <td>
+                                        <a href="mailto:{{ m.email }}">{{ m.email }}</a>
+                                    </td>
+                                    <td>{{ m.location }}</td>
+                                    <td>{{ m.continent }}</td>
+                                    <td>
+                                        {% if m.invite_sent %}
+                                            <span class="badge text-bg-success">Sent</span>
+                                            {% if m.invite_sent_at %}
+                                                <div><small class="text-muted">{{ m.invite_sent_at|date:"Y-m-d" }}</small></div>
+                                            {% endif %}
+                                        {% else %}
+                                            <a class="btn btn-sm btn-outline-primary" href="{% url 'synopsis:advisory_invite_create_for_member' project.id m.id %}">Compose invite</a>
                                         {% endif %}
-                                    {% else %}
-                                        <a class="btn btn-sm btn-outline-primary" href="{% url 'synopsis:advisory_invite_create_for_member' project.id m.id %}">Compose invite</a>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if m.response %}
-                                        <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.response == 'N' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
-                                            {{ m.response }}
-                                        </span>
-                                        {% if m.response_date %}
-                                            <div><small class="text-muted">{{ m.response_date|date:"Y-m-d" }}</small></div>
-                                        {% endif %}
-                                    {% else %}
-                                        <span class="text-muted">—</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if m.reminder_sent %}
-                                        ✅ <small class="text-muted">{{ m.reminder_sent_at|date:"Y-m-d" }}</small>
-                                    {% else %}
-                                        {% if m.response_date %}
-                                            <span class="badge text-bg-warning">Scheduled</span>
-                                            <div><small class="text-muted">{{ m.response_date|date:"Y-m-d" }}</small></div>
+                                    </td>
+                                    <td>
+                                        {% if m.response %}
+                                            <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.response == 'N' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
+                                                {{ m.response }}
+                                            </span>
+                                            {% if m.response_date %}
+                                                <div><small class="text-muted">{{ m.response_date|date:"Y-m-d" }}</small></div>
+                                            {% endif %}
                                         {% else %}
                                             <span class="text-muted">—</span>
                                         {% endif %}
-                                    {% endif %}
-                                </td>
-                                <td>{% if m.feedback_on_list %}✅{% else %}—{% endif %}</td>
-                                <td>{% if m.feedback_on_actions_received %}✅{% else %}—{% endif %}</td>
-                                <td>{% if m.wm_replied %}✅{% else %}—{% endif %}</td>
-                                <td>{% if m.feedback_added_to_action_list %}✅{% else %}—{% endif %}</td>
-                                <td>
-                                    {% if m.sent_protocol_at %}
-                                        ✅ <small class="text-muted">{{ m.sent_protocol_at|date:"Y-m-d" }}</small>
-                                    {% else %}
-                                        <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_protocol_compose_member' project.id m.id %}">Send</a>
-                                    {% endif %}
-                                </td>
-                                <td>{{ m.feedback_on_protocol_deadline|date:"Y-m-d" }}</td>
-                                <td>{{ m.feedback_on_protocol_received|date:"Y-m-d" }}</td>
-                                <td>{% if m.added_to_protocol_doc %}✅{% else %}—{% endif %}</td>
-                                <td>{% if m.feedback_on_guidance %}✅{% else %}—{% endif %}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <p class="text-muted mb-0">No members yet.</p>
-                {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if m.reminder_sent %}
+                                            ✅ <small class="text-muted">{{ m.reminder_sent_at|date:"Y-m-d" }}</small>
+                                        {% elif m.response == 'N' %}
+                                            <span class="text-muted">Declined</span>
+                                        {% else %}
+                                            {% if m.response_date %}
+                                                <span class="badge text-bg-warning">Scheduled</span>
+                                                <div><small class="text-muted">{{ m.response_date|date:"Y-m-d" }}</small></div>
+                                            {% else %}
+                                                <span class="text-muted">—</span>
+                                            {% endif %}
+                                        {% endif %}
+                                    </td>
+                                    <td>{% if m.feedback_on_list %}✅{% else %}—{% endif %}</td>
+                                    <td>{% if m.feedback_on_actions_received %}✅{% else %}—{% endif %}</td>
+                                    <td>{% if m.wm_replied %}✅{% else %}—{% endif %}</td>
+                                    <td>{% if m.feedback_added_to_action_list %}✅{% else %}—{% endif %}</td>
+                                    <td>
+                                        {% if m.sent_protocol_at %}
+                                            ✅ <small class="text-muted">{{ m.sent_protocol_at|date:"Y-m-d" }}</small>
+                                        {% else %}
+                                            <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_protocol_compose_member' project.id m.id %}">Send</a>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if m.response == 'N' %}
+                                            <span class="text-muted">Declined</span>
+                                        {% elif m.feedback_on_protocol_deadline %}
+                                            {% if m.protocol_reminder_sent %}
+                                                ✅ <small class="text-muted">{{ m.protocol_reminder_sent_at|date:"Y-m-d" }}</small>
+                                            {% else %}
+                                                <span class="badge text-bg-warning">Scheduled</span>
+                                                <div><small class="text-muted">{{ m.feedback_on_protocol_deadline|date:"Y-m-d" }}</small></div>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ m.feedback_on_protocol_received|date:"Y-m-d" }}</td>
+                                    <td>{% if m.added_to_protocol_doc %}✅{% else %}—{% endif %}</td>
+                                    <td>{% if m.feedback_on_guidance %}✅{% else %}—{% endif %}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted mb-0">{{ empty_text }}</p>
+                    {% endif %}
+                {% endwith %}
             </div>
         </div>
+        {% endfor %}
+
         <div class="card mt-4">
             <div class="card-body">
                 <h5 class="mb-3">Invited directly (by email)</h5>
@@ -223,6 +243,22 @@
                     Set a response deadline for members who have been added but not yet sent an invite. Our reminder job will email them two business days before that date.
                 </p>
                 <p class="small">Pending members: <strong>{{ pending_reminders }}</strong></p>
+                {% if initial_reminder_log %}
+                    <p class="small text-muted mb-1">
+                        First scheduled on
+                        <strong>{{ initial_reminder_log.created_at|date:"Y-m-d H:i" }}</strong>
+                        by
+                        <strong>{{ initial_reminder_log.changed_by.get_full_name|default:initial_reminder_log.changed_by.username|default:"system" }}</strong>
+                    </p>
+                {% endif %}
+                {% if pending_reminders and pending_reminder_dates %}
+                    <p class="small text-muted mb-2">
+                        Current reminder date: <strong>{{ pending_reminder_dates.0|date:"Y-m-d" }}</strong>
+                        {% if pending_reminder_dates|length > 1 %}
+                            ({{ pending_reminder_dates|length }} different dates scheduled)
+                        {% endif %}
+                    </p>
+                {% endif %}
                 <form method="post" action="{% url 'synopsis:advisory_schedule_reminders' project.id %}">
                     {% csrf_token %}
                     <div class="mb-2">
@@ -232,6 +268,41 @@
                         <div class="form-text">Choose the date reminders should reference.</div>
                     </div>
                     <button class="btn btn-outline-primary btn-sm">Set reminder date</button>
+                </form>
+            </div>
+        </div>
+        <div class="card mt-3">
+            <div class="card-body">
+                <h5 class="mb-3">Protocol reminder</h5>
+                <p class="text-muted small">
+                    Choose a protocol feedback deadline for members who already received the protocol. We will remind them two business days before that date.
+                </p>
+                <p class="small">Members with protocol: <strong>{{ protocol_pending_count }}</strong></p>
+                {% if initial_protocol_reminder_log %}
+                    <p class="small text-muted mb-1">
+                        First scheduled on
+                        <strong>{{ initial_protocol_reminder_log.created_at|date:"Y-m-d H:i" }}</strong>
+                        by
+                        <strong>{{ initial_protocol_reminder_log.changed_by.get_full_name|default:initial_protocol_reminder_log.changed_by.username|default:"system" }}</strong>
+                    </p>
+                {% endif %}
+                {% if protocol_pending_count and protocol_pending_dates %}
+                    <p class="small text-muted mb-2">
+                        Current deadline: <strong>{{ protocol_pending_dates.0|date:"Y-m-d" }}</strong>
+                        {% if protocol_pending_dates|length > 1 %}
+                            ({{ protocol_pending_dates|length }} different dates scheduled)
+                        {% endif %}
+                    </p>
+                {% endif %}
+                <form method="post" action="{% url 'synopsis:advisory_schedule_protocol_reminders' project.id %}">
+                    {% csrf_token %}
+                    <div class="mb-2">
+                        {{ protocol_reminder_form.deadline.label_tag }}
+                        {{ protocol_reminder_form.deadline }}
+                        {{ protocol_reminder_form.deadline.errors }}
+                        <div class="form-text">Set the feedback deadline.</div>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm">Set protocol deadline</button>
                 </form>
             </div>
         </div>

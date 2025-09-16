@@ -201,3 +201,10 @@ class ReminderScheduleForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text="Members without invitations will get this response deadline set.",
     )
+
+
+class ProtocolReminderScheduleForm(forms.Form):
+    deadline = forms.DateField(
+        widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
+        help_text="Set or update the protocol feedback deadline for members with the protocol.",
+    )

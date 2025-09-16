@@ -18,6 +18,9 @@ def email_subject(kind: str, project, due_date=None) -> str:
         return f"[Reminder] {title} — please reply by {due}"
     if kind == "protocol_review":
         return f"[Action requested] Protocol for review — {title}"
+    if kind == "protocol_reminder":
+        due = due_date.strftime("%d %b %Y") if due_date else "soon"
+        return f"[Reminder] Protocol feedback due for {title} ({due})"
     return f"[{BRAND}] {title}"
 
 
