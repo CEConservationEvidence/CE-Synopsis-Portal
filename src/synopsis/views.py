@@ -1186,6 +1186,7 @@ def send_advisory_invites(request, project_id):
             f"You are invited to advise on '{project.title}'.\n"
             f"Please reply by: {deadline_txt}\n\n"
             f"Yes: {yes_url}\nNo:  {no_url}\n\n"
+            "After clicking Yes you'll be asked to confirm you can actively participate and provide valuable input.\n\n"
             f"Thank you."
         )
         html = (
@@ -1196,6 +1197,7 @@ def send_advisory_invites(request, project_id):
             f"<a href='{yes_url}' style='padding:8px 12px;border:1px solid #0a0;text-decoration:none;'>Yes</a> "
             f"<a href='{no_url}' style='padding:8px 12px;border:1px solid #a00;text-decoration:none;margin-left:8px;'>No</a>"
             f"</p>"
+            "<p><em>After clicking Yes you'll confirm that you will actively participate and provide valuable input.</em></p>"
         )
 
         msg = EmailMultiAlternatives(
@@ -1263,6 +1265,7 @@ def advisory_send_invites_bulk(request, project_id):
                     f"You are invited to advise on '{project.title}'.\n"
                     f"Please reply by: {deadline_txt}\n\n"
                     f"Yes: {yes_url}\nNo:  {no_url}\n\n"
+                    "After clicking Yes you'll be asked to confirm you can actively participate and provide valuable input.\n\n"
                     f"{message_body}\n"
                 )
                 html = (
@@ -1274,6 +1277,7 @@ def advisory_send_invites_bulk(request, project_id):
                     f"<a href='{no_url}' style='padding:8px 12px;border:1px solid #a00;text-decoration:none;margin-left:8px;'>No</a>"
                     f"</p>"
                     f"<p>{message_body}</p>"
+                    "<p><em>After clicking Yes you'll confirm that you will actively participate and provide valuable input.</em></p>"
                 )
 
                 proto = getattr(project, "protocol", None)
