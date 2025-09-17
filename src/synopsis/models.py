@@ -322,6 +322,11 @@ class AdvisoryBoardMember(models.Model):
     added_to_protocol_doc = models.BooleanField(default=False)
     feedback_on_guidance = models.BooleanField(default=False)
 
+    # Participation confirmation
+    participation_confirmed = models.BooleanField(default=False)
+    participation_confirmed_at = models.DateTimeField(null=True, blank=True)
+    participation_statement = models.TextField(blank=True)
+
     def __str__(self):
         return f"{self.first_name} {self.last_name or ''} ({self.email})"
 
