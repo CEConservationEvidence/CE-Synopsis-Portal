@@ -208,3 +208,17 @@ class ProtocolReminderScheduleForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text="Set or update the protocol feedback deadline for members with the protocol.",
     )
+
+
+class ParticipationConfirmForm(forms.Form):
+    statement = forms.CharField(
+        label="Participation confirmation",
+        help_text="Please affirm you will participate and provide valuable input.",
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 4,
+                "placeholder": "I confirm that I will actively participate and provide valuable input to this synopsis.",
+            }
+        ),
+    )
