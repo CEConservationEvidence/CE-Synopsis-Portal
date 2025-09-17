@@ -24,6 +24,7 @@ from .forms import (
     ProtocolSendForm,
     ReminderScheduleForm,
     ProtocolReminderScheduleForm,
+    ParticipationConfirmForm,
 )
 from .models import (
     Project,
@@ -949,6 +950,7 @@ def advisory_invite_create(request, project_id, member_id=None):
                 f"You've been invited to advise on '{project.title}'.\n"
                 f"Please reply by: {due_txt}\n\n"
                 f"Yes: {yes_url}\nNo:  {no_url}\n\n"
+                "After clicking Yes you'll be asked to confirm you can actively participate and provide valuable input.\n\n"
                 f"{message_body}\n"
             )
             html = (
@@ -959,6 +961,7 @@ def advisory_invite_create(request, project_id, member_id=None):
                 f"<a href='{yes_url}' style='padding:8px 12px;border:1px solid #0a0;text-decoration:none;'>Yes</a> "
                 f"<a href='{no_url}' style='padding:8px 12px;border:1px solid #a00;text-decoration:none;margin-left:8px;'>No</a>"
                 f"</p>"
+                f"<p class='mt-2'><em>After clicking Yes you'll confirm that you will actively participate and provide valuable input.</em></p>"
                 f"<p>{message_body}</p>"
             )
 
@@ -1015,7 +1018,19 @@ def advisory_invite_accept(request, token):
             member = inv.member
             member.response_date = timezone.localdate()
             member.response = "Y"
-            member.save(update_fields=["response_date", "response"])
+            member.participation_confirmed = True
+            member.participation_confirmed_at = timezone.now()
+            if not member.participation_statement:
+                member.participation_statement = "Confirmed participation via legacy link"
+            member.save(
+                update_fields=[
+                    "response_date",
+                    "response",
+                    "participation_confirmed",
+                    "participation_confirmed_at",
+                    "participation_statement",
+                ]
+            )
 
     return render(
         request,
@@ -1038,12 +1053,87 @@ def advisory_invite_reply(request, token, choice):
     accepted = choice == "yes"
     member = inv.member
 
-    if member:
-        member.response = "Y" if accepted else "N"
-        member.response_date = timezone.localdate()
-        member.save(update_fields=["response", "response_date"])
+    if accepted:
+        if member and member.participation_confirmed:
+            if not inv.accepted:
+                inv.accepted = True
+                inv.responded_at = timezone.now()
+                inv.save(update_fields=["accepted", "responded_at"])
+            return render(
+                request,
+                "synopsis/invite_thanks.html",
+                {"member": member, "project": inv.project, "accepted": True},
+            )
 
-    inv.accepted = accepted
+        if request.method == "POST":
+            form = ParticipationConfirmForm(request.POST)
+            if form.is_valid():
+                statement = form.cleaned_data["statement"].strip()
+                now = timezone.now()
+                today = timezone.localdate()
+
+                if member is None:
+                    member = AdvisoryBoardMember.objects.create(
+                        project=inv.project,
+                        email=inv.email,
+                        first_name="",
+                        last_name="",
+                        organisation="",
+                    )
+                    inv.member = member
+
+                updates = set()
+                if member.response != "Y":
+                    member.response = "Y"
+                    updates.add("response")
+                if not member.response_date:
+                    member.response_date = today
+                    updates.add("response_date")
+                member.participation_confirmed = True
+                member.participation_confirmed_at = now
+                member.participation_statement = statement
+                updates.update(
+                    {
+                        "participation_confirmed",
+                        "participation_confirmed_at",
+                        "participation_statement",
+                    }
+                )
+                member.save(update_fields=list(updates))
+
+                inv.accepted = True
+                inv.responded_at = now
+                inv.save(update_fields=["accepted", "responded_at", "member"])
+
+                return render(
+                    request,
+                    "synopsis/invite_thanks.html",
+                    {"member": member, "project": inv.project, "accepted": inv.accepted},
+                )
+        else:
+            form = ParticipationConfirmForm()
+
+        return render(
+            request,
+            "synopsis/advisory_participation_confirm.html",
+            {
+                "project": inv.project,
+                "invitation": inv,
+                "form": form,
+                "member": member,
+            },
+        )
+
+    if membe:
+        updates = {"response", "response_date", "participation_confirmed", "participation_confirmed_at", "participation_statement"}
+        member.response = "N"
+        member.response_date = timezone.localdate()
+        member.participation_confirmed = False
+        member.participation_confirmed_at = None
+        member.participation_statement = ""
+        member.save(update_fields=list(updates))
+
+    inv.accepted = False
     inv.responded_at = timezone.now()
     inv.save(update_fields=["accepted", "responded_at"])
 
