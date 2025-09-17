@@ -25,4 +25,24 @@ class Migration(migrations.Migration):
             name="participation_statement",
             field=models.TextField(blank=True),
         ),
+        migrations.AddField(
+            model_name="protocolfeedback",
+            name="uploaded_document",
+            field=models.FileField(blank=True, null=True, upload_to="protocol_feedback_uploads/"),
+        ),
+        migrations.AddField(
+            model_name="protocolfeedback",
+            name="protocol_document_name",
+            field=models.CharField(blank=True, max_length=255),
+        ),
+        migrations.AddField(
+            model_name="protocolfeedback",
+            name="protocol_document_last_updated",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
+        migrations.AddField(
+            model_name="protocolfeedback",
+            name="protocol_stage_snapshot",
+            field=models.CharField(blank=True, max_length=20),
+        ),
     ]

@@ -4,15 +4,26 @@
 <h1 class="mb-3">Protocol feedback – {{ project.title }}</h1>
 <div class="card">
   <div class="card-body">
-    <form method="post">
+    <form method="post" enctype="multipart/form-data">
       {% csrf_token %}
       <div class="mb-3">
-        <label class="form-label">Your comments</label>
-        <textarea class="form-control" name="content" rows="8">{{ feedback.content }}</textarea>
+        {{ form.content.label_tag }}
+        {{ form.content }}
+        {{ form.content.errors }}
+      </div>
+      <div class="mb-3">
+        {{ form.uploaded_document.label_tag }}
+        {{ form.uploaded_document }}
+        {{ form.uploaded_document.errors }}
+        <div class="form-text">Upload your annotated .docx protocol (optional).</div>
       </div>
       <button class="btn btn-primary">Submit feedback</button>
     </form>
+    {% if feedback.uploaded_document %}
+      <div class="alert alert-info mt-3" role="alert">
+        Latest uploaded document: <a href="{{ feedback.uploaded_document.url }}">{{ feedback.latest_document_label }}</a>
+      </div>
+    {% endif %}
   </div>
 </div>
 {% endblock %}
-

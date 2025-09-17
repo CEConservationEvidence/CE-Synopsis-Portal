@@ -25,6 +25,7 @@ from .forms import (
     ReminderScheduleForm,
     ProtocolReminderScheduleForm,
     ParticipationConfirmForm,
+    ProtocolFeedbackForm,
 )
 from .models import (
     Project,
@@ -75,6 +76,25 @@ def _funder_contact_label(first: str | None, last: str | None) -> str:
     return " ".join(parts) if parts else "—"
 
 
+def _create_protocol_feedback(project, member=None, email=None, invitation=None):
+    proto = getattr(project, "protocol", None)
+    kwargs = {
+        "project": project,
+        "member": member,
+        "email": email or (member.email if member else ""),
+        "invitation": invitation,
+    }
+    if proto:
+        kwargs.update(
+            {
+                "protocol_document_name": getattr(proto.document, "name", ""),
+                "protocol_document_last_updated": proto.last_updated,
+                "protocol_stage_snapshot": proto.stage,
+            }
+        )
+    return ProtocolFeedback.objects.create(**kwargs)
+
+
 def _advisory_board_context(
     project,
     *,
@@ -82,10 +102,16 @@ def _advisory_board_context(
     reminder_form=None,
     protocol_form=None,
 ):
-    members = project.advisory_board_members.order_by("last_name", "first_name")
-    accepted_members = members.filter(response="Y")
-    declined_members = members.filter(response="N")
-    pending_members = members.exclude(response__in=["Y", "N"])
+    members_qs = project.advisory_board_members.prefetch_related(
+        "protocol_feedback"
+    ).order_by("last_name", "first_name")
+    accepted_members = list(members_qs.filter(response="Y"))
+    declined_members = list(members_qs.filter(response="N"))
+    pending_members = list(members_qs.exclude(response__in=["Y", "N"]))
+
+    for collection in (accepted_members, declined_members, pending_members):
+        for member in collection:
+            member.latest_feedback = member.latest_protocol_feedback
 
     direct_invites = project.invitations.filter(member__isnull=True).order_by(
         "-created_at"
@@ -1472,9 +1498,7 @@ def advisory_send_protocol_compose_all(request, project_id):
             message_body = form.cleaned_data.get("message") or ""
             sent = 0
             for m in members:
-                fb = ProtocolFeedback.objects.create(
-                    project=project, member=m, email=m.email
-                )
+                fb = _create_protocol_feedback(project, member=m, email=m.email)
                 feedback_url = request.build_absolute_uri(
                     reverse("synopsis:protocol_feedback", args=[str(fb.token)])
                 )
@@ -1540,9 +1564,7 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
         if form.is_valid():
             content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
-            fb = ProtocolFeedback.objects.create(
-                project=project, member=m, email=m.email
-            )
+            fb = _create_protocol_feedback(project, member=m, email=m.email)
             feedback_url = request.build_absolute_uri(
                 reverse("synopsis:protocol_feedback", args=[str(fb.token)])
             )
@@ -1592,23 +1614,50 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
 
 def protocol_feedback(request, token):
     fb = get_object_or_404(ProtocolFeedback, token=token)
+    member = fb.member
+    if member and member.response == "N":
+        return render(
+            request,
+            "synopsis/protocol_feedback_thanks.html",
+            {
+                "project": fb.project,
+                "error": "This link is no longer available because you declined the invitation.",
+            },
+        )
+
     if request.method == "POST":
-        content = (request.POST.get("content") or "").strip()
-        if not content:
-            messages.error(request, "Please enter your comments.")
-        else:
-            fb.content = content
-            fb.submitted_at = timezone.now()
-            fb.save(update_fields=["content", "submitted_at"])
+        form = ProtocolFeedbackForm(request.POST, request.FILES)
+        if form.is_valid():
+            content = form.cleaned_data["content"].strip()
+            uploaded_doc = form.cleaned_data["uploaded_document"]
+            updates = []
+            if content:
+                fb.content = content
+                updates.append("content")
+            if uploaded_doc:
+                fb.uploaded_document = uploaded_doc
+                updates.append("uploaded_document")
+            if updates:
+                fb.submitted_at = timezone.now()
+                updates.append("submitted_at")
+                fb.save(update_fields=updates)
             return render(
                 request,
                 "synopsis/protocol_feedback_thanks.html",
-                {"project": fb.project},
+                {"project": fb.project, "feedback": fb},
             )
+    else:
+        form = ProtocolFeedbackForm(initial={"content": fb.content})
+
     return render(
         request,
         "synopsis/protocol_feedback_form.html",
-        {"project": fb.project, "token": fb.token, "feedback": fb},
+        {
+            "project": fb.project,
+            "token": fb.token,
+            "feedback": fb,
+            "form": form,
+        },
     )
 
 

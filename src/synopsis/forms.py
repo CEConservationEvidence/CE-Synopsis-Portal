@@ -1,5 +1,6 @@
 from django import forms
 from django.contrib.auth.models import User
+from django.core.validators import FileExtensionValidator
 from .models import (
     AdvisoryBoardMember,
     Funder,
@@ -221,4 +222,19 @@ class ParticipationConfirmForm(forms.Form):
                 "placeholder": "I confirm that I will actively participate and provide valuable input to this synopsis.",
             }
         ),
+    )
+
+
+class ProtocolFeedbackForm(forms.Form):
+    content = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 6, "placeholder": "Share your comments here"}
+        ),
+    )
+    uploaded_document = forms.FileField(
+        required=False,
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        validators=[FileExtensionValidator(["docx"])],
+        help_text="Upload your annotated .docx protocol (optional).",
     )

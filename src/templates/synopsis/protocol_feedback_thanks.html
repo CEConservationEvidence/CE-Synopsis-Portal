@@ -3,9 +3,16 @@
 {% block content %}
 <div class="card">
   <div class="card-body">
-    <h1 class="h4 mb-2">Thank you</h1>
-    <p class="mb-0">Your comments have been recorded.</p>
+    {% if error %}
+      <h1 class="h4 mb-2">Link inactive</h1>
+      <p class="mb-0">{{ error }}</p>
+    {% else %}
+      <h1 class="h4 mb-2">Thank you</h1>
+      <p class="mb-0">Your feedback has been recorded for {{ project.title }}.</p>
+      {% if feedback and feedback.uploaded_document %}
+        <p class="mt-2">Uploaded document: <a href="{{ feedback.uploaded_document.url }}">{{ feedback.latest_document_label }}</a></p>
+      {% endif %}
+    {% endif %}
   </div>
 </div>
 {% endblock %}
-

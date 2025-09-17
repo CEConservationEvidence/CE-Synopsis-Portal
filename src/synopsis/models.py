@@ -330,6 +330,10 @@ class AdvisoryBoardMember(models.Model):
     def __str__(self):
         return f"{self.first_name} {self.last_name or ''} ({self.email})"
 
+    @property
+    def latest_protocol_feedback(self):
+        return self.protocol_feedback.order_by("-submitted_at", "-created_at").first()
+
 
 class AdvisoryBoardInvitation(models.Model):
     """Simply tracks invitations sent to advisory board members for a project."""
@@ -382,6 +386,14 @@ class ProtocolFeedback(models.Model):
     content = models.TextField(blank=True)
     submitted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
+    uploaded_document = models.FileField(
+        upload_to="protocol_feedback_uploads/",
+        null=True,
+        blank=True,
+    )
+    protocol_document_name = models.CharField(max_length=255, blank=True)
+    protocol_document_last_updated = models.DateTimeField(null=True, blank=True)
+    protocol_stage_snapshot = models.CharField(max_length=20, blank=True)
 
     class Meta:
         ordering = ["-submitted_at", "-created_at"]
@@ -389,3 +401,9 @@ class ProtocolFeedback(models.Model):
     def __str__(self):
         who = self.member or self.email or "anonymous"
         return f"Feedback for {self.project.title} by {who}"
+
+
+    def latest_document_label(self) -> str:
+        if self.uploaded_document:
+            return self.uploaded_document.name.rsplit("/", 1)[-1]
+        return ""
