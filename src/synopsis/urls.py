@@ -86,6 +86,11 @@ urlpatterns = [
         name="advisory_schedule_protocol_reminders",
     ),
     path(
+        "project/<int:project_id>/advisory-board/protocol-feedback/close/",
+        views.advisory_protocol_feedback_close,
+        name="advisory_protocol_feedback_close",
+    ),
+    path(
         "project/<int:project_id>/advisory-board/invite/",
         views.advisory_invite_create,
         name="advisory_invite_create",

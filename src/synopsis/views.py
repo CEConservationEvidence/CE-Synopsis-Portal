@@ -26,6 +26,7 @@ from .forms import (
     ProtocolReminderScheduleForm,
     ParticipationConfirmForm,
     ProtocolFeedbackForm,
+    ProtocolFeedbackCloseForm,
 )
 from .models import (
     Project,
@@ -76,6 +77,16 @@ def _funder_contact_label(first: str | None, last: str | None) -> str:
     return " ".join(parts) if parts else "—"
 
 
+def _format_deadline(deadline):
+    if not deadline:
+        return "—"
+    try:
+        aware = timezone.localtime(deadline)
+    except (ValueError, TypeError):
+        aware = deadline
+    return aware.strftime("%d %b %Y %H:%M")
+
+
 def _create_protocol_feedback(project, member=None, email=None, invitation=None):
     proto = getattr(project, "protocol", None)
     kwargs = {
@@ -84,6 +95,12 @@ def _create_protocol_feedback(project, member=None, email=None, invitation=None)
         "email": email or (member.email if member else ""),
         "invitation": invitation,
     }
+    deadline = None
+    if member and member.feedback_on_protocol_deadline:
+        deadline = member.feedback_on_protocol_deadline
+    elif invitation and invitation.due_date:
+        combined = dt.datetime.combine(invitation.due_date, dt.time(23, 59))
+        deadline = timezone.make_aware(combined) if timezone.is_naive(combined) else combined
     if proto:
         kwargs.update(
             {
@@ -92,6 +109,7 @@ def _create_protocol_feedback(project, member=None, email=None, invitation=None)
                 "protocol_stage_snapshot": proto.stage,
             }
         )
+    kwargs["feedback_deadline_at"] = deadline
     return ProtocolFeedback.objects.create(**kwargs)
 
 
@@ -101,6 +119,7 @@ def _advisory_board_context(
     member_form=None,
     reminder_form=None,
     protocol_form=None,
+    feedback_close_form=None,
 ):
     members_qs = project.advisory_board_members.prefetch_related(
         "protocol_feedback"
@@ -144,11 +163,29 @@ def _advisory_board_context(
     if protocol_form is None:
         protocol_initial = {}
         if protocol_pending_dates:
-            protocol_initial["deadline"] = protocol_pending_dates[0]
+            first_deadline = protocol_pending_dates[0]
+            try:
+                protocol_initial["deadline"] = timezone.localtime(first_deadline)
+            except (ValueError, TypeError):
+                protocol_initial["deadline"] = first_deadline
         protocol_form = ProtocolReminderScheduleForm(initial=protocol_initial)
 
     if member_form is None:
         member_form = AdvisoryBoardMemberForm()
+
+    protocol_obj = getattr(project, "protocol", None)
+    if feedback_close_form is None:
+        initial_close = {}
+        if protocol_obj and protocol_obj.feedback_closure_message:
+            initial_close["message"] = protocol_obj.feedback_closure_message
+        feedback_close_form = ProtocolFeedbackCloseForm(initial=initial_close)
+    protocol_feedback_state = {
+        "protocol": protocol_obj,
+        "is_closed": bool(getattr(protocol_obj, "feedback_closed_at", None)),
+        "closed_at": getattr(protocol_obj, "feedback_closed_at", None),
+        "closure_message": getattr(protocol_obj, "feedback_closure_message", ""),
+        "deadline": protocol_pending_dates[0] if protocol_pending_dates else None,
+    }
 
     return {
         "project": project,
@@ -176,6 +213,8 @@ def _advisory_board_context(
         )
         .order_by("created_at")
         .first(),
+        "protocol_feedback_state": protocol_feedback_state,
+        "protocol_feedback_close_form": feedback_close_form,
     }
 
 
@@ -904,6 +943,8 @@ def advisory_schedule_protocol_reminders(request, project_id):
         return render(request, "synopsis/advisory_board_list.html", context)
 
     deadline = form.cleaned_data["deadline"]
+    if timezone.is_naive(deadline):
+        deadline = timezone.make_aware(deadline)
     updated = 0
     for member in pending_members:
         member.feedback_on_protocol_deadline = deadline
@@ -916,6 +957,9 @@ def advisory_schedule_protocol_reminders(request, project_id):
                 "protocol_reminder_sent_at",
             ]
         )
+        ProtocolFeedback.objects.filter(project=project, member=member).update(
+            feedback_deadline_at=deadline
+        )
         updated += 1
 
     if updated:
@@ -923,10 +967,73 @@ def advisory_schedule_protocol_reminders(request, project_id):
             project,
             request.user,
             "Scheduled protocol reminders",
-            f"Protocol deadline {deadline} for {updated} member(s)",
+            f"Protocol deadline {timezone.localtime(deadline).strftime('%Y-%m-%d %H:%M')} for {updated} member(s)",
         )
 
     messages.success(request, f"Protocol reminder scheduled for {updated} member(s).")
+    return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
+def advisory_protocol_feedback_close(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    proto = getattr(project, "protocol", None)
+    if not proto:
+        messages.error(request, "No protocol configured for this project.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    action = request.POST.get("action")
+    if action == "reopen":
+        if request.method != "POST":
+            return HttpResponseBadRequest("POST required")
+        proto.feedback_closed_at = None
+        proto.feedback_closure_message = ""
+        proto.save(update_fields=["feedback_closed_at", "feedback_closure_message"])
+        _log_project_change(
+            project,
+            request.user,
+            "Protocol feedback reopened",
+        )
+        messages.success(request, "Protocol feedback reopened for advisory members.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    form = ProtocolFeedbackCloseForm(request.POST)
+    if not form.is_valid():
+        context = _advisory_board_context(
+            project,
+            feedback_close_form=form,
+        )
+        return render(request, "synopsis/advisory_board_list.html", context)
+
+    message = form.cleaned_data.get("message", "")
+    now = timezone.now()
+    already_closed = proto.feedback_closed_at is not None
+    proto.feedback_closed_at = proto.feedback_closed_at or now
+    proto.feedback_closure_message = message
+    update_fields = ["feedback_closure_message"]
+    if not already_closed:
+        update_fields.append("feedback_closed_at")
+    proto.save(update_fields=update_fields)
+
+    if already_closed:
+        _log_project_change(
+            project,
+            request.user,
+            "Protocol feedback closure message updated",
+            message,
+        )
+        messages.info(request, "Closure message updated.")
+    else:
+        _log_project_change(
+            project,
+            request.user,
+            "Protocol feedback closed",
+            message,
+        )
+        messages.success(request, "Protocol feedback links are now closed.")
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -1365,7 +1472,7 @@ def send_protocol(request, project_id):
             f"Dear {m.first_name or 'colleague'},\n\n"
             f"Please review the protocol for '{project.title}':\n{proto_url}\n\n"
             f"Deadline for protocol feedback: "
-            f"{m.feedback_on_protocol_deadline.strftime('%d %b %Y') if m.feedback_on_protocol_deadline else '—'}\n"
+            f"{_format_deadline(m.feedback_on_protocol_deadline)}\n"
         )
         msg = EmailMultiAlternatives(
             subject,
@@ -1411,7 +1518,7 @@ def advisory_send_protocol_bulk(request, project_id):
             f"Dear {m.first_name or 'colleague'},\n\n"
             f"Please review the protocol for '{project.title}':\n{proto_url}\n\n"
             f"Deadline for protocol feedback: "
-            f"{m.feedback_on_protocol_deadline.strftime('%d %b %Y') if m.feedback_on_protocol_deadline else '—'}\n"
+            f"{_format_deadline(m.feedback_on_protocol_deadline)}\n"
         )
         msg = EmailMultiAlternatives(
             subject,
@@ -1454,7 +1561,7 @@ def advisory_send_protocol_member(request, project_id, member_id):
         f"Dear {m.first_name or 'colleague'},\n\n"
         f"Please review the protocol for '{project.title}':\n{proto_url}\n\n"
         f"Deadline for protocol feedback: "
-        f"{m.feedback_on_protocol_deadline.strftime('%d %b %Y') if m.feedback_on_protocol_deadline else '—'}\n"
+        f"{_format_deadline(m.feedback_on_protocol_deadline)}\n"
     )
     msg = EmailMultiAlternatives(
         subject,
@@ -1615,13 +1722,58 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
 def protocol_feedback(request, token):
     fb = get_object_or_404(ProtocolFeedback, token=token)
     member = fb.member
+    project = fb.project
+    proto = getattr(project, "protocol", None)
+
+    deadline = fb.feedback_deadline_at
+    if member and member.feedback_on_protocol_deadline:
+        deadline = member.feedback_on_protocol_deadline
+        if fb.feedback_deadline_at != deadline:
+            fb.feedback_deadline_at = deadline
+            fb.save(update_fields=["feedback_deadline_at"])
+    closure_message = None
+    now = timezone.now()
+
     if member and member.response == "N":
         return render(
             request,
             "synopsis/protocol_feedback_thanks.html",
             {
-                "project": fb.project,
+                "project": project,
                 "error": "This link is no longer available because you declined the invitation.",
+            },
+        )
+
+    if proto and proto.feedback_closed_at:
+        closure_message = proto.feedback_closure_message or (
+            "The authors have closed feedback for this protocol."
+        )
+        return render(
+            request,
+            "synopsis/protocol_feedback_thanks.html",
+            {
+                "project": project,
+                "feedback": fb,
+                "closed_message": closure_message,
+                "deadline": deadline,
+                "closed": True,
+            },
+        )
+
+    if deadline and now >= deadline:
+        closure_message = (
+            "The feedback deadline has passed ("
+            f"{_format_deadline(deadline)})."
+        )
+        return render(
+            request,
+            "synopsis/protocol_feedback_thanks.html",
+            {
+                "project": project,
+                "feedback": fb,
+                "closed_message": closure_message,
+                "deadline": deadline,
+                "closed": True,
             },
         )
 
@@ -1644,7 +1796,11 @@ def protocol_feedback(request, token):
             return render(
                 request,
                 "synopsis/protocol_feedback_thanks.html",
-                {"project": fb.project, "feedback": fb},
+                {
+                    "project": project,
+                    "feedback": fb,
+                    "deadline": deadline,
+                },
             )
     else:
         form = ProtocolFeedbackForm(initial={"content": fb.content})
@@ -1653,10 +1809,11 @@ def protocol_feedback(request, token):
         request,
         "synopsis/protocol_feedback_form.html",
         {
-            "project": fb.project,
+            "project": project,
             "token": fb.token,
             "feedback": fb,
             "form": form,
+            "deadline": deadline,
         },
     )
 

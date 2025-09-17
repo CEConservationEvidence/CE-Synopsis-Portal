@@ -275,6 +275,8 @@ class Protocol(models.Model):
     text_version = models.TextField(blank=True)
     STAGE_CHOICES = [("draft", "Draft"), ("final", "Final")]
     stage = models.CharField(max_length=20, choices=STAGE_CHOICES, default="draft")
+    feedback_closed_at = models.DateTimeField(null=True, blank=True)
+    feedback_closure_message = models.TextField(blank=True)
 
     def __str__(self):
         return f"Protocol for {self.project.title}"
@@ -317,7 +319,7 @@ class AdvisoryBoardMember(models.Model):
     sent_protocol_at = models.DateTimeField(null=True, blank=True)
     protocol_reminder_sent = models.BooleanField(default=False)
     protocol_reminder_sent_at = models.DateTimeField(null=True, blank=True)
-    feedback_on_protocol_deadline = models.DateField(null=True, blank=True)
+    feedback_on_protocol_deadline = models.DateTimeField(null=True, blank=True)
     feedback_on_protocol_received = models.DateField(null=True, blank=True)
     added_to_protocol_doc = models.BooleanField(default=False)
     feedback_on_guidance = models.BooleanField(default=False)
@@ -394,6 +396,7 @@ class ProtocolFeedback(models.Model):
     protocol_document_name = models.CharField(max_length=255, blank=True)
     protocol_document_last_updated = models.DateTimeField(null=True, blank=True)
     protocol_stage_snapshot = models.CharField(max_length=20, blank=True)
+    feedback_deadline_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-submitted_at", "-created_at"]
@@ -407,3 +410,6 @@ class ProtocolFeedback(models.Model):
         if self.uploaded_document:
             return self.uploaded_document.name.rsplit("/", 1)[-1]
         return ""
+
+    def snapshot_deadline(self):
+        return self.feedback_deadline_at

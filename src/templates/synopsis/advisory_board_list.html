@@ -11,6 +11,57 @@
         Send protocol to all
     </a>
 </div>
+{% if protocol_feedback_state.protocol %}
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
+            <div>
+                <h5 class="mb-1">Protocol feedback window</h5>
+                <p class="mb-2 text-muted">
+                    {% if protocol_feedback_state.deadline %}
+                        Deadline: {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}
+                    {% else %}
+                        No deadline scheduled yet.
+                    {% endif %}
+                </p>
+                {% if protocol_feedback_state.is_closed %}
+                    <span class="badge text-bg-danger">Closed {{ protocol_feedback_state.closed_at|date:"Y-m-d H:i" }}</span>
+                {% else %}
+                    <span class="badge text-bg-success">Open for submissions</span>
+                {% endif %}
+                <p class="text-muted small mb-0">Links stay open until this deadline or until you close them manually.</p>
+                {% if protocol_feedback_state.closure_message %}
+                    <p class="mt-2 mb-0"><strong>Message shown to members:</strong> {{ protocol_feedback_state.closure_message }}</p>
+                {% endif %}
+            </div>
+            <div class="flex-grow-1">
+                {% if protocol_feedback_state.is_closed %}
+                    <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="reopen">
+                        <button class="btn btn-outline-secondary align-self-start">Reopen feedback</button>
+                        {% if protocol_feedback_state.deadline %}
+                        <small class="text-muted">The deadline still blocks submissions after {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}.</small>
+                        {% endif %}
+                    </form>
+                {% else %}
+                    <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                        {% csrf_token %}
+                        {{ protocol_feedback_close_form.non_field_errors }}
+                        <div>
+                            {{ protocol_feedback_close_form.message.label_tag }}
+                            {{ protocol_feedback_close_form.message }}
+                            {{ protocol_feedback_close_form.message.errors }}
+                            <div class="form-text">Members will see this note when they open their feedback link after closure.</div>
+                        </div>
+                        <button class="btn btn-outline-danger align-self-start">Close feedback now</button>
+                    </form>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
 <div class="row g-4">
     <div class="col-lg-8">
         {% for section in member_sections %}
@@ -123,7 +174,7 @@
                                                 ✅ <small class="text-muted">{{ m.protocol_reminder_sent_at|date:"Y-m-d" }}</small>
                                             {% else %}
                                                 <span class="badge text-bg-warning">Scheduled</span>
-                                                <div><small class="text-muted">{{ m.feedback_on_protocol_deadline|date:"Y-m-d" }}</small></div>
+                                                <div><small class="text-muted">{{ m.feedback_on_protocol_deadline|date:"Y-m-d H:i" }}</small></div>
                                             {% endif %}
                                         {% else %}
                                             <span class="text-muted">—</span>
@@ -303,7 +354,7 @@
             <div class="card-body">
                 <h5 class="mb-3">Protocol reminder</h5>
                 <p class="text-muted small">
-                    Choose a protocol feedback deadline for members who already received the protocol. We will remind them two business days before that date.
+                    Choose a protocol feedback deadline (date and time) for members who already received the protocol. We will remind them two business days before that deadline.
                 </p>
                 <p class="small">Members with protocol: <strong>{{ protocol_pending_count }}</strong></p>
                 {% if initial_protocol_reminder_log %}
@@ -316,7 +367,7 @@
                 {% endif %}
                 {% if protocol_pending_count and protocol_pending_dates %}
                     <p class="small text-muted mb-2">
-                        Current deadline: <strong>{{ protocol_pending_dates.0|date:"Y-m-d" }}</strong>
+                        Current deadline: <strong>{{ protocol_pending_dates.0|date:"Y-m-d H:i" }}</strong>
                         {% if protocol_pending_dates|length > 1 %}
                             ({{ protocol_pending_dates|length }} different dates scheduled)
                         {% endif %}

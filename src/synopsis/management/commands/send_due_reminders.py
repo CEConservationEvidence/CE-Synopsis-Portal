@@ -7,11 +7,23 @@ from synopsis.utils import email_subject, reply_to_list
 
 
 def minus_business_days(d, n):
+    if hasattr(d, "date"):
+        d = d.date()
     while n:
         d -= timedelta(days=1)
         if d.weekday() < 5:  # Weekdays config but can be any.
             n -= 1
     return d
+
+
+def format_deadline(dt_value):
+    if not dt_value:
+        return "—"
+    try:
+        aware = timezone.localtime(dt_value)
+    except (ValueError, TypeError):
+        aware = dt_value
+    return aware.strftime("%d %b %Y %H:%M")
 
 
 class Command(BaseCommand):
@@ -45,11 +57,13 @@ class Command(BaseCommand):
             protocol_reminder_sent=False,
         ).exclude(response="N")
         proto_qs = proto_qs.filter(feedback_on_protocol_received__isnull=True)
-        proto_to_remind = [
-            m
-            for m in proto_qs
-            if minus_business_days(m.feedback_on_protocol_deadline, 2) == today
-        ]
+        proto_to_remind = []
+        for m in proto_qs:
+            deadline = m.feedback_on_protocol_deadline
+            if not deadline:
+                continue
+            if minus_business_days(deadline, 2) == today:
+                proto_to_remind.append(m)
         for m in proto_to_remind:
             subj = email_subject(
                 "protocol_reminder", m.project, m.feedback_on_protocol_deadline
@@ -57,7 +71,7 @@ class Command(BaseCommand):
             body = (
                 f"Dear {m.first_name or 'colleague'},\n\n"
                 f"A reminder that protocol feedback for '{m.project.title}' is due by "
-                f"{m.feedback_on_protocol_deadline.strftime('%d %b %Y')}.\n\nThank you."
+                f"{format_deadline(m.feedback_on_protocol_deadline)}.\n\nThank you."
             )
             msg = EmailMultiAlternatives(
                 subj, body, to=[m.email], reply_to=reply_to_list(None)

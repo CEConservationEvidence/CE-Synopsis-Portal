@@ -205,9 +205,13 @@ class ReminderScheduleForm(forms.Form):
 
 
 class ProtocolReminderScheduleForm(forms.Form):
-    deadline = forms.DateField(
-        widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text="Set or update the protocol feedback deadline for members with the protocol.",
+    deadline = forms.DateTimeField(
+        widget=forms.DateTimeInput(
+            attrs={"type": "datetime-local", "class": "form-control"},
+            format="%Y-%m-%dT%H:%M",
+        ),
+        input_formats=["%Y-%m-%dT%H:%M"],
+        help_text="Set or update the protocol feedback deadline (date and time) for members with the protocol.",
     )
 
 
@@ -237,4 +241,19 @@ class ProtocolFeedbackForm(forms.Form):
         widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
         validators=[FileExtensionValidator(["docx"])],
         help_text="Upload your annotated .docx protocol (optional).",
+    )
+
+
+class ProtocolFeedbackCloseForm(forms.Form):
+    message = forms.CharField(
+        required=False,
+        label="Message to advisory board",
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "Optional note shared with advisory members when feedback closes.",
+            }
+        ),
+        help_text="Shown to advisory board members when they open an existing feedback link.",
     )

@@ -4,6 +4,11 @@
 <h1 class="mb-3">Protocol feedback – {{ project.title }}</h1>
 <div class="card">
   <div class="card-body">
+    {% if deadline %}
+      <div class="alert alert-info" role="alert">
+        Please submit any feedback before {{ deadline|date:"Y-m-d H:i" }}. After this point the link will close automatically.
+      </div>
+    {% endif %}
     <form method="post" enctype="multipart/form-data">
       {% csrf_token %}
       <div class="mb-3">

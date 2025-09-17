@@ -6,6 +6,12 @@
     {% if error %}
       <h1 class="h4 mb-2">Link inactive</h1>
       <p class="mb-0">{{ error }}</p>
+    {% elif closed_message %}
+      <h1 class="h4 mb-2">Feedback window closed</h1>
+      <p class="mb-0">{{ closed_message }}</p>
+      {% if deadline %}
+        <p class="text-muted mt-2 mb-0">Deadline: {{ deadline|date:"Y-m-d H:i" }}</p>
+      {% endif %}
     {% else %}
       <h1 class="h4 mb-2">Thank you</h1>
       <p class="mb-0">Your feedback has been recorded for {{ project.title }}.</p>
