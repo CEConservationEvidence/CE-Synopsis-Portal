@@ -55,7 +55,8 @@ class Command(BaseCommand):
             sent_protocol_at__isnull=False,
             feedback_on_protocol_deadline__isnull=False,
             protocol_reminder_sent=False,
-        ).exclude(response="N")
+            response="Y",
+        )
         proto_qs = proto_qs.filter(feedback_on_protocol_received__isnull=True)
         proto_to_remind = []
         for m in proto_qs:

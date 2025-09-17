@@ -96,8 +96,9 @@ def _create_protocol_feedback(project, member=None, email=None, invitation=None)
         "invitation": invitation,
     }
     deadline = None
-    if member and member.feedback_on_protocol_deadline:
-        deadline = member.feedback_on_protocol_deadline
+    if member:
+        if member.response == "Y" and member.feedback_on_protocol_deadline:
+            deadline = member.feedback_on_protocol_deadline
     elif invitation and invitation.due_date:
         combined = dt.datetime.combine(invitation.due_date, dt.time(23, 59))
         deadline = timezone.make_aware(combined) if timezone.is_naive(combined) else combined
@@ -150,8 +151,9 @@ def _advisory_board_context(
         reminder_form = ReminderScheduleForm(initial=reminder_initial)
 
     protocol_members = project.advisory_board_members.filter(
-        sent_protocol_at__isnull=False
-    ).exclude(response="N")
+        sent_protocol_at__isnull=False,
+        response="Y",
+    )
     protocol_pending_dates = [
         d
         for d in protocol_members.filter(
@@ -935,8 +937,9 @@ def advisory_schedule_protocol_reminders(request, project_id):
 
     form = ProtocolReminderScheduleForm(request.POST)
     pending_members = project.advisory_board_members.filter(
-        sent_protocol_at__isnull=False
-    ).exclude(response="N")
+        sent_protocol_at__isnull=False,
+        response="Y",
+    )
 
     if not form.is_valid():
         context = _advisory_board_context(project, protocol_form=form)
@@ -961,6 +964,24 @@ def advisory_schedule_protocol_reminders(request, project_id):
             feedback_deadline_at=deadline
         )
         updated += 1
+
+    skipped_members = project.advisory_board_members.filter(
+        sent_protocol_at__isnull=False
+    ).exclude(response="Y")
+    skipped_ids = list(skipped_members.values_list("id", flat=True))
+    if skipped_ids:
+        project.advisory_board_members.filter(id__in=skipped_ids).update(
+            feedback_on_protocol_deadline=None,
+            protocol_reminder_sent=False,
+            protocol_reminder_sent_at=None,
+        )
+        ProtocolFeedback.objects.filter(
+            project=project, member_id__in=skipped_ids
+        ).update(feedback_deadline_at=None)
+        messages.info(
+            request,
+            "Deadline kept unset for members who have not accepted the invitation yet.",
+        )
 
     if updated:
         _log_project_change(
@@ -1731,6 +1752,11 @@ def protocol_feedback(request, token):
         if fb.feedback_deadline_at != deadline:
             fb.feedback_deadline_at = deadline
             fb.save(update_fields=["feedback_deadline_at"])
+    if member and member.response != "Y":
+        if fb.feedback_deadline_at:
+            fb.feedback_deadline_at = None
+            fb.save(update_fields=["feedback_deadline_at"])
+        deadline = None
     closure_message = None
     now = timezone.now()
 
