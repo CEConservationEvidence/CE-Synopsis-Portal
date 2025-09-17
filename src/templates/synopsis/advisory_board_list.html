@@ -30,6 +30,7 @@
                                     <th>Continent</th>
                                     <th>Invite</th>
                                     <th>Response</th>
+                                    <th>Participation</th>
                                     <th>Reminder</th>
                                     <th>Feedback on list</th>
                                     <th>Actions feedback rec'd</th>
@@ -70,6 +71,20 @@
                                             {% if m.response_date %}
                                                 <div><small class="text-muted">{{ m.response_date|date:"Y-m-d" }}</small></div>
                                             {% endif %}
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if m.participation_confirmed %}
+                                            ✅ <small class="text-muted">{{ m.participation_confirmed_at|date:"Y-m-d H:i" }}</small>
+                                            {% if m.participation_statement %}
+                                                <div class="text-muted small">{{ m.participation_statement }}</div>
+                                            {% endif %}
+                                        {% elif m.response == 'Y' %}
+                                            <span class="badge text-bg-warning">Awaiting confirmation</span>
+                                        {% elif m.response == 'N' %}
+                                            <span class="text-muted">Declined</span>
                                         {% else %}
                                             <span class="text-muted">—</span>
                                         {% endif %}
