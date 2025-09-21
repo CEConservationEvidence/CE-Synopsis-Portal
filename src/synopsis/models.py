@@ -6,7 +6,7 @@ import uuid
 """
 TODO: Modularise models into synopsis/models/* (project.py, funding.py, protocol.py, etc.)
       once the schema stabilises. Everything is in one file for develpment but this should be made modular for other living evidence teams to easily adapt to their workflows.
-TODO: Add permissions to models to restrict access based on user roles.
+TODO: Add permissions to restrict access based on user roles.
 TODO: Add signals to notify users of changes in project status or roles.
 TODO: Add versioning to protocol model to track changes over time. Furthermore, this should be extended to other models like the draft final synopsis document, summaries, actions, etc.
 TODO: Add audit trails to track changes made to critical fields in models (define the data model for this).
@@ -324,6 +324,8 @@ class AdvisoryBoardMember(models.Model):
     added_to_protocol_doc = models.BooleanField(default=False)
     feedback_on_guidance = models.BooleanField(default=False)
 
+    # TODOO rework protocol interation - one document with versin control, shareable link to AB (every AB member comments seen by other AB member)
+
     # Participation confirmation
     participation_confirmed = models.BooleanField(default=False)
     participation_confirmed_at = models.DateTimeField(null=True, blank=True)
@@ -353,7 +355,9 @@ class AdvisoryBoardInvitation(models.Model):
     email = models.EmailField()
     invited_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
     token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    accepted = models.BooleanField(null=True, blank=True)  # None until answered
+    accepted = models.BooleanField(
+        null=True, blank=True
+    )  # None until answered but fallback to what?
     responded_at = models.DateTimeField(null=True, blank=True)
 
     due_date = models.DateField(null=True, blank=True)
@@ -405,7 +409,6 @@ class ProtocolFeedback(models.Model):
         who = self.member or self.email or "anonymous"
         return f"Feedback for {self.project.title} by {who}"
 
-
     def latest_document_label(self) -> str:
         if self.uploaded_document:
             return self.uploaded_document.name.rsplit("/", 1)[-1]
@@ -413,3 +416,141 @@ class ProtocolFeedback(models.Model):
 
     def snapshot_deadline(self):
         return self.feedback_deadline_at
+
+
+class ReferenceSourceBatch(models.Model):
+    """Represents one RIS (or similar) import event for a project."""
+
+    SOURCE_TYPE_CHOICES = [
+        ("journal_search", "Journal / database search"),
+        ("grey_literature", "Grey literature search"),
+        ("non_english", "Non-English search"),
+        ("manual_upload", "Manual upload"),
+        ("legacy", "Legacy import"),
+    ]  # TODO: Other teams may want to drop or modify these choices. Most likely it should be simplified to journal search or manual upload.
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="reference_batches"
+    )
+    label = models.CharField(
+        max_length=255,
+        help_text="Short identifier shown to authors (e.g. 'Scopus Jan 2023').",
+    )
+    source_type = models.CharField(max_length=40, choices=SOURCE_TYPE_CHOICES)
+    search_date = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploaded_reference_batches",
+    )
+    original_filename = models.CharField(max_length=255, blank=True)
+    record_count = models.PositiveIntegerField(default=0)
+    ris_sha1 = models.CharField(
+        max_length=40,
+        blank=True,
+        help_text="SHA1 fingerprint of the original RIS payload for deduplication.",
+    )
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "reference batch"
+        verbose_name_plural = "reference batches"
+
+    def __str__(self):
+        return f"{self.label} ({self.project.title})"
+
+
+class Reference(models.Model):
+    """A single bibliographic record imported from a batch."""
+
+    SCREENING_STATUS_CHOICES = [
+        ("pending", "Pending triage"),
+        ("title_included", "Title/abstract included"),
+        ("title_excluded", "Title/abstract excluded"),
+        ("needs_full_text", "Needs full text"),
+        ("fulltext_included", "Full text included"),
+        ("fulltext_excluded", "Full text excluded"),
+    ]  # probably just needs to be simplified to included/excluded.
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="references"
+    )
+    batch = models.ForeignKey(
+        ReferenceSourceBatch,
+        on_delete=models.CASCADE,
+        related_name="references",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    hash_key = models.CharField(
+        max_length=40,
+        db_index=True,
+        help_text="HASH used to detect duplicates within a project.",
+    )
+    source_identifier = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Identifier from the source RIS (e.g. RefID or Accession number).",
+    )
+    title = models.TextField()
+    abstract = models.TextField(blank=True)
+    authors = models.TextField(blank=True)
+    publication_year = models.PositiveIntegerField(null=True, blank=True)
+    journal = models.CharField(max_length=255, blank=True)
+    volume = models.CharField(max_length=50, blank=True)
+    issue = models.CharField(max_length=50, blank=True)
+    pages = models.CharField(max_length=50, blank=True)
+    doi = models.CharField(max_length=255, blank=True)
+    url = models.URLField(blank=True)
+    language = models.CharField(max_length=50, blank=True)
+    raw_ris = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Original RIS key/value pairs for full fidelity storage.",
+    )
+    screening_status = models.CharField(
+        max_length=40,
+        choices=SCREENING_STATUS_CHOICES,
+        default="pending",
+    )
+    screening_notes = models.TextField(blank=True)
+    screening_decision_at = models.DateTimeField(null=True, blank=True)
+    screened_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="screened_references",
+    )
+
+    class Meta:
+        ordering = ["title"]
+        unique_together = [("project", "hash_key")]
+
+    def __str__(self):
+        return self.title[:120]
+
+    def mark_screened(self, status: str, user: User | None = None, notes: str = ""):
+        """Convenience helper to update screening info consistently."""
+
+        if status not in dict(self.SCREENING_STATUS_CHOICES):
+            raise ValueError(f"Unknown screening status: {status}")
+        self.screening_status = status
+        self.screening_decision_at = timezone.now()
+        if notes:
+            self.screening_notes = notes
+        if user:
+            self.screened_by = user
+        self.save(
+            update_fields=[
+                "screening_status",
+                "screening_decision_at",
+                "screening_notes",
+                "screened_by",
+                "updated_at",
+            ]
+        )
