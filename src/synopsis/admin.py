@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ReferenceSourceBatch
+from .models import ReferenceSourceBatch, Reference
 
 
 @admin.register(ReferenceSourceBatch)
@@ -28,3 +28,5 @@ class ReferenceAdmin(admin.ModelAdmin):
         "screening_status",
         "screened_by",
     )
+    list_filter = ("screening_status", "project", "batch")
+    search_fields = ("title", "doi", "authors", "journal")
