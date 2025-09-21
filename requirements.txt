@@ -26,6 +26,7 @@ draftjs_exporter==5.1.0
 et_xmlfile==2.0.0
 filetype==1.2.0
 fonttools==4.59.2
+rispy==0.10.0
 idna==3.10
 iniconfig==2.1.0
 kombu==5.5.4
