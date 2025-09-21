@@ -110,7 +110,9 @@ def _create_protocol_feedback(project, member=None, email=None, invitation=None)
             deadline = member.feedback_on_protocol_deadline
     elif invitation and invitation.due_date:
         combined = dt.datetime.combine(invitation.due_date, dt.time(23, 59))
-        deadline = timezone.make_aware(combined) if timezone.is_naive(combined) else combined
+        deadline = (
+            timezone.make_aware(combined) if timezone.is_naive(combined) else combined
+        )
     if proto:
         kwargs.update(
             {
@@ -202,9 +204,7 @@ def _advisory_board_context(
     )
     protocol_pending_dates = [
         d
-        for d in protocol_members.filter(
-            feedback_on_protocol_deadline__isnull=False
-        )
+        for d in protocol_members.filter(feedback_on_protocol_deadline__isnull=False)
         .order_by("feedback_on_protocol_deadline")
         .values_list("feedback_on_protocol_deadline", flat=True)
     ]
@@ -395,9 +395,7 @@ def project_hub(request, project_id):
         "pending": inv_qs.filter(accepted__isnull=True).count(),
     }
 
-    latest_batch = (
-        project.reference_batches.order_by("-created_at", "-id").first()
-    )
+    latest_batch = project.reference_batches.order_by("-created_at", "-id").first()
     reference_stats = {
         "batches": project.reference_batches.count(),
         "references": project.references.count(),
@@ -978,10 +976,7 @@ def advisory_schedule_reminders(request, project_id):
             f"Date set to {reminder_date} for {updated} pending member(s)",
         )
 
-    messages.success(
-        request,
-        f"Scheduled reminders for {updated} member(s)."
-    )
+    messages.success(request, f"Scheduled reminders for {updated} member(s).")
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -1054,9 +1049,8 @@ def advisory_schedule_protocol_reminders(request, project_id):
 @login_required
 def reference_batch_list(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
-    batches = (
-        project.reference_batches.select_related("uploaded_by")
-        .order_by("-created_at", "-id")
+    batches = project.reference_batches.select_related("uploaded_by").order_by(
+        "-created_at", "-id"
     )
     summary = {
         "total_references": project.references.count(),
@@ -1107,7 +1101,9 @@ def reference_batch_detail(request, project_id, batch_id):
                     "updated_at",
                 ]
             )
-            messages.success(request, f"Updated screening status for '{ref.title[:80]}'.")
+            messages.success(
+                request, f"Updated screening status for '{ref.title[:80]}'."
+            )
             redirect_url = reverse(
                 "synopsis:reference_batch_detail",
                 kwargs={"project_id": project.id, "batch_id": batch.id},
@@ -1116,11 +1112,15 @@ def reference_batch_detail(request, project_id, batch_id):
                 redirect_url = f"{redirect_url}?status={status_filter}"
             return redirect(redirect_url)
         else:
-            messages.error(request, "Unable to update screening status. Please check the submission.")
+            messages.error(
+                request,
+                "Unable to update screening status. Please check the submission.",
+            )
     status_counts = {
         row["screening_status"]: row["count"]
-        for row in batch.references.values("screening_status")
-        .annotate(count=Count("id"))
+        for row in batch.references.values("screening_status").annotate(
+            count=Count("id")
+        )
     }
     status_summary = [
         {
@@ -1161,9 +1161,7 @@ def reference_batch_upload(request, project_id):
                 try:
                     records = rispy.loads(raw_bytes.decode("utf-8", errors="ignore"))
                 except Exception as exc:  # pragma: no cover - parser errors
-                    form.add_error(
-                        "ris_file", f"Could not parse RIS content ({exc})."
-                    )
+                    form.add_error("ris_file", f"Could not parse RIS content ({exc}).")
                 else:
                     if not records:
                         form.add_error(
@@ -1189,20 +1187,25 @@ def reference_batch_upload(request, project_id):
                                 title = (
                                     _extract_reference_field(record, "primary_title")
                                     or _extract_reference_field(record, "title")
-                                    or _extract_reference_field(record, "secondary_title")
+                                    or _extract_reference_field(
+                                        record, "secondary_title"
+                                    )
                                 )
                                 if not title:
                                     duplicates += 1
                                     continue
 
-                                authors_list = record.get("authors") or record.get("author") or []
+                                authors_list = (
+                                    record.get("authors") or record.get("author") or []
+                                )
                                 if isinstance(authors_list, str):
                                     authors_list = [authors_list]
                                 authors = "; ".join(str(a) for a in authors_list if a)
 
-                                year = (
-                                    _extract_reference_field(record, "year")
-                                    or _extract_reference_field(record, "publication_year")
+                                year = _extract_reference_field(
+                                    record, "year"
+                                ) or _extract_reference_field(
+                                    record, "publication_year"
                                 )
                                 doi = _extract_reference_field(record, "doi")
                                 hash_key = reference_hash(title, year, doi)
@@ -1217,22 +1220,30 @@ def reference_batch_upload(request, project_id):
                                     project=project,
                                     batch=batch,
                                     hash_key=hash_key,
-                                    source_identifier=
-                                    _extract_reference_field(record, "accession_number")
+                                    source_identifier=_extract_reference_field(
+                                        record, "accession_number"
+                                    )
                                     or _extract_reference_field(record, "id"),
                                     title=title,
-                                    abstract=_extract_reference_field(record, "abstract"),
+                                    abstract=_extract_reference_field(
+                                        record, "abstract"
+                                    ),
                                     authors=authors,
                                     publication_year=_coerce_year(year),
-                                    journal=
-                                    _extract_reference_field(record, "journal_name")
-                                    or _extract_reference_field(record, "secondary_title"),
+                                    journal=_extract_reference_field(
+                                        record, "journal_name"
+                                    )
+                                    or _extract_reference_field(
+                                        record, "secondary_title"
+                                    ),
                                     volume=_extract_reference_field(record, "volume"),
                                     issue=_extract_reference_field(record, "issue"),
                                     pages=_combine_pages(record),
                                     doi=doi,
                                     url=_extract_reference_field(record, "url"),
-                                    language=_extract_reference_field(record, "language"),
+                                    language=_extract_reference_field(
+                                        record, "language"
+                                    ),
                                     raw_ris=record,
                                 )
                                 imported += 1
@@ -1442,7 +1453,9 @@ def advisory_invite_accept(request, token):
             member.participation_confirmed = True
             member.participation_confirmed_at = timezone.now()
             if not member.participation_statement:
-                member.participation_statement = "Confirmed participation via legacy link"
+                member.participation_statement = (
+                    "Confirmed participation via legacy link"
+                )
             member.save(
                 update_fields=[
                     "response_date",
@@ -1529,7 +1542,11 @@ def advisory_invite_reply(request, token, choice):
                 return render(
                     request,
                     "synopsis/invite_thanks.html",
-                    {"member": member, "project": inv.project, "accepted": inv.accepted},
+                    {
+                        "member": member,
+                        "project": inv.project,
+                        "accepted": inv.accepted,
+                    },
                 )
         else:
             form = ParticipationConfirmForm()
@@ -1540,12 +1557,18 @@ def advisory_invite_reply(request, token, choice):
             {
                 "project": inv.project,
                 "invitation": inv,
-                    "member": member,
+                "member": member,
             },
         )
 
     if membe:
-        updates = {"response", "response_date", "participation_confirmed", "participation_confirmed_at", "participation_statement"}
+        updates = {
+            "response",
+            "response_date",
+            "participation_confirmed",
+            "participation_confirmed_at",
+            "participation_statement",
+        }
         member.response = "N"
         member.response_date = timezone.localdate()
         member.participation_confirmed = False
@@ -2054,8 +2077,7 @@ def protocol_feedback(request, token):
 
     if deadline and now >= deadline:
         closure_message = (
-            "The feedback deadline has passed ("
-            f"{_format_deadline(deadline)})."
+            "The feedback deadline has passed (" f"{_format_deadline(deadline)})."
         )
         return render(
             request,

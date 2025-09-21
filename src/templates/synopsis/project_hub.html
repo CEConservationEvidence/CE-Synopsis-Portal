@@ -4,11 +4,13 @@
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
     <div>
         <h1 class="mb-1">{{ project.title }}</h1>
-        <p class="text-muted mb-2">Phase: <strong>{{ project.get_phase_display }}</strong></p>
+        <p class="text-muted mb-2">Phase:
+            <strong>{{ project.get_phase_display }}</strong>
+        </p>
         {% if last_phase_event %}
-            <p class="text-muted small mb-3">Last confirmed by {{ last_phase_event.confirmed_by|default:"—" }} on {{ last_phase_event.confirmed_at|date:"Y-m-d H:i" }}</p>
+        <p class="text-muted small mb-3">Last confirmed by {{ last_phase_event.confirmed_by|default:"—" }} on {{ last_phase_event.confirmed_at|date:"Y-m-d H:i" }}</p>
         {% else %}
-            <p class="text-muted small mb-3">No milestones confirmed yet.</p>
+        <p class="text-muted small mb-3">No milestones confirmed yet.</p>
         {% endif %}
     </div>
     {% if can_manage_project %}
@@ -18,16 +20,14 @@
     </div>
     {% endif %}
 </div>
-
 {% if next_phase %}
-  <form method="post" action="{% url 'synopsis:project_phase_confirm' project.id next_phase %}" class="mb-3">
+<form method="post" action="{% url 'synopsis:project_phase_confirm' project.id next_phase %}" class="mb-3">
     {% csrf_token %}
     <button class="btn btn-outline-primary btn-sm" onclick="return confirm('Confirm phase: {{ next_phase_label }}?');">
-      Confirm phase: {{ next_phase_label }}
+        Confirm phase: {{ next_phase_label }}
     </button>
-  </form>
+</form>
 {% endif %}
-
 <div class="card mb-3">
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-2">
@@ -49,7 +49,6 @@
         {% endif %}
     </div>
 </div>
-
 <div class="row g-3">
     <div class="col-md-6">
         <div class="card h-100">
@@ -59,12 +58,13 @@
                 <div class="small mb-2">
                     <strong>Stage:</strong>
                     {% if protocol.stage == 'final' %}
-                        <span class="badge text-bg-success">Final</span>
+                    <span class="badge text-bg-success">Final</span>
                     {% else %}
-                        <span class="badge text-bg-warning">Draft</span>
+                    <span class="badge text-bg-warning">Draft</span>
                     {% endif %}
                     <br>
-                    <strong>Updated:</strong> {{ protocol.last_updated|date:"Y-m-d H:i" }}
+                    <strong>Updated:</strong>
+                    {{ protocol.last_updated|date:"Y-m-d H:i" }}
                 </div>
                 {% if protocol.document %}
                 <p class="mb-2">
@@ -85,15 +85,33 @@
             <div class="card-body">
                 <h5>Advisory Board Stats</h5>
                 <div class="row g-2 small">
-                    <div class="col-6">Members: <strong>{{ ab_stats.members }}</strong></div>
-                    <div class="col-6">Member invites sent: <strong>{{ ab_stats.member_invites_sent }}</strong></div>
-                    <div class="col-6">Invitations (total): <strong>{{ ab_stats.invites_total }}</strong></div>
-                    <div class="col-6">Linked to members: <strong>{{ ab_stats.invites_member }}</strong></div>
-                    <div class="col-6">Direct email invites: <strong>{{ ab_stats.invites_direct }}</strong></div>
-                    <div class="col-4">Accepted: <strong class="text-success">{{ ab_stats.accepted }}</strong></div>
-                    <div class="col-4">Declined: <strong class="text-danger">{{ ab_stats.declined }}</strong></div>
-                    <div class="col-4">Pending: <strong class="text-muted">{{ ab_stats.pending }}</strong></div>
-                    <div class="col-12">Protocol sent to members: <strong>{{ ab_stats.protocol_sent_to_members }}</strong></div>
+                    <div class="col-6">Members:
+                        <strong>{{ ab_stats.members }}</strong>
+                    </div>
+                    <div class="col-6">Member invites sent:
+                        <strong>{{ ab_stats.member_invites_sent }}</strong>
+                    </div>
+                    <div class="col-6">Invitations (total):
+                        <strong>{{ ab_stats.invites_total }}</strong>
+                    </div>
+                    <div class="col-6">Linked to members:
+                        <strong>{{ ab_stats.invites_member }}</strong>
+                    </div>
+                    <div class="col-6">Direct email invites:
+                        <strong>{{ ab_stats.invites_direct }}</strong>
+                    </div>
+                    <div class="col-4">Accepted:
+                        <strong class="text-success">{{ ab_stats.accepted }}</strong>
+                    </div>
+                    <div class="col-4">Declined:
+                        <strong class="text-danger">{{ ab_stats.declined }}</strong>
+                    </div>
+                    <div class="col-4">Pending:
+                        <strong class="text-muted">{{ ab_stats.pending }}</strong>
+                    </div>
+                    <div class="col-12">Protocol sent to members:
+                        <strong>{{ ab_stats.protocol_sent_to_members }}</strong>
+                    </div>
                 </div>
                 <a class="btn btn-outline-primary btn-sm mt-3" href="{% url 'synopsis:advisory_board_list' project.id %}">Manage advisory board</a>
             </div>
@@ -104,18 +122,24 @@
             <div class="card-body">
                 <h5>References</h5>
                 <div class="row g-2 small mb-2">
-                    <div class="col-6">Batches: <strong>{{ reference_stats.batches }}</strong></div>
-                    <div class="col-6">Total references: <strong>{{ reference_stats.references }}</strong></div>
-                    <div class="col-6">Pending screening: <strong>{{ reference_stats.pending }}</strong></div>
+                    <div class="col-6">Batches:
+                        <strong>{{ reference_stats.batches }}</strong>
+                    </div>
+                    <div class="col-6">Total references:
+                        <strong>{{ reference_stats.references }}</strong>
+                    </div>
+                    <div class="col-6">Pending screening:
+                        <strong>{{ reference_stats.pending }}</strong>
+                    </div>
                 </div>
                 {% if reference_stats.latest_batch %}
-                    <p class="small mb-2">
-                        Latest batch:
-                        <strong>{{ reference_stats.latest_batch.label }}</strong>
-                        ({{ reference_stats.latest_batch.record_count }} records · {{ reference_stats.latest_batch.created_at|date:"Y-m-d H:i" }})
-                    </p>
+                <p class="small mb-2">
+                    Latest batch:
+                    <strong>{{ reference_stats.latest_batch.label }}</strong>
+                    ({{ reference_stats.latest_batch.record_count }} records · {{ reference_stats.latest_batch.created_at|date:"Y-m-d H:i" }})
+                </p>
                 {% else %}
-                    <p class="text-muted">No reference imports yet.</p>
+                <p class="text-muted">No reference imports yet.</p>
                 {% endif %}
                 <div class="d-flex flex-wrap gap-2">
                     <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:reference_batch_list' project.id %}">View batches</a>
@@ -125,7 +149,6 @@
         </div>
     </div>
 </div>
-
 <div class="card mt-3">
     <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -143,7 +166,9 @@
                         <th>Funds allocated</th>
                         <th>Start date</th>
                         <th>End date</th>
-                        {% if can_manage_project %}<th class="text-end">Actions</th>{% endif %}
+                        {% if can_manage_project %}
+                        <th class="text-end">Actions</th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -181,7 +206,6 @@
         {% endif %}
     </div>
 </div>
-
 <div class="card mt-3">
     <div class="card-body">
         <h5 class="mb-3">Recent changes</h5>
@@ -191,7 +215,9 @@
                 <strong>{{ entry.action }}</strong>
                 <br>
                 <span class="text-muted">{{ entry.created_at|date:"Y-m-d H:i" }} · {% if entry.changed_by %}{{ entry.changed_by.get_full_name|default:entry.changed_by.username }}{% else %}system{% endif %}</span>
-                {% if entry.details %}<div>{{ entry.details }}</div>{% endif %}
+                {% if entry.details %}
+                <div>{{ entry.details }}</div>
+                {% endif %}
             </li>
             {% empty %}
             <li class="text-muted">No changes logged yet.</li>
@@ -199,5 +225,4 @@
         </ul>
     </div>
 </div>
-
 {% endblock %}

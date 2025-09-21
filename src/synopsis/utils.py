@@ -13,6 +13,7 @@ def email_subject(kind: str, project, due_date=None) -> str:
     kind: one of 'invite', 'invite_reminder', 'protocol_review'
     """
     title = project.title if project else ""
+
     def _format_due(dt_value, with_label=False):
         if not dt_value:
             return None

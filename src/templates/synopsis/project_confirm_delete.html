@@ -3,7 +3,9 @@
 {% block content %}
 <h1 class="mb-3">Delete project</h1>
 <div class="alert alert-warning" role="alert">
-    Deleting <strong>{{ project.title }}</strong> will remove all associated data including funders, advisory board members, invitations, and logs. This action cannot be undone.
+    Deleting
+    <strong>{{ project.title }}</strong>
+    will remove all associated data including funders, advisory board members, invitations, and logs. This action cannot be undone.
 </div>
 <form method="post">
     {% csrf_token %}

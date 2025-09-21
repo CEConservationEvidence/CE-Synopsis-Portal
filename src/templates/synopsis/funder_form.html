@@ -4,9 +4,13 @@
 <h1 class="mb-3">{% if mode == "edit" %}Edit funder{% else %}Add funder{% endif %}</h1>
 <p class="text-muted">
     {% if mode == "edit" %}
-        Update the funder details for <strong>{{ project.title }}</strong>.
+        Update the funder details for
+    <strong>{{ project.title }}</strong>
+    .
     {% else %}
-        Provide the funder details for <strong>{{ project.title }}</strong>.
+        Provide the funder details for
+    <strong>{{ project.title }}</strong>
+    .
     {% endif %}
 </p>
 <form method="post">

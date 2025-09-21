@@ -3,23 +3,22 @@
 {% block content %}
 <h1 class="mb-3">Send protocol – {{ project.title }}</h1>
 <div class="card">
-  <div class="card-body">
-    <form method="post">
-      {% csrf_token %}
-      <div class="row g-3">
-        <div class="col-md-3">
-          <label class="form-label">Content</label>
-          {{ form.content }}
-        </div>
-        <div class="col-md-9">
-          <label class="form-label">Message</label>
-          {{ form.message }}
-        </div>
-      </div>
-      <button class="btn btn-primary mt-3">Send</button>
-      <a class="btn btn-link" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>
-    </form>
-  </div>
+    <div class="card-body">
+        <form method="post">
+            {% csrf_token %}
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Content</label>
+                    {{ form.content }}
+                </div>
+                <div class="col-md-9">
+                    <label class="form-label">Message</label>
+                    {{ form.message }}
+                </div>
+            </div>
+            <button class="btn btn-primary mt-3">Send</button>
+            <a class="btn btn-link" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>
+        </form>
+    </div>
 </div>
 {% endblock %}
-
