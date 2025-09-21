@@ -1561,7 +1561,7 @@ def advisory_invite_reply(request, token, choice):
             },
         )
 
-    if membe:
+    if member:
         updates = {
             "response",
             "response_date",
