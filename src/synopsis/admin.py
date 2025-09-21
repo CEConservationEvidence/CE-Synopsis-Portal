@@ -18,3 +18,13 @@ class ReferenceSourceBatchAdmin(admin.ModelAdmin):
     search_fields = ("label", "project__title", "original_filename")
 
 
+@admin.register(Reference)
+class ReferenceAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "project",
+        "batch",
+        "publication_year",
+        "screening_status",
+        "screened_by",
+    )
