@@ -6,12 +6,17 @@ from .models import (
     Funder,
     Protocol,
     UserRole,
+    ReferenceSourceBatch,
+    Reference,
 )
 from django.contrib.auth.models import Group
 
 GLOBAL_ROLE_CHOICES = [
     ("author", "Author"),
-    ("external_collaborator", "External Collaborator"),
+    (
+        "external_collaborator",
+        "External Collaborator",
+    ),
     ("manager", "Manager"),
 ]
 
@@ -22,7 +27,9 @@ class ProtocolUpdateForm(forms.ModelForm):
         fields = ["document", "stage", "text_version"]
         widgets = {
             "stage": forms.Select(attrs={"class": "form-select"}),
-            "text_version": forms.Textarea(attrs={"rows": 10, "class": "form-control"}),
+            "text_version": forms.Textarea(
+                attrs={"rows": 10, "class": "form-control"}
+            ),  # TODO: need to remove this after adjustments.
         }
 
 
@@ -233,7 +240,11 @@ class ProtocolFeedbackForm(forms.Form):
     content = forms.CharField(
         required=False,
         widget=forms.Textarea(
-            attrs={"class": "form-control", "rows": 6, "placeholder": "Share your comments here"}
+            attrs={
+                "class": "form-control",
+                "rows": 6,
+                "placeholder": "Share your comments here",
+            }
         ),
     )
     uploaded_document = forms.FileField(
@@ -256,4 +267,49 @@ class ProtocolFeedbackCloseForm(forms.Form):
             }
         ),
         help_text="Shown to advisory board members when they open an existing feedback link.",
+    )
+
+
+class ReferenceBatchUploadForm(forms.Form):
+    label = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+        help_text="Short name shown to the team (e.g. 'Scopus Jan 2023').",
+    )
+    source_type = forms.ChoiceField(
+        choices=ReferenceSourceBatch.SOURCE_TYPE_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        help_text="What kind of search produced this file?",
+    )
+    search_date = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
+        help_text="Date the search was run (optional).",
+    )
+    ris_file = forms.FileField(
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        validators=[FileExtensionValidator(["ris", "txt"])],
+    )
+    notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+        help_text="Internal notes about this batch (optional).",
+    )
+
+
+class ReferenceScreeningForm(forms.Form):
+    reference_id = forms.IntegerField(widget=forms.HiddenInput)
+    screening_status = forms.ChoiceField(
+        choices=Reference.SCREENING_STATUS_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
+    screening_notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 2,
+                "placeholder": "Notes on inclusion/exclusion (optional)",
+            }
+        ),
     )

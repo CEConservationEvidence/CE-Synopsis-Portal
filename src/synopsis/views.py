@@ -1,4 +1,7 @@
 import datetime as dt
+import hashlib
+
+import rispy
 
 from django.conf import settings
 from django.contrib import messages
@@ -6,6 +9,8 @@ from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User, Group
 from django.core.mail import EmailMultiAlternatives, send_mail
+from django.db import transaction
+from django.db.models import Count
 from django.http import HttpResponseBadRequest
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -27,6 +32,8 @@ from .forms import (
     ParticipationConfirmForm,
     ProtocolFeedbackForm,
     ProtocolFeedbackCloseForm,
+    ReferenceBatchUploadForm,
+    ReferenceScreeningForm,
 )
 from .models import (
     Project,
@@ -38,8 +45,10 @@ from .models import (
     ProjectPhaseEvent,
     ProjectChangeLog,
     ProtocolFeedback,
+    ReferenceSourceBatch,
+    Reference,
 )
-from .utils import ensure_global_groups, email_subject, reply_to_list
+from .utils import ensure_global_groups, email_subject, reply_to_list, reference_hash
 
 
 def _user_is_manager(user) -> bool:
@@ -112,6 +121,43 @@ def _create_protocol_feedback(project, member=None, email=None, invitation=None)
         )
     kwargs["feedback_deadline_at"] = deadline
     return ProtocolFeedback.objects.create(**kwargs)
+
+
+def _extract_reference_field(record: dict, key: str) -> str:
+    value = record.get(key)
+    if isinstance(value, list):
+        if not value:
+            return ""
+        value = value[0]
+    return value or ""
+
+
+def _coerce_year(value) -> int | None:
+    if isinstance(value, list):
+        value = value[0] if value else None
+    try:
+        text = str(value).strip()
+    except Exception:  # pragma: no cover - defensive
+        return None
+    if not text:
+        return None
+    for token in (text, text[:4]):
+        try:
+            return int(token)
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _combine_pages(record: dict) -> str:
+    pages = _extract_reference_field(record, "pages")
+    if pages:
+        return pages
+    start = _extract_reference_field(record, "start_page")
+    end = _extract_reference_field(record, "end_page")
+    if start and end:
+        return f"{start}-{end}".strip("-")
+    return start or end or ""
 
 
 def _advisory_board_context(
@@ -349,6 +395,16 @@ def project_hub(request, project_id):
         "pending": inv_qs.filter(accepted__isnull=True).count(),
     }
 
+    latest_batch = (
+        project.reference_batches.order_by("-created_at", "-id").first()
+    )
+    reference_stats = {
+        "batches": project.reference_batches.count(),
+        "references": project.references.count(),
+        "pending": project.references.filter(screening_status="pending").count(),
+        "latest_batch": latest_batch,
+    }
+
     phase_labels = dict(Project.PHASE_CHOICES)
     order = [k for k, _ in Project.PHASE_CHOICES]
     current_phase = project.phase
@@ -369,6 +425,7 @@ def project_hub(request, project_id):
             "project": project,
             "protocol": protocol,
             "ab_stats": ab_stats,
+            "reference_stats": reference_stats,
             "phase_labels": phase_labels,
             "next_phase": next_phase,
             "next_phase_label": next_phase_label,
@@ -490,7 +547,6 @@ def project_authors_manage(request, project_id):
         "synopsis/project_authors_form.html",
         {
             "project": project,
-            "form": form,
         },
     )
 
@@ -996,6 +1052,217 @@ def advisory_schedule_protocol_reminders(request, project_id):
 
 
 @login_required
+def reference_batch_list(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    batches = (
+        project.reference_batches.select_related("uploaded_by")
+        .order_by("-created_at", "-id")
+    )
+    summary = {
+        "total_references": project.references.count(),
+        "pending": project.references.filter(screening_status="pending").count(),
+    }
+    return render(
+        request,
+        "synopsis/reference_batch_list.html",
+        {
+            "project": project,
+            "batches": batches,
+            "summary": summary,
+        },
+    )
+
+
+@login_required
+def reference_batch_detail(request, project_id, batch_id):
+    project = get_object_or_404(Project, pk=project_id)
+    batch = get_object_or_404(ReferenceSourceBatch, pk=batch_id, project=project)
+
+    references = batch.references.select_related("screened_by").order_by("title")
+    status_filter = request.GET.get("status")
+    if status_filter in dict(Reference.SCREENING_STATUS_CHOICES):
+        references = references.filter(screening_status=status_filter)
+
+    if request.method == "POST":
+        form = ReferenceScreeningForm(request.POST)
+        if form.is_valid():
+            ref = get_object_or_404(
+                Reference,
+                pk=form.cleaned_data["reference_id"],
+                batch=batch,
+                project=project,
+            )
+            status = form.cleaned_data["screening_status"]
+            notes = form.cleaned_data.get("screening_notes") or ""
+            ref.screening_status = status
+            ref.screening_notes = notes
+            ref.screening_decision_at = timezone.now()
+            ref.screened_by = request.user
+            ref.save(
+                update_fields=[
+                    "screening_status",
+                    "screening_notes",
+                    "screening_decision_at",
+                    "screened_by",
+                    "updated_at",
+                ]
+            )
+            messages.success(request, f"Updated screening status for '{ref.title[:80]}'.")
+            redirect_url = reverse(
+                "synopsis:reference_batch_detail",
+                kwargs={"project_id": project.id, "batch_id": batch.id},
+            )
+            if status_filter:
+                redirect_url = f"{redirect_url}?status={status_filter}"
+            return redirect(redirect_url)
+        else:
+            messages.error(request, "Unable to update screening status. Please check the submission.")
+    status_counts = {
+        row["screening_status"]: row["count"]
+        for row in batch.references.values("screening_status")
+        .annotate(count=Count("id"))
+    }
+    status_summary = [
+        {
+            "status": value,
+            "label": label,
+            "count": status_counts.get(value, 0),
+        }
+        for value, label in Reference.SCREENING_STATUS_CHOICES
+    ]
+
+    return render(
+        request,
+        "synopsis/reference_batch_detail.html",
+        {
+            "project": project,
+            "batch": batch,
+            "references": references,
+            "status_filter": status_filter,
+            "status_choices": Reference.SCREENING_STATUS_CHOICES,
+            "status_summary": status_summary,
+        },
+    )
+
+
+@login_required
+def reference_batch_upload(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+
+    if request.method == "POST":
+        form = ReferenceBatchUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            uploaded_file = form.cleaned_data["ris_file"]
+            raw_bytes = uploaded_file.read()
+            if not raw_bytes.strip():
+                form.add_error("ris_file", "The uploaded file appears to be empty.")
+            else:
+                sha1 = hashlib.sha1(raw_bytes).hexdigest()
+                try:
+                    records = rispy.loads(raw_bytes.decode("utf-8", errors="ignore"))
+                except Exception as exc:  # pragma: no cover - parser errors
+                    form.add_error(
+                        "ris_file", f"Could not parse RIS content ({exc})."
+                    )
+                else:
+                    if not records:
+                        form.add_error(
+                            "ris_file",
+                            "No RIS records were detected. Please ensure the file uses RIS tags (e.g. 'TY  -', 'TI  -').",
+                        )
+                    else:
+                        with transaction.atomic():
+                            batch = ReferenceSourceBatch.objects.create(
+                                project=project,
+                                label=form.cleaned_data["label"],
+                                source_type=form.cleaned_data["source_type"],
+                                search_date=form.cleaned_data.get("search_date"),
+                                uploaded_by=request.user,
+                                original_filename=getattr(uploaded_file, "name", ""),
+                                record_count=0,
+                                ris_sha1=sha1,
+                                notes=form.cleaned_data.get("notes", ""),
+                            )
+                            imported = 0
+                            duplicates = 0
+                            for record in records:
+                                title = (
+                                    _extract_reference_field(record, "primary_title")
+                                    or _extract_reference_field(record, "title")
+                                    or _extract_reference_field(record, "secondary_title")
+                                )
+                                if not title:
+                                    duplicates += 1
+                                    continue
+
+                                authors_list = record.get("authors") or record.get("author") or []
+                                if isinstance(authors_list, str):
+                                    authors_list = [authors_list]
+                                authors = "; ".join(str(a) for a in authors_list if a)
+
+                                year = (
+                                    _extract_reference_field(record, "year")
+                                    or _extract_reference_field(record, "publication_year")
+                                )
+                                doi = _extract_reference_field(record, "doi")
+                                hash_key = reference_hash(title, year, doi)
+
+                                if Reference.objects.filter(
+                                    project=project, hash_key=hash_key
+                                ).exists():
+                                    duplicates += 1
+                                    continue
+
+                                Reference.objects.create(
+                                    project=project,
+                                    batch=batch,
+                                    hash_key=hash_key,
+                                    source_identifier=
+                                    _extract_reference_field(record, "accession_number")
+                                    or _extract_reference_field(record, "id"),
+                                    title=title,
+                                    abstract=_extract_reference_field(record, "abstract"),
+                                    authors=authors,
+                                    publication_year=_coerce_year(year),
+                                    journal=
+                                    _extract_reference_field(record, "journal_name")
+                                    or _extract_reference_field(record, "secondary_title"),
+                                    volume=_extract_reference_field(record, "volume"),
+                                    issue=_extract_reference_field(record, "issue"),
+                                    pages=_combine_pages(record),
+                                    doi=doi,
+                                    url=_extract_reference_field(record, "url"),
+                                    language=_extract_reference_field(record, "language"),
+                                    raw_ris=record,
+                                )
+                                imported += 1
+
+                            batch.record_count = imported
+                            batch.save(update_fields=["record_count", "notes"])
+
+                        messages.success(
+                            request,
+                            f"Imported {imported} reference(s) into '{batch.label}'.",
+                        )
+                        if duplicates:
+                            messages.info(
+                                request,
+                                f"Skipped {duplicates} record(s) already present in this project.",
+                            )
+                        return redirect(
+                            "synopsis:reference_batch_list", project_id=project.id
+                        )
+    else:
+        form = ReferenceBatchUploadForm()
+
+    return render(
+        request,
+        "synopsis/reference_batch_upload.html",
+        {"project": project, "form": form},
+    )
+
+
+@login_required
 def advisory_protocol_feedback_close(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
     proto = getattr(project, "protocol", None)
@@ -1273,8 +1540,7 @@ def advisory_invite_reply(request, token, choice):
             {
                 "project": inv.project,
                 "invitation": inv,
-                "form": form,
-                "member": member,
+                    "member": member,
             },
         )
 
@@ -1838,7 +2104,6 @@ def protocol_feedback(request, token):
             "project": project,
             "token": fb.token,
             "feedback": fb,
-            "form": form,
             "deadline": deadline,
         },
     )

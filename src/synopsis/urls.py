@@ -91,6 +91,21 @@ urlpatterns = [
         name="advisory_protocol_feedback_close",
     ),
     path(
+        "project/<int:project_id>/references/",
+        views.reference_batch_list,
+        name="reference_batch_list",
+    ),
+    path(
+        "project/<int:project_id>/references/batch/<int:batch_id>/",
+        views.reference_batch_detail,
+        name="reference_batch_detail",
+    ),
+    path(
+        "project/<int:project_id>/references/upload/",
+        views.reference_batch_upload,
+        name="reference_batch_upload",
+    ),
+    path(
         "project/<int:project_id>/advisory-board/invite/",
         views.advisory_invite_create,
         name="advisory_invite_create",

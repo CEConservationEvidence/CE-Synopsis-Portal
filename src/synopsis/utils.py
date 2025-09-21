@@ -1,3 +1,5 @@
+import hashlib
+
 from django.contrib.auth.models import Group
 from django.conf import settings
 from django.utils import timezone
@@ -50,3 +52,10 @@ GLOBAL_GROUPS = ["manager", "author", "external_collaborator"]
 def ensure_global_groups():
     for name in GLOBAL_GROUPS:
         Group.objects.get_or_create(name=name)
+
+
+def reference_hash(*parts: str) -> str:
+    """Return a stable sha1 fingerprint for deduplication."""
+
+    normalised = "|".join((part or "").strip().lower() for part in parts)
+    return hashlib.sha1(normalised.encode("utf-8", errors="ignore")).hexdigest()

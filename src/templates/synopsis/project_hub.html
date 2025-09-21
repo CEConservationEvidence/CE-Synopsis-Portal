@@ -99,6 +99,31 @@
             </div>
         </div>
     </div>
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5>References</h5>
+                <div class="row g-2 small mb-2">
+                    <div class="col-6">Batches: <strong>{{ reference_stats.batches }}</strong></div>
+                    <div class="col-6">Total references: <strong>{{ reference_stats.references }}</strong></div>
+                    <div class="col-6">Pending screening: <strong>{{ reference_stats.pending }}</strong></div>
+                </div>
+                {% if reference_stats.latest_batch %}
+                    <p class="small mb-2">
+                        Latest batch:
+                        <strong>{{ reference_stats.latest_batch.label }}</strong>
+                        ({{ reference_stats.latest_batch.record_count }} records · {{ reference_stats.latest_batch.created_at|date:"Y-m-d H:i" }})
+                    </p>
+                {% else %}
+                    <p class="text-muted">No reference imports yet.</p>
+                {% endif %}
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:reference_batch_list' project.id %}">View batches</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload RIS</a>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="card mt-3">

@@ -36,14 +36,16 @@
                 <p class="mb-2">
                     <strong>Stage:</strong>
                     {% if protocol.stage == 'final' %}
-                        <span class="badge text-bg-success">Final</span>
+                    <span class="badge text-bg-success">Final</span>
                     {% else %}
-                        <span class="badge text-bg-warning">Draft</span>
+                    <span class="badge text-bg-warning">Draft</span>
                     {% endif %}
                     <br>
-                    <strong>Updated:</strong> {{ protocol.last_updated|date:"Y-m-d H:i" }}
+                    <strong>Updated:</strong>
+                    {{ protocol.last_updated|date:"Y-m-d H:i" }}
                     <br>
-                    <strong>Text length:</strong> {{ protocol.text_version|length }} chars
+                    <strong>Text length:</strong>
+                    {{ protocol.text_version|length }} chars
                 </p>
                 {% if protocol.document %}
                 <div class="d-flex gap-2 flex-wrap">

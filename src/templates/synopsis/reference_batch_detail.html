@@ -1,0 +1,99 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Reference Batch – {{ batch.label }}{% endblock %}
+{% block content %}
+<h1 class="mb-1">{{ batch.label }}</h1>
+<p class="text-muted mb-3">Project: {{ project.title }}</p>
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_list' project.id %}">Back to reference imports</a>
+  <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload another RIS</a>
+</div>
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-3 small">
+      <div class="col-sm-3"><strong>Records imported:</strong> {{ batch.record_count }}</div>
+      <div class="col-sm-3"><strong>Uploaded:</strong> {{ batch.created_at|date:"Y-m-d H:i" }}</div>
+      <div class="col-sm-3"><strong>Uploaded by:</strong> {% if batch.uploaded_by %}{{ batch.uploaded_by.get_full_name|default:batch.uploaded_by.username }}{% else %}<span class="text-muted">—</span>{% endif %}</div>
+      <div class="col-sm-3"><strong>Search date:</strong> {{ batch.search_date|date:"Y-m-d"|default:"—" }}</div>
+      <div class="col-sm-12"><strong>Notes:</strong> {{ batch.notes|default:"—" }}</div>
+    </div>
+  </div>
+</div>
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+      <h5 class="mb-0">Screening status</h5>
+      <div class="d-flex flex-wrap gap-2 small">
+        <a class="btn btn-sm {% if not status_filter %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}">All</a>
+        {% for item in status_summary %}
+          <a class="btn btn-sm {% if status_filter == item.status %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}?status={{ item.status }}">{{ item.label }} ({{ item.count }})</a>
+        {% empty %}
+          <span class="text-muted">No references yet.</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+<div class="card">
+  <div class="card-body">
+    <div class="table-responsive">
+      <table class="table table-sm align-middle">
+        <thead class="table-light">
+          <tr>
+            <th style="width: 40%">Title</th>
+            <th>Authors</th>
+            <th>Year</th>
+            <th>Journal</th>
+            <th>Status</th>
+            <th style="width: 22%">Update</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for ref in references %}
+          <tr>
+            <td>
+              <strong>{{ ref.title }}</strong>
+              {% if ref.abstract %}
+                <div class="text-muted small mt-1">{{ ref.abstract|truncatewords:40 }}</div>
+              {% endif %}
+              <div class="small text-muted mt-1">
+                {% if ref.doi %}DOI: {{ ref.doi }}{% endif %}
+                {% if ref.url %}<br><a href="{{ ref.url }}" target="_blank">Open link</a>{% endif %}
+              </div>
+            </td>
+            <td class="small">{{ ref.authors }}</td>
+            <td class="small">{{ ref.publication_year|default:"—" }}</td>
+            <td class="small">{{ ref.journal|default:"—" }}</td>
+            <td>
+              <span class="badge text-bg-secondary">{{ ref.get_screening_status_display }}</span>
+              {% if ref.screened_by %}
+                <div class="small text-muted">{{ ref.screened_by.get_full_name|default:ref.screened_by.username }} · {{ ref.screening_decision_at|date:"Y-m-d H:i" }}</div>
+              {% endif %}
+              {% if ref.screening_notes %}
+                <div class="small mt-1">{{ ref.screening_notes }}</div>
+              {% endif %}
+            </td>
+            <td>
+              <form method="post" class="d-grid gap-2">
+                {% csrf_token %}
+                <input type="hidden" name="reference_id" value="{{ ref.id }}">
+                <select name="screening_status" class="form-select form-select-sm">
+                  {% for value,label in status_choices %}
+                    <option value="{{ value }}" {% if ref.screening_status == value %}selected{% endif %}>{{ label }}</option>
+                  {% endfor %}
+                </select>
+                <textarea name="screening_notes" class="form-control form-control-sm" rows="2" placeholder="Notes (optional)">{{ ref.screening_notes }}</textarea>
+                <button class="btn btn-primary btn-sm">Save</button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="6" class="text-center text-muted">No references in this batch.</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
