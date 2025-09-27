@@ -235,6 +235,7 @@ class Funder(models.Model):
         Project, on_delete=models.CASCADE, related_name="funders"
     )
     name = models.CharField(max_length=255)
+    contact_title = models.CharField(max_length=50, blank=True)
     contact_first_name = models.CharField(max_length=100, blank=True)
     contact_last_name = models.CharField(max_length=100, blank=True)
     organisation = models.CharField(max_length=255, blank=True)
@@ -250,14 +251,18 @@ class Funder(models.Model):
 
     @staticmethod
     def build_display_name(
-        organisation: str | None, first: str | None, last: str | None
+        organisation: str | None,
+        title: str | None,
+        first: str | None,
+        last: str | None,
     ) -> str:
         organisation = (organisation or "").strip()
+        title = (title or "").strip()
         first = (first or "").strip()
         last = (last or "").strip()
         if organisation:
             return organisation
-        names = [part for part in [first, last] if part]
+        names = [part for part in [title, first, last] if part]
         if names:
             return " ".join(names)
         return "(Funder)"
