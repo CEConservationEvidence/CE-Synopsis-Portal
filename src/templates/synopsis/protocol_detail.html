@@ -3,85 +3,268 @@
 {% block content %}
 <h1 class="mb-3">Protocol – {{ project.title }}</h1>
 <div class="row g-3">
-    <div class="col-md-7">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                    <div>
+                        <h5 class="card-title mb-1">Latest protocol</h5>
+                        {% if protocol %}
+                        <div class="small text-muted">Last updated {{ protocol.last_updated|date:"Y-m-d H:i" }}</div>
+                        {% else %}
+                        <p class="text-muted mb-0">No protocol exists yet. Upload the first version below to get started.</p>
+                        {% endif %}
+                    </div>
+                    {% if protocol %}
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="fw-semibold">Stage:</span>
+                        {% if protocol.stage == 'final' %}
+                        <span class="badge text-bg-success">Final</span>
+                        {% else %}
+                        <span class="badge text-bg-warning text-dark">Draft</span>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% if current_revision_entry %}
+                <div class="mt-2">
+                    <strong>File:</strong>
+                    {% if current_revision_download_url %}
+                    <a class="link-secondary" href="{{ current_revision_download_url }}" target="_blank">
+                        {{ current_revision_entry.file_name }}
+                    </a>
+                    {% else %}
+                    <span class="text-muted">{{ current_revision_entry.file_name }}</span>
+                    {% endif %}
+                    {% if current_revision_entry.file_size and current_revision_entry.file_size != '—' %}
+                    <span class="text-muted small">({{ current_revision_entry.file_size }})</span>
+                    {% endif %}
+                </div>
+                <div class="mt-2 d-flex flex-wrap gap-2">
+                    {% if current_revision_download_url %}
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ current_revision_download_url }}" download>Download</a>
+                    {% endif %}
+                    {% if protocol.document %}
+                    <form method="post" action="{% url 'synopsis:protocol_delete_file' project.id %}" class="d-inline">
+                        {% csrf_token %}
+                        <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Remove the uploaded protocol file?');">Delete file</button>
+                    </form>
+                    {% endif %}
+                    <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}" class="d-inline">
+                        {% csrf_token %}
+                        <button class="btn btn-danger btn-sm" onclick="return confirm('Delete the entire protocol (file and text)? This cannot be undone.');">Delete protocol</button>
+                    </form>
+                </div>
+                <div class="small text-muted mt-2">
+                    Version uploaded {{ current_revision_entry.revision.uploaded_at|date:"Y-m-d H:i" }}
+                    {% if current_revision_entry.revision.uploaded_by %}
+                    by {{ current_revision_entry.revision.uploaded_by.get_full_name|default:current_revision_entry.revision.uploaded_by.username }}
+                    {% endif %}
+                </div>
+                {% if protocol.stage != 'final' and current_revision_entry and can_manage_project %}
+                <div class="mt-3">
+                    <form class="row gy-2 gx-2 align-items-end" method="post" action="{% url 'synopsis:protocol_set_stage' project.id %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="stage" value="final">
+                        <input type="hidden" name="revision_id" value="{{ current_revision_entry.revision.id }}">
+                        <div class="col-md-8 col-lg-6">
+                            <label class="form-label" for="id_final_reason">Reason for marking final</label>
+                            <input type="text" class="form-control" id="id_final_reason" name="reason" placeholder="e.g., Consensus reached with authors" required>
+                        </div>
+                        <div class="col-md-4 col-lg-3">
+                            <button class="btn btn-success w-100" type="submit">Mark as Final</button>
+                        </div>
+                    </form>
+                    <div class="form-text">Once final, you must switch back to Draft before uploading a revision.</div>
+                </div>
+                {% endif %}
+                {% elif protocol and protocol.document %}
+                <p class="mt-2 text-muted">Protocol record exists but no revision metadata was captured. Upload a new version so the revision timeline can start tracking changes.</p>
+                <div class="mt-2 d-flex flex-wrap gap-2">
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ protocol.document.url }}" download>Download</a>
+                    <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}" class="d-inline">
+                        {% csrf_token %}
+                        <button class="btn btn-danger btn-sm" onclick="return confirm('Delete the entire protocol (file and text)? This cannot be undone.');">Delete protocol</button>
+                    </form>
+                </div>
+                {% elif protocol %}
+                <p class="mt-2 text-muted">No protocol file is active right now. Restore an earlier revision or upload a new version.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title">Upload / edit protocol</h5>
+                <h5 class="card-title">Upload a new version</h5>
+                {% if final_stage_locked %}
+                <div class="alert alert-warning">
+                    This protocol is marked as <strong>Final</strong>. Switch the stage back to Draft and include a revision reason before uploading a new version.
+                </div>
+                {% endif %}
                 <form method="post" enctype="multipart/form-data">
                     {% csrf_token %}
+                    {% if form.non_field_errors %}
+                    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+                    {% endif %}
                     <div class="mb-3">
-                        {{ form.document.label_tag }} {{ form.document }}
+                        {{ form.document.label_tag }}
+                        {{ form.document }}
+                        {% if form.document.help_text %}
+                        <div class="form-text">{{ form.document.help_text }}</div>
+                        {% endif %}
+                        {% for error in form.document.errors %}
+                        <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Stage</label>
                         {{ form.stage }}
                         <div class="form-text">Set to Final when agreed by authors.</div>
+                        {% if final_stage_locked %}
+                        <div class="text-warning small">Final protocols are read-only. Select Draft first if you need to upload a revision.</div>
+                        {% endif %}
+                        {% for error in form.stage.errors %}
+                        <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
                     </div>
                     <div class="mb-3">
-                        {{ form.text_version.label_tag }} {{ form.text_version }}
-                        <div class="form-text">Rich text editor enabled for convenience; you can also upload a file.</div>
+                        <label class="form-label" for="{{ form.change_reason.id_for_label }}">
+                            Change reason
+                            {% if first_upload_pending %}
+                            <span class="text-muted small ms-1">(optional for the initial upload)</span>
+                            {% else %}
+                            <span class="text-danger small ms-1">(required for revisions)</span>
+                            {% endif %}
+                        </label>
+                        {{ form.change_reason }}
+                        {% if form.change_reason.help_text %}
+                        <div class="form-text">{{ form.change_reason.help_text }}</div>
+                        {% endif %}
+                        {% for error in form.change_reason.errors %}
+                        <div class="text-danger small">{{ error }}</div>
+                        {% endfor %}
                     </div>
-                    <button class="btn btn-primary">Save</button>
-                    <a class="btn btn-light" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-primary">Save revision</button>
+                        <a class="btn btn-light" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
+                    </div>
                 </form>
+                {% if protocol and protocol.stage == 'final' and can_manage_project %}
+                <form class="mt-3" method="post" action="{% url 'synopsis:protocol_set_stage' project.id %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="stage" value="draft">
+                    <label class="form-label" for="id_return_draft">Reason for returning to draft (optional)</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="id_return_draft" name="reason" placeholder="e.g., Additional edits required">
+                        <button class="btn btn-outline-secondary" type="submit">Switch to Draft</button>
+                    </div>
+                </form>
+                {% endif %}
             </div>
         </div>
     </div>
-    <div class="col-md-5">
+    <div class="col-12">
         <div class="card">
             <div class="card-body">
-                <h5 class="card-title">Current details</h5>
-                {% if protocol %}
-                <p class="mb-2">
-                    <strong>Stage:</strong>
-                    {% if protocol.stage == 'final' %}
-                    <span class="badge text-bg-success">Final</span>
-                    {% else %}
-                    <span class="badge text-bg-warning">Draft</span>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="card-title mb-0">Revision history</h5>
+                    {% if protocol_revision_entries %}
+                    <span class="text-muted small">Newest first</span>
                     {% endif %}
-                    <br>
-                    <strong>Updated:</strong>
-                    {{ protocol.last_updated|date:"Y-m-d H:i" }}
-                    <br>
-                    <strong>Text length:</strong>
-                    {{ protocol.text_version|length }} chars
-                </p>
-                {% if protocol.document %}
-                <div class="d-flex gap-2 flex-wrap">
-                    <a class="btn btn-outline-secondary btn-sm" href="{{ protocol.document.url }}" target="_blank">
-                        View / Download file
-                    </a>
-                    <form method="post" action="{% url 'synopsis:protocol_delete_file' project.id %}">
-                        {% csrf_token %}
-                        <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Remove the uploaded protocol file?');">Delete file</button>
-                    </form>
+                </div>
+                {% if protocol_revision_entries %}
+                <div class="list-group list-group-flush">
+                    {% for entry in protocol_revision_entries %}
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                            <div>
+                                <div class="d-flex align-items-center gap-2 flex-wrap">
+                                    <span class="fw-semibold">{{ entry.file_name }}</span>
+                                    <span class="badge text-bg-{% if entry.revision.stage == 'final' %}success{% else %}warning text-dark{% endif %}">{{ entry.revision.get_stage_display }}</span>
+                                    {% if entry.is_current %}
+                                    <span class="badge text-bg-primary">Current</span>
+                                    {% endif %}
+                                </div>
+                                <div class="small text-muted mt-1">
+                                    Uploaded {{ entry.revision.uploaded_at|date:"Y-m-d H:i" }}
+                                    {% if entry.uploaded_by and entry.uploaded_by != '—' %}
+                                    by {{ entry.uploaded_by }}
+                                    {% endif %}
+                                    {% if entry.file_size and entry.file_size != '—' %}
+                                    · {{ entry.file_size }}
+                                    {% endif %}
+                                </div>
+                                {% if entry.revision.change_reason %}
+                                <div class="mt-1 small">{{ entry.revision.change_reason }}</div>
+                                {% endif %}
+                            </div>
+                            <div class="text-end ms-auto">
+                                {% if entry.download_url %}
+                                <a class="btn btn-outline-secondary btn-sm mb-1" href="{{ entry.download_url }}" download>Download</a>
+                                {% endif %}
+                                {% if not entry.is_current %}
+                                <form method="post" action="{% url 'synopsis:protocol_restore_revision' project.id entry.revision.id %}" class="d-inline" onsubmit="return confirm('Restore this revision as the active protocol?');">
+                                    {% csrf_token %}
+                                    <button class="btn btn-outline-primary btn-sm">Restore</button>
+                                </form>
+                                {% else %}
+                                <span class="badge text-bg-secondary align-self-center">Active</span>
+                                {% endif %}
+                                {% if entry.can_mark_final %}
+                                <form method="post" action="{% url 'synopsis:protocol_set_stage' project.id %}" class="d-inline-flex align-items-center gap-2 mt-2 mt-sm-0" onsubmit="return confirm('Set this revision as the final protocol?');">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="stage" value="final">
+                                    <input type="hidden" name="revision_id" value="{{ entry.revision.id }}">
+                                    <input type="text" name="reason" class="form-control form-control-sm" placeholder="Reason" required>
+                                    <button class="btn btn-success btn-sm">Set as Final</button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
                 </div>
                 {% else %}
-                <p class="text-muted">No file uploaded yet.</p>
+                <p class="text-muted mb-0">Upload a protocol to start building a revision timeline.</p>
                 {% endif %}
-                <div class="mt-2 d-flex gap-2 flex-wrap">
-                    {% if protocol.text_version %}
-                    <form method="post" action="{% url 'synopsis:protocol_clear_text' project.id %}">
-                        {% csrf_token %}
-                        <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Clear the protocol text content?');">Clear text</button>
-                    </form>
-                    {% endif %}
-                    <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}">
-                        {% csrf_token %}
-                        <button class="btn btn-danger btn-sm" onclick="return confirm('Delete the entire protocol (file and text)? This cannot be undone.');">Delete protocol</button>
-                    </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Recent change log</h5>
+                {% if protocol_history_entries %}
+                <div class="list-group list-group-flush">
+                    {% for item in protocol_history_entries %}
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                            <div>
+                                <div class="fw-semibold">{{ item.log.action }}</div>
+                                <div class="small text-muted mt-1">
+                                    {{ item.log.created_at|date:"Y-m-d H:i" }} · {{ item.actor }}
+                                </div>
+                                {% if item.changes %}
+                                <ul class="small mb-1">
+                                    {% for change in item.changes %}
+                                    <li>{{ change }}</li>
+                                    {% endfor %}
+                                </ul>
+                                {% endif %}
+                                {% if item.reason %}
+                                <div class="small"><strong>Reason:</strong> {{ item.reason }}</div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
                 </div>
                 {% else %}
-                <p class="text-muted mb-0">No protocol exists yet.</p>
+                <p class="text-muted mb-0">No protocol-specific change log entries yet.</p>
                 {% endif %}
             </div>
         </div>
     </div>
 </div>
-<script src="https://cdn.ckeditor.com/4.22.1/standard/ckeditor.js"></script>
-<script>
-    if (window.CKEDITOR) {
-        CKEDITOR.replace('id_text_version');
-    }
-</script>
 {% endblock %}
