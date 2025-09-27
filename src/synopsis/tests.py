@@ -170,15 +170,15 @@ class ProjectAuthorUsersTests(TestCase):
 
 class FunderUtilityTests(TestCase):
     def test_build_display_name_prefers_organisation(self):
-        name = Funder.build_display_name("Org Inc", "Ann", "Lee")
+        name = Funder.build_display_name("Org Inc", "Dr", "Ann", "Lee")
         self.assertEqual(name, "Org Inc")
 
     def test_build_display_name_from_names(self):
-        name = Funder.build_display_name(None, "Ann", "Lee")
-        self.assertEqual(name, "Ann Lee")
+        name = Funder.build_display_name(None, "Dr", "Ann", "Lee")
+        self.assertEqual(name, "Dr Ann Lee")
 
     def test_build_display_name_default(self):
-        self.assertEqual(Funder.build_display_name(None, None, None), "(Funder)")
+        self.assertEqual(Funder.build_display_name(None, None, None, None), "(Funder)")
 
 
 class FunderFormTests(TestCase):
@@ -186,9 +186,9 @@ class FunderFormTests(TestCase):
         form = FunderForm(
             data={
                 "organisation": "",
+                "contact_title": "Dr",
                 "contact_first_name": "",
                 "contact_last_name": "",
-                "funds_allocated": "100.00",
             }
         )
         self.assertFalse(form.is_valid())
