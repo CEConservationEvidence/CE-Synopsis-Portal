@@ -39,6 +39,16 @@ urlpatterns = [
         name="protocol_delete_file",
     ),
     path(
+        "project/<int:project_id>/protocol/set-stage/",
+        views.protocol_set_stage,
+        name="protocol_set_stage",
+    ),
+    path(
+        "project/<int:project_id>/protocol/revision/<int:revision_id>/restore/",
+        views.protocol_restore_revision,
+        name="protocol_restore_revision",
+    ),
+    path(
         "project/<int:project_id>/protocol/clear-text/",
         views.protocol_clear_text,
         name="protocol_clear_text",
