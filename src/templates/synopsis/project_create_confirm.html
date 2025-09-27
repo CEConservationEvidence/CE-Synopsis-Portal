@@ -1,0 +1,64 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Confirm New Synopsis – CE Portal{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <h1 class="h4 mb-3">Review synopsis details</h1>
+                <p class="text-muted">Please review the information below before creating the synopsis.</p>
+                <dl class="row mb-0">
+                    <dt class="col-sm-3">Title</dt>
+                    <dd class="col-sm-9">{{ summary.title }}</dd>
+
+                    <dt class="col-sm-3">Authors</dt>
+                    <dd class="col-sm-9">
+                        {% if summary.authors %}
+                            {{ summary.authors|join:", " }}
+                        {% else %}
+                            <span class="text-muted">No authors selected</span>
+                        {% endif %}
+                    </dd>
+
+                    <dt class="col-sm-3">Funder</dt>
+                    <dd class="col-sm-9">
+                        {% if summary.funder.has_details %}
+                            {% if summary.funder.organisation %}
+                                <div><strong>Organisation:</strong> {{ summary.funder.organisation }}</div>
+                            {% endif %}
+                            {% if summary.funder.contact and summary.funder.contact != "—" %}
+                                <div><strong>Contact:</strong> {{ summary.funder.contact }}</div>
+                            {% endif %}
+                            {% if summary.funder.funds_allocated %}
+                                <div><strong>Funds allocated:</strong> {{ summary.funder.funds_allocated }}</div>
+                            {% endif %}
+                            {% if summary.funder.fund_start_date %}
+                                <div><strong>Start date:</strong> {{ summary.funder.fund_start_date|date:"d M Y" }}</div>
+                            {% endif %}
+                            {% if summary.funder.fund_end_date %}
+                                <div><strong>End date:</strong> {{ summary.funder.fund_end_date|date:"d M Y" }}</div>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-muted">No funder details provided</span>
+                        {% endif %}
+                    </dd>
+                </dl>
+            </div>
+        </div>
+        <form method="post">
+            {% csrf_token %}
+            {{ project_form.as_p }}
+            {% for field in authors_form_hidden %}
+                {{ field }}
+            {% endfor %}
+            {% for field in funder_form_hidden %}
+                {{ field }}
+            {% endfor %}
+            <div class="d-flex justify-content-between">
+                <button class="btn btn-outline-secondary" type="submit" name="edit" value="1">Edit details</button>
+                <button class="btn btn-primary" type="submit" name="confirm" value="1">Create synopsis</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

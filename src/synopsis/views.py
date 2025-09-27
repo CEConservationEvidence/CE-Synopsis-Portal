@@ -348,51 +348,104 @@ def project_create(request):
         aform = AssignAuthorsForm(request.POST)
         fform = FunderForm(request.POST)
         if pform.is_valid() and aform.is_valid() and fform.is_valid():
-            project = pform.save()
-
-            _log_project_change(
-                project, request.user, "Project created", f"Title: {project.title}"
-            )
-
-            # Assign authors via UserRole
-            authors = aform.cleaned_data.get("authors") or []
-            for user in authors:
-                UserRole.objects.get_or_create(
-                    user=user, project=project, role="author"
+            if request.POST.get("edit") == "1":
+                return render(
+                    request,
+                    "synopsis/project_create.html",
+                    {
+                        "form": pform,
+                        "authors_form": aform,
+                        "funder_form": fform,
+                    },
                 )
-            if authors:
-                author_labels = ", ".join(
-                    user.get_full_name() or user.username for user in authors
-                )
+
+            if request.POST.get("confirm") == "1":
+                project = pform.save()
+
                 _log_project_change(
-                    project,
-                    request.user,
-                    "Assigned authors",
-                    f"Initial author list: {author_labels}",
+                    project, request.user, "Project created", f"Title: {project.title}"
                 )
 
-            if fform.has_meaningful_input():
-                funder = fform.save(commit=False)
-                funder.project = project
-                funder.name = Funder.build_display_name(
-                    funder.organisation,
-                    funder.contact_first_name,
-                    funder.contact_last_name,
-                )
-                funder.save()
-                contact_label = _funder_contact_label(
-                    funder.contact_first_name, funder.contact_last_name
-                )
-                details = (
-                    f"Organisation: {_format_value(funder.organisation)}; "
-                    f"Contact: {contact_label}; "
-                    f"Funds allocated: {_format_value(funder.funds_allocated)}; "
-                    f"Dates: {_format_value(funder.fund_start_date)} to {_format_value(funder.fund_end_date)}"
-                )
-                _log_project_change(project, request.user, "Added funder", details)
+                authors = aform.cleaned_data.get("authors") or []
+                for user in authors:
+                    UserRole.objects.get_or_create(
+                        user=user, project=project, role="author"
+                    )
+                if authors:
+                    author_labels = ", ".join(
+                        _user_display(user) for user in authors
+                    )
+                    _log_project_change(
+                        project,
+                        request.user,
+                        "Assigned authors",
+                        f"Initial author list: {author_labels}",
+                    )
 
-            messages.success(request, "Project created.")
-            return redirect("synopsis:project_hub", project_id=project.id)
+                if fform.has_meaningful_input():
+                    funder = fform.save(commit=False)
+                    funder.project = project
+                    funder.name = Funder.build_display_name(
+                        funder.organisation,
+                        funder.contact_first_name,
+                        funder.contact_last_name,
+                    )
+                    funder.save()
+                    contact_label = _funder_contact_label(
+                        funder.contact_first_name, funder.contact_last_name
+                    )
+                    details = (
+                        f"Organisation: {_format_value(funder.organisation)}; "
+                        f"Contact: {contact_label}; "
+                        f"Funds allocated: {_format_value(funder.funds_allocated)}; "
+                        f"Dates: {_format_value(funder.fund_start_date)} to {_format_value(funder.fund_end_date)}"
+                    )
+                    _log_project_change(project, request.user, "Added funder", details)
+
+                messages.success(request, "Project created.")
+                return redirect("synopsis:project_hub", project_id=project.id)
+
+            hidden_project_form = ProjectCreateForm(request.POST)
+            for field in hidden_project_form.fields.values():
+                field.widget = forms.HiddenInput()
+
+            hidden_authors_form = AssignAuthorsForm(request.POST)
+            hidden_authors_form.fields["authors"].widget = forms.MultipleHiddenInput()
+
+            hidden_funder_form = FunderForm(request.POST)
+            for name, field in hidden_funder_form.fields.items():
+                field.widget = forms.HiddenInput()
+
+            authors = aform.cleaned_data.get("authors") or []
+            author_names = [_user_display(user) for user in authors]
+
+            funder_cleaned = fform.cleaned_data
+            funder_summary = {
+                "organisation": funder_cleaned.get("organisation"),
+                "contact": _funder_contact_label(
+                    funder_cleaned.get("contact_first_name"),
+                    funder_cleaned.get("contact_last_name"),
+                ),
+                "funds_allocated": funder_cleaned.get("funds_allocated"),
+                "fund_start_date": funder_cleaned.get("fund_start_date"),
+                "fund_end_date": funder_cleaned.get("fund_end_date"),
+                "has_details": fform.has_meaningful_input(),
+            }
+
+            return render(
+                request,
+                "synopsis/project_create_confirm.html",
+                {
+                    "project_form": hidden_project_form,
+                    "authors_form_hidden": hidden_authors_form,
+                    "funder_form_hidden": hidden_funder_form,
+                    "summary": {
+                        "title": pform.cleaned_data["title"],
+                        "authors": author_names,
+                        "funder": funder_summary,
+                    },
+                },
+            )
     else:
         pform = ProjectCreateForm()
         aform = AssignAuthorsForm()
