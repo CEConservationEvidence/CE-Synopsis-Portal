@@ -6,15 +6,20 @@
         <div class="card">
             <div class="card-body">
                 <h1 class="h4 mb-3">Confirm your participation</h1>
-                <p>Please affirm that you can actively participate in
-                    <strong>{{ project.title }}</strong> and provide valuable input to the advisory board. ASK TEAM ON THIS!!!
-                </p>
+                <p>Please confirm that you are able to actively participate in
+                    <strong>{{ project.title }}</strong> and contribute to the synopsis development.</p>
                 <form method="post">
                     {% csrf_token %}
+                    <div class="form-check mb-3">
+                        {{ form.confirm_participation }}
+                        {{ form.confirm_participation.label_tag }}
+                        <div class="form-text">{{ form.confirm_participation.help_text }}</div>
+                        {{ form.confirm_participation.errors }}
+                    </div>
                     <div class="mb-3">
                         {{ form.statement.label_tag }}
-            {{ form.statement }}
-                        <div class="form-text">TODO: ask team on what to include in the confirmation statement or simply a checkbox for agreement.</div>
+                        {{ form.statement }}
+                        <div class="form-text">{{ form.statement.help_text }}</div>
                         {{ form.statement.errors }}
                     </div>
                     <button class="btn btn-primary">Submit confirmation</button>
