@@ -18,6 +18,7 @@ class Project(models.Model):
     """A singular 'project' class (reusable by other living evidence teams hence the term is open here)."""
 
     title = models.CharField(max_length=255)
+    start_date = models.DateField(null=True, blank=True)
     status = models.CharField(
         max_length=50,
         choices=[
