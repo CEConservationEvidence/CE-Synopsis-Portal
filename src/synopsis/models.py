@@ -277,9 +277,52 @@ class Protocol(models.Model):
     stage = models.CharField(max_length=20, choices=STAGE_CHOICES, default="draft")
     feedback_closed_at = models.DateTimeField(null=True, blank=True)
     feedback_closure_message = models.TextField(blank=True)
+    current_revision = models.ForeignKey(
+        "ProtocolRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="current_for",
+    )
 
     def __str__(self):
         return f"Protocol for {self.project.title}"
+
+    def latest_revision(self):
+        if self.current_revision:
+            return self.current_revision
+        return self.revisions.order_by("-uploaded_at", "-id").first()
+
+
+def protocol_revision_upload_path(instance, filename):
+    return (
+        f"protocol_revisions/{instance.protocol.project_id}/{uuid.uuid4()}_{filename}"
+    )
+
+
+class ProtocolRevision(models.Model):
+    protocol = models.ForeignKey(
+        Protocol, on_delete=models.CASCADE, related_name="revisions"
+    )
+    file = models.FileField(upload_to=protocol_revision_upload_path)
+    stage = models.CharField(max_length=20, choices=Protocol.STAGE_CHOICES)
+    change_reason = models.TextField(blank=True)
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="protocol_revisions",
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    original_name = models.CharField(max_length=255, blank=True)
+    file_size = models.BigIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-uploaded_at", "-id"]
+
+    def __str__(self):
+        return f"Revision for {self.protocol.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
 
 
 class AdvisoryBoardMember(models.Model):
@@ -418,6 +461,8 @@ class ProtocolFeedback(models.Model):
         return self.feedback_deadline_at
 
 
+# TODO: add new datamodel for ACTION LIST here (similar to protocol document). A document sent to AB (foreign), one-one relationship.
+
 class ReferenceSourceBatch(models.Model):
     """Represents one RIS (or similar) import event for a project."""
 
@@ -427,7 +472,7 @@ class ReferenceSourceBatch(models.Model):
         ("non_english", "Non-English search"),
         ("manual_upload", "Manual upload"),
         ("legacy", "Legacy import"),
-    ]  # TODO: Other teams may want to drop or modify these choices. Most likely it should be simplified to journal search or manual upload.
+    ]  # TODO: Other teams may want to drop or modify these choices. Also most likely it should be simplified to journal search or manual upload.
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="reference_batches"
