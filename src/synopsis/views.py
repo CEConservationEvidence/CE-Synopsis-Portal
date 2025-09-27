@@ -1,5 +1,8 @@
 import datetime as dt
 import hashlib
+import os
+import uuid
+from decimal import Decimal
 
 import rispy
 
@@ -8,6 +11,7 @@ from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User, Group
+from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives, send_mail
 from django.db import transaction
 from django.db.models import Count
@@ -47,6 +51,7 @@ from .models import (
     ProtocolFeedback,
     ReferenceSourceBatch,
     Reference,
+    ProtocolRevision,
 )
 from .utils import ensure_global_groups, email_subject, reply_to_list, reference_hash
 
@@ -94,6 +99,40 @@ def _format_deadline(deadline):
     except (ValueError, TypeError):
         aware = deadline
     return aware.strftime("%d %b %Y %H:%M")
+
+
+def _format_file_size(size_bytes):
+    try:
+        size = int(size_bytes)
+    except (TypeError, ValueError):
+        return "—"
+    if size < 0:
+        return "—"
+    units = ["B", "KB", "MB", "GB", "TB"]
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{size} {unit}"
+            return f"{size:.1f} {unit}"
+        size /= 1024
+
+
+def _apply_revision_to_protocol(protocol, revision) -> tuple[str, str]:
+    try:
+        with revision.file.open("rb") as source:
+            content = source.read()
+    except FileNotFoundError:
+        raise FileNotFoundError("Revision file missing")
+
+    if not content:
+        raise ValueError("Revision file empty")
+
+    base_name = revision.original_name or os.path.basename(revision.file.name)
+    new_filename = f"protocols/{uuid.uuid4()}_{base_name}"
+    protocol.document.save(new_filename, ContentFile(content), save=False)
+    protocol.current_revision = revision
+    protocol.save(update_fields=["document", "current_revision"])
+    return base_name, _format_file_size(revision.file_size)
 
 
 def _create_protocol_feedback(project, member=None, email=None, invitation=None):
@@ -378,6 +417,29 @@ def project_hub(request, project_id):
         pk=project_id,
     )
     protocol = getattr(project, "protocol", None)
+    can_manage = _user_is_manager(request.user)
+
+    funders = list(project.funders.all())
+    funders.sort(
+        key=lambda f: (
+            f.fund_start_date or dt.date.max,
+            (
+                f.organisation or f.contact_last_name or f.contact_first_name or ""
+            ).lower(),
+        )
+    )
+    funding_values = [
+        f.funds_allocated for f in funders if f.funds_allocated is not None
+    ]
+    total_funding = sum(funding_values, Decimal("0")) if funding_values else None
+    start_dates = [f.fund_start_date for f in funders if f.fund_start_date]
+    end_dates = [f.fund_end_date for f in funders if f.fund_end_date]
+    funder_summary = {
+        "count": len(funders),
+        "total": total_funding,
+        "earliest_start": min(start_dates) if start_dates else None,
+        "latest_end": max(end_dates) if end_dates else None,
+    }
 
     inv_qs = AdvisoryBoardInvitation.objects.filter(project=project)
     members_qs = AdvisoryBoardMember.objects.filter(project=project)
@@ -430,6 +492,8 @@ def project_hub(request, project_id):
             "last_phase_event": last_event,
             "authors": list(project.author_users),
             "change_log_entries": change_log_entries,
+            "funders": funders,
+            "funder_summary": funder_summary,
             "can_manage_project": _user_is_manager(request.user),
         },
     )
@@ -545,6 +609,8 @@ def project_authors_manage(request, project_id):
         "synopsis/project_authors_form.html",
         {
             "project": project,
+            "form": form,
+            "current_authors": current_authors_qs,
         },
     )
 
@@ -710,63 +776,378 @@ def project_delete(request, project_id):
 def protocol_detail(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
     protocol = getattr(project, "protocol", None)
+    can_manage = _user_is_manager(request.user)
+    protocol_history_queryset = (
+        project.change_log.filter(action__icontains="protocol")
+        .select_related("changed_by")
+        .order_by("-created_at", "-id")
+    )
+    protocol_history_entries = []
+    for log in protocol_history_queryset:
+        segments = [
+            segment.strip() for segment in log.details.split("|") if segment.strip()
+        ]
+        reason = ""
+        changes = []
+        for segment in segments:
+            if segment.lower().startswith("reason:"):
+                reason = segment.split(":", 1)[1].strip()
+            else:
+                changes.append(segment)
+        protocol_history_entries.append(
+            {
+                "log": log,
+                "changes": changes,
+                "reason": reason,
+                "actor": _user_display(log.changed_by) if log.changed_by else "System",
+            }
+        )
+
+    revision_entries = []
+    if protocol:
+        revision_queryset = protocol.revisions.select_related("uploaded_by")
+        for revision in revision_queryset:
+            file_name = revision.original_name or os.path.basename(revision.file.name)
+            try:
+                download_url = revision.file.url
+            except ValueError:
+                download_url = ""
+            revision_entries.append(
+                {
+                    "revision": revision,
+                    "is_current": protocol.current_revision_id == revision.id,
+                    "file_name": file_name,
+                    "file_size": _format_file_size(revision.file_size),
+                    "uploaded_by": (
+                        _user_display(revision.uploaded_by)
+                        if revision.uploaded_by
+                        else "—"
+                    ),
+                    "download_url": download_url,
+                    "can_mark_final": can_manage
+                    and (
+                        protocol.stage != "final"
+                        or protocol.current_revision_id != revision.id
+                    ),
+                }
+            )
+
+    current_revision_entry = next(
+        (entry for entry in revision_entries if entry["is_current"]), None
+    )
+    current_revision_download_url = ""
+    if current_revision_entry:
+        try:
+            current_revision_download_url = current_revision_entry["revision"].file.url
+        except ValueError:
+            current_revision_download_url = ""
+
+    existing_file_name = (
+        protocol.document.name if protocol and protocol.document else ""
+    )
+    has_existing_file = bool(existing_file_name or revision_entries)
+    first_upload_pending = not has_existing_file
+    final_stage_locked = bool(
+        protocol and protocol.stage == "final" and has_existing_file
+    )
 
     if request.method == "POST":
         form = ProtocolUpdateForm(request.POST, request.FILES, instance=protocol)
         if form.is_valid():
-            old_stage = protocol.stage if protocol else None
-            old_file = (
-                protocol.document.name if protocol and protocol.document else None
-            )
-            old_text = protocol.text_version if protocol else ""
+            new_stage = form.cleaned_data.get("stage")
+            uploaded_file = form.cleaned_data.get("document")
+            reason = form.cleaned_data.get("change_reason", "")
 
-            obj = form.save(commit=False)
-            obj.project = project
-            obj.save()
-            form.save_m2m()
+            is_new_protocol = protocol is None
+            stage_changed = bool(protocol) and protocol.stage != new_stage
+            replacing_file = bool(uploaded_file)
 
-            new_file = obj.document.name if obj.document else None
-            changes = []
-
-            if protocol is None:
-                changes.append("Created protocol record")
-            elif old_stage != obj.stage:
-                changes.append(
-                    f"Stage: {_format_value(old_stage)} → {_format_value(obj.stage)}"
+            if final_stage_locked and new_stage == "final" and replacing_file:
+                form.add_error(
+                    "document",
+                    "Finalized protocols cannot be replaced. Switch the stage back to Draft to revise the document.",
                 )
 
-            if old_file != new_file:
-                if new_file and old_file:
-                    changes.append(f"File replaced: {old_file} → {new_file}")
-                elif new_file:
-                    changes.append(f"File uploaded: {new_file}")
-                elif old_file:
-                    changes.append(f"File removed: {old_file}")
-
-            new_text = obj.text_version or ""
-            if old_text != new_text:
-                changes.append(
-                    f"Text updated (length {len(old_text)} → {len(new_text)} chars)"
+            needs_reason = (not is_new_protocol) and (stage_changed or replacing_file)
+            if needs_reason and not reason:
+                form.add_error(
+                    "change_reason",
+                    "Please capture the reason for this revision so the team has context.",
                 )
 
-            if changes:
+            if not form.errors:
+                old_stage = protocol.stage if protocol else None
+                old_file = (
+                    protocol.document.name if protocol and protocol.document else None
+                )
+
+                revision_content = None
+                revision_filename = ""
+                if uploaded_file:
+                    uploaded_file.seek(0)
+                    revision_content = ContentFile(uploaded_file.read())
+                    uploaded_file.seek(0)
+                    revision_filename = os.path.basename(
+                        uploaded_file.name or "protocol_upload"
+                    )
+
+                obj = form.save(commit=False)
+                obj.project = project
+                obj.save()
+                form.save_m2m()
+
+                protocol = obj
+
+                new_file = obj.document.name if obj.document else None
+                changes = []
+
+                if is_new_protocol:
+                    changes.append("Created protocol record")
+                elif old_stage != obj.stage:
+                    changes.append(
+                        f"Stage: {_format_value(old_stage)} → {_format_value(obj.stage)}"
+                    )
+
+                if old_file != new_file:
+                    if new_file and old_file:
+                        changes.append(f"File replaced: {old_file} → {new_file}")
+                    elif new_file:
+                        changes.append(f"File uploaded: {new_file}")
+                    elif old_file:
+                        changes.append(f"File removed: {old_file}")
+
+                revision_instance = None
+                if revision_content is not None:
+                    revision_instance = ProtocolRevision(
+                        protocol=obj,
+                        stage=obj.stage,
+                        change_reason=(
+                            reason
+                            if reason
+                            else ("Initial upload" if is_new_protocol else "")
+                        ),
+                        uploaded_by=(
+                            request.user if request.user.is_authenticated else None
+                        ),
+                    )
+                    original_name = os.path.basename(
+                        uploaded_file.name or revision_filename
+                    )
+                    revision_instance.original_name = original_name
+                    file_size = getattr(uploaded_file, "size", None)
+                    if file_size in (None, ""):
+                        file_size = getattr(revision_content, "size", None)
+                    try:
+                        revision_instance.file_size = int(file_size or 0)
+                    except (TypeError, ValueError):
+                        revision_instance.file_size = 0
+                    revision_instance.file.save(
+                        revision_filename, revision_content, save=True
+                    )
+                    obj.current_revision = revision_instance
+                    obj.save(update_fields=["current_revision"])
+                elif stage_changed and obj.current_revision:
+                    update_fields = []
+                    if obj.current_revision.stage != obj.stage:
+                        obj.current_revision.stage = obj.stage
+                        update_fields.append("stage")
+                    if reason:
+                        obj.current_revision.change_reason = reason
+                        update_fields.append("change_reason")
+                    if update_fields:
+                        obj.current_revision.save(update_fields=update_fields)
+
+                if obj.stage == "final" and obj.current_revision:
+                    ProtocolRevision.objects.filter(protocol=obj).exclude(
+                        pk=obj.current_revision_id
+                    ).update(stage="draft")
+                    if obj.current_revision.stage != "final":
+                        obj.current_revision.stage = "final"
+                        obj.current_revision.save(update_fields=["stage"])
+
+                detail_parts = []
+                if changes:
+                    detail_parts.append("; ".join(changes))
+                if reason:
+                    detail_parts.append(f"Reason: {reason}")
+                if not detail_parts:
+                    detail_parts.append(
+                        "Protocol saved without detectable field changes"
+                    )
+
                 _log_project_change(
                     project,
                     request.user,
                     "Protocol updated",
-                    "; ".join(changes),
+                    " | ".join(detail_parts),
                 )
-
-            messages.success(request, "Protocol updated.")
-            return redirect("synopsis:protocol_detail", project_id=project.id)
+                success_message = "Protocol updated."
+                if obj.stage == "final" and (
+                    is_new_protocol or stage_changed or replacing_file
+                ):
+                    success_message = "Protocol updated and marked as final. Switch to Draft before uploading further revisions."
+                messages.success(request, success_message)
+                return redirect("synopsis:protocol_detail", project_id=project.id)
     else:
         form = ProtocolUpdateForm(instance=protocol)
+
+    if first_upload_pending:
+        form.fields["change_reason"].help_text = (
+            "Optional for the first upload. Provide details when you revise an existing protocol."
+        )
+    else:
+        form.fields["change_reason"].help_text = (
+            "Required when you replace the file or change the protocol stage."
+        )
 
     return render(
         request,
         "synopsis/protocol_detail.html",
-        {"project": project, "protocol": protocol, "form": form},
+        {
+            "project": project,
+            "protocol": protocol,
+            "form": form,
+            "protocol_history_entries": protocol_history_entries,
+            "protocol_revision_entries": revision_entries,
+            "current_revision_entry": current_revision_entry,
+            "current_revision_download_url": current_revision_download_url,
+            "final_stage_locked": final_stage_locked,
+            "first_upload_pending": first_upload_pending,
+            "can_manage_project": can_manage,
+        },
     )
+
+
+@login_required
+def protocol_set_stage(request, project_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("Invalid request method.")
+
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_is_manager(request.user):
+        messages.error(
+            request, "You do not have permission to update the protocol stage."
+        )
+        return redirect("synopsis:protocol_detail", project_id=project.id)
+    protocol = getattr(project, "protocol", None)
+    if not protocol:
+        messages.error(request, "No protocol exists yet.")
+        return redirect("synopsis:protocol_detail", project_id=project.id)
+
+    target_stage = (request.POST.get("stage") or "").strip()
+    if target_stage not in {"draft", "final"}:
+        return HttpResponseBadRequest("Invalid stage value.")
+
+    reason = (request.POST.get("reason") or "").strip()
+    old_stage = protocol.stage
+
+    revision = None
+    revision_id = request.POST.get("revision_id")
+    if revision_id:
+        revision = get_object_or_404(
+            ProtocolRevision, pk=revision_id, protocol=protocol
+        )
+    elif protocol.current_revision:
+        revision = protocol.current_revision
+    else:
+        revision = protocol.revisions.order_by("-uploaded_at", "-id").first()
+
+    if protocol.stage == target_stage and not (
+        target_stage == "final"
+        and revision
+        and protocol.current_revision
+        and revision.id != protocol.current_revision_id
+    ):
+        messages.info(request, f"Protocol is already marked as {target_stage}.")
+        return redirect("synopsis:protocol_detail", project_id=project.id)
+
+    if target_stage == "final":
+        if not revision:
+            messages.error(
+                request,
+                "No revision found to mark as final. Please upload a protocol first.",
+            )
+            return redirect("synopsis:protocol_detail", project_id=project.id)
+        if not reason:
+            messages.error(
+                request,
+                "Please provide a brief reason for marking the protocol as final.",
+            )
+            return redirect("synopsis:protocol_detail", project_id=project.id)
+
+        try:
+            base_name, size_text = _apply_revision_to_protocol(protocol, revision)
+        except FileNotFoundError:
+            messages.error(
+                request,
+                "The selected revision file could not be found. Please choose another revision or upload a new version.",
+            )
+            return redirect("synopsis:protocol_detail", project_id=project.id)
+        except ValueError:
+            messages.error(
+                request,
+                "The selected revision file is empty. Please choose another revision or upload a new version.",
+            )
+            return redirect("synopsis:protocol_detail", project_id=project.id)
+
+        protocol.stage = "final"
+        protocol.save(update_fields=["stage"])
+
+        ProtocolRevision.objects.filter(protocol=protocol).exclude(
+            pk=revision.pk
+        ).update(stage="draft")
+        update_fields = ["stage"]
+        if revision.stage != "final":
+            revision.stage = "final"
+        if reason:
+            revision.change_reason = reason
+            if "change_reason" not in update_fields:
+                update_fields.append("change_reason")
+        revision.save(update_fields=update_fields)
+
+        detail_parts = [
+            f"Stage: {_format_value(old_stage)} → Final",
+            f"File: {base_name}",
+        ]
+        if size_text != "—":
+            detail_parts.append(f"Size: {size_text}")
+        if reason:
+            detail_parts.append(f"Reason: {reason}")
+
+        _log_project_change(
+            project,
+            request.user,
+            "Protocol marked final",
+            " | ".join(detail_parts),
+        )
+
+        messages.success(
+            request,
+            "Protocol marked as final. Switch back to Draft before uploading new revisions.",
+        )
+        return redirect("synopsis:protocol_detail", project_id=project.id)
+
+    # target_stage == "draft"
+    old_stage = protocol.stage
+    protocol.stage = "draft"
+    protocol.save(update_fields=["stage"])
+    if protocol.current_revision and protocol.current_revision.stage != "draft":
+        protocol.current_revision.stage = "draft"
+        protocol.current_revision.save(update_fields=["stage"])
+
+    detail_parts = [f"Stage: {_format_value(old_stage)} → Draft"]
+    if reason:
+        detail_parts.append(f"Reason: {reason}")
+
+    _log_project_change(
+        project,
+        request.user,
+        "Protocol stage updated",
+        " | ".join(detail_parts),
+    )
+
+    messages.success(request, "Protocol stage set to Draft.")
+    return redirect("synopsis:protocol_detail", project_id=project.id)
 
 
 @login_required
@@ -781,7 +1162,8 @@ def protocol_delete_file(request, project_id):
         file_name = protocol.document.name
         protocol.document.delete(save=False)
         protocol.document = ""
-        protocol.save(update_fields=["document"])
+        protocol.current_revision = None
+        protocol.save(update_fields=["document", "current_revision"])
         _log_project_change(
             project,
             request.user,
@@ -800,6 +1182,59 @@ def protocol_delete_file(request, project_id):
             "mode": "file",
         },
     )
+
+
+@login_required
+def protocol_restore_revision(request, project_id, revision_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("Invalid request method.")
+
+    project = get_object_or_404(Project, pk=project_id)
+    protocol = getattr(project, "protocol", None)
+    if not protocol:
+        messages.error(request, "No protocol exists to restore.")
+        return redirect("synopsis:protocol_detail", project_id=project.id)
+
+    revision = get_object_or_404(ProtocolRevision, pk=revision_id, protocol=protocol)
+
+    try:
+        base_name, size_text = _apply_revision_to_protocol(protocol, revision)
+    except FileNotFoundError:
+        messages.error(
+            request,
+            "The selected revision file could not be found. Please upload a new version instead.",
+        )
+        return redirect("synopsis:protocol_detail", project_id=project.id)
+    except ValueError:
+        messages.error(
+            request,
+            "The selected revision file is empty. Please choose another revision or upload a new version.",
+        )
+        return redirect("synopsis:protocol_detail", project_id=project.id)
+
+    protocol.stage = revision.stage
+    protocol.save(update_fields=["stage"])
+
+    restored_at = timezone.localtime(revision.uploaded_at).strftime("%Y-%m-%d %H:%M")
+    detail_parts = [
+        f"Restored revision uploaded {restored_at}",
+        f"Stage reset to {_format_value(revision.stage)}",
+        f"File: {base_name}",
+    ]
+    if size_text != "—":
+        detail_parts.append(f"Size: {size_text}")
+    if revision.change_reason:
+        detail_parts.append(f"Original reason: {revision.change_reason}")
+
+    _log_project_change(
+        project,
+        request.user,
+        "Protocol restored",
+        " | ".join(detail_parts),
+    )
+
+    messages.success(request, "Protocol reverted to the selected revision.")
+    return redirect("synopsis:protocol_detail", project_id=project.id)
 
 
 @login_required
@@ -833,7 +1268,7 @@ def protocol_clear_text(request, project_id):
         },
     )
 
-
+# TODO: only a manager can delete protocols and other material - apply user permissions functionality here and elsewhere later.
 @login_required
 def protocol_delete(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -1042,7 +1477,7 @@ def advisory_schedule_protocol_reminders(request, project_id):
             f"Protocol deadline {timezone.localtime(deadline).strftime('%Y-%m-%d %H:%M')} for {updated} member(s)",
         )
 
-    messages.success(request, f"Protocol reminder scheduled for {updated} member(s).")
+    messages.success(request, f"Protocol reminder scheduled for {updated} member(s). Reminder now set as required.")
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -1499,10 +1934,12 @@ def advisory_invite_reply(request, token, choice):
                 {"member": member, "project": inv.project, "accepted": True},
             )
 
+        form = ParticipationConfirmForm(request.POST or None)
         if request.method == "POST":
-            form = ParticipationConfirmForm(request.POST)
             if form.is_valid():
-                statement = form.cleaned_data["statement"].strip()
+                statement = (form.cleaned_data.get("statement") or "").strip()
+                if not statement:
+                    statement = "Participation confirmed"
                 now = timezone.now()
                 today = timezone.localdate()
 
@@ -1548,8 +1985,6 @@ def advisory_invite_reply(request, token, choice):
                         "accepted": inv.accepted,
                     },
                 )
-        else:
-            form = ParticipationConfirmForm()
 
         return render(
             request,
@@ -1558,6 +1993,7 @@ def advisory_invite_reply(request, token, choice):
                 "project": inv.project,
                 "invitation": inv,
                 "member": member,
+                "form": form,
             },
         )
 
@@ -1814,10 +2250,20 @@ def advisory_send_protocol_bulk(request, project_id):
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
     members = (
-        AdvisoryBoardMember.objects.filter(project=project)
+        AdvisoryBoardMember.objects.filter(
+            project=project,
+            response="Y",
+            participation_confirmed=True,
+        )
         .exclude(email__isnull=True)
         .exclude(email__exact="")
     )
+    if not members:
+        messages.info(
+            request,
+            "No eligible members found. Only members who accepted and confirmed participation can receive the protocol.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
 
     proto_url = request.build_absolute_uri(project.protocol.document.url)
     subject = email_subject("protocol_review", project)
@@ -1864,6 +2310,12 @@ def advisory_send_protocol_member(request, project_id, member_id):
     if not m.email:
         messages.error(request, "This member has no email.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
+    if m.response != "Y" or not m.participation_confirmed:
+        messages.error(
+            request,
+            "This member has not accepted the invitation or has declined participation.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
 
     proto_url = request.build_absolute_uri(project.protocol.document.url)
     subject = email_subject("protocol_review", project)
@@ -1907,10 +2359,20 @@ def advisory_send_protocol_compose_all(request, project_id):
         form = ProtocolSendForm(request.POST)
         if form.is_valid():
             members = (
-                AdvisoryBoardMember.objects.filter(project=project)
+                AdvisoryBoardMember.objects.filter(
+                    project=project,
+                    response="Y",
+                    participation_confirmed=True,
+                )
                 .exclude(email__isnull=True)
                 .exclude(email__exact="")
             )
+            if not members:
+                messages.info(
+                    request,
+                    "No eligible members found. Only members who accepted and confirmed participation can receive the protocol.",
+                )
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
             content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
             sent = 0
@@ -1976,6 +2438,12 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
         messages.error(request, "No protocol configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
     m = get_object_or_404(AdvisoryBoardMember, id=member_id, project=project)
+    if m.response != "Y" or not m.participation_confirmed:
+        messages.error(
+            request,
+            "This member has not accepted the invitation or has declined participation.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
     if request.method == "POST":
         form = ProtocolSendForm(request.POST)
         if form.is_valid():
