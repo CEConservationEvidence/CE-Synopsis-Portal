@@ -22,15 +22,28 @@ GLOBAL_ROLE_CHOICES = [
 
 
 class ProtocolUpdateForm(forms.ModelForm):
+    document = forms.FileField(
+        required=False,
+        validators=[FileExtensionValidator(["pdf", "docx"])],
+        widget=forms.FileInput(attrs={"class": "form-control"}),
+        help_text="Upload a PDF or DOCX version of the protocol.",
+    )
+    change_reason = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "class": "form-control"}),
+        help_text="Explain what changed in this revision so other authors can stay aligned.",
+    )
+
     class Meta:
         model = Protocol
-        fields = ["document", "stage", "text_version"]
+        fields = ["document", "stage"]
         widgets = {
             "stage": forms.Select(attrs={"class": "form-select"}),
-            "text_version": forms.Textarea(
-                attrs={"rows": 10, "class": "form-control"}
-            ),  # TODO: need to remove this after adjustments.
         }
+
+    def clean_change_reason(self):
+        reason = self.cleaned_data.get("change_reason", "")
+        return reason.strip()
 
 
 class CreateUserForm(forms.Form):
@@ -223,14 +236,20 @@ class ProtocolReminderScheduleForm(forms.Form):
 
 
 class ParticipationConfirmForm(forms.Form):
+    confirm_participation = forms.BooleanField(
+        label="I agree to actively participate in the development of this synopsis",
+        help_text="Please tick this box to confirm your commitment.",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
     statement = forms.CharField(
-        label="Participation confirmation",
-        help_text="Please affirm you will participate and provide valuable input.",
+        required=False,
+        label="Optional note",
+        help_text="Share any context or expectations you have for your participation (optional).",
         widget=forms.Textarea(
             attrs={
                 "class": "form-control",
-                "rows": 4,
-                "placeholder": "I confirm that I will actively participate and provide valuable input to this synopsis.",
+                "rows": 3,
+                "placeholder": "Optional: add any notes about your availability or expectations.",
             }
         ),
     )
@@ -269,7 +288,7 @@ class ProtocolFeedbackCloseForm(forms.Form):
         help_text="Shown to advisory board members when they open an existing feedback link.",
     )
 
-
+# TODO: cleanup this form, add more validation and error handling (file types supported are currently .RIS but .txt is also being used by team).
 class ReferenceBatchUploadForm(forms.Form):
     label = forms.CharField(
         max_length=255,
@@ -284,7 +303,7 @@ class ReferenceBatchUploadForm(forms.Form):
     search_date = forms.DateField(
         required=False,
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text="Date the search was run (optional).",
+        help_text="Date the search was run (optional). This means the actual date the search was run or received by Kate, not the dates interval for the search.",
     )
     ris_file = forms.FileField(
         widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
