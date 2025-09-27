@@ -1,0 +1,251 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Project – {{ project.title }}{% endblock %}
+{% block content %}
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
+            <div>
+                <h1 class="mb-1">{{ project.title }}</h1>
+                <p class="text-muted mb-2">Phase: <strong>{{ project.get_phase_display }}</strong></p>
+                {% if last_phase_event %}
+                <p class="text-muted small mb-1">Last confirmed by {{ last_phase_event.confirmed_by|default:"—" }} on {{ last_phase_event.confirmed_at|date:"Y-m-d H:i" }}</p>
+                {% else %}
+                <p class="text-muted small mb-1">No milestones confirmed yet.</p>
+                {% endif %}
+                {% with change_log_entries|first as latest_change %}
+                {% if latest_change %}
+                <p class="text-muted small mb-0">Last change: {{ latest_change.action }} ({{ latest_change.created_at|date:"Y-m-d H:i" }})</p>
+                {% endif %}
+                {% endwith %}
+            </div>
+            {% if can_manage_project %}
+            <div class="d-flex flex-column gap-2 text-end">
+                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_authors_manage' project.id %}">Manage authors</a>
+                <a class="btn btn-outline-danger btn-sm" href="{% url 'synopsis:project_delete' project.id %}">Delete project</a>
+            </div>
+            {% endif %}
+        </div>
+
+        <hr class="my-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+                <h5 class="mb-1">Funders</h5>
+                {% if funder_summary.count %}
+                <div class="small text-muted d-flex flex-wrap gap-3">
+                    <span>Count: <strong>{{ funder_summary.count }}</strong></span>
+                    {% if funder_summary.total is not None %}
+                    <span>Total allocated: <strong>{{ funder_summary.total|floatformat:2 }}</strong></span>
+                    {% endif %}
+                    {% if funder_summary.earliest_start %}
+                    <span>From: <strong>{{ funder_summary.earliest_start|date:"Y-m-d" }}</strong></span>
+                    {% endif %}
+                    {% if funder_summary.latest_end %}
+                    <span>To: <strong>{{ funder_summary.latest_end|date:"Y-m-d" }}</strong></span>
+                    {% endif %}
+                </div>
+                {% else %}
+                <p class="text-muted small mb-0">No funder information yet.</p>
+                {% endif %}
+            </div>
+            {% if can_manage_project %}
+            <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_funder_add' project.id %}">Add funder</a>
+            {% endif %}
+        </div>
+        {% if funders %}
+        <div class="table-responsive mt-2">
+            <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>Organisation / Name</th>
+                        <th>Funds allocated</th>
+                        <th>Start date</th>
+                        <th>End date</th>
+                        {% if can_manage_project %}
+                        <th class="text-end">Actions</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for f in funders %}
+                    <tr>
+                        <td>
+                            {% if f.organisation %}
+                                {{ f.organisation }}
+                            {% else %}
+                                {{ f.contact_first_name }} {{ f.contact_last_name }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if f.funds_allocated %}
+                                {{ f.funds_allocated }}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td>{{ f.fund_start_date|date:"Y-m-d" }}</td>
+                        <td>{{ f.fund_end_date|date:"Y-m-d" }}</td>
+                        {% if can_manage_project %}
+                        <td class="text-end">
+                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_funder_edit' project.id f.id %}">Edit</a>
+                            <a class="btn btn-outline-danger btn-sm" href="{% url 'synopsis:project_funder_delete' project.id f.id %}">Remove</a>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% elif can_manage_project %}
+        <p class="text-muted small mt-2 mb-0">Add your first funder to track financial support.</p>
+        {% endif %}
+    </div>
+</div>
+{% if next_phase %}
+<form method="post" action="{% url 'synopsis:project_phase_confirm' project.id next_phase %}" class="mb-3">
+    {% csrf_token %}
+    <button class="btn btn-outline-primary btn-sm" onclick="return confirm('Confirm phase: {{ next_phase_label }}?');">
+        Confirm phase: {{ next_phase_label }}
+    </button>
+</form>
+{% endif %}
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0">Authors</h5>
+            {% if can_manage_project %}
+            <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_authors_manage' project.id %}">Update authors</a>
+            {% endif %}
+        </div>
+        {% if authors %}
+        <ul class="list-inline mb-0">
+            {% for user in authors %}
+            <li class="list-inline-item">
+                {{ user.get_full_name|default:user.username }}
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-muted mb-0">No authors assigned yet.</p>
+        {% endif %}
+    </div>
+</div>
+<div class="row g-3">
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5>Protocol</h5>
+                {% if protocol %}
+                <div class="small mb-2">
+                    <strong>Stage:</strong>
+                    {% if protocol.stage == 'final' %}
+                    <span class="badge text-bg-success">Final</span>
+                    {% else %}
+                    <span class="badge text-bg-warning">Draft</span>
+                    {% endif %}
+                    <br>
+                    <strong>Updated:</strong>
+                    {{ protocol.last_updated|date:"Y-m-d H:i" }}
+                </div>
+                {% if protocol.document %}
+                <p class="mb-2">
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ protocol.document.url }}" target="_blank">View current document</a>
+                </p>
+                {% else %}
+                <p class="text-muted">No file uploaded yet.</p>
+                {% endif %}
+                {% else %}
+                <p class="text-muted">No protocol created yet.</p>
+                {% endif %}
+                <a class="btn btn-primary btn-sm" href="{% url 'synopsis:protocol_detail' project.id %}">Edit protocol</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5>Advisory Board Stats</h5>
+                <div class="row g-2 small">
+                    <div class="col-6">Members:
+                        <strong>{{ ab_stats.members }}</strong>
+                    </div>
+                    <div class="col-6">Member invites sent:
+                        <strong>{{ ab_stats.member_invites_sent }}</strong>
+                    </div>
+                    <div class="col-6">Invitations (total):
+                        <strong>{{ ab_stats.invites_total }}</strong>
+                    </div>
+                    <div class="col-6">Linked to members:
+                        <strong>{{ ab_stats.invites_member }}</strong>
+                    </div>
+                    <div class="col-6">Direct email invites:
+                        <strong>{{ ab_stats.invites_direct }}</strong>
+                    </div>
+                    <div class="col-4">Accepted:
+                        <strong class="text-success">{{ ab_stats.accepted }}</strong>
+                    </div>
+                    <div class="col-4">Declined:
+                        <strong class="text-danger">{{ ab_stats.declined }}</strong>
+                    </div>
+                    <div class="col-4">Pending:
+                        <strong class="text-muted">{{ ab_stats.pending }}</strong>
+                    </div>
+                    <div class="col-12">Protocol sent to members:
+                        <strong>{{ ab_stats.protocol_sent_to_members }}</strong>
+                    </div>
+                </div>
+                <a class="btn btn-outline-primary btn-sm mt-3" href="{% url 'synopsis:advisory_board_list' project.id %}">Manage advisory board</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5>References</h5>
+                <div class="row g-2 small mb-2">
+                    <div class="col-6">Batches:
+                        <strong>{{ reference_stats.batches }}</strong>
+                    </div>
+                    <div class="col-6">Total references:
+                        <strong>{{ reference_stats.references }}</strong>
+                    </div>
+                    <div class="col-6">Pending screening:
+                        <strong>{{ reference_stats.pending }}</strong>
+                    </div>
+                </div>
+                {% if reference_stats.latest_batch %}
+                <p class="small mb-2">
+                    Latest batch:
+                    <strong>{{ reference_stats.latest_batch.label }}</strong>
+                    ({{ reference_stats.latest_batch.record_count }} records · {{ reference_stats.latest_batch.created_at|date:"Y-m-d H:i" }})
+                </p>
+                {% else %}
+                <p class="text-muted">No reference imports yet.</p>
+                {% endif %}
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:reference_batch_list' project.id %}">View batches</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload RIS</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="card mt-3">
+    <div class="card-body">
+        <h5 class="mb-3">Recent changes</h5>
+        <ul class="list-unstyled mb-0 small">
+            {% for entry in change_log_entries %}
+            <li class="mb-2">
+                <strong>{{ entry.action }}</strong>
+                <br>
+                <span class="text-muted">{{ entry.created_at|date:"Y-m-d H:i" }} · {% if entry.changed_by %}{{ entry.changed_by.get_full_name|default:entry.changed_by.username }}{% else %}system{% endif %}</span>
+                {% if entry.details %}
+                <div>{{ entry.details }}</div>
+                {% endif %}
+            </li>
+            {% empty %}
+            <li class="text-muted">No changes logged yet.</li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endblock %}

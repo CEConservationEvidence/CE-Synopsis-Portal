@@ -1,0 +1,34 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Manager – Users{% endblock %}
+{% block content %}
+<h1 class="mb-3">Manager dashboard</h1>
+<p>
+    <a class="btn btn-primary btn-sm" href="{% url 'synopsis:user_create' %}">Add new user</a>
+</p>
+<table class="table table-striped align-middle">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Groups (global roles)</th>
+            <th>Staff?</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for u in users %}
+        <tr>
+            <td>{{ u.get_full_name|default:u.username }}</td>
+            <td>{{ u.email }}</td>
+            <td>
+                {% for g in u.groups.all %}
+                <span class="badge bg-secondary">{{ g.name }}</span>
+                {% empty %}
+                <span class="text-muted">—</span>
+                {% endfor %}
+            </td>
+            <td>{% if u.is_staff %}Yes{% else %}No{% endif %}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

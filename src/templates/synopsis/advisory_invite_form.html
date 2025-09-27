@@ -1,0 +1,26 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Invite Advisory Member – {{ project.title }}{% endblock %}
+{% block content %}
+<h1 class="mb-3">Invite Advisory Board Member</h1>
+<div class="card">
+    <div class="card-body">
+        <form method="post">
+            {% csrf_token %}
+            <div class="mb-3">
+                <label class="form-label">Email</label>
+                {{ form.email }}
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Response due date (optional)</label>
+                {{ form.due_date }}
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Message (optional)</label>
+                {{ form.message }}
+            </div>
+            <button class="btn btn-primary">Send invitation</button>
+            <a class="btn btn-link" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Create Project – CE Portal{% endblock %}
+{% block content %}
+<h1 class="mb-3">Create project</h1>
+<form method="post">
+    {% csrf_token %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="mb-3">Synopsis details</h5>
+            {{ form.non_field_errors }}
+            <div class="row g-3">
+                <div class="col-md-12">
+                    <label class="form-label">Title</label>
+                    {{ form.title }}
+                    {{ form.title.errors }}
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="mb-3">Authors</h5>
+            <div class="mb-2">
+                <label class="form-label">Assign authors</label>
+                {{ authors_form.authors }}
+                {{ authors_form.authors.errors }}
+                <div class="form-text">Hold Ctrl/Cmd to select multiple.</div>
+            </div>
+        </div>
+    </div>
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="mb-3">Funder details</h5>
+            {{ funder_form.non_field_errors }}
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label">Organisation</label>
+                    {{ funder_form.organisation }}
+                    {{ funder_form.organisation.errors }}
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Contact first name</label>
+                    {{ funder_form.contact_first_name }}
+                    {{ funder_form.contact_first_name.errors }}
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Contact last name</label>
+                    {{ funder_form.contact_last_name }}
+                    {{ funder_form.contact_last_name.errors }}
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Funds allocated</label>
+                    {{ funder_form.funds_allocated }}
+                    {{ funder_form.funds_allocated.errors }}
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Fund start date</label>
+                    {{ funder_form.fund_start_date }}
+                    {{ funder_form.fund_start_date.errors }}
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Fund end date</label>
+                    {{ funder_form.fund_end_date }}
+                    {{ funder_form.fund_end_date.errors }}
+                </div>
+            </div>
+        </div>
+    </div>
+    <button class="btn btn-primary">Create</button>
+    <a class="btn btn-link" href="{% url 'synopsis:dashboard' %}">Cancel</a>
+</form>
+{% endblock %}

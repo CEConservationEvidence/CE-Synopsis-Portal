@@ -1,0 +1,20 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Update Authors – {{ project.title }}{% endblock %}
+{% block content %}
+<h1 class="mb-3">Update authors</h1>
+<p class="text-muted">Select the users who should be assigned as authors for
+    <strong>{{ project.title }}</strong>.
+</p>
+<form method="post">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="mb-3">
+        <label class="form-label">Authors</label>
+        {{ form.authors }}
+        {{ form.authors.errors }}
+        <div class="form-text">Hold Ctrl/Cmd to select multiple authors.</div>
+    </div>
+    <button class="btn btn-primary">Save changes</button>
+    <a class="btn btn-link" href="{% url 'synopsis:project_hub' project.id %}">Cancel</a>
+</form>
+{% endblock %}

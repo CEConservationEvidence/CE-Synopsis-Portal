@@ -1,0 +1,67 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Reference Imports – {{ project.title }}{% endblock %}
+{% block content %}
+<h1 class="mb-3">Reference imports – {{ project.title }}</h1>
+<div class="d-flex flex-wrap gap-2 mb-4">
+    <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
+    <a class="btn btn-primary" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload RIS file</a>
+</div>
+<div class="row g-3 mb-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title mb-1">Total references</h5>
+                <p class="display-6 mb-0">{{ summary.total_references }}</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title mb-1">Pending screening</h5>
+                <p class="display-6 mb-0">{{ summary.pending }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="card">
+    <div class="card-body">
+        {% if batches %}
+        <div class="table-responsive">
+            <table class="table table-sm align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Label</th>
+                        <th>Type</th>
+                        <th>Searched on</th>
+                        <th>Imported</th>
+                        <th>Uploaded by</th>
+                        <th>Uploaded at</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for batch in batches %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}">{{ batch.label }}</a>
+                        </td>
+                        <td>{{ batch.get_source_type_display }}</td>
+                        <td>{{ batch.search_date|date:"Y-m-d" }}</td>
+                        <td>{{ batch.record_count }}</td>
+                        <td>
+                            {% if batch.uploaded_by %}{{ batch.uploaded_by.get_full_name|default:batch.uploaded_by.username }}{% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ batch.created_at|date:"Y-m-d H:i" }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="mb-0 text-muted">No reference batches uploaded yet.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

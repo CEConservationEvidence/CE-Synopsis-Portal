@@ -1,0 +1,54 @@
+{% extends "synopsis/base.html" %}
+{% block title %}{% if mode == "edit" %}Edit Funder{% else %}Add Funder{% endif %} – {{ project.title }}{% endblock %}
+{% block content %}
+<h1 class="mb-3">{% if mode == "edit" %}Edit funder{% else %}Add funder{% endif %}</h1>
+<p class="text-muted">
+    {% if mode == "edit" %}
+        Update the funder details for
+    <strong>{{ project.title }}</strong>
+    .
+    {% else %}
+        Provide the funder details for
+    <strong>{{ project.title }}</strong>
+    .
+    {% endif %}
+</p>
+<form method="post">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label">Organisation</label>
+            {{ form.organisation }}
+            {{ form.organisation.errors }}
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Contact first name</label>
+            {{ form.contact_first_name }}
+            {{ form.contact_first_name.errors }}
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Contact last name</label>
+            {{ form.contact_last_name }}
+            {{ form.contact_last_name.errors }}
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Funds allocated</label>
+            {{ form.funds_allocated }}
+            {{ form.funds_allocated.errors }}
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Fund start date</label>
+            {{ form.fund_start_date }}
+            {{ form.fund_start_date.errors }}
+        </div>
+        <div class="col-md-3">
+            <label class="form-label">Fund end date</label>
+            {{ form.fund_end_date }}
+            {{ form.fund_end_date.errors }}
+        </div>
+    </div>
+    <button class="btn btn-primary mt-3">{% if mode == "edit" %}Save changes{% else %}Add funder{% endif %}</button>
+    <a class="btn btn-link" href="{% url 'synopsis:project_hub' project.id %}">Cancel</a>
+</form>
+{% endblock %}
