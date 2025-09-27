@@ -1,7 +1,7 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Delete Project – {{ project.title }}{% endblock %}
 {% block content %}
-<h1 class="mb-3">Delete project</h1>
+<h1 class="mb-3">Delete Synopsis</h1>
 <div class="alert alert-warning" role="alert">
     Deleting
     <strong>{{ project.title }}</strong>
@@ -9,7 +9,7 @@
 </div>
 <form method="post">
     {% csrf_token %}
-    <button class="btn btn-danger">Yes, delete this project</button>
-    <a class="btn btn-link" href="{% url 'synopsis:project_hub' project.id %}">Cancel</a>
+    <button class="btn btn-danger">Yes, delete this synopsis</button>
+    <a class="btn btn-link" href="{% url 'synopsis:dashboard' %}">Cancel</a>
 </form>
 {% endblock %}
