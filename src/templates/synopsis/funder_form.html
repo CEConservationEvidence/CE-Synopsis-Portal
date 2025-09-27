@@ -16,36 +16,62 @@
 <form method="post">
     {% csrf_token %}
     {{ form.non_field_errors }}
-    <div class="row g-3">
-        <div class="col-md-6">
-            <label class="form-label">Organisation</label>
-            {{ form.organisation }}
-            {{ form.organisation.errors }}
+    <div class="row g-4">
+        <div class="col-xl-6">
+            <div class="border rounded-3 p-3 h-100 bg-light">
+                <h6 class="text-uppercase small text-muted mb-3">Organisation</h6>
+                <div class="mb-0">
+                    <label class="form-label">Organisation name</label>
+                    {{ form.organisation }}
+                    {{ form.organisation.errors }}
+                </div>
+            </div>
         </div>
-        <div class="col-md-3">
-            <label class="form-label">Contact first name</label>
-            {{ form.contact_first_name }}
-            {{ form.contact_first_name.errors }}
+        <div class="col-xl-6">
+            <div class="border rounded-3 p-3 h-100 bg-light">
+                <h6 class="text-uppercase small text-muted mb-3">Primary contact</h6>
+                <div class="row g-3">
+                    <div class="col-sm-4">
+                        <label class="form-label">Title</label>
+                        {{ form.contact_title }}
+                        {{ form.contact_title.errors }}
+                    </div>
+                    <div class="col-sm-4">
+                        <label class="form-label">First name</label>
+                        {{ form.contact_first_name }}
+                        {{ form.contact_first_name.errors }}
+                    </div>
+                    <div class="col-sm-4">
+                        <label class="form-label">Surname</label>
+                        {{ form.contact_last_name }}
+                        {{ form.contact_last_name.errors }}
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="col-md-3">
-            <label class="form-label">Contact last name</label>
-            {{ form.contact_last_name }}
-            {{ form.contact_last_name.errors }}
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Funds allocated</label>
-            {{ form.funds_allocated }}
-            {{ form.funds_allocated.errors }}
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Fund start date</label>
-            {{ form.fund_start_date }}
-            {{ form.fund_start_date.errors }}
-        </div>
-        <div class="col-md-3">
-            <label class="form-label">Fund end date</label>
-            {{ form.fund_end_date }}
-            {{ form.fund_end_date.errors }}
+    </div>
+    <div class="row g-4 mt-1">
+        <div class="col-lg-8 col-xl-6">
+            <div class="border rounded-3 p-3 h-100 bg-light">
+                <h6 class="text-uppercase small text-muted mb-3">Funding overview</h6>
+                <div class="mb-3">
+                    <label class="form-label">Funds allocated</label>
+                    {{ form.funds_allocated }}
+                    {{ form.funds_allocated.errors }}
+                </div>
+                <div class="row g-3">
+                    <div class="col-sm-6">
+                        <label class="form-label">Start date</label>
+                        {{ form.fund_start_date }}
+                        {{ form.fund_start_date.errors }}
+                    </div>
+                    <div class="col-sm-6">
+                        <label class="form-label">End date</label>
+                        {{ form.fund_end_date }}
+                        {{ form.fund_end_date.errors }}
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
     <button class="btn btn-primary mt-3">{% if mode == "edit" %}Save changes{% else %}Add funder{% endif %}</button>
