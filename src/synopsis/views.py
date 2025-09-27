@@ -333,22 +333,43 @@ def dashboard(request):
 
 
 class ProjectCreateForm(forms.ModelForm):
+    start_date = forms.DateField(
+        required=False,
+        initial=timezone.localdate,
+        widget=forms.DateInput(
+            attrs={
+                "type": "date",
+                "class": "form-control bg-light text-muted",
+                "readonly": "readonly",
+                "tabindex": "-1",
+            }
+        ),
+        disabled=True,
+    )
+
     class Meta:
         model = Project
-        fields = ["title"]
+        fields = ["title", "start_date"]
         widgets = {
             "title": forms.TextInput(attrs={"class": "form-control"}),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["start_date"].initial = timezone.localdate()
+
 
 @login_required
 def project_create(request):
+    today = timezone.localdate()
     if request.method == "POST":
         pform = ProjectCreateForm(request.POST)
         aform = AssignAuthorsForm(request.POST)
         fform = FunderForm(request.POST)
+        pform.fields["start_date"].initial = today
         if pform.is_valid() and aform.is_valid() and fform.is_valid():
             if request.POST.get("edit") == "1":
+                pform.fields["start_date"].initial = today
                 return render(
                     request,
                     "synopsis/project_create.html",
@@ -360,10 +381,15 @@ def project_create(request):
                 )
 
             if request.POST.get("confirm") == "1":
-                project = pform.save()
+                project = pform.save(commit=False)
+                project.start_date = today
+                project.save()
 
                 _log_project_change(
-                    project, request.user, "Project created", f"Title: {project.title}"
+                    project,
+                    request.user,
+                    "Project created",
+                    f"Title: {project.title}; Start date: {_format_value(project.start_date)}",
                 )
 
                 authors = aform.cleaned_data.get("authors") or []
@@ -387,6 +413,7 @@ def project_create(request):
                     funder.project = project
                     funder.name = Funder.build_display_name(
                         funder.organisation,
+                        funder.contact_title,
                         funder.contact_first_name,
                         funder.contact_last_name,
                     )
@@ -396,6 +423,7 @@ def project_create(request):
                     )
                     details = (
                         f"Organisation: {_format_value(funder.organisation)}; "
+                        f"Title: {_format_value(funder.contact_title)}; "
                         f"Contact: {contact_label}; "
                         f"Funds allocated: {_format_value(funder.funds_allocated)}; "
                         f"Dates: {_format_value(funder.fund_start_date)} to {_format_value(funder.fund_end_date)}"
@@ -408,6 +436,8 @@ def project_create(request):
             hidden_project_form = ProjectCreateForm(request.POST)
             for field in hidden_project_form.fields.values():
                 field.widget = forms.HiddenInput()
+                field.disabled = False
+            hidden_project_form.fields["start_date"].initial = today
 
             hidden_authors_form = AssignAuthorsForm(request.POST)
             hidden_authors_form.fields["authors"].widget = forms.MultipleHiddenInput()
@@ -422,6 +452,7 @@ def project_create(request):
             funder_cleaned = fform.cleaned_data
             funder_summary = {
                 "organisation": funder_cleaned.get("organisation"),
+                "contact_title": funder_cleaned.get("contact_title"),
                 "contact": _funder_contact_label(
                     funder_cleaned.get("contact_first_name"),
                     funder_cleaned.get("contact_last_name"),
@@ -441,13 +472,14 @@ def project_create(request):
                     "funder_form_hidden": hidden_funder_form,
                     "summary": {
                         "title": pform.cleaned_data["title"],
+                        "start_date": today,
                         "authors": author_names,
                         "funder": funder_summary,
                     },
                 },
             )
     else:
-        pform = ProjectCreateForm()
+        pform = ProjectCreateForm(initial={"start_date": today})
         aform = AssignAuthorsForm()
         fform = FunderForm()
 
@@ -476,9 +508,7 @@ def project_hub(request, project_id):
     funders.sort(
         key=lambda f: (
             f.fund_start_date or dt.date.max,
-            (
-                f.organisation or f.contact_last_name or f.contact_first_name or ""
-            ).lower(),
+            (f.organisation or f.contact_last_name or f.contact_first_name or "").lower(),
         )
     )
     funding_values = [
@@ -686,6 +716,7 @@ def project_funder_add(request, project_id):
                 funder.project = project
                 funder.name = Funder.build_display_name(
                     funder.organisation,
+                    funder.contact_title,
                     funder.contact_first_name,
                     funder.contact_last_name,
                 )
@@ -696,8 +727,7 @@ def project_funder_add(request, project_id):
                 details = (
                     f"Organisation: {_format_value(funder.organisation)}; "
                     f"Contact: {contact_label}; "
-                    f"Funds allocated: {_format_value(funder.funds_allocated)}; "
-                    f"Dates: {_format_value(funder.fund_start_date)} to {_format_value(funder.fund_end_date)}"
+                    f"Title: {_format_value(funder.contact_title)}"
                 )
                 _log_project_change(project, request.user, "Added funder", details)
                 messages.success(request, "Funder details added.")
@@ -730,6 +760,7 @@ def project_funder_edit(request, project_id, funder_id):
                     field: getattr(funder, field)
                     for field in (
                         "organisation",
+                        "contact_title",
                         "contact_first_name",
                         "contact_last_name",
                         "funds_allocated",
@@ -741,6 +772,7 @@ def project_funder_edit(request, project_id, funder_id):
                 updated.project = project
                 updated.name = Funder.build_display_name(
                     updated.organisation,
+                    updated.contact_title,
                     updated.contact_first_name,
                     updated.contact_last_name,
                 )
@@ -748,6 +780,7 @@ def project_funder_edit(request, project_id, funder_id):
                 changes = []
                 for field in (
                     "organisation",
+                    "contact_title",
                     "funds_allocated",
                     "fund_start_date",
                     "fund_end_date",
@@ -792,7 +825,12 @@ def project_funder_delete(request, project_id, funder_id):
         return redirect("synopsis:project_hub", project_id=project.id)
 
     if request.method == "POST":
-        detail = f"Removed funder {Funder.build_display_name(funder.organisation, funder.contact_first_name, funder.contact_last_name)}"
+        detail = "Removed funder " + Funder.build_display_name(
+            funder.organisation,
+            funder.contact_title,
+            funder.contact_first_name,
+            funder.contact_last_name,
+        )
         funder.delete()
         _log_project_change(project, request.user, "Removed funder", detail)
         messages.success(request, "Funder removed.")

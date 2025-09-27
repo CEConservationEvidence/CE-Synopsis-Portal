@@ -1,15 +1,26 @@
 from django import forms
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from django.core.validators import FileExtensionValidator
+
 from .models import (
     AdvisoryBoardMember,
     Funder,
     Protocol,
-    UserRole,
-    ReferenceSourceBatch,
     Reference,
+    ReferenceSourceBatch,
+    UserRole,
 )
-from django.contrib.auth.models import Group
+
+# TODO: see if these are enough, if not add more titles.
+FUNDER_TITLE_CHOICES = [
+    ("", "Title"),
+    ("Dr", "Dr"),
+    ("Prof", "Prof"),
+    ("Mr", "Mr"),
+    ("Mrs", "Mrs"),
+    ("Ms", "Ms"),
+    ("Mx", "Mx"),
+]
 
 GLOBAL_ROLE_CHOICES = [
     ("author", "Author"),
@@ -122,10 +133,18 @@ class AssignAuthorsForm(forms.Form):
 
 
 class FunderForm(forms.ModelForm):
+    contact_title = forms.ChoiceField(
+        choices=FUNDER_TITLE_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Title",
+    )
+
     class Meta:
         model = Funder
         fields = [
             "organisation",
+            "contact_title",
             "contact_first_name",
             "contact_last_name",
             "funds_allocated",
@@ -165,6 +184,7 @@ class FunderForm(forms.ModelForm):
             cleaned.get(key)
             for key in (
                 "organisation",
+                "contact_title",
                 "contact_first_name",
                 "contact_last_name",
                 "funds_allocated",
@@ -179,6 +199,14 @@ class FunderForm(forms.ModelForm):
             raise forms.ValidationError(
                 "Provide an organisation or a contact first/last name for the funder."
             )
+
+        start = cleaned.get("fund_start_date")
+        end = cleaned.get("fund_end_date")
+        if start and end and start > end:
+            message = "Start date cannot be after the end date."
+            self.add_error("fund_start_date", message)
+            self.add_error("fund_end_date", message)
+            raise forms.ValidationError(message)
         return cleaned
 
 
@@ -287,6 +315,7 @@ class ProtocolFeedbackCloseForm(forms.Form):
         ),
         help_text="Shown to advisory board members when they open an existing feedback link.",
     )
+
 
 # TODO: cleanup this form, add more validation and error handling (file types supported are currently .RIS but .txt is also being used by team).
 class ReferenceBatchUploadForm(forms.Form):
