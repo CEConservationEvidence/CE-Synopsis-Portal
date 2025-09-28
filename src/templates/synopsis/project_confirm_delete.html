@@ -7,9 +7,36 @@
     <strong>{{ project.title }}</strong>
     will remove all associated data including funders, advisory board members, invitations, and logs. This action cannot be undone.
 </div>
-<form method="post">
+<form method="post" class="needs-validation" novalidate>
     {% csrf_token %}
-    <button class="btn btn-danger">Yes, delete this synopsis</button>
-    <a class="btn btn-link" href="{% url 'synopsis:dashboard' %}">Cancel</a>
+    {% if next_url %}
+    <input type="hidden" name="next" value="{{ next_url }}">
+    {% endif %}
+    {% if form.non_field_errors %}
+    <div class="alert alert-danger">
+        {% for error in form.non_field_errors %}
+        <div>{{ error }}</div>
+        {% endfor %}
+    </div>
+    {% endif %}
+    <div class="mb-3">
+        {{ form.confirm_title.label_tag }}
+        {{ form.confirm_title }}
+        {% if form.confirm_title.help_text %}
+        <div class="form-text">{{ form.confirm_title.help_text }}</div>
+        {% endif %}
+        {% for error in form.confirm_title.errors %}
+        <div class="text-danger small">{{ error }}</div>
+        {% endfor %}
+    </div>
+    <div class="form-check mb-3">
+        {{ form.acknowledge_irreversible }}
+        <label class="form-check-label" for="{{ form.acknowledge_irreversible.id_for_label }}">{{ form.acknowledge_irreversible.label }}</label>
+        {% for error in form.acknowledge_irreversible.errors %}
+        <div class="text-danger small">{{ error }}</div>
+        {% endfor %}
+    </div>
+    <button class="btn btn-danger" type="submit">Delete synopsis</button>
+    <a class="btn btn-link" href="{% if next_url %}{{ next_url }}{% else %}{% url 'synopsis:dashboard' %}{% endif %}">Cancel</a>
 </form>
 {% endblock %}
