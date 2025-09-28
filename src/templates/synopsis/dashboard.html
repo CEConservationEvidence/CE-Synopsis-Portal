@@ -12,7 +12,7 @@
             <th>Authors</th>
             <th>Current Phase</th>
             <th>Created</th>
-            <th class="text-end">Actions</th>
+            <th class="text-end">Open</th>
         </tr>
     </thead>
     <tbody>
@@ -32,9 +32,6 @@
             <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
             <td class="text-end">
                 <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' p.id %}">Open</a>
-                {% if can_manage_projects %}
-                <a class="btn btn-outline-danger btn-sm" href="{% url 'synopsis:project_delete' p.id %}">Delete</a>
-                {% endif %}
             </td>
         </tr>
         {% empty %}
@@ -52,7 +49,7 @@
             <th>Authors</th>
             <th>Status</th>
             <th>Last Updated</th>
-            <th class="text-end">Actions</th>
+            <th class="text-end">Open</th>
         </tr>
     </thead>
     <tbody>
@@ -72,9 +69,6 @@
             <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
             <td class="text-end">
                 <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' p.id %}">Open</a>
-                {% if can_manage_projects %}
-                <a class="btn btn-outline-danger btn-sm" href="{% url 'synopsis:project_delete' p.id %}">Delete</a>
-                {% endif %}
             </td>
         </tr>
         {% empty %}
