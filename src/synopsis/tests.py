@@ -16,7 +16,7 @@ from .models import (
     Protocol,
     UserRole,
 )
-from .forms import FunderForm, ProjectDeleteForm
+from .forms import FunderForm, ProjectDeleteForm, ProjectSettingsForm
 from .utils import (
     BRAND,
     GLOBAL_GROUPS,
@@ -265,6 +265,24 @@ class ProjectDeleteFormTests(TestCase):
             project=self.project,
         )
         self.assertTrue(form.is_valid())
+
+
+class ProjectSettingsFormTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Forest Restoration")
+
+    def test_requires_title(self):
+        form = ProjectSettingsForm(data={"title": ""}, instance=self.project)
+        self.assertFalse(form.is_valid())
+        self.assertIn("Enter a title", form.errors["title"][0])
+
+    def test_updates_title(self):
+        form = ProjectSettingsForm(
+            data={"title": "Forest Recovery"}, instance=self.project
+        )
+        self.assertTrue(form.is_valid())
+        updated = form.save()
+        self.assertEqual(updated.title, "Forest Recovery")
 
 
 class ViewHelperTests(TestCase):
