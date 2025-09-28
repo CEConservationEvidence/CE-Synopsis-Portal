@@ -729,7 +729,10 @@ def project_funder_add(request, project_id):
                 details = (
                     f"Organisation: {_format_value(funder.organisation)}; "
                     f"Contact: {contact_label}; "
-                    f"Title: {_format_value(funder.contact_title)}"
+                    f"Title: {_format_value(funder.contact_title)}; "
+                    f"Funds allocated: {_format_value(funder.funds_allocated)}; "
+                    f"Start date: {_format_value(funder.start_date)}; "
+                    f"End date: {_format_value(funder.end_date)}"
                 )
                 _log_project_change(project, request.user, "Added funder", details)
                 messages.success(request, "Funder details added.")
