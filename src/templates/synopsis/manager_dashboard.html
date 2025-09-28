@@ -20,9 +20,7 @@
                 {% for entry in project_entries %}
                 {% with project=entry.project form=entry.delete_form %}
                 <tr>
-                    <td>
-                        <a href="{% url 'synopsis:project_hub' project.id %}">{{ project.title }}</a>
-                    </td>
+                    <td>{{ project.title }}</td>
                     <td class="small">
                         {% if entry.authors %}
                             {% for user in entry.authors %}
@@ -34,20 +32,10 @@
                     </td>
                     <td>{{ project.created_at|date:"Y-m-d H:i" }}</td>
                     <td>
-                        <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_hub' project.id %}">Open hub</a>
+                        <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_hub' project.id %}">Open synopsis</a>
                     </td>
                     <td class="text-end">
-                        <details class="project-delete-details">
-                            <summary class="text-danger">Delete…</summary>
-                            <div class="mt-2 p-2 border rounded-3 bg-light-subtle">
-                                <p class="text-muted small mb-2">
-                                    This action is permanent. Type <strong>{{ project.title }}</strong> and confirm the warning to proceed.
-                                </p>
-                                {% url 'synopsis:project_delete' project.id as project_delete_url %}
-                                {% url 'synopsis:manager_dashboard' as manager_dashboard_url %}
-                                {% include "synopsis/includes/project_delete_form.html" with form=form action_url=project_delete_url next_url=manager_dashboard_url submit_class='btn btn-danger btn-sm' cancel_url=manager_dashboard_url cancel_class='btn-sm' cancel_label='Cancel' compact=True %}
-                            </div>
-                        </details>
+                        <a class="btn btn-outline-danger btn-sm" href="{% url 'synopsis:project_delete' project.id %}">Delete…</a>
                     </td>
                 </tr>
                 {% endwith %}

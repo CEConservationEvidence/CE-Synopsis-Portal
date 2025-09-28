@@ -853,7 +853,7 @@ def project_delete(request, project_id):
         return redirect("synopsis:project_hub", project_id=project.id)
 
     next_url = request.POST.get("next") or request.GET.get("next")
-    cancel_url = next_url or reverse("synopsis:dashboard")
+    cancel_url = next_url or reverse("synopsis:manager_dashboard")
 
     if request.method == "POST":
         form = ProjectDeleteForm(request.POST, project=project)
