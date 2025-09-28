@@ -241,6 +241,26 @@ class ProjectDeleteForm(forms.Form):
             raise forms.ValidationError("Title does not match this synopsis.")
         return value
 
+
+class ProjectSettingsForm(forms.ModelForm):
+    class Meta:
+        model = Project
+        fields = ["title"]
+        widgets = {
+            "title": forms.TextInput(attrs={"class": "form-control"}),
+        }
+        error_messages = {
+            "title": {
+                "required": "Enter a title for the synopsis.",
+            }
+        }
+
+    def clean_title(self):
+        title = self.cleaned_data.get("title", "").strip()
+        if not title:
+            raise forms.ValidationError("Enter a title for the synopsis.")
+        return title
+
 class AdvisoryBulkInviteForm(forms.Form):
     due_date = forms.DateField(
         required=False,

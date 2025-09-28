@@ -19,6 +19,11 @@
                 {% endif %}
                 {% endwith %}
             </div>
+            {% if can_manage_project %}
+            <div class="d-flex flex-column gap-2">
+                <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
+            </div>
+            {% endif %}
         </div>
 
         <hr class="my-3">
@@ -104,22 +109,12 @@
         {% elif can_manage_project %}
         <p class="text-muted small mt-2 mb-0">Add your first funder to track financial support.</p>
         {% endif %}
-    </div>
-</div>
-{% if next_phase %}
-<form method="post" action="{% url 'synopsis:project_phase_confirm' project.id next_phase %}" class="mb-3">
-    {% csrf_token %}
-    <button class="btn btn-outline-primary btn-sm" onclick="return confirm('Confirm phase: {{ next_phase_label }}?');">
-        Confirm phase: {{ next_phase_label }}
-    </button>
-</form>
-{% endif %}
-<div class="card mb-3">
-    <div class="card-body">
+
+        <hr class="my-4">
         <div class="d-flex justify-content-between align-items-center mb-2">
             <h5 class="mb-0">Authors</h5>
             {% if can_manage_project %}
-            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_authors_manage' project.id %}">Manage Authors</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_authors_manage' project.id %}">Manage authors</a>
             {% endif %}
         </div>
         {% if authors %}
@@ -135,6 +130,14 @@
         {% endif %}
     </div>
 </div>
+{% if next_phase %}
+<form method="post" action="{% url 'synopsis:project_phase_confirm' project.id next_phase %}" class="mb-3">
+    {% csrf_token %}
+    <button class="btn btn-outline-primary btn-sm" onclick="return confirm('Confirm phase: {{ next_phase_label }}?');">
+        Confirm phase: {{ next_phase_label }}
+    </button>
+</form>
+{% endif %}
 <div class="row g-3">
     <div class="col-md-6">
         <div class="card h-100">

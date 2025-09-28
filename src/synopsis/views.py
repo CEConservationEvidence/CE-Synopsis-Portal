@@ -30,6 +30,7 @@ from .forms import (
     AssignAuthorsForm,
     FunderForm,
     ProjectDeleteForm,
+    ProjectSettingsForm,
     AdvisoryBulkInviteForm,
     ProtocolSendForm,
     ReminderScheduleForm,
@@ -1440,6 +1441,44 @@ def manager_dashboard(request):
         request,
         "synopsis/manager_dashboard.html",
         {"users": users, "project_entries": project_entries},
+    )
+
+
+@login_required
+def project_settings(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_is_manager(request.user):
+        messages.error(request, "Only managers can edit project settings.")
+        return redirect("synopsis:project_hub", project_id=project.id)
+
+    if request.method == "POST":
+        form = ProjectSettingsForm(request.POST, instance=project)
+        if form.is_valid():
+            original_title = project.title
+            updated_project = form.save()
+            changes = []
+            if original_title != updated_project.title:
+                changes.append(
+                    f"Title: {original_title} → {updated_project.title}"
+                )
+            if changes:
+                _log_project_change(
+                    updated_project,
+                    request.user,
+                    "Updated project settings",
+                    "; ".join(changes),
+                )
+                messages.success(request, "Project settings updated.")
+            else:
+                messages.info(request, "No changes saved.")
+            return redirect("synopsis:project_hub", project_id=project.id)
+    else:
+        form = ProjectSettingsForm(instance=project)
+
+    return render(
+        request,
+        "synopsis/project_settings_form.html",
+        {"project": project, "form": form},
     )
 
 
