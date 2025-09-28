@@ -43,7 +43,7 @@
                                 <p class="text-muted small mb-2">
                                     This action is permanent. Type <strong>{{ project.title }}</strong> and confirm the warning to proceed.
                                 </p>
-                                {% include "synopsis/includes/project_delete_form.html" with form=form action_url=(url 'synopsis:project_delete' project.id) next_url=(url 'synopsis:manager_dashboard') submit_class='btn btn-danger btn-sm' cancel_url=(url 'synopsis:manager_dashboard') cancel_class='btn-sm' cancel_label='Cancel' compact=True %}
+                                {% include "synopsis/includes/project_delete_form.html" with form=form action_url={% url 'synopsis:project_delete' project.id %} next_url={% url 'synopsis:manager_dashboard' %} submit_class='btn btn-danger btn-sm' cancel_url={% url 'synopsis:manager_dashboard' %} cancel_class='btn-sm' cancel_label='Cancel' compact=True %}
                             </div>
                         </details>
                     </td>
