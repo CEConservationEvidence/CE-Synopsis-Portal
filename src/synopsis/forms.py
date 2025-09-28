@@ -5,6 +5,7 @@ from django.core.validators import FileExtensionValidator
 from .models import (
     AdvisoryBoardMember,
     Funder,
+    Project,
     Protocol,
     Reference,
     ReferenceSourceBatch,
@@ -209,6 +210,22 @@ class FunderForm(forms.ModelForm):
             raise forms.ValidationError(message)
         return cleaned
 
+
+class ProjectDeleteForm(forms.Form):
+    confirm_title = forms.CharField(
+        label="Confirm title",
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "Type the synopsis title to confirm",
+                "autocomplete": "off",
+            }
+        ),
+    )
+    acknowledge_irreversible = forms.BooleanField(
+        label="I understand this action permanently deletes the synopsis and all related records.",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
 
 class AdvisoryBulkInviteForm(forms.Form):
     due_date = forms.DateField(
