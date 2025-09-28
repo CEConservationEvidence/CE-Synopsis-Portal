@@ -19,11 +19,6 @@
                 {% endif %}
                 {% endwith %}
             </div>
-            {% if can_manage_project %}
-            <div class="d-flex flex-column gap-2 text-end">
-                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_authors_manage' project.id %}">Manage authors</a>
-            </div>
-            {% endif %}
         </div>
 
         <hr class="my-3">
@@ -48,7 +43,7 @@
                 {% endif %}
             </div>
             {% if can_manage_project %}
-            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_funder_add' project.id %}">Add funder</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_funder_add' project.id %}">Add Funder</a>
             {% endif %}
         </div>
         {% if funders %}
@@ -124,7 +119,7 @@
         <div class="d-flex justify-content-between align-items-center mb-2">
             <h5 class="mb-0">Authors</h5>
             {% if can_manage_project %}
-            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_authors_manage' project.id %}">Update authors</a>
+            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_authors_manage' project.id %}">Manage Authors</a>
             {% endif %}
         </div>
         {% if authors %}
