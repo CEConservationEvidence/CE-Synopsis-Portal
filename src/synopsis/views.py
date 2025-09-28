@@ -368,7 +368,6 @@ def project_create(request):
         pform = ProjectCreateForm(request.POST)
         aform = AssignAuthorsForm(request.POST)
         fform = FunderForm(request.POST)
-        pform.fields["start_date"].initial = today
         if pform.is_valid() and aform.is_valid() and fform.is_valid():
             if request.POST.get("edit") == "1":
                 pform.fields["start_date"].initial = today
@@ -439,8 +438,6 @@ def project_create(request):
             for field in hidden_project_form.fields.values():
                 field.widget = forms.HiddenInput()
                 field.disabled = False
-            hidden_project_form.fields["start_date"].initial = today
-
             hidden_authors_form = AssignAuthorsForm(request.POST)
             hidden_authors_form.fields["authors"].widget = forms.MultipleHiddenInput()
 
@@ -729,7 +726,10 @@ def project_funder_add(request, project_id):
                 details = (
                     f"Organisation: {_format_value(funder.organisation)}; "
                     f"Contact: {contact_label}; "
-                    f"Title: {_format_value(funder.contact_title)}"
+                    f"Title: {_format_value(funder.contact_title)}; "
+                    f"Funds allocated: {_format_value(funder.funds_allocated)}; "
+                    f"Start date: {_format_value(funder.start_date)}; "
+                    f"End date: {_format_value(funder.end_date)}"
                 )
                 _log_project_change(project, request.user, "Added funder", details)
                 messages.success(request, "Funder details added.")
