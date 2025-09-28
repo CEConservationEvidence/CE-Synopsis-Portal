@@ -1,10 +1,9 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Dashboard – CE Portal{% endblock %}
 {% block content %}
-<h1 class="mb-3">Synopses</h1>
-<p>
-    <a class="btn btn-primary btn-sm" href="{% url 'synopsis:project_create' %}">Create Synopsis</a>
-</p>
+<h1>CE Synopsis Portal</h1>
+<br>
+<h2 class="mb-3">Synopses</h2>
 <h2 class="h5 mt-4">Active synopses</h2>
 <table class="table table-striped align-middle">
     <thead>
@@ -13,7 +12,7 @@
             <th>Authors</th>
             <th>Current Phase</th>
             <th>Created</th>
-            <th class="text-end">Actions</th>
+            <th class="text-end">Open</th>
         </tr>
     </thead>
     <tbody>
@@ -33,9 +32,6 @@
             <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
             <td class="text-end">
                 <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' p.id %}">Open</a>
-                {% if can_manage_projects %}
-                <a class="btn btn-outline-danger btn-sm" href="{% url 'synopsis:project_delete' p.id %}">Delete</a>
-                {% endif %}
             </td>
         </tr>
         {% empty %}
@@ -53,7 +49,7 @@
             <th>Authors</th>
             <th>Status</th>
             <th>Last Updated</th>
-            <th class="text-end">Actions</th>
+            <th class="text-end">Open</th>
         </tr>
     </thead>
     <tbody>
@@ -73,9 +69,6 @@
             <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
             <td class="text-end">
                 <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' p.id %}">Open</a>
-                {% if can_manage_projects %}
-                <a class="btn btn-outline-danger btn-sm" href="{% url 'synopsis:project_delete' p.id %}">Delete</a>
-                {% endif %}
             </td>
         </tr>
         {% empty %}

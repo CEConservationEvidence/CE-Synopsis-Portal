@@ -16,7 +16,7 @@ from .models import (
     Protocol,
     UserRole,
 )
-from .forms import FunderForm
+from .forms import FunderForm, ProjectDeleteForm, ProjectSettingsForm
 from .utils import (
     BRAND,
     GLOBAL_GROUPS,
@@ -170,15 +170,15 @@ class ProjectAuthorUsersTests(TestCase):
 
 class FunderUtilityTests(TestCase):
     def test_build_display_name_prefers_organisation(self):
-        name = Funder.build_display_name("Org Inc", "Ann", "Lee")
+        name = Funder.build_display_name("Org Inc", "Dr", "Ann", "Lee")
         self.assertEqual(name, "Org Inc")
 
     def test_build_display_name_from_names(self):
-        name = Funder.build_display_name(None, "Ann", "Lee")
-        self.assertEqual(name, "Ann Lee")
+        name = Funder.build_display_name(None, "Dr", "Ann", "Lee")
+        self.assertEqual(name, "Dr Ann Lee")
 
     def test_build_display_name_default(self):
-        self.assertEqual(Funder.build_display_name(None, None, None), "(Funder)")
+        self.assertEqual(Funder.build_display_name(None, None, None, None), "(Funder)")
 
 
 class FunderFormTests(TestCase):
@@ -186,9 +186,9 @@ class FunderFormTests(TestCase):
         form = FunderForm(
             data={
                 "organisation": "",
+                "contact_title": "Dr",
                 "contact_first_name": "",
                 "contact_last_name": "",
-                "funds_allocated": "100.00",
             }
         )
         self.assertFalse(form.is_valid())
@@ -204,6 +204,85 @@ class FunderFormTests(TestCase):
         form = FunderForm(data={})
         self.assertTrue(form.is_valid())
         self.assertFalse(form.has_meaningful_input())
+
+    def test_start_date_cannot_be_after_end_date(self):
+        form = FunderForm(
+            data={
+                "organisation": "Ocean Trust",
+                "fund_start_date": "2025-02-01",
+                "fund_end_date": "2025-01-01",
+            }
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "Start date cannot be after the end date.",
+            form.errors.get("fund_start_date", []),
+        )
+        self.assertIn(
+            "Start date cannot be after the end date.",
+            form.errors.get("fund_end_date", []),
+        )
+
+    def test_start_end_date_valid_when_ordered(self):
+        form = FunderForm(
+            data={
+                "organisation": "Ocean Trust",
+                "fund_start_date": "2025-01-01",
+                "fund_end_date": "2025-02-01",
+            }
+        )
+        self.assertTrue(form.is_valid())
+
+
+class ProjectDeleteFormTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Wetland Recovery")
+
+    def test_requires_matching_title(self):
+        form = ProjectDeleteForm(
+            data={
+                "confirm_title": "Wrong title",
+                "acknowledge_irreversible": True,
+            },
+            project=self.project,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("Title does not match", form.errors["confirm_title"][0])
+
+    def test_requires_acknowledgement(self):
+        form = ProjectDeleteForm(
+            data={"confirm_title": "Wetland Recovery"}, project=self.project
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("This field is required.", form.errors["acknowledge_irreversible"][0])
+
+    def test_valid_when_all_checks_pass(self):
+        form = ProjectDeleteForm(
+            data={
+                "confirm_title": "Wetland Recovery",
+                "acknowledge_irreversible": True,
+            },
+            project=self.project,
+        )
+        self.assertTrue(form.is_valid())
+
+
+class ProjectSettingsFormTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Forest Restoration")
+
+    def test_requires_title(self):
+        form = ProjectSettingsForm(data={"title": ""}, instance=self.project)
+        self.assertFalse(form.is_valid())
+        self.assertIn("Enter a title", form.errors["title"][0])
+
+    def test_updates_title(self):
+        form = ProjectSettingsForm(
+            data={"title": "Forest Recovery"}, instance=self.project
+        )
+        self.assertTrue(form.is_valid())
+        updated = form.save()
+        self.assertEqual(updated.title, "Forest Recovery")
 
 
 class ViewHelperTests(TestCase):

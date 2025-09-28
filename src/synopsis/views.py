@@ -29,6 +29,8 @@ from .forms import (
     AdvisoryInviteForm,
     AssignAuthorsForm,
     FunderForm,
+    ProjectDeleteForm,
+    ProjectSettingsForm,
     AdvisoryBulkInviteForm,
     ProtocolSendForm,
     ReminderScheduleForm,
@@ -333,68 +335,150 @@ def dashboard(request):
 
 
 class ProjectCreateForm(forms.ModelForm):
+    start_date = forms.DateField(
+        required=False,
+        initial=timezone.localdate,
+        widget=forms.DateInput(
+            attrs={
+                "type": "date",
+                "class": "form-control bg-light text-muted",
+                "readonly": "readonly",
+                "tabindex": "-1",
+            }
+        ),
+        disabled=True,
+    )
+
     class Meta:
         model = Project
-        fields = ["title"]
+        fields = ["title", "start_date"]
         widgets = {
             "title": forms.TextInput(attrs={"class": "form-control"}),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["start_date"].initial = timezone.localdate()
+
 
 @login_required
 def project_create(request):
+    today = timezone.localdate()
     if request.method == "POST":
         pform = ProjectCreateForm(request.POST)
         aform = AssignAuthorsForm(request.POST)
         fform = FunderForm(request.POST)
         if pform.is_valid() and aform.is_valid() and fform.is_valid():
-            project = pform.save()
-
-            _log_project_change(
-                project, request.user, "Project created", f"Title: {project.title}"
-            )
-
-            # Assign authors via UserRole
-            authors = aform.cleaned_data.get("authors") or []
-            for user in authors:
-                UserRole.objects.get_or_create(
-                    user=user, project=project, role="author"
+            if request.POST.get("edit") == "1":
+                pform.fields["start_date"].initial = today
+                return render(
+                    request,
+                    "synopsis/project_create.html",
+                    {
+                        "form": pform,
+                        "authors_form": aform,
+                        "funder_form": fform,
+                    },
                 )
-            if authors:
-                author_labels = ", ".join(
-                    user.get_full_name() or user.username for user in authors
-                )
+
+            if request.POST.get("confirm") == "1":
+                project = pform.save(commit=False)
+                project.start_date = today
+                project.save()
+
                 _log_project_change(
                     project,
                     request.user,
-                    "Assigned authors",
-                    f"Initial author list: {author_labels}",
+                    "Project created",
+                    f"Title: {project.title}; Start date: {_format_value(project.start_date)}",
                 )
 
-            if fform.has_meaningful_input():
-                funder = fform.save(commit=False)
-                funder.project = project
-                funder.name = Funder.build_display_name(
-                    funder.organisation,
-                    funder.contact_first_name,
-                    funder.contact_last_name,
-                )
-                funder.save()
-                contact_label = _funder_contact_label(
-                    funder.contact_first_name, funder.contact_last_name
-                )
-                details = (
-                    f"Organisation: {_format_value(funder.organisation)}; "
-                    f"Contact: {contact_label}; "
-                    f"Funds allocated: {_format_value(funder.funds_allocated)}; "
-                    f"Dates: {_format_value(funder.fund_start_date)} to {_format_value(funder.fund_end_date)}"
-                )
-                _log_project_change(project, request.user, "Added funder", details)
+                authors = aform.cleaned_data.get("authors") or []
+                for user in authors:
+                    UserRole.objects.get_or_create(
+                        user=user, project=project, role="author"
+                    )
+                if authors:
+                    author_labels = ", ".join(
+                        _user_display(user) for user in authors
+                    )
+                    _log_project_change(
+                        project,
+                        request.user,
+                        "Assigned authors",
+                        f"Initial author list: {author_labels}",
+                    )
 
-            messages.success(request, "Project created.")
-            return redirect("synopsis:project_hub", project_id=project.id)
+                if fform.has_meaningful_input():
+                    funder = fform.save(commit=False)
+                    funder.project = project
+                    funder.name = Funder.build_display_name(
+                        funder.organisation,
+                        funder.contact_title,
+                        funder.contact_first_name,
+                        funder.contact_last_name,
+                    )
+                    funder.save()
+                    contact_label = _funder_contact_label(
+                        funder.contact_first_name, funder.contact_last_name
+                    )
+                    details = (
+                        f"Organisation: {_format_value(funder.organisation)}; "
+                        f"Title: {_format_value(funder.contact_title)}; "
+                        f"Contact: {contact_label}; "
+                        f"Funds allocated: {_format_value(funder.funds_allocated)}; "
+                        f"Dates: {_format_value(funder.fund_start_date)} to {_format_value(funder.fund_end_date)}"
+                    )
+                    _log_project_change(project, request.user, "Added funder", details)
+
+                messages.success(request, "Project created.")
+                return redirect("synopsis:project_hub", project_id=project.id)
+
+            hidden_project_form = ProjectCreateForm(request.POST)
+            for field in hidden_project_form.fields.values():
+                field.widget = forms.HiddenInput()
+                field.disabled = False
+            hidden_authors_form = AssignAuthorsForm(request.POST)
+            hidden_authors_form.fields["authors"].widget = forms.MultipleHiddenInput()
+
+            hidden_funder_form = FunderForm(request.POST)
+            for name, field in hidden_funder_form.fields.items():
+                field.widget = forms.HiddenInput()
+
+            authors = aform.cleaned_data.get("authors") or []
+            author_names = [_user_display(user) for user in authors]
+
+            funder_cleaned = fform.cleaned_data
+            funder_summary = {
+                "organisation": funder_cleaned.get("organisation"),
+                "contact_title": funder_cleaned.get("contact_title"),
+                "contact": _funder_contact_label(
+                    funder_cleaned.get("contact_first_name"),
+                    funder_cleaned.get("contact_last_name"),
+                ),
+                "funds_allocated": funder_cleaned.get("funds_allocated"),
+                "fund_start_date": funder_cleaned.get("fund_start_date"),
+                "fund_end_date": funder_cleaned.get("fund_end_date"),
+                "has_details": fform.has_meaningful_input(),
+            }
+
+            return render(
+                request,
+                "synopsis/project_create_confirm.html",
+                {
+                    "project_form": hidden_project_form,
+                    "authors_form_hidden": hidden_authors_form,
+                    "funder_form_hidden": hidden_funder_form,
+                    "summary": {
+                        "title": pform.cleaned_data["title"],
+                        "start_date": today,
+                        "authors": author_names,
+                        "funder": funder_summary,
+                    },
+                },
+            )
     else:
-        pform = ProjectCreateForm()
+        pform = ProjectCreateForm(initial={"start_date": today})
         aform = AssignAuthorsForm()
         fform = FunderForm()
 
@@ -423,9 +507,7 @@ def project_hub(request, project_id):
     funders.sort(
         key=lambda f: (
             f.fund_start_date or dt.date.max,
-            (
-                f.organisation or f.contact_last_name or f.contact_first_name or ""
-            ).lower(),
+            (f.organisation or f.contact_last_name or f.contact_first_name or "").lower(),
         )
     )
     funding_values = [
@@ -633,6 +715,7 @@ def project_funder_add(request, project_id):
                 funder.project = project
                 funder.name = Funder.build_display_name(
                     funder.organisation,
+                    funder.contact_title,
                     funder.contact_first_name,
                     funder.contact_last_name,
                 )
@@ -643,8 +726,10 @@ def project_funder_add(request, project_id):
                 details = (
                     f"Organisation: {_format_value(funder.organisation)}; "
                     f"Contact: {contact_label}; "
+                    f"Title: {_format_value(funder.contact_title)}; "
                     f"Funds allocated: {_format_value(funder.funds_allocated)}; "
-                    f"Dates: {_format_value(funder.fund_start_date)} to {_format_value(funder.fund_end_date)}"
+                    f"Start date: {_format_value(funder.fund_start_date)}; "
+                    f"End date: {_format_value(funder.fund_end_date)}"
                 )
                 _log_project_change(project, request.user, "Added funder", details)
                 messages.success(request, "Funder details added.")
@@ -677,6 +762,7 @@ def project_funder_edit(request, project_id, funder_id):
                     field: getattr(funder, field)
                     for field in (
                         "organisation",
+                        "contact_title",
                         "contact_first_name",
                         "contact_last_name",
                         "funds_allocated",
@@ -688,6 +774,7 @@ def project_funder_edit(request, project_id, funder_id):
                 updated.project = project
                 updated.name = Funder.build_display_name(
                     updated.organisation,
+                    updated.contact_title,
                     updated.contact_first_name,
                     updated.contact_last_name,
                 )
@@ -695,6 +782,7 @@ def project_funder_edit(request, project_id, funder_id):
                 changes = []
                 for field in (
                     "organisation",
+                    "contact_title",
                     "funds_allocated",
                     "fund_start_date",
                     "fund_end_date",
@@ -739,7 +827,12 @@ def project_funder_delete(request, project_id, funder_id):
         return redirect("synopsis:project_hub", project_id=project.id)
 
     if request.method == "POST":
-        detail = f"Removed funder {Funder.build_display_name(funder.organisation, funder.contact_first_name, funder.contact_last_name)}"
+        detail = "Removed funder " + Funder.build_display_name(
+            funder.organisation,
+            funder.contact_title,
+            funder.contact_first_name,
+            funder.contact_last_name,
+        )
         funder.delete()
         _log_project_change(project, request.user, "Removed funder", detail)
         messages.success(request, "Funder removed.")
@@ -759,16 +852,23 @@ def project_delete(request, project_id):
         messages.error(request, "Only managers can delete projects.")
         return redirect("synopsis:project_hub", project_id=project.id)
 
+    next_url = request.POST.get("next") or request.GET.get("next")
+    cancel_url = next_url or reverse("synopsis:dashboard")
+
     if request.method == "POST":
-        title = project.title
-        project.delete()
-        messages.success(request, f"Project '{title}' deleted.")
-        return redirect("synopsis:dashboard")
+        form = ProjectDeleteForm(request.POST, project=project)
+        if form.is_valid():
+            title = project.title
+            project.delete()
+            messages.success(request, f"Project '{title}' deleted.")
+            return redirect(next_url or "synopsis:manager_dashboard")
+    else:
+        form = ProjectDeleteForm(project=project)
 
     return render(
         request,
         "synopsis/project_confirm_delete.html",
-        {"project": project},
+        {"project": project, "form": form, "next_url": next_url, "cancel_url": cancel_url},
     )
 
 
@@ -1315,7 +1415,72 @@ def manager_dashboard(request):
 
     ensure_global_groups()
     users = User.objects.order_by("username")
-    return render(request, "synopsis/manager_dashboard.html", {"users": users})
+
+    projects = (
+        Project.objects.prefetch_related("userrole_set__user")
+        .order_by("-created_at", "-id")
+    )
+    project_entries = []
+    for project in projects:
+        authors = [
+            role.user
+            for role in project.userrole_set.all()
+            if role.role == "author"
+        ]
+        form = ProjectDeleteForm(
+            project=project, auto_id=f"id_project_{project.id}_%s"
+        )
+        project_entries.append(
+            {
+                "project": project,
+                "authors": authors,
+                "delete_form": form,
+            }
+        )
+
+    return render(
+        request,
+        "synopsis/manager_dashboard.html",
+        {"users": users, "project_entries": project_entries},
+    )
+
+
+@login_required
+def project_settings(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_is_manager(request.user):
+        messages.error(request, "Only managers can edit project settings.")
+        return redirect("synopsis:project_hub", project_id=project.id)
+
+    if request.method == "POST":
+        original_title = project.title
+        form = ProjectSettingsForm(request.POST, instance=project)
+        if form.is_valid():
+            updated_project = form.save()
+            changes = []
+            if original_title != updated_project.title:
+                changes.append(
+                    f"Title: {original_title} → {updated_project.title}"
+                )
+            if changes:
+                _log_project_change(
+                    updated_project,
+                    request.user,
+                    "Updated project settings",
+                    "; ".join(changes),
+                )
+                messages.success(request, "Project settings updated.")
+            else:
+                messages.info(request, "No changes saved.")
+            return redirect("synopsis:project_hub", project_id=project.id)
+    else:
+        form = ProjectSettingsForm(instance=project)
+
+    return render(
+        request,
+        "synopsis/project_settings_form.html",
+        {"project": project, "form": form},
+    )
 
 
 @login_required

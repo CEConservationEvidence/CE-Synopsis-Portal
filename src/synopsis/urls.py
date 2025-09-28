@@ -19,6 +19,11 @@ urlpatterns = [
     path("project/new/", views.project_create, name="project_create"),
     path("project/<int:project_id>/", views.project_hub, name="project_hub"),
     path(
+        "project/<int:project_id>/settings/",
+        views.project_settings,
+        name="project_settings",
+    ),
+    path(
         "project/<int:project_id>/phase/confirm/<str:phase>/",
         views.project_phase_confirm,
         name="project_phase_confirm",

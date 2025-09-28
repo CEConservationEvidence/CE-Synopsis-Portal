@@ -1,15 +1,27 @@
 from django import forms
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from django.core.validators import FileExtensionValidator
+
 from .models import (
     AdvisoryBoardMember,
     Funder,
+    Project,
     Protocol,
-    UserRole,
-    ReferenceSourceBatch,
     Reference,
+    ReferenceSourceBatch,
+    UserRole,
 )
-from django.contrib.auth.models import Group
+
+# TODO: see if these are enough, if not add more titles.
+FUNDER_TITLE_CHOICES = [
+    ("", "Title"),
+    ("Dr", "Dr"),
+    ("Prof", "Prof"),
+    ("Mr", "Mr"),
+    ("Mrs", "Mrs"),
+    ("Ms", "Ms"),
+    ("Mx", "Mx"),
+]
 
 GLOBAL_ROLE_CHOICES = [
     ("author", "Author"),
@@ -122,10 +134,18 @@ class AssignAuthorsForm(forms.Form):
 
 
 class FunderForm(forms.ModelForm):
+    contact_title = forms.ChoiceField(
+        choices=FUNDER_TITLE_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Title",
+    )
+
     class Meta:
         model = Funder
         fields = [
             "organisation",
+            "contact_title",
             "contact_first_name",
             "contact_last_name",
             "funds_allocated",
@@ -165,6 +185,7 @@ class FunderForm(forms.ModelForm):
             cleaned.get(key)
             for key in (
                 "organisation",
+                "contact_title",
                 "contact_first_name",
                 "contact_last_name",
                 "funds_allocated",
@@ -179,8 +200,66 @@ class FunderForm(forms.ModelForm):
             raise forms.ValidationError(
                 "Provide an organisation or a contact first/last name for the funder."
             )
+
+        start = cleaned.get("fund_start_date")
+        end = cleaned.get("fund_end_date")
+        if start and end and start > end:
+            message = "Start date cannot be after the end date."
+            self.add_error("fund_start_date", message)
+            self.add_error("fund_end_date", message)
+            raise forms.ValidationError(message)
         return cleaned
 
+
+class ProjectDeleteForm(forms.Form):
+    confirm_title = forms.CharField(
+        label="Confirm title",
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "Type the synopsis title to confirm",
+                "autocomplete": "off",
+            }
+        ),
+    )
+    acknowledge_irreversible = forms.BooleanField(
+        label="I understand this action permanently deletes the synopsis and all related records.",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+
+    def __init__(self, *args, project: Project | None = None, **kwargs):
+        self.project = project
+        super().__init__(*args, **kwargs)
+        if project:
+            self.fields["confirm_title"].help_text = (
+                f"Enter '{project.title}' to enable deletion."
+            )
+
+    def clean_confirm_title(self):
+        value = self.cleaned_data.get("confirm_title", "").strip()
+        if self.project and value != self.project.title:
+            raise forms.ValidationError("Title does not match this synopsis.")
+        return value
+
+
+class ProjectSettingsForm(forms.ModelForm):
+    class Meta:
+        model = Project
+        fields = ["title"]
+        widgets = {
+            "title": forms.TextInput(attrs={"class": "form-control"}),
+        }
+        error_messages = {
+            "title": {
+                "required": "Enter a title for the synopsis.",
+            }
+        }
+
+    def clean_title(self):
+        title = self.cleaned_data.get("title", "").strip()
+        if not title:
+            raise forms.ValidationError("Enter a title for the synopsis.")
+        return title
 
 class AdvisoryBulkInviteForm(forms.Form):
     due_date = forms.DateField(
@@ -287,6 +366,7 @@ class ProtocolFeedbackCloseForm(forms.Form):
         ),
         help_text="Shown to advisory board members when they open an existing feedback link.",
     )
+
 
 # TODO: cleanup this form, add more validation and error handling (file types supported are currently .RIS but .txt is also being used by team).
 class ReferenceBatchUploadForm(forms.Form):

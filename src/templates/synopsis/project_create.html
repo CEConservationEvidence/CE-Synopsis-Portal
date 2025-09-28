@@ -8,11 +8,16 @@
         <div class="card-body">
             <h5 class="mb-3">Synopsis details</h5>
             {{ form.non_field_errors }}
-            <div class="row g-3">
-                <div class="col-md-12">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-8">
                     <label class="form-label">Title</label>
                     {{ form.title }}
                     {{ form.title.errors }}
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Start date (set as today)</label>
+                    {{ form.start_date }}
+                    {{ form.start_date.errors }}
                 </div>
             </div>
         </div>
@@ -32,36 +37,62 @@
         <div class="card-body">
             <h5 class="mb-3">Funder details</h5>
             {{ funder_form.non_field_errors }}
-            <div class="row g-3">
-                <div class="col-md-6">
-                    <label class="form-label">Organisation</label>
-                    {{ funder_form.organisation }}
-                    {{ funder_form.organisation.errors }}
+            <div class="row g-4">
+                <div class="col-xl-6">
+                    <div class="border rounded-3 p-3 h-100 bg-light">
+                        <h6 class="text-uppercase small text-muted mb-3">Organisation</h6>
+                        <div class="mb-0">
+                            <label class="form-label">Organisation name</label>
+                            {{ funder_form.organisation }}
+                            {{ funder_form.organisation.errors }}
+                        </div>
+                    </div>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label">Contact first name</label>
-                    {{ funder_form.contact_first_name }}
-                    {{ funder_form.contact_first_name.errors }}
+                <div class="col-xl-6">
+                    <div class="border rounded-3 p-3 h-100 bg-light">
+                        <h6 class="text-uppercase small text-muted mb-3">Primary contact</h6>
+                        <div class="row g-3">
+                            <div class="col-sm-4">
+                                <label class="form-label">Title</label>
+                                {{ funder_form.contact_title }}
+                                {{ funder_form.contact_title.errors }}
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">First name</label>
+                                {{ funder_form.contact_first_name }}
+                                {{ funder_form.contact_first_name.errors }}
+                            </div>
+                            <div class="col-sm-4">
+                                <label class="form-label">Surname</label>
+                                {{ funder_form.contact_last_name }}
+                                {{ funder_form.contact_last_name.errors }}
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label">Contact last name</label>
-                    {{ funder_form.contact_last_name }}
-                    {{ funder_form.contact_last_name.errors }}
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Funds allocated</label>
-                    {{ funder_form.funds_allocated }}
-                    {{ funder_form.funds_allocated.errors }}
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Fund start date</label>
-                    {{ funder_form.fund_start_date }}
-                    {{ funder_form.fund_start_date.errors }}
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">Fund end date</label>
-                    {{ funder_form.fund_end_date }}
-                    {{ funder_form.fund_end_date.errors }}
+            </div>
+            <div class="row g-4 mt-1">
+                <div class="col-lg-8 col-xl-6">
+                    <div class="border rounded-3 p-3 h-100 bg-light">
+                        <h6 class="text-uppercase small text-muted mb-3">Funding overview</h6>
+                        <div class="mb-3">
+                            <label class="form-label">Funds allocated</label>
+                            {{ funder_form.funds_allocated }}
+                            {{ funder_form.funds_allocated.errors }}
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-sm-6">
+                                <label class="form-label">Start date</label>
+                                {{ funder_form.fund_start_date }}
+                                {{ funder_form.fund_start_date.errors }}
+                            </div>
+                            <div class="col-sm-6">
+                                <label class="form-label">End date</label>
+                                {{ funder_form.fund_end_date }}
+                                {{ funder_form.fund_end_date.errors }}
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
