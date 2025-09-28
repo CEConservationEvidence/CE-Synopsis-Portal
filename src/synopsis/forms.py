@@ -227,6 +227,9 @@ class ProjectDeleteForm(forms.Form):
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
 
+    def clean_confirm_title(self):
+        value = self.cleaned_data.get("confirm_title", "").strip()
+        return value
 class AdvisoryBulkInviteForm(forms.Form):
     due_date = forms.DateField(
         required=False,
