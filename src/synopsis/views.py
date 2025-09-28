@@ -29,6 +29,7 @@ from .forms import (
     AdvisoryInviteForm,
     AssignAuthorsForm,
     FunderForm,
+    ProjectDeleteForm,
     AdvisoryBulkInviteForm,
     ProtocolSendForm,
     ReminderScheduleForm,
@@ -850,16 +851,22 @@ def project_delete(request, project_id):
         messages.error(request, "Only managers can delete projects.")
         return redirect("synopsis:project_hub", project_id=project.id)
 
+    next_url = request.POST.get("next") or request.GET.get("next")
+
     if request.method == "POST":
-        title = project.title
-        project.delete()
-        messages.success(request, f"Project '{title}' deleted.")
-        return redirect("synopsis:dashboard")
+        form = ProjectDeleteForm(request.POST, project=project)
+        if form.is_valid():
+            title = project.title
+            project.delete()
+            messages.success(request, f"Project '{title}' deleted.")
+            return redirect(next_url or "synopsis:manager_dashboard")
+    else:
+        form = ProjectDeleteForm(project=project)
 
     return render(
         request,
         "synopsis/project_confirm_delete.html",
-        {"project": project},
+        {"project": project, "form": form, "next_url": next_url},
     )
 
 
@@ -1406,7 +1413,34 @@ def manager_dashboard(request):
 
     ensure_global_groups()
     users = User.objects.order_by("username")
-    return render(request, "synopsis/manager_dashboard.html", {"users": users})
+
+    projects = (
+        Project.objects.prefetch_related("userrole_set__user")
+        .order_by("-created_at", "-id")
+    )
+    project_entries = []
+    for project in projects:
+        authors = [
+            role.user
+            for role in project.userrole_set.all()
+            if role.role == "author"
+        ]
+        form = ProjectDeleteForm(
+            project=project, auto_id=f"id_project_{project.id}_%s"
+        )
+        project_entries.append(
+            {
+                "project": project,
+                "authors": authors,
+                "delete_form": form,
+            }
+        )
+
+    return render(
+        request,
+        "synopsis/manager_dashboard.html",
+        {"users": users, "project_entries": project_entries},
+    )
 
 
 @login_required
