@@ -368,7 +368,6 @@ def project_create(request):
         pform = ProjectCreateForm(request.POST)
         aform = AssignAuthorsForm(request.POST)
         fform = FunderForm(request.POST)
-        pform.fields["start_date"].initial = today
         if pform.is_valid() and aform.is_valid() and fform.is_valid():
             if request.POST.get("edit") == "1":
                 pform.fields["start_date"].initial = today
