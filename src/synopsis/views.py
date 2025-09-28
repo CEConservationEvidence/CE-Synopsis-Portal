@@ -1452,9 +1452,9 @@ def project_settings(request, project_id):
         return redirect("synopsis:project_hub", project_id=project.id)
 
     if request.method == "POST":
+        original_title = project.title
         form = ProjectSettingsForm(request.POST, instance=project)
         if form.is_valid():
-            original_title = project.title
             updated_project = form.save()
             changes = []
             if original_title != updated_project.title:
