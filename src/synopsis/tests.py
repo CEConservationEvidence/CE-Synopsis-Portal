@@ -16,7 +16,7 @@ from .models import (
     Protocol,
     UserRole,
 )
-from .forms import FunderForm
+from .forms import FunderForm, ProjectDeleteForm
 from .utils import (
     BRAND,
     GLOBAL_GROUPS,
@@ -230,6 +230,39 @@ class FunderFormTests(TestCase):
                 "fund_start_date": "2025-01-01",
                 "fund_end_date": "2025-02-01",
             }
+        )
+        self.assertTrue(form.is_valid())
+
+
+class ProjectDeleteFormTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Wetland Recovery")
+
+    def test_requires_matching_title(self):
+        form = ProjectDeleteForm(
+            data={
+                "confirm_title": "Wrong title",
+                "acknowledge_irreversible": True,
+            },
+            project=self.project,
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("Title does not match", form.errors["confirm_title"][0])
+
+    def test_requires_acknowledgement(self):
+        form = ProjectDeleteForm(
+            data={"confirm_title": "Wetland Recovery"}, project=self.project
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("This field is required.", form.errors["acknowledge_irreversible"][0])
+
+    def test_valid_when_all_checks_pass(self):
+        form = ProjectDeleteForm(
+            data={
+                "confirm_title": "Wetland Recovery",
+                "acknowledge_irreversible": True,
+            },
+            project=self.project,
         )
         self.assertTrue(form.is_valid())
 
