@@ -227,6 +227,14 @@ class ProjectDeleteForm(forms.Form):
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
     )
 
+    def __init__(self, *args, project: Project | None = None, **kwargs):
+        self.project = project
+        super().__init__(*args, **kwargs)
+        if project:
+            self.fields["confirm_title"].help_text = (
+                f"Enter '{project.title}' to enable deletion."
+            )
+
     def clean_confirm_title(self):
         value = self.cleaned_data.get("confirm_title", "").strip()
         if self.project and value != self.project.title:
