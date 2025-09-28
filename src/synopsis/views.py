@@ -853,6 +853,7 @@ def project_delete(request, project_id):
         return redirect("synopsis:project_hub", project_id=project.id)
 
     next_url = request.POST.get("next") or request.GET.get("next")
+    cancel_url = next_url or reverse("synopsis:dashboard")
 
     if request.method == "POST":
         form = ProjectDeleteForm(request.POST, project=project)
@@ -867,7 +868,7 @@ def project_delete(request, project_id):
     return render(
         request,
         "synopsis/project_confirm_delete.html",
-        {"project": project, "form": form, "next_url": next_url},
+        {"project": project, "form": form, "next_url": next_url, "cancel_url": cancel_url},
     )
 
 
