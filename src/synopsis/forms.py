@@ -229,7 +229,10 @@ class ProjectDeleteForm(forms.Form):
 
     def clean_confirm_title(self):
         value = self.cleaned_data.get("confirm_title", "").strip()
+        if self.project and value != self.project.title:
+            raise forms.ValidationError("Title does not match this synopsis.")
         return value
+
 class AdvisoryBulkInviteForm(forms.Form):
     due_date = forms.DateField(
         required=False,
