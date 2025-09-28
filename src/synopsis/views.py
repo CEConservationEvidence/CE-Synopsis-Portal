@@ -439,8 +439,6 @@ def project_create(request):
             for field in hidden_project_form.fields.values():
                 field.widget = forms.HiddenInput()
                 field.disabled = False
-            hidden_project_form.fields["start_date"].initial = today
-
             hidden_authors_form = AssignAuthorsForm(request.POST)
             hidden_authors_form.fields["authors"].widget = forms.MultipleHiddenInput()
 
