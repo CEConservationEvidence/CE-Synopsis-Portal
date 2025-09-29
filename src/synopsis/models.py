@@ -365,6 +365,20 @@ class ActionList(models.Model):
         return self.revisions.order_by("-uploaded_at", "-id").first()
 
 
+class ActionListRevision(models.Model):
+    action_list = models.ForeignKey(
+        ActionList, on_delete=models.CASCADE, related_name="revisions"
+    )
+    file = models.FileField(upload_to=action_list_revision_upload_path)
+    stage = models.CharField(max_length=20, choices=Protocol.STAGE_CHOICES)
+    change_reason = models.TextField(blank=True)
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name="action_list_revisions",
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    original_name = models.CharField(max_length=255, blank=True)
 class AdvisoryBoardMember(models.Model):
     """An advisory board member for a project, where there can be multiple members per project.
     Note that this datamodel is speficific to CE and may need to be dropped by other teams.
