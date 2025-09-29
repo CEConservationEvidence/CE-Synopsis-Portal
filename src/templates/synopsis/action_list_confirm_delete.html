@@ -1,0 +1,38 @@
+{% extends "synopsis/base.html" %}
+{% block title %}
+{% if mode == "file" %}Remove Action List File{% elif mode == "text" %}Clear Action List Notes{% else %}Delete Action List{% endif %} – {{ project.title }}
+{% endblock %}
+{% block content %}
+<h1 class="mb-3">
+    {% if mode == "file" %}
+        Remove action list file
+    {% elif mode == "text" %}
+        Clear action list notes
+    {% else %}
+        Delete action list
+    {% endif %}
+</h1>
+<div class="alert alert-warning" role="alert">
+    {% if mode == "file" %}
+        This will remove the uploaded action list file for <strong>{{ project.title }}</strong>. Revision metadata will remain.
+    {% elif mode == "text" %}
+        This will clear the action list notes for <strong>{{ project.title }}</strong>. Uploaded files will remain.
+    {% else %}
+        This will delete the entire action list record, including uploaded files, notes, and revision history, for <strong>{{ project.title }}</strong>.
+    {% endif %}
+    This action cannot be undone.
+</div>
+<form method="post">
+    {% csrf_token %}
+    <button class="btn btn-danger">
+        {% if mode == "file" %}
+            Yes, remove file
+        {% elif mode == "text" %}
+            Yes, clear notes
+        {% else %}
+            Yes, delete action list
+        {% endif %}
+    </button>
+    <a class="btn btn-link" href="{% url 'synopsis:action_list_detail' project.id %}">Cancel</a>
+</form>
+{% endblock %}
