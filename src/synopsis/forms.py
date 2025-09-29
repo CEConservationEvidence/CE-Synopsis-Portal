@@ -3,6 +3,7 @@ from django.contrib.auth.models import Group, User
 from django.core.validators import FileExtensionValidator
 
 from .models import (
+    ActionList,
     AdvisoryBoardMember,
     Funder,
     Project,
