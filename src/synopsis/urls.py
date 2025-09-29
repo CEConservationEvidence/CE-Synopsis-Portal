@@ -50,6 +50,7 @@ urlpatterns = [
     ),
     path(
         "project/<int:project_id>/action-list/revision/<int:revision_id>/restore",
+        "project/<int:project_id>/action-list/revision/<int:revision_id>/restore/",
         views.action_list_restore_revision,
         name="action_list_restore_revision",
     ),
