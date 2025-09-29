@@ -549,6 +549,41 @@ class ProtocolFeedback(models.Model):
 
 
 # TODO: add new datamodel for ACTION LIST here (similar to protocol document). A document sent to AB (foreign), one-one relationship.
+class ActionListFeedback(models.Model):
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="action_list_feedback"
+    )
+    action_list = models.ForeignKey(
+        ActionList, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    member = models.ForeignKey(
+        "AdvisoryBoardMember",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="action_list_feedback",
+    )
+    invitation = models.ForeignKey(
+        AdvisoryBoardInvitation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="action_list_feedback",
+    )
+    email = models.EmailField(blank=True)
+    token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    content = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    uploaded_document = models.FileField(
+        upload_to="action_list_feedback_uploads/",
+        null=True,
+        blank=True,
+    )
+    action_list_document_name = models.CharField(max_length=255, blank=True)
+    action_list_document_last_updated = models.DateTimeField(null=True, blank=True)
+    action_list_stage_snapshot = models.CharField(max_length=20, blank=True)
+    feedback_deadline_at = models.DateTimeField(null=True, blank=True)
 
 class ReferenceSourceBatch(models.Model):
     """Represents one RIS (or similar) import event for a project."""
