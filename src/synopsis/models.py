@@ -331,6 +331,40 @@ class ProtocolRevision(models.Model):
         return f"Revision for {self.protocol.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
 
 
+class ActionList(models.Model):
+    project = models.OneToOneField(
+        Project, on_delete=models.CASCADE, related_name="action_list"
+    )
+    document = models.FileField(upload_to=action_list_upload_path)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_updated = models.DateTimeField(auto_now=True)
+    text_version = models.TextField(blank=True)
+    stage = models.CharField(
+        max_length=20, choices=Protocol.STAGE_CHOICES, default="draft"
+    )
+    feedback_closed_at = models.DateTimeField(null=True, blank=True)
+    feedback_closure_message = models.TextField(blank=True)
+    current_revision = models.ForeignKey(
+        "ActionListRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="current_for",
+    )
+
+    class Meta:
+        verbose_name = "Action list"
+        verbose_name_plural = "Action lists"
+
+    def __str__(self):
+        return f"Action list for {self.project.title}"
+
+    def latest_revision(self):
+        if self.current_revision:
+            return self.current_revision
+        return self.revisions.order_by("-uploaded_at", "-id").first()
+
+
 class AdvisoryBoardMember(models.Model):
     """An advisory board member for a project, where there can be multiple members per project.
     Note that this datamodel is speficific to CE and may need to be dropped by other teams.
