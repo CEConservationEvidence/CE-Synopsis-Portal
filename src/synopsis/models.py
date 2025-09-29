@@ -397,7 +397,7 @@ class ActionListRevision(models.Model):
     def __str__(self):
         return f"Action list revision for {self.action_list.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
 
-
+# TODO: refactor the columns so that they make sense.
 class AdvisoryBoardMember(models.Model):
     """An advisory board member for a project, where there can be multiple members per project.
     Note that this datamodel is speficific to CE and may need to be dropped by other teams.
