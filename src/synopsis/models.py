@@ -375,10 +375,20 @@ class ActionListRevision(models.Model):
     uploaded_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="action_list_revisions",
     )
     uploaded_at = models.DateTimeField(auto_now_add=True)
     original_name = models.CharField(max_length=255, blank=True)
+    file_size = models.BigIntegerField(default=0)
+    class Meta:
+        ordering = ["-uploaded_at", "-id"]
+
+    def __str__(self):
+        return f"Action list revision for {self.action_list.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
+
+
 class AdvisoryBoardMember(models.Model):
     """An advisory board member for a project, where there can be multiple members per project.
     Note that this datamodel is speficific to CE and may need to be dropped by other teams.
