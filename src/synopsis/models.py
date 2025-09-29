@@ -433,6 +433,14 @@ class AdvisoryBoardMember(models.Model):
     reminder_sent = models.BooleanField(default=False)
     reminder_sent_at = models.DateTimeField(null=True, blank=True)
 
+    # Action list interaction
+    sent_action_list_at = models.DateTimeField(null=True, blank=True)
+    action_list_reminder_sent = models.BooleanField(default=False)
+    action_list_reminder_sent_at = models.DateTimeField(null=True, blank=True)
+    feedback_on_action_list_deadline = models.DateTimeField(null=True, blank=True)
+    feedback_on_action_list_received = models.DateField(null=True, blank=True)
+    added_to_action_list_doc = models.BooleanField(default=False)
+
     # Protocol interaction
     sent_protocol_at = models.DateTimeField(null=True, blank=True)
     protocol_reminder_sent = models.BooleanField(default=False)
@@ -455,6 +463,10 @@ class AdvisoryBoardMember(models.Model):
     @property
     def latest_protocol_feedback(self):
         return self.protocol_feedback.order_by("-submitted_at", "-created_at").first()
+
+    @property
+    def latest_action_list_feedback(self):
+        return self.action_list_feedback.order_by("-submitted_at", "-created_at").first()
 
 
 class AdvisoryBoardInvitation(models.Model):
