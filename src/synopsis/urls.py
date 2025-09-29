@@ -49,7 +49,6 @@ urlpatterns = [
         name="action_list_set_stage",
     ),
     path(
-        "project/<int:project_id>/action-list/revision/<int:revision_id>/restore",
         "project/<int:project_id>/action-list/revision/<int:revision_id>/restore/",
         views.action_list_restore_revision,
         name="action_list_restore_revision",
@@ -58,6 +57,11 @@ urlpatterns = [
         "project/<int:project_id>/action-list/clear-text/",
         views.action_list_clear_text,
         name="action_list_clear_text",
+    ),
+    path(
+        "project/<int:project_id>/action-list/delete/",
+        views.action_list_delete,
+        name="action_list_delete",
     ),
     path(
         "project/<int:project_id>/protocol/",
