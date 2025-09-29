@@ -331,6 +331,16 @@ class ProtocolRevision(models.Model):
         return f"Revision for {self.protocol.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
 
 
+def action_list_upload_path(instance, filename):
+    return f"action_lists/{instance.project_id}/{uuid.uuid4()}_{filename}"
+
+
+def action_list_revision_upload_path(instance, filename):
+    return (
+        f"action_list_revisions/{instance.action_list.project_id}/{uuid.uuid4()}_{filename}"
+    )
+
+
 class ActionList(models.Model):
     project = models.OneToOneField(
         Project, on_delete=models.CASCADE, related_name="action_list"
@@ -382,6 +392,7 @@ class ActionListRevision(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
     original_name = models.CharField(max_length=255, blank=True)
     file_size = models.BigIntegerField(default=0)
+
     class Meta:
         ordering = ["-uploaded_at", "-id"]
 
