@@ -24,6 +24,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from .forms import (
     ProtocolUpdateForm,
+    ActionListUpdateForm,
     CreateUserForm,
     AdvisoryBoardMemberForm,
     AdvisoryInviteForm,
@@ -33,17 +34,22 @@ from .forms import (
     ProjectSettingsForm,
     AdvisoryBulkInviteForm,
     ProtocolSendForm,
+    ActionListSendForm,
     ReminderScheduleForm,
     ProtocolReminderScheduleForm,
+    ActionListReminderScheduleForm,
     ParticipationConfirmForm,
     ProtocolFeedbackForm,
+    ActionListFeedbackForm,
     ProtocolFeedbackCloseForm,
+    ActionListFeedbackCloseForm,
     ReferenceBatchUploadForm,
     ReferenceScreeningForm,
 )
 from .models import (
     Project,
     Protocol,
+    ActionList,
     AdvisoryBoardMember,
     AdvisoryBoardInvitation,
     Funder,
@@ -51,9 +57,11 @@ from .models import (
     ProjectPhaseEvent,
     ProjectChangeLog,
     ProtocolFeedback,
+    ActionListFeedback,
     ReferenceSourceBatch,
     Reference,
     ProtocolRevision,
+    ActionListRevision,
 )
 from .utils import ensure_global_groups, email_subject, reply_to_list, reference_hash
 
@@ -137,6 +145,24 @@ def _apply_revision_to_protocol(protocol, revision) -> tuple[str, str]:
     return base_name, _format_file_size(revision.file_size)
 
 
+def _apply_revision_to_action_list(action_list, revision) -> tuple[str, str]:
+    try:
+        with revision.file.open("rb") as source:
+            content = source.read()
+    except FileNotFoundError:
+        raise FileNotFoundError("Revision file missing")
+
+    if not content:
+        raise ValueError("Revision file empty")
+
+    base_name = revision.original_name or os.path.basename(revision.file.name)
+    new_filename = f"action_lists/{uuid.uuid4()}_{base_name}"
+    action_list.document.save(new_filename, ContentFile(content), save=False)
+    action_list.current_revision = revision
+    action_list.save(update_fields=["document", "current_revision"])
+    return base_name, _format_file_size(revision.file_size)
+
+
 def _create_protocol_feedback(project, member=None, email=None, invitation=None):
     proto = getattr(project, "protocol", None)
     kwargs = {
@@ -164,6 +190,38 @@ def _create_protocol_feedback(project, member=None, email=None, invitation=None)
         )
     kwargs["feedback_deadline_at"] = deadline
     return ProtocolFeedback.objects.create(**kwargs)
+
+
+def _create_action_list_feedback(project, member=None, email=None, invitation=None):
+    action_list = getattr(project, "action_list", None)
+    kwargs = {
+        "project": project,
+        "action_list": action_list,
+        "member": member,
+        "email": email or (member.email if member else ""),
+        "invitation": invitation,
+    }
+    deadline = None
+    if member:
+        if member.response == "Y" and member.feedback_on_action_list_deadline:
+            deadline = member.feedback_on_action_list_deadline
+    elif invitation and invitation.due_date:
+        combined = dt.datetime.combine(invitation.due_date, dt.time(23, 59))
+        deadline = (
+            timezone.make_aware(combined) if timezone.is_naive(combined) else combined
+        )
+    if action_list:
+        kwargs.update(
+            {
+                "action_list_document_name": getattr(
+                    action_list.document, "name", ""
+                ),
+                "action_list_document_last_updated": action_list.last_updated,
+                "action_list_stage_snapshot": action_list.stage,
+            }
+        )
+    kwargs["feedback_deadline_at"] = deadline
+    return ActionListFeedback.objects.create(**kwargs)
 
 
 def _extract_reference_field(record: dict, key: str) -> str:
@@ -501,6 +559,7 @@ def project_hub(request, project_id):
         pk=project_id,
     )
     protocol = getattr(project, "protocol", None)
+    action_list = getattr(project, "action_list", None)
     can_manage = _user_is_manager(request.user)
 
     funders = list(project.funders.all())
@@ -565,7 +624,8 @@ def project_hub(request, project_id):
         "synopsis/project_hub.html",
         {
             "project": project,
-            "protocol": protocol,
+        "protocol": protocol,
+        "action_list": action_list,
             "ab_stats": ab_stats,
             "reference_stats": reference_stats,
             "phase_labels": phase_labels,
@@ -1114,6 +1174,539 @@ def protocol_detail(request, project_id):
             "final_stage_locked": final_stage_locked,
             "first_upload_pending": first_upload_pending,
             "can_manage_project": can_manage,
+        },
+    )
+
+
+@login_required
+def action_list_detail(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    action_list = getattr(project, "action_list", None)
+    can_manage = _user_is_manager(request.user)
+    history_queryset = (
+        project.change_log.filter(action__icontains="action list")
+        .select_related("changed_by")
+        .order_by("-created_at", "-id")
+    )
+    history_entries = []
+    for log in history_queryset:
+        segments = [segment.strip() for segment in log.details.split("|") if segment.strip()]
+        reason = ""
+        changes = []
+        for segment in segments:
+            if segment.lower().startswith("reason:"):
+                reason = segment.split(":", 1)[1].strip()
+            else:
+                changes.append(segment)
+        history_entries.append(
+            {
+                "log": log,
+                "changes": changes,
+                "reason": reason,
+                "actor": _user_display(log.changed_by) if log.changed_by else "System",
+            }
+        )
+
+    revision_entries = []
+    if action_list:
+        revision_queryset = action_list.revisions.select_related("uploaded_by")
+        for revision in revision_queryset:
+            file_name = revision.original_name or os.path.basename(revision.file.name)
+            try:
+                download_url = revision.file.url
+            except ValueError:
+                download_url = ""
+            revision_entries.append(
+                {
+                    "revision": revision,
+                    "is_current": action_list.current_revision_id == revision.id,
+                    "file_name": file_name,
+                    "file_size": _format_file_size(revision.file_size),
+                    "uploaded_by": _user_display(revision.uploaded_by) if revision.uploaded_by else "—",
+                    "download_url": download_url,
+                    "can_mark_final": can_manage
+                    and (
+                        action_list.stage != "final"
+                        or action_list.current_revision_id != revision.id
+                    ),
+                }
+            )
+
+    current_revision_entry = next(
+        (entry for entry in revision_entries if entry["is_current"]), None
+    )
+    current_revision_download_url = ""
+    if current_revision_entry:
+        try:
+            current_revision_download_url = current_revision_entry["revision"].file.url
+        except ValueError:
+            current_revision_download_url = ""
+
+    existing_file_name = (
+        action_list.document.name if action_list and action_list.document else ""
+    )
+    has_existing_file = bool(existing_file_name or revision_entries)
+    first_upload_pending = not has_existing_file
+    final_stage_locked = bool(
+        action_list and action_list.stage == "final" and has_existing_file
+    )
+
+    if request.method == "POST":
+        form = ActionListUpdateForm(request.POST, request.FILES, instance=action_list)
+        if form.is_valid():
+            new_stage = form.cleaned_data.get("stage")
+            uploaded_file = form.cleaned_data.get("document")
+            reason = form.cleaned_data.get("change_reason", "")
+
+            is_new_action_list = action_list is None
+            stage_changed = bool(action_list) and action_list.stage != new_stage
+            replacing_file = bool(uploaded_file)
+
+            if final_stage_locked and new_stage == "final" and replacing_file:
+                form.add_error(
+                    "document",
+                    "Finalized action lists cannot be replaced. Switch the stage back to Draft to revise the document.",
+                )
+
+            needs_reason = (not is_new_action_list) and (stage_changed or replacing_file)
+            if needs_reason and not reason:
+                form.add_error(
+                    "change_reason",
+                    "Please capture the reason for this revision so the team has context.",
+                )
+
+            if not form.errors:
+                old_stage = action_list.stage if action_list else None
+                old_file = (
+                    action_list.document.name if action_list and action_list.document else None
+                )
+
+                revision_content = None
+                revision_filename = ""
+                if uploaded_file:
+                    uploaded_file.seek(0)
+                    revision_content = ContentFile(uploaded_file.read())
+                    uploaded_file.seek(0)
+                    revision_filename = os.path.basename(
+                        uploaded_file.name or "action_list_upload"
+                    )
+
+                obj = form.save(commit=False)
+                obj.project = project
+                obj.save()
+                form.save_m2m()
+
+                action_list = obj
+
+                new_file = obj.document.name if obj.document else None
+                changes = []
+
+                if is_new_action_list:
+                    changes.append("Created action list record")
+                elif old_stage != obj.stage:
+                    changes.append(
+                        f"Stage: {_format_value(old_stage)} → {_format_value(obj.stage)}"
+                    )
+
+                if old_file != new_file:
+                    if new_file and old_file:
+                        changes.append(f"File replaced: {old_file} → {new_file}")
+                    elif new_file:
+                        changes.append(f"File uploaded: {new_file}")
+                    elif old_file:
+                        changes.append(f"File removed: {old_file}")
+
+                revision_instance = None
+                if revision_content is not None:
+                    revision_instance = ActionListRevision(
+                        action_list=obj,
+                        stage=obj.stage,
+                        change_reason=(
+                            reason
+                            if reason
+                            else ("Initial upload" if is_new_action_list else "")
+                        ),
+                        uploaded_by=(
+                            request.user if request.user.is_authenticated else None
+                        ),
+                    )
+                    original_name = os.path.basename(
+                        uploaded_file.name or revision_filename
+                    )
+                    revision_instance.original_name = original_name
+                    file_size = getattr(uploaded_file, "size", None)
+                    if file_size in (None, ""):
+                        file_size = getattr(revision_content, "size", None)
+                    try:
+                        revision_instance.file_size = int(file_size or 0)
+                    except (TypeError, ValueError):
+                        revision_instance.file_size = 0
+                    revision_instance.file.save(
+                        revision_filename, revision_content, save=True
+                    )
+                    obj.current_revision = revision_instance
+                    obj.save(update_fields=["current_revision"])
+                elif stage_changed and obj.current_revision:
+                    update_fields = []
+                    if obj.current_revision.stage != obj.stage:
+                        obj.current_revision.stage = obj.stage
+                        update_fields.append("stage")
+                    if reason:
+                        obj.current_revision.change_reason = reason
+                        update_fields.append("change_reason")
+                    if update_fields:
+                        obj.current_revision.save(update_fields=update_fields)
+
+                if obj.stage == "final" and obj.current_revision:
+                    ActionListRevision.objects.filter(action_list=obj).exclude(
+                        pk=obj.current_revision_id
+                    ).update(stage="draft")
+                    if obj.current_revision.stage != "final":
+                        obj.current_revision.stage = "final"
+                        obj.current_revision.save(update_fields=["stage"])
+
+                detail_parts = []
+                if changes:
+                    detail_parts.append("; ".join(changes))
+                if reason:
+                    detail_parts.append(f"Reason: {reason}")
+                if not detail_parts:
+                    detail_parts.append(
+                        "Action list saved without detectable field changes"
+                    )
+
+                _log_project_change(
+                    project,
+                    request.user,
+                    "Action list updated",
+                    " | ".join(detail_parts),
+                )
+                success_message = "Action list updated."
+                if obj.stage == "final" and (
+                    is_new_action_list or stage_changed or replacing_file
+                ):
+                    success_message = "Action list updated and marked as final. Switch to Draft before uploading further revisions."
+                messages.success(request, success_message)
+                return redirect("synopsis:action_list_detail", project_id=project.id)
+    else:
+        form = ActionListUpdateForm(instance=action_list)
+
+    if first_upload_pending:
+        form.fields["change_reason"].help_text = (
+            "Optional for the first upload. Provide details when you revise an existing action list."
+        )
+    else:
+        form.fields["change_reason"].help_text = (
+            "Required when you replace the file or change the action list stage."
+        )
+
+    return render(
+        request,
+        "synopsis/action_list_detail.html",
+        {
+            "project": project,
+            "action_list": action_list,
+            "form": form,
+            "action_list_history_entries": history_entries,
+            "action_list_revision_entries": revision_entries,
+            "current_revision_entry": current_revision_entry,
+            "current_revision_download_url": current_revision_download_url,
+            "final_stage_locked": final_stage_locked,
+            "first_upload_pending": first_upload_pending,
+            "can_manage_project": can_manage,
+        },
+    )
+
+
+
+@login_required
+def action_list_set_stage(request, project_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("Invalid request method.")
+
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_is_manager(request.user):
+        messages.error(
+            request, "You do not have permission to update the action list stage."
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    action_list = getattr(project, "action_list", None)
+    if not action_list:
+        messages.error(request, "No action list exists yet.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    target_stage = (request.POST.get("stage") or "").strip()
+    if target_stage not in {"draft", "final"}:
+        return HttpResponseBadRequest("Invalid stage value.")
+
+    reason = (request.POST.get("reason") or "").strip()
+    old_stage = action_list.stage
+
+    revision = None
+    revision_id = request.POST.get("revision_id")
+    if revision_id:
+        revision = get_object_or_404(
+            ActionListRevision, pk=revision_id, action_list=action_list
+        )
+    elif action_list.current_revision:
+        revision = action_list.current_revision
+    else:
+        revision = action_list.revisions.order_by("-uploaded_at", "-id").first()
+
+    if action_list.stage == target_stage and not (
+        target_stage == "final"
+        and revision
+        and action_list.current_revision
+        and revision.id != action_list.current_revision_id
+    ):
+        messages.info(request, f"Action list is already marked as {target_stage}.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    if target_stage == "final":
+        if not revision:
+            messages.error(
+                request,
+                "No revision found to mark as final. Please upload an action list first.",
+            )
+            return redirect("synopsis:action_list_detail", project_id=project.id)
+        if not reason:
+            messages.error(
+                request,
+                "Please provide a brief reason for marking the action list as final.",
+            )
+            return redirect("synopsis:action_list_detail", project_id=project.id)
+
+        try:
+            base_name, size_text = _apply_revision_to_action_list(action_list, revision)
+        except FileNotFoundError:
+            messages.error(
+                request,
+                "The selected revision file could not be found. Please choose another revision or upload a new version.",
+            )
+            return redirect("synopsis:action_list_detail", project_id=project.id)
+        except ValueError:
+            messages.error(
+                request,
+                "The selected revision file is empty. Please choose another revision or upload a new version.",
+            )
+            return redirect("synopsis:action_list_detail", project_id=project.id)
+
+        action_list.stage = "final"
+        action_list.save(update_fields=["stage"])
+
+        ActionListRevision.objects.filter(action_list=action_list).exclude(
+            pk=revision.pk
+        ).update(stage="draft")
+        update_fields = ["stage"]
+        if revision.stage != "final":
+            revision.stage = "final"
+        if reason:
+            revision.change_reason = reason
+            if "change_reason" not in update_fields:
+                update_fields.append("change_reason")
+        revision.save(update_fields=update_fields)
+
+        detail_parts = [
+            f"Stage: {_format_value(old_stage)} → Final",
+            f"File: {base_name}",
+        ]
+        if size_text != "—":
+            detail_parts.append(f"Size: {size_text}")
+        if reason:
+            detail_parts.append(f"Reason: {reason}")
+
+        _log_project_change(
+            project,
+            request.user,
+            "Action list marked final",
+            " | ".join(detail_parts),
+        )
+
+        messages.success(
+            request,
+            "Action list marked as final. Switch back to Draft before uploading new revisions.",
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    action_list.stage = "draft"
+    action_list.save(update_fields=["stage"])
+    if action_list.current_revision and action_list.current_revision.stage != "draft":
+        action_list.current_revision.stage = "draft"
+        action_list.current_revision.save(update_fields=["stage"])
+
+    detail_parts = [f"Stage: {_format_value(old_stage)} → Draft"]
+    if reason:
+        detail_parts.append(f"Reason: {reason}")
+
+    _log_project_change(
+        project,
+        request.user,
+        "Action list stage updated",
+        " | ".join(detail_parts),
+    )
+
+    messages.success(request, "Action list stage set to draft.")
+    return redirect("synopsis:action_list_detail", project_id=project.id)
+
+
+@login_required
+def action_list_delete_file(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    action_list = getattr(project, "action_list", None)
+    if not action_list or not action_list.document:
+        messages.info(request, "No action list file to delete.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    if request.method == "POST":
+        file_name = action_list.document.name
+        action_list.document.delete(save=False)
+        action_list.document = ""
+        action_list.current_revision = None
+        action_list.save(update_fields=["document", "current_revision"])
+        _log_project_change(
+            project,
+            request.user,
+            "Removed action list file",
+            f"File: {file_name}",
+        )
+        messages.success(request, "Action list file removed.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    return render(
+        request,
+        "synopsis/action_list_confirm_delete.html",
+        {
+            "project": project,
+            "action_list": action_list,
+            "mode": "file",
+        },
+    )
+
+
+@login_required
+def action_list_restore_revision(request, project_id, revision_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("Invalid request method.")
+
+    project = get_object_or_404(Project, pk=project_id)
+    action_list = getattr(project, "action_list", None)
+    if not action_list:
+        messages.error(request, "No action list exists to restore.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    revision = get_object_or_404(
+        ActionListRevision, pk=revision_id, action_list=action_list
+    )
+
+    try:
+        base_name, size_text = _apply_revision_to_action_list(action_list, revision)
+    except FileNotFoundError:
+        messages.error(
+            request,
+            "The selected revision file could not be found. Please upload a new version instead.",
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+    except ValueError:
+        messages.error(
+            request,
+            "The selected revision file is empty. Please choose another revision or upload a new version.",
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    action_list.stage = revision.stage
+    action_list.save(update_fields=["stage"])
+
+    restored_at = timezone.localtime(revision.uploaded_at).strftime("%Y-%m-%d %H:%M")
+    detail_parts = [
+        f"Restored revision uploaded {restored_at}",
+        f"Stage reset to {_format_value(revision.stage)}",
+        f"File: {base_name}",
+    ]
+    if size_text != "—":
+        detail_parts.append(f"Size: {size_text}")
+    if revision.change_reason:
+        detail_parts.append(f"Original reason: {revision.change_reason}")
+
+    _log_project_change(
+        project,
+        request.user,
+        "Action list restored",
+        " | ".join(detail_parts),
+    )
+
+    messages.success(request, "Action list reverted to the selected revision.")
+    return redirect("synopsis:action_list_detail", project_id=project.id)
+
+
+@login_required
+def action_list_clear_text(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    action_list = getattr(project, "action_list", None)
+    if not action_list or not (action_list.text_version or "").strip():
+        messages.info(request, "No action list notes to clear.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    if request.method == "POST":
+        old_length = len(action_list.text_version or "")
+        action_list.text_version = ""
+        action_list.save(update_fields=["text_version"])
+        _log_project_change(
+            project,
+            request.user,
+            "Cleared action list notes",
+            f"Removed rich text content (previous length {old_length} chars)",
+        )
+        messages.success(request, "Action list notes cleared.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    return render(
+        request,
+        "synopsis/action_list_confirm_delete.html",
+        {
+            "project": project,
+            "action_list": action_list,
+            "mode": "text",
+        },
+    )
+
+
+@login_required
+def action_list_delete(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    action_list = getattr(project, "action_list", None)
+    if not action_list:
+        messages.info(request, "No action list to delete.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    if request.method == "POST":
+        file_name = action_list.document.name if action_list.document else None
+        text_len = len(action_list.text_version or "")
+        revision_count = action_list.revisions.count()
+        if action_list.document:
+            action_list.document.delete(save=False)
+        action_list.delete()
+        details = []
+        if file_name:
+            details.append(f"File: {file_name}")
+        details.append(f"Text length removed: {text_len} chars")
+        details.append(f"Revisions removed: {revision_count}")
+        _log_project_change(
+            project,
+            request.user,
+            "Deleted action list",
+            "; ".join(details),
+        )
+        messages.success(request, "Action list deleted.")
+        return redirect("synopsis:project_hub", project_id=project.id)
+
+    return render(
+        request,
+        "synopsis/action_list_confirm_delete.html",
+        {
+            "project": project,
+            "action_list": action_list,
+            "mode": "delete",
         },
     )
 
