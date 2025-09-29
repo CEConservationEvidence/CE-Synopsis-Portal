@@ -402,6 +402,24 @@ class ProtocolFeedbackForm(forms.Form):
     )
 
 
+class ActionListFeedbackForm(forms.Form):
+    content = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 6,
+                "placeholder": "Share your comments on the action list here",
+            }
+        ),
+    )
+    uploaded_document = forms.FileField(
+        required=False,
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        validators=[FileExtensionValidator(["docx"])],
+    )
+
+
 class ProtocolFeedbackCloseForm(forms.Form):
     message = forms.CharField(
         required=False,
@@ -458,6 +476,20 @@ class ReferenceScreeningForm(forms.Form):
                 "class": "form-control",
                 "rows": 2,
                 "placeholder": "Notes on inclusion/exclusion (optional)",
+            }
+        ),
+    )
+
+
+class ActionListFeedbackCloseForm(forms.Form):
+    message = forms.CharField(
+        required=False,
+        label="Message to advisory board",
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 4,
+                "placeholder": "Share closing notes about the action list (optional)",
             }
         ),
     )
