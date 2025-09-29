@@ -336,9 +336,7 @@ def action_list_upload_path(instance, filename):
 
 
 def action_list_revision_upload_path(instance, filename):
-    return (
-        f"action_list_revisions/{instance.action_list.project_id}/{uuid.uuid4()}_{filename}"
-    )
+    return f"action_list_revisions/{instance.action_list.project_id}/{uuid.uuid4()}_{filename}"
 
 
 class ActionList(models.Model):
@@ -466,7 +464,9 @@ class AdvisoryBoardMember(models.Model):
 
     @property
     def latest_action_list_feedback(self):
-        return self.action_list_feedback.order_by("-submitted_at", "-created_at").first()
+        return self.action_list_feedback.order_by(
+            "-submitted_at", "-created_at"
+        ).first()
 
 
 class AdvisoryBoardInvitation(models.Model):
@@ -548,7 +548,6 @@ class ProtocolFeedback(models.Model):
         return self.feedback_deadline_at
 
 
-# TODO: add new datamodel for ACTION LIST here (similar to protocol document). A document sent to AB (foreign), one-one relationship.
 class ActionListFeedback(models.Model):
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="action_list_feedback"
