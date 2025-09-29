@@ -417,6 +417,7 @@ class ActionListFeedbackForm(forms.Form):
         required=False,
         widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
         validators=[FileExtensionValidator(["docx"])],
+        help_text="Upload your annotated .docx action list (optional).",
     )
 
 
@@ -492,4 +493,5 @@ class ActionListFeedbackCloseForm(forms.Form):
                 "placeholder": "Share closing notes about the action list (optional)",
             }
         ),
+        help_text="Optional message to send when action list feedback is closed.",
     )
