@@ -585,6 +585,22 @@ class ActionListFeedback(models.Model):
     action_list_stage_snapshot = models.CharField(max_length=20, blank=True)
     feedback_deadline_at = models.DateTimeField(null=True, blank=True)
 
+    class Meta:
+        ordering = ["-submitted_at", "-created_at"]
+
+    def __str__(self):
+        who = self.member or self.email or "anonymous"
+        return f"Action list feedback for {self.project.title} by {who}"
+
+    def latest_document_label(self) -> str:
+        if self.uploaded_document:
+            return self.uploaded_document.name.rsplit("/", 1)[-1]
+        return ""
+
+    def snapshot_deadline(self):
+        return self.feedback_deadline_at
+
+
 class ReferenceSourceBatch(models.Model):
     """Represents one RIS (or similar) import event for a project."""
 
