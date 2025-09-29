@@ -58,6 +58,31 @@ class ProtocolUpdateForm(forms.ModelForm):
         return reason.strip()
 
 
+class ActionListUpdateForm(forms.ModelForm):
+    document = forms.FileField(
+        required=False,
+        validators=[FileExtensionValidator(["pdf", "docx"])],
+        widget=forms.FileInput(attrs={"class": "form-control"}),
+        help_text="Upload a PDF or DOCX version of the action list.",
+    )
+    change_reason = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3, "class": "form-control"}),
+        help_text="Explain what changed so advisory members can follow revisions.",
+    )
+
+    class Meta:
+        model = ActionList
+        fields = ["document", "stage"]
+        widgets = {
+            "stage": forms.Select(attrs={"class": "form-select"}),
+        }
+
+    def clean_change_reason(self):
+        reason = self.cleaned_data.get("change_reason", "")
+        return reason.strip()
+
+
 class CreateUserForm(forms.Form):
     first_name = forms.CharField(max_length=150)
     last_name = forms.CharField(max_length=150, required=False)
@@ -296,6 +321,18 @@ class ProtocolSendForm(forms.Form):
     )
 
 
+class ActionListSendForm(forms.Form):
+    content = forms.ChoiceField(
+        choices=[("file", "Send file link"), ("text", "Send embedded rich text")],
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    message = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+        help_text="Optional personal note to include.",
+    )
+
+
 class ReminderScheduleForm(forms.Form):
     reminder_date = forms.DateField(
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
@@ -311,6 +348,17 @@ class ProtocolReminderScheduleForm(forms.Form):
         ),
         input_formats=["%Y-%m-%dT%H:%M"],
         help_text="Set or update the protocol feedback deadline (date and time) for members with the protocol.",
+    )
+
+
+class ActionListReminderScheduleForm(forms.Form):
+    deadline = forms.DateTimeField(
+        widget=forms.DateTimeInput(
+            attrs={"type": "datetime-local", "class": "form-control"},
+            format="%Y-%m-%dT%H:%M",
+        ),
+        input_formats=["%Y-%m-%dT%H:%M"],
+        help_text="Set or update the action list feedback deadline (date and time) for members.",
     )
 
 
