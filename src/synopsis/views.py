@@ -2231,6 +2231,9 @@ def project_settings(request, project_id):
         details__icontains="Title:",
     ).order_by("-created_at")
 
+    for log in change_logs:
+        actor = _user_display(log.changed_by) if log.changed_by else "System"
+        segments = [segment.strip() for segment in log.details.split(";")]
     return render(
         request,
         "synopsis/project_settings_form.html",
