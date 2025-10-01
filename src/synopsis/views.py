@@ -2246,6 +2246,17 @@ def project_settings(request, project_id):
                     is_current=(new_title == project.title and project.title not in seen_titles),
                 )
                 add_title_entry(old_title, log.created_at, actor)
+
+    if project.title in seen_titles:
+        created_at = getattr(project, "created_at", None)
+        add_title_entry(
+            project.title,
+            created_at,
+            "Created",
+            is_current=True,
+            note="Current title",
+        )
+
     return render(
         request,
         "synopsis/project_settings_form.html",
