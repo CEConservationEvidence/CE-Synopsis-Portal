@@ -21,7 +21,7 @@
                 {% with project=entry.project form=entry.delete_form %}
                 <tr>
                     <td>
-                        <a href="{% url 'synopsis:project_hub' project.id %}">{{ project.title }}</a>
+                        {{ project.title }}
                     </td>
                     <td class="small">
                         {% if entry.authors %}
