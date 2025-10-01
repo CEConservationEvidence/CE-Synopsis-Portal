@@ -201,6 +201,12 @@
                                     <button class="btn btn-success btn-sm">Set as Final</button>
                                 </form>
                                 {% endif %}
+                                {% if can_edit_documents %}
+                                <form method="post" action="{% url 'synopsis:action_list_delete_revision' project.id entry.revision.id %}" class="d-inline mt-2" onsubmit="return confirm('Delete this action list revision? This cannot be undone.');">
+                                    {% csrf_token %}
+                                    <button class="btn btn-outline-danger btn-sm">Delete</button>
+                                </form>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
