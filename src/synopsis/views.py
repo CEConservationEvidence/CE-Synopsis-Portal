@@ -2256,7 +2256,6 @@ def project_settings(request, project_id):
             is_current=True,
             note="Current title",
         )
-        
     context = {
         "project": project,
         "previous_titles": previous_titles,
