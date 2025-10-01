@@ -2234,6 +2234,17 @@ def project_settings(request, project_id):
     for log in change_logs:
         actor = _user_display(log.changed_by) if log.changed_by else "System"
         segments = [segment.strip() for segment in log.details.split(";") if segment.strip()]
+        for segment in segments:
+            if segment.startswith("Title:") and "→" in segment:
+                old_part, new_part = segment.split("→", 1)
+                old_title = old_part.split("Title:", 1)[1].strip()
+                new_title = new_part.strip()
+                add_title_entry(
+                    new_title,
+                    log.created_at,
+                    actor,
+                )
+                add_title_entry(old_title, log.created_at, actor)
     return render(
         request,
         "synopsis/project_settings_form.html",
