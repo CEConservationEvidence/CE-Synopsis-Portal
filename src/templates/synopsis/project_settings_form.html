@@ -19,6 +19,10 @@
                     const titleField = document.querySelector("#id_title");
                     if (titleField) {
                         titleField.classList.add("form-control");
+                        const currentTitle = "{{ project.title|escapejs }}";
+                        titleField.placeholder = `Currently: ${currentTitle}`;
+                        if (titleField.value === currentTitle) {
+                            titleField.value = "";
                     }
                 });
             </script>
