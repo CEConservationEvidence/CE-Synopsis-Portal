@@ -2256,11 +2256,16 @@ def project_settings(request, project_id):
             is_current=True,
             note="Current title",
         )
+        
+    context = {
+        "project": project,
+        "previous_titles": previous_titles,
+    }
 
     return render(
         request,
         "synopsis/project_settings_form.html",
-        {"project": project, "form": form},
+        context,
     )
 
 
