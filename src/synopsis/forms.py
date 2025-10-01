@@ -102,9 +102,17 @@ class AssignRoleForm(forms.Form):
 
 
 class AdvisoryBoardMemberForm(forms.ModelForm):
+    title = forms.ChoiceField(
+        choices=FUNDER_TITLE_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Title",
+    )
+
     class Meta:
         model = AdvisoryBoardMember
         fields = [
+            "title",
             "first_name",
             "middle_name",
             "last_name",
@@ -115,6 +123,7 @@ class AdvisoryBoardMemberForm(forms.ModelForm):
             "notes",
         ]
         widgets = {
+            "title": forms.Select(attrs={"class": "form-select"}),
             "first_name": forms.TextInput(attrs={"class": "form-control"}),
             "middle_name": forms.TextInput(attrs={"class": "form-control"}),
             "last_name": forms.TextInput(attrs={"class": "form-control"}),
