@@ -1,0 +1,48 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Confirm Advisory Member – {{ project.title }}{% endblock %}
+{% block content %}
+<h1 class="mb-3">Confirm advisory board member</h1>
+<div class="card">
+    <div class="card-body">
+        <p class="text-muted">Review the details below before adding the member to the advisory board.</p>
+        <dl class="row mb-0">
+            <dt class="col-sm-3">Title</dt>
+            <dd class="col-sm-9">{{ cleaned_data.title|default:"—" }}</dd>
+            <dt class="col-sm-3">First name</dt>
+            <dd class="col-sm-9">{{ cleaned_data.first_name|default:"—" }}</dd>
+            <dt class="col-sm-3">Middle name</dt>
+            <dd class="col-sm-9">{{ cleaned_data.middle_name|default:"—" }}</dd>
+            <dt class="col-sm-3">Last name</dt>
+            <dd class="col-sm-9">{{ cleaned_data.last_name|default:"—" }}</dd>
+            <dt class="col-sm-3">Organisation</dt>
+            <dd class="col-sm-9">{{ cleaned_data.organisation|default:"—" }}</dd>
+            <dt class="col-sm-3">Email</dt>
+            <dd class="col-sm-9">{{ cleaned_data.email|default:"—" }}</dd>
+            <dt class="col-sm-3">Location</dt>
+            <dd class="col-sm-9">{{ cleaned_data.location|default:"—" }}</dd>
+            <dt class="col-sm-3">Continent</dt>
+            <dd class="col-sm-9">{{ cleaned_data.continent|default:"—" }}</dd>
+            <dt class="col-sm-3">Notes</dt>
+            <dd class="col-sm-9">{{ cleaned_data.notes|linebreaksbr|default:"—" }}</dd>
+        </dl>
+        <div class="d-flex flex-wrap gap-2 mt-4">
+            <form method="post" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add_member_confirm">
+                {% for name, value in cleaned_data.items %}
+                    <input type="hidden" name="{{ name }}" value="{{ value|default_if_none:''|escape }}">
+                {% endfor %}
+                <button class="btn btn-primary">Confirm and add member</button>
+            </form>
+            <form method="post" class="d-inline">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="add_member_back">
+                {% for name, value in cleaned_data.items %}
+                    <input type="hidden" name="{{ name }}" value="{{ value|default_if_none:''|escape }}">
+                {% endfor %}
+                <button class="btn btn-outline-secondary">Edit details</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

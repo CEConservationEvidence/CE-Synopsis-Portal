@@ -21,7 +21,7 @@
             </div>
             {% if can_manage_project %}
             <div class="d-flex flex-column gap-2">
-                <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
             </div>
             {% endif %}
         </div>
@@ -166,6 +166,36 @@
                 <p class="text-muted">No protocol created yet.</p>
                 {% endif %}
                 <a class="btn btn-primary btn-sm" href="{% url 'synopsis:protocol_detail' project.id %}">Edit protocol</a>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5>Action list</h5>
+                {% if action_list %}
+                <div class="small mb-2">
+                    <strong>Stage:</strong>
+                    {% if action_list.stage == 'final' %}
+                    <span class="badge text-bg-success">Final</span>
+                    {% else %}
+                    <span class="badge text-bg-warning text-dark">Draft</span>
+                    {% endif %}
+                    <br>
+                    <strong>Updated:</strong>
+                    {{ action_list.last_updated|date:"Y-m-d H:i" }}
+                </div>
+                {% if action_list.document %}
+                <p class="mb-2">
+                    <a class="btn btn-outline-secondary btn-sm" href="{{ action_list.document.url }}" target="_blank">View current document</a>
+                </p>
+                {% else %}
+                <p class="text-muted">No file uploaded yet.</p>
+                {% endif %}
+                {% else %}
+                <p class="text-muted">No action list created yet.</p>
+                {% endif %}
+                <a class="btn btn-primary btn-sm" href="{% url 'synopsis:action_list_detail' project.id %}">Edit action list</a>
             </div>
         </div>
     </div>

@@ -331,6 +331,79 @@ class ProtocolRevision(models.Model):
         return f"Revision for {self.protocol.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
 
 
+def action_list_upload_path(instance, filename):
+    return f"action_lists/{instance.project_id}/{uuid.uuid4()}_{filename}"
+
+
+def action_list_revision_upload_path(instance, filename):
+    return f"action_list_revisions/{instance.action_list.project_id}/{uuid.uuid4()}_{filename}"
+
+
+class ActionList(models.Model):
+    project = models.OneToOneField(
+        Project, on_delete=models.CASCADE, related_name="action_list"
+    )
+    document = models.FileField(upload_to=action_list_upload_path)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_updated = models.DateTimeField(auto_now=True)
+    text_version = models.TextField(blank=True)
+    stage = models.CharField(
+        max_length=20, choices=Protocol.STAGE_CHOICES, default="draft"
+    )
+    feedback_closed_at = models.DateTimeField(null=True, blank=True)
+    feedback_closure_message = models.TextField(blank=True)
+    current_revision = models.ForeignKey(
+        "ActionListRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="current_for",
+    )
+
+    class Meta:
+        verbose_name = "Action list"
+        verbose_name_plural = "Action lists"
+
+    def __str__(self):
+        return f"Action list for {self.project.title}"
+
+    def latest_revision(self):
+        if self.current_revision:
+            return self.current_revision
+        return self.revisions.order_by("-uploaded_at", "-id").first()
+
+
+class ActionListRevision(models.Model):
+    action_list = models.ForeignKey(
+        ActionList, on_delete=models.CASCADE, related_name="revisions"
+    )
+    file = models.FileField(upload_to=action_list_revision_upload_path)
+    stage = models.CharField(max_length=20, choices=Protocol.STAGE_CHOICES)
+    change_reason = models.TextField(blank=True)
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="action_list_revisions",
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    original_name = models.CharField(max_length=255, blank=True)
+    file_size = models.BigIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-uploaded_at", "-id"]
+
+    def __str__(self):
+        return f"Action list revision for {self.action_list.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
+
+# TODO: Refactor AdvisoryBoardMember columns for clarity and normalization:
+#   - Consider renaming 'title', 'first_name', 'middle_name', 'last_name' for consistency with other models.
+#   - Review if 'middle_name' is necessary or can be merged with 'first_name'.
+#   - Evaluate if contact fields (email, phone) should be normalized into a separate ContactInfo model.
+#   - Check for redundant or unused fields (e.g., 'feedback_on_actions_received', 'feedback_on_list', etc.).
+#   - Document the purpose of each field and remove any that are not used in workflows.
+#   - Ensure field naming is clear for teams adapting this model.
 class AdvisoryBoardMember(models.Model):
     """An advisory board member for a project, where there can be multiple members per project.
     Note that this datamodel is speficific to CE and may need to be dropped by other teams.
@@ -341,6 +414,7 @@ class AdvisoryBoardMember(models.Model):
     )
 
     # Basic information on the member
+    title = models.CharField(max_length=20, blank=True)
     first_name = models.CharField(max_length=100)
     middle_name = models.CharField(max_length=100, blank=True)
     last_name = models.CharField(max_length=100, blank=True)
@@ -364,6 +438,14 @@ class AdvisoryBoardMember(models.Model):
     reminder_sent = models.BooleanField(default=False)
     reminder_sent_at = models.DateTimeField(null=True, blank=True)
 
+    # Action list interaction
+    sent_action_list_at = models.DateTimeField(null=True, blank=True)
+    action_list_reminder_sent = models.BooleanField(default=False)
+    action_list_reminder_sent_at = models.DateTimeField(null=True, blank=True)
+    feedback_on_action_list_deadline = models.DateTimeField(null=True, blank=True)
+    feedback_on_action_list_received = models.DateField(null=True, blank=True)
+    added_to_action_list_doc = models.BooleanField(default=False)
+
     # Protocol interaction
     sent_protocol_at = models.DateTimeField(null=True, blank=True)
     protocol_reminder_sent = models.BooleanField(default=False)
@@ -381,11 +463,19 @@ class AdvisoryBoardMember(models.Model):
     participation_statement = models.TextField(blank=True)
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name or ''} ({self.email})"
+        parts = [self.title, self.first_name, self.last_name or ""]
+        name = " ".join(part for part in parts if part).strip()
+        return f"{name} ({self.email})"
 
     @property
     def latest_protocol_feedback(self):
         return self.protocol_feedback.order_by("-submitted_at", "-created_at").first()
+
+    @property
+    def latest_action_list_feedback(self):
+        return self.action_list_feedback.order_by(
+            "-submitted_at", "-created_at"
+        ).first()
 
 
 class AdvisoryBoardInvitation(models.Model):
@@ -467,7 +557,57 @@ class ProtocolFeedback(models.Model):
         return self.feedback_deadline_at
 
 
-# TODO: add new datamodel for ACTION LIST here (similar to protocol document). A document sent to AB (foreign), one-one relationship.
+class ActionListFeedback(models.Model):
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="action_list_feedback"
+    )
+    action_list = models.ForeignKey(
+        ActionList, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    member = models.ForeignKey(
+        "AdvisoryBoardMember",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="action_list_feedback",
+    )
+    invitation = models.ForeignKey(
+        AdvisoryBoardInvitation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="action_list_feedback",
+    )
+    email = models.EmailField(blank=True)
+    token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    content = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    uploaded_document = models.FileField(
+        upload_to="action_list_feedback_uploads/",
+        null=True,
+        blank=True,
+    )
+    action_list_document_name = models.CharField(max_length=255, blank=True)
+    action_list_document_last_updated = models.DateTimeField(null=True, blank=True)
+    action_list_stage_snapshot = models.CharField(max_length=20, blank=True)
+    feedback_deadline_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-submitted_at", "-created_at"]
+
+    def __str__(self):
+        who = self.member or self.email or "anonymous"
+        return f"Action list feedback for {self.project.title} by {who}"
+
+    def latest_document_label(self) -> str:
+        if self.uploaded_document:
+            return self.uploaded_document.name.rsplit("/", 1)[-1]
+        return ""
+
+    def snapshot_deadline(self):
+        return self.feedback_deadline_at
+
 
 class ReferenceSourceBatch(models.Model):
     """Represents one RIS (or similar) import event for a project."""

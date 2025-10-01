@@ -24,6 +24,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from .forms import (
     ProtocolUpdateForm,
+    ActionListUpdateForm,
     CreateUserForm,
     AdvisoryBoardMemberForm,
     AdvisoryInviteForm,
@@ -33,17 +34,22 @@ from .forms import (
     ProjectSettingsForm,
     AdvisoryBulkInviteForm,
     ProtocolSendForm,
+    ActionListSendForm,
     ReminderScheduleForm,
     ProtocolReminderScheduleForm,
+    ActionListReminderScheduleForm,
     ParticipationConfirmForm,
     ProtocolFeedbackForm,
+    ActionListFeedbackForm,
     ProtocolFeedbackCloseForm,
+    ActionListFeedbackCloseForm,
     ReferenceBatchUploadForm,
     ReferenceScreeningForm,
 )
 from .models import (
     Project,
     Protocol,
+    ActionList,
     AdvisoryBoardMember,
     AdvisoryBoardInvitation,
     Funder,
@@ -51,9 +57,11 @@ from .models import (
     ProjectPhaseEvent,
     ProjectChangeLog,
     ProtocolFeedback,
+    ActionListFeedback,
     ReferenceSourceBatch,
     Reference,
     ProtocolRevision,
+    ActionListRevision,
 )
 from .utils import ensure_global_groups, email_subject, reply_to_list, reference_hash
 
@@ -64,6 +72,17 @@ def _user_is_manager(user) -> bool:
     if user.is_staff:
         return True
     return user.groups.filter(name="manager").exists()
+
+
+def _user_can_edit_project(user, project) -> bool:
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if _user_is_manager(user):
+        return True
+    try:
+        return project.author_users.filter(id=user.id).exists()
+    except Exception:
+        return False
 
 
 def _log_project_change(project, user, action: str, details: str = ""):
@@ -137,6 +156,24 @@ def _apply_revision_to_protocol(protocol, revision) -> tuple[str, str]:
     return base_name, _format_file_size(revision.file_size)
 
 
+def _apply_revision_to_action_list(action_list, revision) -> tuple[str, str]:
+    try:
+        with revision.file.open("rb") as source:
+            content = source.read()
+    except FileNotFoundError:
+        raise FileNotFoundError("Revision file missing")
+
+    if not content:
+        raise ValueError("Revision file empty")
+
+    base_name = revision.original_name or os.path.basename(revision.file.name)
+    new_filename = f"action_lists/{uuid.uuid4()}_{base_name}"
+    action_list.document.save(new_filename, ContentFile(content), save=False)
+    action_list.current_revision = revision
+    action_list.save(update_fields=["document", "current_revision"])
+    return base_name, _format_file_size(revision.file_size)
+
+
 def _create_protocol_feedback(project, member=None, email=None, invitation=None):
     proto = getattr(project, "protocol", None)
     kwargs = {
@@ -164,6 +201,38 @@ def _create_protocol_feedback(project, member=None, email=None, invitation=None)
         )
     kwargs["feedback_deadline_at"] = deadline
     return ProtocolFeedback.objects.create(**kwargs)
+
+
+def _create_action_list_feedback(project, member=None, email=None, invitation=None):
+    action_list = getattr(project, "action_list", None)
+    kwargs = {
+        "project": project,
+        "action_list": action_list,
+        "member": member,
+        "email": email or (member.email if member else ""),
+        "invitation": invitation,
+    }
+    deadline = None
+    if member:
+        if member.response == "Y" and member.feedback_on_action_list_deadline:
+            deadline = member.feedback_on_action_list_deadline
+    elif invitation and invitation.due_date:
+        combined = dt.datetime.combine(invitation.due_date, dt.time(23, 59))
+        deadline = (
+            timezone.make_aware(combined) if timezone.is_naive(combined) else combined
+        )
+    if action_list:
+        kwargs.update(
+            {
+                "action_list_document_name": getattr(
+                    action_list.document, "name", ""
+                ),
+                "action_list_document_last_updated": action_list.last_updated,
+                "action_list_stage_snapshot": action_list.stage,
+            }
+        )
+    kwargs["feedback_deadline_at"] = deadline
+    return ActionListFeedback.objects.create(**kwargs)
 
 
 def _extract_reference_field(record: dict, key: str) -> str:
@@ -210,6 +279,8 @@ def _advisory_board_context(
     reminder_form=None,
     protocol_form=None,
     feedback_close_form=None,
+    action_list_form=None,
+    action_list_feedback_close_form=None,
 ):
     members_qs = project.advisory_board_members.prefetch_related(
         "protocol_feedback"
@@ -221,6 +292,18 @@ def _advisory_board_context(
     for collection in (accepted_members, declined_members, pending_members):
         for member in collection:
             member.latest_feedback = member.latest_protocol_feedback
+            latest_action_feedback = member.latest_action_list_feedback
+            member.latest_action_list_feedback_obj = latest_action_feedback
+            if (
+                latest_action_feedback
+                and not member.feedback_on_actions_received
+                and (
+                    latest_action_feedback.content
+                    or latest_action_feedback.uploaded_document
+                    or latest_action_feedback.submitted_at
+                )
+            ):
+                member.feedback_on_actions_received = True
 
     direct_invites = project.invitations.filter(member__isnull=True).order_by(
         "-created_at"
@@ -276,6 +359,48 @@ def _advisory_board_context(
         "deadline": protocol_pending_dates[0] if protocol_pending_dates else None,
     }
 
+    action_list_obj = getattr(project, "action_list", None)
+    action_list_members = project.advisory_board_members.filter(
+        sent_action_list_at__isnull=False,
+        response="Y",
+    )
+    action_list_pending_dates = [
+        d
+        for d in action_list_members.filter(
+            feedback_on_action_list_deadline__isnull=False
+        )
+        .order_by("feedback_on_action_list_deadline")
+        .values_list("feedback_on_action_list_deadline", flat=True)
+    ]
+    if action_list_form is None:
+        action_initial = {}
+        if action_list_pending_dates:
+            first_deadline = action_list_pending_dates[0]
+            try:
+                action_initial["deadline"] = timezone.localtime(first_deadline)
+            except (ValueError, TypeError):
+                action_initial["deadline"] = first_deadline
+        action_list_form = ActionListReminderScheduleForm(initial=action_initial)
+
+    if action_list_feedback_close_form is None:
+        action_close_initial = {}
+        if action_list_obj and action_list_obj.feedback_closure_message:
+            action_close_initial["message"] = (
+                action_list_obj.feedback_closure_message
+            )
+        action_list_feedback_close_form = ActionListFeedbackCloseForm(
+            initial=action_close_initial
+        )
+    action_list_feedback_state = {
+        "action_list": action_list_obj,
+        "is_closed": bool(getattr(action_list_obj, "feedback_closed_at", None)),
+        "closed_at": getattr(action_list_obj, "feedback_closed_at", None),
+        "closure_message": getattr(
+            action_list_obj, "feedback_closure_message", ""
+        ),
+        "deadline": action_list_pending_dates[0] if action_list_pending_dates else None,
+    }
+
     return {
         "project": project,
         "accepted_members": accepted_members,
@@ -304,6 +429,16 @@ def _advisory_board_context(
         .first(),
         "protocol_feedback_state": protocol_feedback_state,
         "protocol_feedback_close_form": feedback_close_form,
+        "action_list_reminder_form": action_list_form,
+        "action_list_pending_count": action_list_members.count(),
+        "action_list_pending_dates": action_list_pending_dates,
+        "initial_action_list_reminder_log": project.change_log.filter(
+            action="Scheduled action list reminders"
+        )
+        .order_by("created_at")
+        .first(),
+        "action_list_feedback_state": action_list_feedback_state,
+        "action_list_feedback_close_form": action_list_feedback_close_form,
     }
 
 
@@ -501,6 +636,7 @@ def project_hub(request, project_id):
         pk=project_id,
     )
     protocol = getattr(project, "protocol", None)
+    action_list = getattr(project, "action_list", None)
     can_manage = _user_is_manager(request.user)
 
     funders = list(project.funders.all())
@@ -565,7 +701,8 @@ def project_hub(request, project_id):
         "synopsis/project_hub.html",
         {
             "project": project,
-            "protocol": protocol,
+        "protocol": protocol,
+        "action_list": action_list,
             "ab_stats": ab_stats,
             "reference_stats": reference_stats,
             "phase_labels": phase_labels,
@@ -877,6 +1014,7 @@ def protocol_detail(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
     protocol = getattr(project, "protocol", None)
     can_manage = _user_is_manager(request.user)
+    can_edit_documents = _user_can_edit_project(request.user, project)
     protocol_history_queryset = (
         project.change_log.filter(action__icontains="protocol")
         .select_related("changed_by")
@@ -1114,6 +1252,543 @@ def protocol_detail(request, project_id):
             "final_stage_locked": final_stage_locked,
             "first_upload_pending": first_upload_pending,
             "can_manage_project": can_manage,
+            "can_edit_documents": can_edit_documents,
+        },
+    )
+
+
+@login_required
+def action_list_detail(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    action_list = getattr(project, "action_list", None)
+    can_manage = _user_is_manager(request.user)
+    can_edit_documents = _user_can_edit_project(request.user, project)
+    history_queryset = (
+        project.change_log.filter(action__icontains="action list")
+        .select_related("changed_by")
+        .order_by("-created_at", "-id")
+    )
+    history_entries = []
+    for log in history_queryset:
+        segments = [segment.strip() for segment in log.details.split("|") if segment.strip()]
+        reason = ""
+        changes = []
+        for segment in segments:
+            if segment.lower().startswith("reason:"):
+                reason = segment.split(":", 1)[1].strip()
+            else:
+                changes.append(segment)
+        history_entries.append(
+            {
+                "log": log,
+                "changes": changes,
+                "reason": reason,
+                "actor": _user_display(log.changed_by) if log.changed_by else "System",
+            }
+        )
+
+    revision_entries = []
+    if action_list:
+        revision_queryset = action_list.revisions.select_related("uploaded_by")
+        for revision in revision_queryset:
+            file_name = revision.original_name or os.path.basename(revision.file.name)
+            try:
+                download_url = revision.file.url
+            except ValueError:
+                download_url = ""
+            revision_entries.append(
+                {
+                    "revision": revision,
+                    "is_current": action_list.current_revision_id == revision.id,
+                    "file_name": file_name,
+                    "file_size": _format_file_size(revision.file_size),
+                    "uploaded_by": _user_display(revision.uploaded_by) if revision.uploaded_by else "—",
+                    "download_url": download_url,
+                    "can_mark_final": can_manage
+                    and (
+                        action_list.stage != "final"
+                        or action_list.current_revision_id != revision.id
+                    ),
+                }
+            )
+
+    current_revision_entry = next(
+        (entry for entry in revision_entries if entry["is_current"]), None
+    )
+    current_revision_download_url = ""
+    if current_revision_entry:
+        try:
+            current_revision_download_url = current_revision_entry["revision"].file.url
+        except ValueError:
+            current_revision_download_url = ""
+
+    existing_file_name = (
+        action_list.document.name if action_list and action_list.document else ""
+    )
+    has_existing_file = bool(existing_file_name or revision_entries)
+    first_upload_pending = not has_existing_file
+    final_stage_locked = bool(
+        action_list and action_list.stage == "final" and has_existing_file
+    )
+
+    if request.method == "POST":
+        form = ActionListUpdateForm(request.POST, request.FILES, instance=action_list)
+        if form.is_valid():
+            new_stage = form.cleaned_data.get("stage")
+            uploaded_file = form.cleaned_data.get("document")
+            reason = form.cleaned_data.get("change_reason", "")
+
+            is_new_action_list = action_list is None
+            stage_changed = bool(action_list) and action_list.stage != new_stage
+            replacing_file = bool(uploaded_file)
+
+            if final_stage_locked and new_stage == "final" and replacing_file:
+                form.add_error(
+                    "document",
+                    "Finalized action lists cannot be replaced. Switch the stage back to Draft to revise the document.",
+                )
+
+            needs_reason = (not is_new_action_list) and (stage_changed or replacing_file)
+            if needs_reason and not reason:
+                form.add_error(
+                    "change_reason",
+                    "Please capture the reason for this revision so the team has context.",
+                )
+
+            if not form.errors:
+                old_stage = action_list.stage if action_list else None
+                old_file = (
+                    action_list.document.name if action_list and action_list.document else None
+                )
+
+                revision_content = None
+                revision_filename = ""
+                if uploaded_file:
+                    uploaded_file.seek(0)
+                    revision_content = ContentFile(uploaded_file.read())
+                    uploaded_file.seek(0)
+                    revision_filename = os.path.basename(
+                        uploaded_file.name or "action_list_upload"
+                    )
+
+                obj = form.save(commit=False)
+                obj.project = project
+                obj.save()
+                form.save_m2m()
+
+                action_list = obj
+
+                new_file = obj.document.name if obj.document else None
+                changes = []
+
+                if is_new_action_list:
+                    changes.append("Created action list record")
+                elif old_stage != obj.stage:
+                    changes.append(
+                        f"Stage: {_format_value(old_stage)} → {_format_value(obj.stage)}"
+                    )
+
+                if old_file != new_file:
+                    if new_file and old_file:
+                        changes.append(f"File replaced: {old_file} → {new_file}")
+                    elif new_file:
+                        changes.append(f"File uploaded: {new_file}")
+                    elif old_file:
+                        changes.append(f"File removed: {old_file}")
+
+                revision_instance = None
+                if revision_content is not None:
+                    revision_instance = ActionListRevision(
+                        action_list=obj,
+                        stage=obj.stage,
+                        change_reason=(
+                            reason
+                            if reason
+                            else ("Initial upload" if is_new_action_list else "")
+                        ),
+                        uploaded_by=(
+                            request.user if request.user.is_authenticated else None
+                        ),
+                    )
+                    original_name = os.path.basename(
+                        uploaded_file.name or revision_filename
+                    )
+                    revision_instance.original_name = original_name
+                    file_size = getattr(uploaded_file, "size", None)
+                    if file_size in (None, ""):
+                        file_size = getattr(revision_content, "size", None)
+                    try:
+                        revision_instance.file_size = int(file_size or 0)
+                    except (TypeError, ValueError):
+                        revision_instance.file_size = 0
+                    revision_instance.file.save(
+                        revision_filename, revision_content, save=True
+                    )
+                    obj.current_revision = revision_instance
+                    obj.save(update_fields=["current_revision"])
+                elif stage_changed and obj.current_revision:
+                    update_fields = []
+                    if obj.current_revision.stage != obj.stage:
+                        obj.current_revision.stage = obj.stage
+                        update_fields.append("stage")
+                    if reason:
+                        obj.current_revision.change_reason = reason
+                        update_fields.append("change_reason")
+                    if update_fields:
+                        obj.current_revision.save(update_fields=update_fields)
+
+                if obj.stage == "final" and obj.current_revision:
+                    ActionListRevision.objects.filter(action_list=obj).exclude(
+                        pk=obj.current_revision_id
+                    ).update(stage="draft")
+                    if obj.current_revision.stage != "final":
+                        obj.current_revision.stage = "final"
+                        obj.current_revision.save(update_fields=["stage"])
+
+                detail_parts = []
+                if changes:
+                    detail_parts.append("; ".join(changes))
+                if reason:
+                    detail_parts.append(f"Reason: {reason}")
+                if not detail_parts:
+                    detail_parts.append(
+                        "Action list saved without detectable field changes"
+                    )
+
+                _log_project_change(
+                    project,
+                    request.user,
+                    "Action list updated",
+                    " | ".join(detail_parts),
+                )
+                success_message = "Action list updated."
+                if obj.stage == "final" and (
+                    is_new_action_list or stage_changed or replacing_file
+                ):
+                    success_message = "Action list updated and marked as final. Switch to Draft before uploading further revisions."
+                messages.success(request, success_message)
+                return redirect("synopsis:action_list_detail", project_id=project.id)
+    else:
+        form = ActionListUpdateForm(instance=action_list)
+
+    if first_upload_pending:
+        form.fields["change_reason"].help_text = (
+            "Optional for the first upload. Provide details when you revise an existing action list."
+        )
+    else:
+        form.fields["change_reason"].help_text = (
+            "Required when you replace the file or change the action list stage."
+        )
+
+    return render(
+        request,
+        "synopsis/action_list_detail.html",
+        {
+            "project": project,
+            "action_list": action_list,
+            "form": form,
+            "action_list_history_entries": history_entries,
+            "action_list_revision_entries": revision_entries,
+            "current_revision_entry": current_revision_entry,
+            "current_revision_download_url": current_revision_download_url,
+            "final_stage_locked": final_stage_locked,
+            "first_upload_pending": first_upload_pending,
+            "can_manage_project": can_manage,
+            "can_edit_documents": can_edit_documents,
+        },
+    )
+
+
+
+@login_required
+def action_list_set_stage(request, project_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("Invalid request method.")
+
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_is_manager(request.user):
+        messages.error(
+            request, "You do not have permission to update the action list stage."
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    action_list = getattr(project, "action_list", None)
+    if not action_list:
+        messages.error(request, "No action list exists yet.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    target_stage = (request.POST.get("stage") or "").strip()
+    if target_stage not in {"draft", "final"}:
+        return HttpResponseBadRequest("Invalid stage value.")
+
+    reason = (request.POST.get("reason") or "").strip()
+    old_stage = action_list.stage
+
+    revision = None
+    revision_id = request.POST.get("revision_id")
+    if revision_id:
+        revision = get_object_or_404(
+            ActionListRevision, pk=revision_id, action_list=action_list
+        )
+    elif action_list.current_revision:
+        revision = action_list.current_revision
+    else:
+        revision = action_list.revisions.order_by("-uploaded_at", "-id").first()
+
+    if action_list.stage == target_stage and not (
+        target_stage == "final"
+        and revision
+        and action_list.current_revision
+        and revision.id != action_list.current_revision_id
+    ):
+        messages.info(request, f"Action list is already marked as {target_stage}.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    if target_stage == "final":
+        if not revision:
+            messages.error(
+                request,
+                "No revision found to mark as final. Please upload an action list first.",
+            )
+            return redirect("synopsis:action_list_detail", project_id=project.id)
+        if not reason:
+            messages.error(
+                request,
+                "Please provide a brief reason for marking the action list as final.",
+            )
+            return redirect("synopsis:action_list_detail", project_id=project.id)
+
+        try:
+            base_name, size_text = _apply_revision_to_action_list(action_list, revision)
+        except FileNotFoundError:
+            messages.error(
+                request,
+                "The selected revision file could not be found. Please choose another revision or upload a new version.",
+            )
+            return redirect("synopsis:action_list_detail", project_id=project.id)
+        except ValueError:
+            messages.error(
+                request,
+                "The selected revision file is empty. Please choose another revision or upload a new version.",
+            )
+            return redirect("synopsis:action_list_detail", project_id=project.id)
+
+        action_list.stage = "final"
+        action_list.save(update_fields=["stage"])
+
+        ActionListRevision.objects.filter(action_list=action_list).exclude(
+            pk=revision.pk
+        ).update(stage="draft")
+        update_fields = ["stage"]
+        if revision.stage != "final":
+            revision.stage = "final"
+        if reason:
+            revision.change_reason = reason
+            if "change_reason" not in update_fields:
+                update_fields.append("change_reason")
+        revision.save(update_fields=update_fields)
+
+        detail_parts = [
+            f"Stage: {_format_value(old_stage)} → Final",
+            f"File: {base_name}",
+        ]
+        if size_text != "—":
+            detail_parts.append(f"Size: {size_text}")
+        if reason:
+            detail_parts.append(f"Reason: {reason}")
+
+        _log_project_change(
+            project,
+            request.user,
+            "Action list marked final",
+            " | ".join(detail_parts),
+        )
+
+        messages.success(
+            request,
+            "Action list marked as final. Switch back to Draft before uploading new revisions.",
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    action_list.stage = "draft"
+    action_list.save(update_fields=["stage"])
+    if action_list.current_revision and action_list.current_revision.stage != "draft":
+        action_list.current_revision.stage = "draft"
+        action_list.current_revision.save(update_fields=["stage"])
+
+    detail_parts = [f"Stage: {_format_value(old_stage)} → Draft"]
+    if reason:
+        detail_parts.append(f"Reason: {reason}")
+
+    _log_project_change(
+        project,
+        request.user,
+        "Action list stage updated",
+        " | ".join(detail_parts),
+    )
+
+    messages.success(request, "Action list stage set to draft.")
+    return redirect("synopsis:action_list_detail", project_id=project.id)
+
+
+# TODO: Investigate bug where uploading a new action list after deleting the file does not refresh the page with the latest document.
+@login_required
+def action_list_delete_file(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    action_list = getattr(project, "action_list", None)
+    if not action_list or not action_list.document:
+        messages.info(request, "No action list file to delete.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    if request.method == "POST":
+        file_name = action_list.document.name
+        action_list.document.delete(save=False)
+        action_list.document = ""
+        action_list.current_revision = None
+        action_list.save(update_fields=["document", "current_revision"])
+        _log_project_change(
+            project,
+            request.user,
+            "Removed action list file",
+            f"File: {file_name}",
+        )
+        messages.success(request, "Action list file removed.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    return render(
+        request,
+        "synopsis/action_list_confirm_delete.html",
+        {
+            "project": project,
+            "action_list": action_list,
+            "mode": "file",
+        },
+    )
+
+
+@login_required
+def action_list_restore_revision(request, project_id, revision_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("Invalid request method.")
+
+    project = get_object_or_404(Project, pk=project_id)
+    action_list = getattr(project, "action_list", None)
+    if not action_list:
+        messages.error(request, "No action list exists to restore.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    revision = get_object_or_404(
+        ActionListRevision, pk=revision_id, action_list=action_list
+    )
+
+    try:
+        base_name, size_text = _apply_revision_to_action_list(action_list, revision)
+    except FileNotFoundError:
+        messages.error(
+            request,
+            "The selected revision file could not be found. Please upload a new version instead.",
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+    except ValueError:
+        messages.error(
+            request,
+            "The selected revision file is empty. Please choose another revision or upload a new version.",
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    action_list.stage = revision.stage
+    action_list.save(update_fields=["stage"])
+
+    restored_at = timezone.localtime(revision.uploaded_at).strftime("%Y-%m-%d %H:%M")
+    detail_parts = [
+        f"Restored revision uploaded {restored_at}",
+        f"Stage reset to {_format_value(revision.stage)}",
+        f"File: {base_name}",
+    ]
+    if size_text != "—":
+        detail_parts.append(f"Size: {size_text}")
+    if revision.change_reason:
+        detail_parts.append(f"Original reason: {revision.change_reason}")
+
+    _log_project_change(
+        project,
+        request.user,
+        "Action list restored",
+        " | ".join(detail_parts),
+    )
+
+    messages.success(request, "Action list reverted to the selected revision.")
+    return redirect("synopsis:action_list_detail", project_id=project.id)
+
+
+@login_required
+def action_list_clear_text(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    action_list = getattr(project, "action_list", None)
+    if not action_list or not (action_list.text_version or "").strip():
+        messages.info(request, "No action list notes to clear.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    if request.method == "POST":
+        old_length = len(action_list.text_version or "")
+        action_list.text_version = ""
+        action_list.save(update_fields=["text_version"])
+        _log_project_change(
+            project,
+            request.user,
+            "Cleared action list notes",
+            f"Removed rich text content (previous length {old_length} chars)",
+        )
+        messages.success(request, "Action list notes cleared.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    return render(
+        request,
+        "synopsis/action_list_confirm_delete.html",
+        {
+            "project": project,
+            "action_list": action_list,
+            "mode": "text",
+        },
+    )
+
+
+@login_required
+def action_list_delete(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    action_list = getattr(project, "action_list", None)
+    if not action_list:
+        messages.info(request, "No action list to delete.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    if request.method == "POST":
+        file_name = action_list.document.name if action_list.document else None
+        text_len = len(action_list.text_version or "")
+        revision_count = action_list.revisions.count()
+        if action_list.document:
+            action_list.document.delete(save=False)
+        action_list.delete()
+        details = []
+        if file_name:
+            details.append(f"File: {file_name}")
+        details.append(f"Text length removed: {text_len} chars")
+        details.append(f"Revisions removed: {revision_count}")
+        _log_project_change(
+            project,
+            request.user,
+            "Deleted action list",
+            "; ".join(details),
+        )
+        messages.success(request, "Action list deleted.")
+        return redirect("synopsis:project_hub", project_id=project.id)
+
+    return render(
+        request,
+        "synopsis/action_list_confirm_delete.html",
+        {
+            "project": project,
+            "action_list": action_list,
+            "mode": "delete",
         },
     )
 
@@ -1250,6 +1925,7 @@ def protocol_set_stage(request, project_id):
     return redirect("synopsis:protocol_detail", project_id=project.id)
 
 
+# TODO: Investigate bug where uploading a new protocol after deleting the file does not refresh the page with the latest document.
 @login_required
 def protocol_delete_file(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -1282,6 +1958,62 @@ def protocol_delete_file(request, project_id):
             "mode": "file",
         },
     )
+
+
+@login_required
+def protocol_delete_revision(request, project_id, revision_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("Invalid request method.")
+
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        messages.error(request, "Only assigned authors or managers can delete protocol revisions.")
+        return redirect("synopsis:protocol_detail", project_id=project.id)
+
+    protocol = getattr(project, "protocol", None)
+    if not protocol:
+        messages.error(request, "No protocol exists for this project.")
+        return redirect("synopsis:protocol_detail", project_id=project.id)
+
+    revision = get_object_or_404(ProtocolRevision, pk=revision_id, protocol=protocol)
+
+    was_current = protocol.current_revision_id == revision.id
+    file_name = revision.file.name
+    revision.delete()
+
+    next_revision = (
+        protocol.revisions.exclude(pk=revision_id).order_by("-uploaded_at", "-id").first()
+    )
+
+    if was_current:
+        if next_revision:
+            try:
+                base_name, size_text = _apply_revision_to_protocol(protocol, next_revision)
+            except (FileNotFoundError, ValueError):
+                protocol.current_revision = next_revision
+                protocol.save(update_fields=["current_revision"])
+                base_name = next_revision.original_name or os.path.basename(
+                    next_revision.file.name
+                )
+                size_text = _format_file_size(next_revision.file_size)
+        else:
+            protocol.current_revision = None
+            protocol.save(update_fields=["current_revision"])
+            base_name = "none"
+            size_text = "—"
+    else:
+        base_name = revision.original_name or os.path.basename(file_name)
+        size_text = _format_file_size(revision.file_size)
+
+    _log_project_change(
+        project,
+        request.user,
+        "Protocol revision deleted",
+        f"Revision file: {file_name or 'unknown'}; Remaining current: {base_name} ({size_text})",
+    )
+
+    messages.success(request, "Protocol revision deleted.")
+    return redirect("synopsis:protocol_detail", project_id=project.id)
 
 
 @login_required
@@ -1476,10 +2208,63 @@ def project_settings(request, project_id):
     else:
         form = ProjectSettingsForm(instance=project)
 
+    previous_titles = []
+    seen_titles = set()
+
+    def add_title_entry(title, changed_at, changed_by, *, is_current=False, note=None):
+        title = (title or "").strip()
+        if not title or title in seen_titles:
+            return
+        previous_titles.append(
+            {
+                "title": title,
+                "changed_at": changed_at,
+                "changed_by": changed_by,
+                "is_current": is_current,
+                "note": note or "",
+            }
+        )
+        seen_titles.add(title)
+
+    change_logs = project.change_log.filter(
+        action="Updated project settings",
+        details__icontains="Title:",
+    ).order_by("-created_at")
+
+    for log in change_logs:
+        actor = _user_display(log.changed_by) if log.changed_by else "System"
+        segments = [segment.strip() for segment in log.details.split(";") if segment.strip()]
+        for segment in segments:
+            if segment.startswith("Title:") and "→" in segment:
+                old_part, new_part = segment.split("→", 1)
+                old_title = old_part.split("Title:", 1)[1].strip()
+                new_title = new_part.strip()
+                add_title_entry(
+                    new_title,
+                    log.created_at,
+                    actor,
+                    is_current=(new_title == project.title and project.title not in seen_titles),
+                )
+                add_title_entry(old_title, log.created_at, actor)
+
+    if project.title not in seen_titles:
+        created_at = getattr(project, "created_at", None)
+        add_title_entry(
+            project.title,
+            created_at,
+            "Created",
+            is_current=True,
+            note="Current title",
+        )
+    context = {
+        "project": project,
+        "previous_titles": previous_titles,
+    }
+
     return render(
         request,
         "synopsis/project_settings_form.html",
-        {"project": project, "form": form},
+        context,
     )
 
 
@@ -1531,16 +2316,40 @@ def user_create(request):
 def advisory_board_list(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
 
-    if request.method == "POST" and request.POST.get("action") == "add_member":
-        form = AdvisoryBoardMemberForm(request.POST)
-        if form.is_valid():
-            m = form.save(commit=False)
-            m.project = project
-            m.save()
-            messages.success(request, "Advisory Board member added.")
-            return redirect("synopsis:advisory_board_list", project_id=project.id)
-        context = _advisory_board_context(project, member_form=form)
-        return render(request, "synopsis/advisory_board_list.html", context)
+    if request.method == "POST":
+        action = request.POST.get("action")
+
+        if action == "add_member_confirm":
+            form = AdvisoryBoardMemberForm(request.POST)
+            if form.is_valid():
+                m = form.save(commit=False)
+                m.project = project
+                m.save()
+                messages.success(request, "Advisory Board member added.")
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
+            context = _advisory_board_context(project, member_form=form)
+            return render(request, "synopsis/advisory_board_list.html", context)
+
+        if action == "add_member_back":
+            form = AdvisoryBoardMemberForm(request.POST)
+            context = _advisory_board_context(project, member_form=form)
+            return render(request, "synopsis/advisory_board_list.html", context)
+
+        if action == "add_member":
+            form = AdvisoryBoardMemberForm(request.POST)
+            if form.is_valid():
+                cleaned = form.cleaned_data
+                return render(
+                    request,
+                    "synopsis/advisory_member_confirm.html",
+                    {
+                        "project": project,
+                        "form": form,
+                        "cleaned_data": cleaned,
+                    },
+                )
+            context = _advisory_board_context(project, member_form=form)
+            return render(request, "synopsis/advisory_board_list.html", context)
 
     form = AdvisoryBoardMemberForm()
     context = _advisory_board_context(project, member_form=form)
@@ -1643,6 +2452,79 @@ def advisory_schedule_protocol_reminders(request, project_id):
         )
 
     messages.success(request, f"Protocol reminder scheduled for {updated} member(s). Reminder now set as required.")
+    return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
+def advisory_schedule_action_list_reminders(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    if not getattr(project, "action_list", None):
+        messages.error(request, "No action list configured for this project.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    form = ActionListReminderScheduleForm(request.POST)
+    pending_members = project.advisory_board_members.filter(
+        sent_action_list_at__isnull=False,
+        response="Y",
+    )
+
+    if not form.is_valid():
+        context = _advisory_board_context(project, action_list_form=form)
+        return render(request, "synopsis/advisory_board_list.html", context)
+
+    deadline = form.cleaned_data["deadline"]
+    if timezone.is_naive(deadline):
+        deadline = timezone.make_aware(deadline)
+    updated = 0
+    for member in pending_members:
+        member.feedback_on_action_list_deadline = deadline
+        member.action_list_reminder_sent = False
+        member.action_list_reminder_sent_at = None
+        member.save(
+            update_fields=[
+                "feedback_on_action_list_deadline",
+                "action_list_reminder_sent",
+                "action_list_reminder_sent_at",
+            ]
+        )
+        ActionListFeedback.objects.filter(project=project, member=member).update(
+            feedback_deadline_at=deadline
+        )
+        updated += 1
+
+    skipped_members = project.advisory_board_members.filter(
+        sent_action_list_at__isnull=False
+    ).exclude(response="Y")
+    skipped_ids = list(skipped_members.values_list("id", flat=True))
+    if skipped_ids:
+        project.advisory_board_members.filter(id__in=skipped_ids).update(
+            feedback_on_action_list_deadline=None,
+            action_list_reminder_sent=False,
+            action_list_reminder_sent_at=None,
+        )
+        ActionListFeedback.objects.filter(
+            project=project, member_id__in=skipped_ids
+        ).update(feedback_deadline_at=None)
+        messages.info(
+            request,
+            "Deadline kept unset for members who have not accepted the invitation yet.",
+        )
+
+    if updated:
+        _log_project_change(
+            project,
+            request.user,
+            "Scheduled action list reminders",
+            f"Action list deadline {timezone.localtime(deadline).strftime('%Y-%m-%d %H:%M')} for {updated} member(s)",
+        )
+
+    messages.success(
+        request,
+        f"Action list reminder scheduled for {updated} member(s). Reminder now set as required.",
+    )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -1933,6 +2815,71 @@ def advisory_protocol_feedback_close(request, project_id):
             message,
         )
         messages.success(request, "Protocol feedback links are now closed.")
+    return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
+def advisory_action_list_feedback_close(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    action_list = getattr(project, "action_list", None)
+    if not action_list:
+        messages.error(request, "No action list configured for this project.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    action = request.POST.get("action")
+    if action == "reopen":
+        if request.method != "POST":
+            return HttpResponseBadRequest("POST required")
+        action_list.feedback_closed_at = None
+        action_list.feedback_closure_message = ""
+        action_list.save(update_fields=["feedback_closed_at", "feedback_closure_message"])
+        _log_project_change(
+            project,
+            request.user,
+            "Action list feedback reopened",
+        )
+        messages.success(
+            request, "Action list feedback reopened for advisory members."
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    form = ActionListFeedbackCloseForm(request.POST)
+    if not form.is_valid():
+        context = _advisory_board_context(
+            project,
+            action_list_feedback_close_form=form,
+        )
+        return render(request, "synopsis/advisory_board_list.html", context)
+
+    message = form.cleaned_data.get("message", "")
+    now = timezone.now()
+    already_closed = action_list.feedback_closed_at is not None
+    action_list.feedback_closed_at = action_list.feedback_closed_at or now
+    action_list.feedback_closure_message = message
+    update_fields = ["feedback_closure_message"]
+    if not already_closed:
+        update_fields.append("feedback_closed_at")
+    action_list.save(update_fields=update_fields)
+
+    if already_closed:
+        _log_project_change(
+            project,
+            request.user,
+            "Action list feedback closure message updated",
+            message,
+        )
+        messages.info(request, "Closure message updated.")
+    else:
+        _log_project_change(
+            project,
+            request.user,
+            "Action list feedback closed",
+            message,
+        )
+        messages.success(request, "Action list feedback links are now closed.")
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -2662,6 +3609,164 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
     )
 
 
+@login_required
+def advisory_send_action_list_compose_all(request, project_id):
+    project = get_object_or_404(Project, id=project_id)
+    action_list = getattr(project, "action_list", None)
+    if not action_list:
+        messages.error(request, "No action list configured for this project.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    if request.method == "POST":
+        form = ActionListSendForm(request.POST)
+        if form.is_valid():
+            members = (
+                AdvisoryBoardMember.objects.filter(
+                    project=project,
+                    response="Y",
+                    participation_confirmed=True,
+                )
+                .exclude(email__isnull=True)
+                .exclude(email__exact="")
+            )
+            if not members:
+                messages.info(
+                    request,
+                    "No eligible members found. Only members who accepted and confirmed participation can receive the action list.",
+                )
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
+            content = form.cleaned_data["content"]
+            message_body = form.cleaned_data.get("message") or ""
+            sent = 0
+            for m in members:
+                fb = _create_action_list_feedback(project, member=m, email=m.email)
+                feedback_url = request.build_absolute_uri(
+                    reverse("synopsis:action_list_feedback", args=[str(fb.token)])
+                )
+                subject = email_subject("action_list_review", project)
+                text = f"Dear {m.first_name or 'colleague'},\n\n{message_body}\n\n"
+                html = (
+                    f"<p>Dear {m.first_name or 'colleague'},</p>"
+                    f"<p>{message_body}</p>"
+                )
+                if content == "file" and getattr(action_list, "document", None):
+                    doc_url = request.build_absolute_uri(action_list.document.url)
+                    text += f"Please review the action list: {doc_url}\n\n"
+                    html += f"<p>Please review the action list: <a href='{doc_url}'>View document</a></p>"
+                elif content == "text" and (action_list.text_version or "").strip():
+                    html += "<hr>" + action_list.text_version
+                text += f"Provide feedback: {feedback_url}\n"
+                html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
+
+                msg = EmailMultiAlternatives(
+                    subject,
+                    text,
+                    to=[m.email],
+                    reply_to=reply_to_list(getattr(request.user, "email", None)),
+                )
+                msg.attach_alternative(html, "text/html")
+                inviter_email = getattr(request.user, "email", None)
+                if inviter_email:
+                    msg.extra_headers = msg.extra_headers or {}
+                    msg.extra_headers["List-Unsubscribe"] = f"<mailto:{inviter_email}>"
+                msg.send()
+                m.sent_action_list_at = timezone.now()
+                m.action_list_reminder_sent = False
+                m.action_list_reminder_sent_at = None
+                m.save(
+                    update_fields=[
+                        "sent_action_list_at",
+                        "action_list_reminder_sent",
+                        "action_list_reminder_sent_at",
+                    ]
+                )
+                sent += 1
+            messages.success(request, f"Sent action list to {sent} member(s).")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    else:
+        form = ActionListSendForm(initial={"content": "file"})
+    return render(
+        request,
+        "synopsis/action_list_send_compose.html",
+        {"project": project, "form": form, "scope": "all"},
+    )
+
+
+@login_required
+def advisory_send_action_list_compose_member(request, project_id, member_id):
+    project = get_object_or_404(Project, id=project_id)
+    action_list = getattr(project, "action_list", None)
+    if not action_list:
+        messages.error(request, "No action list configured for this project.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    member = get_object_or_404(AdvisoryBoardMember, id=member_id, project=project)
+    if not member.email:
+        messages.error(request, "This member has no email.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    if member.response != "Y" or not member.participation_confirmed:
+        messages.error(
+            request,
+            "This member has not accepted the invitation or has declined participation.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    if request.method == "POST":
+        form = ActionListSendForm(request.POST)
+        if form.is_valid():
+            content = form.cleaned_data["content"]
+            message_body = form.cleaned_data.get("message") or ""
+            fb = _create_action_list_feedback(project, member=member, email=member.email)
+            feedback_url = request.build_absolute_uri(
+                reverse("synopsis:action_list_feedback", args=[str(fb.token)])
+            )
+            subject = email_subject("action_list_review", project)
+            text = f"Dear {member.first_name or 'colleague'},\n\n{message_body}\n\n"
+            html = (
+                f"<p>Dear {member.first_name or 'colleague'},</p>"
+                f"<p>{message_body}</p>"
+            )
+            if content == "file" and getattr(action_list, "document", None):
+                doc_url = request.build_absolute_uri(action_list.document.url)
+                text += f"Please review the action list: {doc_url}\n\n"
+                html += f"<p>Please review the action list: <a href='{doc_url}'>View document</a></p>"
+            elif content == "text" and (action_list.text_version or "").strip():
+                html += "<hr>" + action_list.text_version
+            text += f"Provide feedback: {feedback_url}\n"
+            html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
+
+            msg = EmailMultiAlternatives(
+                subject,
+                text,
+                to=[member.email],
+                reply_to=reply_to_list(getattr(request.user, "email", None)),
+            )
+            msg.attach_alternative(html, "text/html")
+            msg.send()
+
+            member.sent_action_list_at = timezone.now()
+            member.action_list_reminder_sent = False
+            member.action_list_reminder_sent_at = None
+            member.save(
+                update_fields=[
+                    "sent_action_list_at",
+                    "action_list_reminder_sent",
+                    "action_list_reminder_sent_at",
+                ]
+            )
+            messages.success(request, f"Sent action list to {member.email}.")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    else:
+        form = ActionListSendForm(initial={"content": "file"})
+    return render(
+        request,
+        "synopsis/action_list_send_compose.html",
+        {
+            "project": project,
+            "form": form,
+            "scope": "member",
+            "member": member,
+        },
+    )
+
+
 def protocol_feedback(request, token):
     fb = get_object_or_404(ProtocolFeedback, token=token)
     member = fb.member
@@ -2740,6 +3845,31 @@ def protocol_feedback(request, token):
                 fb.submitted_at = timezone.now()
                 updates.append("submitted_at")
                 fb.save(update_fields=updates)
+
+                if member:
+                    member_updates = set()
+                    today = timezone.localdate()
+                    if member.feedback_on_protocol_received != today:
+                        member.feedback_on_protocol_received = today
+                        member_updates.add("feedback_on_protocol_received")
+                    if member_updates:
+                        member.save(update_fields=list(member_updates))
+
+                details = []
+                if uploaded_doc:
+                    details.append(
+                        f"Document uploaded: {fb.latest_document_label or uploaded_doc.name}"
+                    )
+                if content:
+                    snippet = (content[:97] + "…") if len(content) > 100 else content
+                    details.append(f"Comments provided: {snippet}")
+                if details:
+                    _log_project_change(
+                        project,
+                        request.user,
+                        "Protocol feedback submitted",
+                        " | ".join(details),
+                    )
             return render(
                 request,
                 "synopsis/protocol_feedback_thanks.html",
@@ -2760,8 +3890,204 @@ def protocol_feedback(request, token):
             "token": fb.token,
             "feedback": fb,
             "deadline": deadline,
+            "form": form,
         },
     )
+
+
+def action_list_feedback(request, token):
+    fb = get_object_or_404(ActionListFeedback, token=token)
+    member = fb.member
+    project = fb.project
+    action_list = fb.action_list or getattr(project, "action_list", None)
+
+    deadline = fb.feedback_deadline_at
+    if member and member.feedback_on_action_list_deadline:
+        deadline = member.feedback_on_action_list_deadline
+        if fb.feedback_deadline_at != deadline:
+            fb.feedback_deadline_at = deadline
+            fb.save(update_fields=["feedback_deadline_at"])
+    if member and member.response != "Y":
+        if fb.feedback_deadline_at:
+            fb.feedback_deadline_at = None
+            fb.save(update_fields=["feedback_deadline_at"])
+        deadline = None
+    closure_message = None
+    now = timezone.now()
+
+    if member and member.response == "N":
+        return render(
+            request,
+            "synopsis/action_list_feedback_thanks.html",
+            {
+                "project": project,
+                "error": "This link is no longer available because you declined the invitation.",
+            },
+        )
+
+    if action_list and action_list.feedback_closed_at:
+        closure_message = action_list.feedback_closure_message or (
+            "The authors have closed feedback for this action list."
+        )
+        return render(
+            request,
+            "synopsis/action_list_feedback_thanks.html",
+            {
+                "project": project,
+                "feedback": fb,
+                "closed_message": closure_message,
+                "deadline": deadline,
+                "closed": True,
+            },
+        )
+
+    if deadline and now >= deadline:
+        closure_message = (
+            "The feedback deadline has passed (" f"{_format_deadline(deadline)})."
+        )
+        return render(
+            request,
+            "synopsis/action_list_feedback_thanks.html",
+            {
+                "project": project,
+                "feedback": fb,
+                "closed_message": closure_message,
+                "deadline": deadline,
+                "closed": True,
+            },
+        )
+
+    if request.method == "POST":
+        form = ActionListFeedbackForm(request.POST, request.FILES)
+        if form.is_valid():
+            content = form.cleaned_data["content"].strip()
+            uploaded_doc = form.cleaned_data["uploaded_document"]
+            updates = []
+            if content:
+                fb.content = content
+                updates.append("content")
+            if uploaded_doc:
+                fb.uploaded_document = uploaded_doc
+                updates.append("uploaded_document")
+            if updates:
+                fb.submitted_at = timezone.now()
+                updates.append("submitted_at")
+                fb.save(update_fields=updates)
+
+                if member:
+                    member_updates = set()
+                    if not member.feedback_on_actions_received:
+                        member.feedback_on_actions_received = True
+                        member_updates.add("feedback_on_actions_received")
+                    today = timezone.localdate()
+                    if member.feedback_on_action_list_received != today:
+                        member.feedback_on_action_list_received = today
+                        member_updates.add("feedback_on_action_list_received")
+                    if member_updates:
+                        member.save(update_fields=list(member_updates))
+
+                details = []
+                if uploaded_doc:
+                    details.append(
+                        f"Document uploaded: {fb.latest_document_label or uploaded_doc.name}"
+                    )
+                if content:
+                    snippet = (content[:97] + "…") if len(content) > 100 else content
+                    details.append(f"Comments provided: {snippet}")
+                if details:
+                    _log_project_change(
+                        project,
+                        request.user,
+                        "Action list feedback submitted",
+                        " | ".join(details),
+                    )
+
+            return render(
+                request,
+                "synopsis/action_list_feedback_thanks.html",
+                {
+                    "project": project,
+                    "feedback": fb,
+                    "deadline": deadline,
+                },
+            )
+    else:
+        form = ActionListFeedbackForm(initial={"content": fb.content})
+
+    return render(
+        request,
+        "synopsis/action_list_feedback_form.html",
+        {
+            "project": project,
+            "token": fb.token,
+            "feedback": fb,
+            "deadline": deadline,
+            "action_list": action_list,
+            "form": form,
+        },
+    )
+
+
+@login_required
+def action_list_delete_revision(request, project_id, revision_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("Invalid request method.")
+
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        messages.error(request, "Only assigned authors or managers can delete action list revisions.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    action_list = getattr(project, "action_list", None)
+    if not action_list:
+        messages.error(request, "No action list exists for this project.")
+        return redirect("synopsis:action_list_detail", project_id=project.id)
+
+    revision = get_object_or_404(
+        ActionListRevision, pk=revision_id, action_list=action_list
+    )
+
+    was_current = action_list.current_revision_id == revision.id
+    file_name = revision.file.name
+    revision.delete()
+
+    next_revision = (
+        action_list.revisions.exclude(pk=revision_id)
+        .order_by("-uploaded_at", "-id")
+        .first()
+    )
+
+    if was_current:
+        if next_revision:
+            try:
+                base_name, size_text = _apply_revision_to_action_list(
+                    action_list, next_revision
+                )
+            except (FileNotFoundError, ValueError):
+                action_list.current_revision = next_revision
+                action_list.save(update_fields=["current_revision"])
+                base_name = next_revision.original_name or os.path.basename(
+                    next_revision.file.name
+                )
+                size_text = _format_file_size(next_revision.file_size)
+        else:
+            action_list.current_revision = None
+            action_list.save(update_fields=["current_revision"])
+            base_name = "none"
+            size_text = "—"
+    else:
+        base_name = revision.original_name or os.path.basename(file_name)
+        size_text = _format_file_size(revision.file_size)
+
+    _log_project_change(
+        project,
+        request.user,
+        "Action list revision deleted",
+        f"Revision file: {file_name or 'unknown'}; Remaining current: {base_name} ({size_text})",
+    )
+
+    messages.success(request, "Action list revision deleted.")
+    return redirect("synopsis:action_list_detail", project_id=project.id)
 
 
 @login_required

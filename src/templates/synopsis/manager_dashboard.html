@@ -1,86 +1,113 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Manager – Admin{% endblock %}
 {% block content %}
-<h1 class="mb-3">Manager dashboard</h1>
-<section class="mb-5">
-    <h2 class="h4">Synopsis management</h2>
-    <p class="text-muted small">Review active synopses, open their hub, or permanently delete them with the safeguards below.</p>
-    <div class="table-responsive">
-        <table class="table table-striped align-middle">
-            <thead>
-                <tr>
-                    <th>Synopsis</th>
-                    <th>Authors</th>
-                    <th>Created</th>
-                    <th>Manage</th>
-                    <th class="text-end">Secure delete</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for entry in project_entries %}
-                {% with project=entry.project form=entry.delete_form %}
-                <tr>
-                    <td>{{ project.title }}</td>
-                    <td class="small">
-                        {% if entry.authors %}
-                            {% for user in entry.authors %}
-                                {{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}
-                            {% endfor %}
-                        {% else %}
-                        <span class="text-muted">No authors assigned</span>
-                        {% endif %}
-                    </td>
-                    <td>{{ project.created_at|date:"Y-m-d H:i" }}</td>
-                    <td>
-                        <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_hub' project.id %}">Open synopsis</a>
-                    </td>
-                    <td class="text-end">
-                        <a class="btn btn-outline-danger btn-sm" href="{% url 'synopsis:project_delete' project.id %}">Delete…</a>
-                    </td>
-                </tr>
-                {% endwith %}
-                {% empty %}
-                <tr>
-                    <td colspan="5" class="text-muted">No synopses yet.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</section>
+<div class="container py-4">
+    <h1 class="mb-4 text-center">Manager Dashboard</h1>
 
-<section>
-    <div class="d-flex justify-content-between align-items-center mb-2">
-        <h2 class="h4 mb-0">User management</h2>
-        <a class="btn btn-primary btn-sm" href="{% url 'synopsis:user_create' %}">Add new user</a>
-    </div>
-    <div class="table-responsive">
-        <table class="table table-striped align-middle">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Groups (global roles)</th>
-                    <th>Staff?</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for u in users %}
-                <tr>
-                    <td>{{ u.get_full_name|default:u.username }}</td>
-                    <td>{{ u.email }}</td>
-                    <td>
-                        {% for g in u.groups.all %}
-                        <span class="badge bg-secondary">{{ g.name }}</span>
-                        {% empty %}
-                        <span class="text-muted">—</span>
-                        {% endfor %}
-                    </td>
-                    <td>{% if u.is_staff %}Yes{% else %}No{% endif %}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</section>
+    <!-- Synopsis Management Section -->
+    <section class="mb-5">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h4">Synopsis Management</h2>
+        </div>
+        <p class="text-muted small">
+            Review active synopses, open their hub, or permanently delete them with the safeguards below.
+        </p>
+        <div class="table-responsive">
+            <table class="table table-hover table-bordered align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Synopsis</th>
+                        <th>Authors</th>
+                        <th>Created</th>
+                        <th>Manage</th>
+                        <th class="text-end">Secure Delete</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in project_entries %}
+                    {% with project=entry.project form=entry.delete_form %}
+                    <tr>
+                        <td>{{ project.title }}</td>
+                        <td class="small">
+                            {% if entry.authors %}
+                                {% for user in entry.authors %}
+                                    {{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}
+                                {% endfor %}
+                            {% else %}
+                                <span class="text-muted">No authors assigned</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ project.created_at|date:"Y-m-d H:i" }}</td>
+                        <td>
+                            <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_hub' project.id %}">Open Synopsis</a>
+                        </td>
+                        <td class="text-end">
+                            <details class="project-delete-details">
+                                <summary class="text-danger">Delete…</summary>
+                                <div class="mt-2 p-3 border rounded bg-light">
+                                    <p class="text-muted small mb-2">
+                                        This action is permanent. Type
+                                        <strong>{{ project.title }}</strong>
+                                        and confirm the warning to proceed.
+                                    </p>
+                                    <form method="post" action="{% url 'synopsis:project_delete' project.id %}">
+                                        {% csrf_token %}
+                                        {{ form.as_p }}
+                                        <input type="hidden" name="next" value="{% url 'synopsis:manager_dashboard' %}">
+                                        <div class="d-flex justify-content-end">
+                                            <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                                            <a href="{% url 'synopsis:manager_dashboard' %}" class="btn btn-secondary btn-sm ms-2">Cancel</a>
+                                        </div>
+                                    </form>
+                                </div>
+                            </details>
+                        </td>
+                    </tr>
+                    {% endwith %}
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="text-muted text-center">No synopses yet.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- User Management Section -->
+    <section>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h4">User Management</h2>
+            <a class="btn btn-primary btn-sm" href="{% url 'synopsis:user_create' %}">Add New User</a>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover table-bordered align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Groups (Global Roles)</th>
+                        <th>Staff?</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users %}
+                    <tr>
+                        <td>{{ u.get_full_name|default:u.username }}</td>
+                        <td>{{ u.email }}</td>
+                        <td>
+                            {% for g in u.groups.all %}
+                            <span class="badge bg-secondary">{{ g.name }}</span>
+                            {% empty %}
+                            <span class="text-muted">—</span>
+                            {% endfor %}
+                        </td>
+                        <td>{% if u.is_staff %}Yes{% else %}No{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
 {% endblock %}

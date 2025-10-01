@@ -1,12 +1,17 @@
 {% extends "synopsis/base.html" %}
-{% block title %}Protocol Feedback – {{ project.title }}{% endblock %}
+{% block title %}Action List Feedback – {{ project.title }}{% endblock %}
 {% block content %}
-<h1 class="mb-3">Protocol feedback – {{ project.title }}</h1>
+<h1 class="mb-3">Action list feedback – {{ project.title }}</h1>
 <div class="card">
     <div class="card-body">
         {% if deadline %}
         <div class="alert alert-info" role="alert">
             Please submit any feedback before {{ deadline|date:"Y-m-d H:i" }}. After this point the link will close automatically.
+        </div>
+        {% endif %}
+        {% if action_list and action_list.document %}
+        <div class="mb-3">
+            <a class="btn btn-outline-secondary btn-sm" href="{{ action_list.document.url }}" target="_blank">View current action list</a>
         </div>
         {% endif %}
         <form method="post" enctype="multipart/form-data">
@@ -20,7 +25,7 @@
                 {{ form.uploaded_document.label_tag }}
                 {{ form.uploaded_document }}
                 {{ form.uploaded_document.errors }}
-                <div class="form-text">Upload your annotated .docx protocol (optional).</div>
+                <div class="form-text">Upload your annotated .docx action list (optional).</div>
             </div>
             <button class="btn btn-primary">Submit feedback</button>
         </form>

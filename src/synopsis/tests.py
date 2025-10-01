@@ -3,7 +3,12 @@ from types import SimpleNamespace
 
 from django.contrib.auth.models import Group, User, AnonymousUser
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import TestCase, RequestFactory, override_settings
+from django.contrib.messages.storage.fallback import FallbackStorage
+from django.contrib.sessions.middleware import SessionMiddleware
+
+import shutil
+import tempfile
 from django.utils import timezone
 
 from .models import (
@@ -14,6 +19,9 @@ from .models import (
     ProjectChangeLog,
     ProtocolFeedback,
     Protocol,
+    ProtocolRevision,
+    ActionList,
+    ActionListRevision,
     UserRole,
 )
 from .forms import FunderForm, ProjectDeleteForm, ProjectSettingsForm
@@ -32,6 +40,9 @@ from .views import (
     _log_project_change,
     _user_can_confirm_phase,
     _user_is_manager,
+    _user_can_edit_project,
+    protocol_delete_revision,
+    action_list_delete_revision,
 )
 
 
@@ -222,7 +233,6 @@ class FunderFormTests(TestCase):
             "Start date cannot be after the end date.",
             form.errors.get("fund_end_date", []),
         )
-
     def test_start_end_date_valid_when_ordered(self):
         form = FunderForm(
             data={
@@ -233,6 +243,159 @@ class FunderFormTests(TestCase):
         )
         self.assertTrue(form.is_valid())
 
+
+class UserEditPermissionTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Permissions Project")
+        self.manager = User.objects.create_user(username="manager_user")
+        self.manager.is_staff = True
+        self.manager.save(update_fields=["is_staff"])
+        self.author = User.objects.create_user(username="author_user")
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        self.viewer = User.objects.create_user(username="viewer_user")
+
+    def test_manager_can_edit_project(self):
+        self.assertTrue(_user_can_edit_project(self.manager, self.project))
+
+    def test_author_can_edit_project(self):
+        self.assertTrue(_user_can_edit_project(self.author, self.project))
+
+    def test_other_user_cannot_edit_project(self):
+        self.assertFalse(_user_can_edit_project(self.viewer, self.project))
+
+
+class RevisionDeleteViewTests(TestCase):
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
+        override = override_settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+
+        ensure_global_groups()
+
+        self.factory = RequestFactory()
+        self.project = Project.objects.create(title="Revision Project")
+        self.author = User.objects.create_user(username="author", password="pwd")
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        self.other_user = User.objects.create_user(username="other", password="pwd")
+
+        # Protocol setup
+        base_file = SimpleUploadedFile("protocol_base.docx", b"base")
+        self.protocol = Protocol.objects.create(project=self.project, document=base_file)
+        self.rev1 = ProtocolRevision.objects.create(
+            protocol=self.protocol,
+            file=SimpleUploadedFile("protocol_rev1.docx", b"rev1"),
+            stage="draft",
+            change_reason="Initial",
+        )
+        self.protocol.current_revision = self.rev1
+        self.protocol.save(update_fields=["current_revision"])
+        self.rev2 = ProtocolRevision.objects.create(
+            protocol=self.protocol,
+            file=SimpleUploadedFile("protocol_rev2.docx", b"rev2"),
+            stage="draft",
+            change_reason="Second",
+        )
+        self.protocol.current_revision = self.rev2
+        self.protocol.save(update_fields=["current_revision"])
+
+        # Action list setup
+        action_file = SimpleUploadedFile("action_base.docx", b"alist")
+        self.action_list = ActionList.objects.create(
+            project=self.project,
+            document=action_file,
+        )
+        self.al_rev1 = ActionListRevision.objects.create(
+            action_list=self.action_list,
+            file=SimpleUploadedFile("action_rev1.docx", b"rev1"),
+            stage="draft",
+            change_reason="Initial",
+        )
+        self.action_list.current_revision = self.al_rev1
+        self.action_list.save(update_fields=["current_revision"])
+        self.al_rev2 = ActionListRevision.objects.create(
+            action_list=self.action_list,
+            file=SimpleUploadedFile("action_rev2.docx", b"rev2"),
+            stage="draft",
+            change_reason="Second",
+        )
+        self.action_list.current_revision = self.al_rev2
+        self.action_list.save(update_fields=["current_revision"])
+
+    def _add_session_and_messages(self, request):
+        SessionMiddleware(lambda req: None).process_request(request)
+        request.session.save()
+        messages = FallbackStorage(request)
+        setattr(request, "_messages", messages)
+
+    def test_author_can_delete_protocol_revision(self):
+        request = self.factory.post(
+            f"/project/{self.project.id}/protocol/revision/{self.rev2.id}/delete/"
+        )
+        request.user = self.author
+        self._add_session_and_messages(request)
+
+        response = protocol_delete_revision(request, self.project.id, self.rev2.id)
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(
+            ProtocolRevision.objects.filter(pk=self.rev2.pk).exists()
+        )
+        self.protocol.refresh_from_db()
+        self.assertEqual(self.protocol.current_revision_id, self.rev1.id)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project, action__icontains="Protocol revision deleted"
+            ).exists()
+        )
+
+    def test_non_editor_cannot_delete_protocol_revision(self):
+        request = self.factory.post(
+            f"/project/{self.project.id}/protocol/revision/{self.rev1.id}/delete/"
+        )
+        request.user = self.other_user
+        self._add_session_and_messages(request)
+
+        response = protocol_delete_revision(request, self.project.id, self.rev1.id)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(ProtocolRevision.objects.filter(pk=self.rev1.pk).exists())
+
+    def test_author_can_delete_action_list_revision(self):
+        request = self.factory.post(
+            f"/project/{self.project.id}/action-list/revision/{self.al_rev2.id}/delete/"
+        )
+        request.user = self.author
+        self._add_session_and_messages(request)
+
+        response = action_list_delete_revision(
+            request, self.project.id, self.al_rev2.id
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(
+            ActionListRevision.objects.filter(pk=self.al_rev2.pk).exists()
+        )
+        self.action_list.refresh_from_db()
+        self.assertEqual(self.action_list.current_revision_id, self.al_rev1.id)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project, action__icontains="Action list revision deleted"
+            ).exists()
+        )
+
+    def test_non_editor_cannot_delete_action_list_revision(self):
+        request = self.factory.post(
+            f"/project/{self.project.id}/action-list/revision/{self.al_rev1.id}/delete/"
+        )
+        request.user = self.other_user
+        self._add_session_and_messages(request)
+
+        response = action_list_delete_revision(
+            request, self.project.id, self.al_rev1.id
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(
+            ActionListRevision.objects.filter(pk=self.al_rev1.pk).exists()
+        )
 
 class ProjectDeleteFormTests(TestCase):
     def setUp(self):
