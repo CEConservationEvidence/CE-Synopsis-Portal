@@ -2247,7 +2247,7 @@ def project_settings(request, project_id):
                 )
                 add_title_entry(old_title, log.created_at, actor)
 
-    if project.title in seen_titles:
+    if project.title not in seen_titles:
         created_at = getattr(project, "created_at", None)
         add_title_entry(
             project.title,
