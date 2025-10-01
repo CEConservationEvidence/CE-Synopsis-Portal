@@ -2233,7 +2233,6 @@ def project_settings(request, project_id):
 
     for log in change_logs:
         actor = _user_display(log.changed_by) if log.changed_by else "System"
-        segments = [segment.strip() for segment in log.details.split(";")]
         segments = [segment.strip() for segment in log.details.split(";") if segment.strip()]
     return render(
         request,
