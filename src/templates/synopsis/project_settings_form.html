@@ -1,23 +1,53 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Project Settings – {{ project.title }}{% endblock %}
 {% block content %}
-<h1 class="mb-3">Edit Synopsis Settings</h1>
-<p class="text-muted">
-    Update the core details for
-    <strong>{{ project.title }}</strong>
-    . Currently synopsis titles can be changed.
-</p>
-<form method="post" class="col-lg-6 col-md-8" id="settings-form"></form>
-{% csrf_token %}
-    {{ form.non_field_errors }}
-<div class="mb-3">
-    {{ form.title.label_tag }}
-        {{ form.title }}
-        {% for error in form.title.errors %}
-    <div class="text-danger small">{{ error }}</div>
-    {% endfor %}
+<div class="container mt-5">
+    <h1 class="mb-4 text-center">Edit Synopsis Settings</h1>
+    <p class="text-muted text-center">
+        Update the core details for
+        <strong>{{ project.title }}</strong>. You can modify the synopsis title below.
+    </p>
+    <form method="post" class="col-lg-6 col-md-8 mx-auto shadow p-4 rounded bg-light" id="settings-form">
+        {% csrf_token %}
+        {{ form.non_field_errors }}
+        <div class="mb-4">
+            {{ form.title.label_tag }}
+            {{ form.title }}
+            <script>
+                document.addEventListener("DOMContentLoaded", function() {
+                    const titleField = document.querySelector("#id_title");
+                    if (titleField) {
+                        titleField.classList.add("form-control");
+                    }
+                });
+            </script>
+            {% for error in form.title.errors %}
+            <div class="text-danger small mt-1">{{ error }}</div>
+            {% endfor %}
+        </div>
+        <div class="d-flex justify-content-between">
+            <button class="btn btn-primary" type="submit">Save Changes</button>
+            <a class="btn btn-secondary" href="{% url 'synopsis:project_hub' project.id %}">Cancel</a>
+        </div>
+    </form>
+    {% if previous_titles %}
+    <div class="col-lg-6 col-md-8 mx-auto mt-4">
+        <h2 class="h5">Previous titles</h2>
+        <p class="text-muted small mb-2">These are the earlier names used for this synopsis, newest first.</p>
+        <ul class="list-group">
+            {% for entry in previous_titles %}
+            <li class="list-group-item d-flex justify-content-between align-items-start">
+                <div>
+                    <div class="fw-semibold">{{ entry.title }}</div>
+                    <div class="text-muted small">Changed on {{ entry.changed_at|date:"Y-m-d H:i" }} by {{ entry.changed_by|default:"System" }}</div>
+                </div>
+                {% if forloop.first %}
+                <span class="badge text-bg-primary">Latest</span>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
 </div>
-<button class="btn btn-primary" type="submit">Save changes</button>
-<a class="btn btn-link" href="{% url 'synopsis:project_hub' project.id %}">Cancel</a>
-</form>
 {% endblock %}
