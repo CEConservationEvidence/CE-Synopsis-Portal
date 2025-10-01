@@ -397,7 +397,13 @@ class ActionListRevision(models.Model):
     def __str__(self):
         return f"Action list revision for {self.action_list.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
 
-# TODO: refactor the columns so that they make sense.
+# TODO: Refactor AdvisoryBoardMember columns for clarity and normalization:
+#   - Consider renaming 'title', 'first_name', 'middle_name', 'last_name' for consistency with other models.
+#   - Review if 'middle_name' is necessary or can be merged with 'first_name'.
+#   - Evaluate if contact fields (email, phone) should be normalized into a separate ContactInfo model.
+#   - Check for redundant or unused fields (e.g., 'feedback_on_actions_received', 'feedback_on_list', etc.).
+#   - Document the purpose of each field and remove any that are not used in workflows.
+#   - Ensure field naming is clear for teams adapting this model.
 class AdvisoryBoardMember(models.Model):
     """An advisory board member for a project, where there can be multiple members per project.
     Note that this datamodel is speficific to CE and may need to be dropped by other teams.
