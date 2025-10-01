@@ -54,6 +54,11 @@ urlpatterns = [
         name="action_list_restore_revision",
     ),
     path(
+        "project/<int:project_id>/action-list/revision/<int:revision_id>/delete/",
+        views.action_list_delete_revision,
+        name="action_list_delete_revision",
+    ),
+    path(
         "project/<int:project_id>/action-list/clear-text/",
         views.action_list_clear_text,
         name="action_list_clear_text",
@@ -82,6 +87,11 @@ urlpatterns = [
         "project/<int:project_id>/protocol/revision/<int:revision_id>/restore/",
         views.protocol_restore_revision,
         name="protocol_restore_revision",
+    ),
+    path(
+        "project/<int:project_id>/protocol/revision/<int:revision_id>/delete/",
+        views.protocol_delete_revision,
+        name="protocol_delete_revision",
     ),
     path(
         "project/<int:project_id>/protocol/clear-text/",
@@ -131,9 +141,19 @@ urlpatterns = [
         name="advisory_schedule_protocol_reminders",
     ),
     path(
+        "project/<int:project_id>/advisory-board/action-list-reminders/",
+        views.advisory_schedule_action_list_reminders,
+        name="advisory_schedule_action_list_reminders",
+    ),
+    path(
         "project/<int:project_id>/advisory-board/protocol-feedback/close/",
         views.advisory_protocol_feedback_close,
         name="advisory_protocol_feedback_close",
+    ),
+    path(
+        "project/<int:project_id>/advisory-board/action-list-feedback/close/",
+        views.advisory_action_list_feedback_close,
+        name="advisory_action_list_feedback_close",
     ),
     path(
         "project/<int:project_id>/references/",
@@ -201,9 +221,24 @@ urlpatterns = [
         name="advisory_send_protocol_compose_member",
     ),
     path(
+        "project/<int:project_id>/advisory/send-action-list/all/",
+        views.advisory_send_action_list_compose_all,
+        name="advisory_send_action_list_compose_all",
+    ),
+    path(
+        "project/<int:project_id>/advisory/send-action-list/member/<int:member_id>/",
+        views.advisory_send_action_list_compose_member,
+        name="advisory_send_action_list_compose_member",
+    ),
+    path(
         "advisory/protocol/feedback/<uuid:token>/",
         views.protocol_feedback,
         name="protocol_feedback",
+    ),
+    path(
+        "advisory/action-list/feedback/<uuid:token>/",
+        views.action_list_feedback,
+        name="action_list_feedback",
     ),
     path(
         "project/<int:project_id>/advisory/send-invite/member/<int:member_id>/",
