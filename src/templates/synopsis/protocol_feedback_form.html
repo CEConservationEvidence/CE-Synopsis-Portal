@@ -13,13 +13,13 @@
             {% csrf_token %}
             <div class="mb-3">
                 {{ form.content.label_tag }}
-        {{ form.content }}
-        {{ form.content.errors }}
+                {{ form.content }}
+                {{ form.content.errors }}
             </div>
             <div class="mb-3">
                 {{ form.uploaded_document.label_tag }}
-        {{ form.uploaded_document }}
-        {{ form.uploaded_document.errors }}
+                {{ form.uploaded_document }}
+                {{ form.uploaded_document.errors }}
                 <div class="form-text">Upload your annotated .docx protocol (optional).</div>
             </div>
             <button class="btn btn-primary">Submit feedback</button>
