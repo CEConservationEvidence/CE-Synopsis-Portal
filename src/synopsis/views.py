@@ -2243,6 +2243,7 @@ def project_settings(request, project_id):
                     new_title,
                     log.created_at,
                     actor,
+                    is_current=(new_title == project.title and project.title not in seen_titles)
                 )
                 add_title_entry(old_title, log.created_at, actor)
     return render(
