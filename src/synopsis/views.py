@@ -2208,6 +2208,27 @@ def project_settings(request, project_id):
     else:
         form = ProjectSettingsForm(instance=project)
 
+    previous_titles = []
+    seen_titles = set()
+
+    def add_title_entry(title, changed_at, changed_by, *, is_current=False, note=None):
+        title = (title or "").strip()
+        if not title or title in seen_titles:
+            return
+        previous_titles.append(
+            {
+                "title": title,
+                "changed_at": changed_at,
+                "changed_by": changed_by,
+                "is_current": is_current,
+                "note": note or "",
+            }
+        )
+
+    change_logs = project.change_log.filter(
+        action="Updated project settings",
+        details__icontains="Title:",
+    ).order_by("-created_at")
     return render(
         request,
         "synopsis/project_settings_form.html",
