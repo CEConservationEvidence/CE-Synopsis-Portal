@@ -34,18 +34,26 @@
                     </td>
                     <td>{{ project.created_at|date:"Y-m-d H:i" }}</td>
                     <td>
-                        <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_hub' project.id %}">Open hub</a>
+                        <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_hub' project.id %}">Open Synopsis</a>
                     </td>
                     <td class="text-end">
                         <details class="project-delete-details">
                             <summary class="text-danger">Delete…</summary>
                             <div class="mt-2 p-2 border rounded-3 bg-light-subtle">
                                 <p class="text-muted small mb-2">
-                                    This action is permanent. Type <strong>{{ project.title }}</strong> and confirm the warning to proceed.
+                                    This action is permanent. Type
+                                    <strong>{{ project.title }}</strong>
+                                    and confirm the warning to proceed.
                                 </p>
-                                {% url 'synopsis:project_delete' project.id as project_delete_url %}
-                                {% url 'synopsis:manager_dashboard' as manager_dashboard_url %}
-                                {% include "synopsis/includes/project_delete_form.html" with form=form action_url=project_delete_url next_url=manager_dashboard_url submit_class='btn btn-danger btn-sm' cancel_url=manager_dashboard_url cancel_class='btn-sm' cancel_label='Cancel' compact=True %}
+                                <form method="post" action="{% url 'synopsis:project_delete' project.id %}">
+                                    {% csrf_token %}
+                                    {{ form.as_p }}
+                                    <input type="hidden" name="next" value="{% url 'synopsis:manager_dashboard' %}">
+                                    <div class="d-flex justify-content-end">
+                                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                                        <a href="{% url 'synopsis:manager_dashboard' %}" class="btn btn-secondary btn-sm ms-2">Cancel</a>
+                                    </div>
+                                </form>
                             </div>
                         </details>
                     </td>
@@ -60,7 +68,6 @@
         </table>
     </div>
 </section>
-
 <section>
     <div class="d-flex justify-content-between align-items-center mb-2">
         <h2 class="h4 mb-0">User management</h2>
