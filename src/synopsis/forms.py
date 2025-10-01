@@ -123,7 +123,6 @@ class AdvisoryBoardMemberForm(forms.ModelForm):
             "notes",
         ]
         widgets = {
-            "title": forms.Select(attrs={"class": "form-select"}),
             "first_name": forms.TextInput(attrs={"class": "form-control"}),
             "middle_name": forms.TextInput(attrs={"class": "form-control"}),
             "last_name": forms.TextInput(attrs={"class": "form-control"}),
