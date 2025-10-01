@@ -229,7 +229,10 @@ class FunderFormTests(TestCase):
             "Start date cannot be after the end date.",
             form.errors.get("fund_start_date", []),
         )
-
+        self.assertIn(
+            "Start date cannot be after the end date.",
+            form.errors.get("fund_end_date", []),
+        )
     def test_start_end_date_valid_when_ordered(self):
         form = FunderForm(
             data={
