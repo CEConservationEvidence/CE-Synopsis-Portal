@@ -2224,11 +2224,13 @@ def project_settings(request, project_id):
                 "note": note or "",
             }
         )
+        seen_titles.add(title)
 
     change_logs = project.change_log.filter(
         action="Updated project settings",
         details__icontains="Title:",
     ).order_by("-created_at")
+
     return render(
         request,
         "synopsis/project_settings_form.html",
