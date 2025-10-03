@@ -160,6 +160,9 @@ This project is built entirely with open-source, mature, and well-supported tool
 
 - **psycopg 3.2.x**
   - PostgreSQL driver used by Django to connect to the database.
+ 
+- **OnlyOffice (Community Edition)**
+  - Collaborative document server and handler (open-source, free for up to 20 users) used for collaboration between CE team and Advisory Board members.
 
 ### Development & Maintenance
 - **GitHub**
