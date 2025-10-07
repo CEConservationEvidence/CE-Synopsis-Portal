@@ -1,9 +1,14 @@
 import datetime as dt
 import hashlib
+import json
+import logging
 import os
 import uuid
 from decimal import Decimal
+from urllib.parse import urlparse, urlencode
 
+import jwt
+import requests
 import rispy
 
 from django.conf import settings
@@ -11,14 +16,16 @@ from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User, Group
+from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives, send_mail
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Count
-from django.http import HttpResponseBadRequest
+from django.http import HttpResponseBadRequest, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.safestring import mark_safe
 from django import forms
 from django.views.decorators.csrf import csrf_exempt
 
@@ -45,6 +52,7 @@ from .forms import (
     ActionListFeedbackCloseForm,
     ReferenceBatchUploadForm,
     ReferenceScreeningForm,
+    CollaborativeUpdateForm,
 )
 from .models import (
     Project,
@@ -62,8 +70,40 @@ from .models import (
     Reference,
     ProtocolRevision,
     ActionListRevision,
+    CollaborativeSession,
 )
 from .utils import ensure_global_groups, email_subject, reply_to_list, reference_hash
+
+
+ONLYOFFICE_SETTINGS = getattr(settings, "ONLYOFFICE", {})
+
+logger = logging.getLogger(__name__)
+
+
+_COLLAB_INVITE_TABLE_EXISTS = None
+
+
+def _collaborative_invitation_table_ready():
+    global _COLLAB_INVITE_TABLE_EXISTS
+    if _COLLAB_INVITE_TABLE_EXISTS is not None:
+        return _COLLAB_INVITE_TABLE_EXISTS
+
+    table_name = CollaborativeSession.invitations.through._meta.db_table
+    try:
+        tables = connection.introspection.table_names()
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.warning(
+            "Could not inspect database tables for collaborative invites: %s", exc
+        )
+        _COLLAB_INVITE_TABLE_EXISTS = False
+        return False
+
+    _COLLAB_INVITE_TABLE_EXISTS = table_name in tables
+    return _COLLAB_INVITE_TABLE_EXISTS
+
+
+def _onlyoffice_enabled() -> bool:
+    return bool(ONLYOFFICE_SETTINGS.get("base_url"))
 
 
 def _user_is_manager(user) -> bool:
@@ -85,6 +125,24 @@ def _user_can_edit_project(user, project) -> bool:
         return False
 
 
+def _user_can_force_end_session(user, project, session) -> bool:
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if _user_is_manager(user):
+        return True
+
+    owner_id = session.started_by_id
+    user_id = getattr(user, "pk", None)
+
+    if owner_id is None:
+        return _user_can_edit_project(user, project)
+
+    if user_id is None:
+        return False
+
+    return str(owner_id) == str(user_id)
+
+
 def _log_project_change(project, user, action: str, details: str = ""):
     changed_by = user if getattr(user, "is_authenticated", False) else None
     ProjectChangeLog.objects.create(
@@ -103,6 +161,18 @@ def _format_value(value):
 def _user_display(user: User) -> str:
     full = user.get_full_name()
     return full or user.username
+
+
+def _advisory_member_display(member: AdvisoryBoardMember) -> str:
+    if not member:
+        return "Advisory board member"
+    parts = [member.first_name.strip() if member.first_name else ""]
+    if member.last_name:
+        parts.append(member.last_name.strip())
+    name = " ".join(part for part in parts if part).strip()
+    if not name:
+        name = member.email or "Advisory board member"
+    return name
 
 
 def _funder_contact_label(first: str | None, last: str | None) -> str:
@@ -172,6 +242,295 @@ def _apply_revision_to_action_list(action_list, revision) -> tuple[str, str]:
     action_list.current_revision = revision
     action_list.save(update_fields=["document", "current_revision"])
     return base_name, _format_file_size(revision.file_size)
+
+
+COLLAB_SESSION_DURATION = CollaborativeSession.DEFAULT_DURATION
+
+
+def _normalize_document_type(document_type: str) -> str | None:
+    mapping = {
+        "protocol": CollaborativeSession.DOCUMENT_PROTOCOL,
+        "protocols": CollaborativeSession.DOCUMENT_PROTOCOL,
+        "action-list": CollaborativeSession.DOCUMENT_ACTION_LIST,
+        "action_list": CollaborativeSession.DOCUMENT_ACTION_LIST,
+        "actionlist": CollaborativeSession.DOCUMENT_ACTION_LIST,
+    }
+    return mapping.get((document_type or "").lower())
+
+
+def _get_document_for_type(project, document_type):
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        return getattr(project, "protocol", None)
+    if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST:
+        return getattr(project, "action_list", None)
+    return None
+
+
+def _get_active_collaborative_session(project, document_type):
+    session = (
+        CollaborativeSession.objects.filter(
+            project=project,
+            document_type=document_type,
+            is_active=True,
+        )
+        .order_by("-started_at", "-id")
+        .first()
+    )
+    if session and session.has_expired():
+        session.is_active = False
+        session.save(update_fields=["is_active"])
+        return None
+    return session
+
+
+def _ensure_collaborative_invite_link(
+    request,
+    project,
+    document_type,
+    invitation=None,
+    *,
+    member=None,
+    feedback=None,
+):
+    if not _onlyoffice_enabled():
+        return ""
+
+    document = _get_document_for_type(project, document_type)
+    if not _document_requires_file(document):
+        return ""
+
+    session = _get_active_collaborative_session(project, document_type)
+    created = False
+
+    if not session:
+        initial_revision = getattr(document, "current_revision", None)
+        if not initial_revision and hasattr(document, "latest_revision"):
+            try:
+                initial_revision = document.latest_revision()
+            except Exception:
+                initial_revision = None
+
+        session_kwargs = {
+            "project": project,
+            "document_type": document_type,
+            "started_by": request.user if getattr(request.user, "is_authenticated", False) else None,
+            "last_activity_at": timezone.now(),
+        }
+
+        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+            session_kwargs["initial_protocol_revision"] = initial_revision
+        else:
+            session_kwargs["initial_action_list_revision"] = initial_revision
+
+        session = CollaborativeSession.objects.create(**session_kwargs)
+        created = True
+
+    if invitation and session:
+        if _collaborative_invitation_table_ready():
+            session.invitations.add(invitation)
+        else:
+            logger.warning(
+                "Collaborative invite join table missing; skipping association for session %s",
+                session.pk,
+            )
+
+    if created:
+        _log_project_change(
+            project,
+            request.user,
+            f"{_document_label(document_type)} collaborative editing started",
+            f"Session {session.token} shared with advisory invite {invitation.email if invitation else ''}".strip(),
+        )
+
+    params = {}
+    if member:
+        params["member"] = str(member.id)
+    if feedback:
+        params["feedback"] = str(feedback.token)
+
+    slug = _document_type_slug(document_type)
+    path = reverse("synopsis:collaborative_edit", args=[project.id, slug, session.token])
+    if params:
+        path = f"{path}?{urlencode(params)}"
+    return request.build_absolute_uri(path)
+
+
+def _document_detail_url(project_id, document_type):
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        return reverse("synopsis:protocol_detail", args=[project_id])
+    return reverse("synopsis:action_list_detail", args=[project_id])
+
+
+def _document_label(document_type):
+    return (
+        "Protocol"
+        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
+        else "Action list"
+    )
+
+
+def _document_type_slug(document_type):
+    return (
+        "protocol"
+        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
+        else "action-list"
+    )
+
+
+def _collaborative_session_or_404(project, document_type, token):
+    return get_object_or_404(
+        CollaborativeSession,
+        project=project,
+        document_type=document_type,
+        token=token,
+    )
+
+
+def _document_requires_file(document) -> bool:
+    return bool(document and getattr(document, "document", None))
+
+
+def _onlyoffice_editor_js_url() -> str:
+    base = ONLYOFFICE_SETTINGS.get("base_url", "").rstrip("/")
+    if not base:
+        return ""
+    return f"{base}/web-apps/apps/api/documents/api.js"
+
+
+def _document_filetype(file_name: str) -> str:
+    ext = (os.path.splitext(file_name)[1] or "").lstrip(".").lower()
+    return ext or "docx"
+
+
+def _build_onlyoffice_config(
+    request,
+    project,
+    document,
+    session,
+    document_type,
+    participant=None,
+):
+    document_file = getattr(document, "document", None)
+    if not document_file:
+        raise ValueError("Document has no file attached")
+
+    file_url = request.build_absolute_uri(document_file.url)
+    file_type = _document_filetype(document_file.name)
+    title = os.path.basename(document_file.name) or _document_label(document_type)
+    doc_key = f"{project.id}-{document_type}-{session.id}-{int(session.started_at.timestamp())}"[-128:]
+
+    user = request.user
+    user_id = str(getattr(user, "id", "anonymous"))
+    user_name = (
+        _user_display(user)
+        if getattr(user, "is_authenticated", False)
+        else "Anonymous"
+    )
+    user_email = getattr(user, "email", "") if getattr(user, "is_authenticated", False) else ""
+
+    if participant:
+        user_id = participant.get("id", user_id)
+        user_name = participant.get("name", user_name)
+        user_email = participant.get("email", user_email)
+
+    callback_url = request.build_absolute_uri(
+        reverse(
+            "synopsis:collaborative_edit_callback",
+            args=[project.id, _document_type_slug(document_type), session.token],
+        )
+    )
+
+    config = {
+        "document": {
+            "fileType": file_type,
+            "key": doc_key,
+            "title": title,
+            "url": file_url,
+            "permissions": {
+                "edit": True,
+                "download": True,
+                "print": True,
+                "review": True,
+            },
+        },
+        "editorConfig": {
+            "callbackUrl": callback_url,
+            "user": {
+                "id": user_id,
+                "name": user_name,
+            },
+            "mode": "edit",
+            "customization": {
+                "autosave": True,
+                "forcesave": True,
+            },
+        },
+    }
+
+    if user_email:
+        config["editorConfig"]["user"]["email"] = user_email
+
+    secret = ONLYOFFICE_SETTINGS.get("jwt_secret")
+    if secret:
+        token = jwt.encode(config, secret, algorithm="HS256")
+        if isinstance(token, bytes):
+            token = token.decode("utf-8")
+        config["token"] = token
+
+    return config
+
+
+def _download_onlyoffice_file(file_url: str) -> bytes:
+    timeout = ONLYOFFICE_SETTINGS.get("callback_timeout", 10)
+    response = requests.get(file_url, timeout=timeout)
+    response.raise_for_status()
+    return response.content
+
+
+def _onlyoffice_secret() -> str:
+    return ONLYOFFICE_SETTINGS.get("jwt_secret", "")
+
+
+def _extract_onlyoffice_token(request, payload: dict) -> str | None:
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header.split(" ", 1)[1].strip()
+    return payload.get("token") if isinstance(payload, dict) else None
+
+
+def _parse_onlyoffice_callback(request) -> dict:
+    try:
+        body = request.body.decode("utf-8") or "{}"
+    except UnicodeDecodeError as exc:
+        logger.warning("OnlyOffice callback body decode failed: %s", exc)
+        raise ValueError("Invalid payload encoding")
+
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        logger.warning("OnlyOffice callback payload JSON error: %s", exc)
+        raise ValueError("Invalid JSON payload")
+
+    secret = _onlyoffice_secret()
+    if not secret:
+        return payload
+
+    token = _extract_onlyoffice_token(request, payload)
+    if not token:
+        logger.warning("OnlyOffice callback missing JWT token")
+        raise PermissionDenied("Missing callback token")
+
+    try:
+        decoded = jwt.decode(token, secret, algorithms=["HS256"])
+    except jwt.InvalidTokenError as exc:
+        logger.warning("OnlyOffice callback token invalid: %s", exc)
+        raise PermissionDenied("Invalid callback token")
+
+    if not isinstance(decoded, dict):
+        logger.warning("OnlyOffice callback token did not decode to a JSON object")
+        raise PermissionDenied("Invalid callback payload")
+
+    return decoded
 
 
 def _create_protocol_feedback(project, member=None, email=None, invitation=None):
@@ -1089,6 +1448,33 @@ def protocol_detail(request, project_id):
         protocol and protocol.stage == "final" and has_existing_file
     )
 
+    collaborative_enabled = _onlyoffice_enabled()
+    collaborative_session = None
+    collaborative_resume_url = ""
+    collaborative_force_end_url = ""
+    collaborative_slug = _document_type_slug(
+        CollaborativeSession.DOCUMENT_PROTOCOL
+    )
+    if collaborative_enabled:
+        collaborative_session = _get_active_collaborative_session(
+            project, CollaborativeSession.DOCUMENT_PROTOCOL
+        )
+        if collaborative_session:
+            collaborative_resume_url = reverse(
+                "synopsis:collaborative_edit",
+                args=[project.id, collaborative_slug, collaborative_session.token],
+            )
+            collaborative_force_end_url = reverse(
+                "synopsis:collaborative_force_end",
+                args=[project.id, collaborative_slug, collaborative_session.token],
+            )
+    if collaborative_session:
+        collaborative_can_override = _user_can_force_end_session(
+            request.user, project, collaborative_session
+        )
+    else:
+        collaborative_can_override = False
+
     if request.method == "POST":
         form = ProtocolUpdateForm(request.POST, request.FILES, instance=protocol)
         if form.is_valid():
@@ -1253,6 +1639,14 @@ def protocol_detail(request, project_id):
             "first_upload_pending": first_upload_pending,
             "can_manage_project": can_manage,
             "can_edit_documents": can_edit_documents,
+            "collaborative_enabled": collaborative_enabled,
+            "collaborative_session": collaborative_session,
+            "collaborative_start_url": reverse(
+                "synopsis:collaborative_start", args=[project.id, collaborative_slug]
+            ),
+            "collaborative_resume_url": collaborative_resume_url,
+            "collaborative_force_end_url": collaborative_force_end_url,
+            "collaborative_can_override": collaborative_can_override,
         },
     )
 
@@ -1330,6 +1724,33 @@ def action_list_detail(request, project_id):
     final_stage_locked = bool(
         action_list and action_list.stage == "final" and has_existing_file
     )
+
+    collaborative_enabled = _onlyoffice_enabled()
+    collaborative_session = None
+    collaborative_resume_url = ""
+    collaborative_force_end_url = ""
+    collaborative_slug = _document_type_slug(
+        CollaborativeSession.DOCUMENT_ACTION_LIST
+    )
+    if collaborative_enabled:
+        collaborative_session = _get_active_collaborative_session(
+            project, CollaborativeSession.DOCUMENT_ACTION_LIST
+        )
+        if collaborative_session:
+            collaborative_resume_url = reverse(
+                "synopsis:collaborative_edit",
+                args=[project.id, collaborative_slug, collaborative_session.token],
+            )
+            collaborative_force_end_url = reverse(
+                "synopsis:collaborative_force_end",
+                args=[project.id, collaborative_slug, collaborative_session.token],
+            )
+    if collaborative_session:
+        collaborative_can_override = _user_can_force_end_session(
+            request.user, project, collaborative_session
+        )
+    else:
+        collaborative_can_override = False
 
     if request.method == "POST":
         form = ActionListUpdateForm(request.POST, request.FILES, instance=action_list)
@@ -1495,9 +1916,535 @@ def action_list_detail(request, project_id):
             "first_upload_pending": first_upload_pending,
             "can_manage_project": can_manage,
             "can_edit_documents": can_edit_documents,
+            "collaborative_enabled": collaborative_enabled,
+            "collaborative_session": collaborative_session,
+            "collaborative_start_url": reverse(
+                "synopsis:collaborative_start", args=[project.id, collaborative_slug]
+            ),
+            "collaborative_resume_url": collaborative_resume_url,
+            "collaborative_force_end_url": collaborative_force_end_url,
+            "collaborative_can_override": collaborative_can_override,
         },
     )
 
+
+def _resolve_collaborative_users(user_ids) -> tuple[list[User], list[str]]:
+    if not user_ids:
+        return [], []
+
+    normalized = [str(uid) for uid in user_ids if uid is not None]
+    if not normalized:
+        return [], []
+
+    user_id_strings = [key for key in normalized if key.isdigit()]
+    member_id_strings = []
+    for key in normalized:
+        if key.startswith("abm:"):
+            try:
+                member_id_strings.append(int(key.split(":", 1)[1]))
+            except (TypeError, ValueError):
+                continue
+
+    users = []
+    user_map: dict[str, User] = {}
+    if user_id_strings:
+        ids = [int(key) for key in user_id_strings]
+        for user in User.objects.filter(id__in=ids):
+            user_map[str(user.id)] = user
+
+    member_map: dict[str, AdvisoryBoardMember] = {}
+    if member_id_strings:
+        for member in AdvisoryBoardMember.objects.filter(id__in=member_id_strings):
+            member_map[f"abm:{member.id}"] = member
+
+    ordered_users: list[User] = []
+    labels: list[str] = []
+    seen_users: set[int] = set()
+
+    for key in normalized:
+        user = user_map.get(key)
+        if user:
+            if user.id not in seen_users:
+                ordered_users.append(user)
+                seen_users.add(user.id)
+            labels.append(_user_display(user))
+            continue
+
+        member = member_map.get(key)
+        if member:
+            labels.append(_advisory_member_display(member))
+            continue
+
+        if key.startswith("abe:"):
+            email_value = key.split(":", 1)[1]
+            labels.append(email_value or "Advisory board invitee")
+            continue
+
+        if key:
+            labels.append(key)
+
+    return ordered_users, labels
+
+
+def _persist_collaborative_revision(
+    document_type,
+    document,
+    content: bytes,
+    original_name: str,
+    uploader,
+    change_reason: str,
+):
+    file_length = len(content)
+    safe_name = original_name or "document.docx"
+    content_file = ContentFile(content)
+
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        revision = ProtocolRevision(
+            protocol=document,
+            stage=document.stage,
+            change_reason=change_reason,
+            uploaded_by=uploader,
+        )
+        revision.file.save(safe_name, content_file, save=False)
+        revision.original_name = safe_name
+        revision.file_size = file_length
+        revision.save()
+        base_name, size_text = _apply_revision_to_protocol(document, revision)
+        if document.stage == "final":
+            ProtocolRevision.objects.filter(protocol=document).exclude(
+                pk=revision.pk
+            ).update(stage="draft")
+            if revision.stage != "final":
+                revision.stage = "final"
+                revision.save(update_fields=["stage"])
+        return revision, base_name, size_text
+
+    revision = ActionListRevision(
+        action_list=document,
+        stage=document.stage,
+        change_reason=change_reason,
+        uploaded_by=uploader,
+    )
+    revision.file.save(safe_name, content_file, save=False)
+    revision.original_name = safe_name
+    revision.file_size = file_length
+    revision.save()
+    base_name, size_text = _apply_revision_to_action_list(document, revision)
+    if document.stage == "final":
+        ActionListRevision.objects.filter(action_list=document).exclude(
+            pk=revision.pk
+        ).update(stage="draft")
+        if revision.stage != "final":
+            revision.stage = "final"
+            revision.save(update_fields=["stage"])
+    return revision, base_name, size_text
+
+
+def _handle_collaborative_save(
+    project,
+    document_type,
+    document,
+    session,
+    payload: dict,
+    status: int,
+):
+    file_url = payload.get("url")
+    if not file_url:
+        logger.warning("Collaborative callback missing file URL for session %s", session.pk)
+        return False
+
+    try:
+        content = _download_onlyoffice_file(file_url)
+    except requests.RequestException as exc:
+        logger.error("Failed to download OnlyOffice file: %s", exc)
+        return False
+
+    original_name = payload.get("filename") or os.path.basename(
+        getattr(getattr(document, "document", None), "name", "")
+    )
+    if not original_name:
+        original_name = f"{_document_type_slug(document_type)}.docx"
+
+    resolved_users, user_labels = _resolve_collaborative_users(
+        payload.get("users", [])
+    )
+    uploader = resolved_users[0] if resolved_users else session.started_by
+    if not user_labels and session.started_by:
+        user_labels.append(_user_display(session.started_by))
+    if user_labels:
+        session.last_participant_name = user_labels[0]
+
+    change_reason = (payload.get("message") or payload.get("comment") or "").strip()
+    if not change_reason:
+        qualifier = "force save" if status == 6 else "save"
+        if user_labels:
+            change_reason = (
+                f"Collaborative {qualifier} via OnlyOffice by {', '.join(user_labels)}"
+            )
+        else:
+            change_reason = f"Collaborative {qualifier} via OnlyOffice"
+
+    revision, base_name, size_text = _persist_collaborative_revision(
+        document_type,
+        document,
+        content,
+        original_name,
+        uploader,
+        change_reason,
+    )
+
+    document_label = _document_label(document_type)
+    detail_parts = [
+        f"Session: {session.token}",
+        f"Status: {status}",
+        f"File: {base_name}",
+    ]
+    if user_labels:
+        detail_parts.append(f"Users: {', '.join(user_labels)}")
+    if size_text and size_text != "—":
+        detail_parts.append(f"Size: {size_text}")
+    detail_parts.append(f"Reason: {change_reason}")
+
+    action_label = f"{document_label} updated via collaborative edit"
+    _log_project_change(
+        project,
+        uploader or session.started_by,
+        action_label,
+        " | ".join(detail_parts),
+    )
+
+    session.change_summary = change_reason
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        session.result_protocol_revision = revision
+        extra_updates = ["change_summary", "result_protocol_revision"]
+    else:
+        session.result_action_list_revision = revision
+        extra_updates = ["change_summary", "result_action_list_revision"]
+
+    if session.last_participant_name:
+        extra_updates.append("last_participant_name")
+
+    reason_text = (
+        "Document saved from OnlyOffice"
+        if status in {2, 6}
+        else f"Session closed (status {status})"
+    )
+    session.mark_inactive(
+        ended_by=uploader,
+        reason=reason_text,
+        extra_updates=extra_updates,
+    )
+    return True
+
+
+@login_required
+def collaborative_start(request, project_id, document_slug):
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    project = get_object_or_404(Project, pk=project_id)
+    document_type = _normalize_document_type(document_slug)
+    if not document_type:
+        raise Http404("Unknown document type")
+
+    if not _onlyoffice_enabled():
+        messages.error(
+            request,
+            "Collaborative editing is not configured. Please contact your administrator.",
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
+    if not _user_can_edit_project(request.user, project):
+        messages.error(
+            request, "You do not have permission to start a collaborative session."
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
+    document = _get_document_for_type(project, document_type)
+    if not _document_requires_file(document):
+        messages.error(
+            request,
+            f"No {_document_label(document_type).lower()} file is available to edit.",
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
+    active_session = _get_active_collaborative_session(project, document_type)
+    if active_session:
+        messages.warning(
+            request,
+            "A collaborative session is already running. Opening the existing editor instead.",
+        )
+        return redirect(
+            "synopsis:collaborative_edit",
+            project_id=project.id,
+            document_slug=_document_type_slug(document_type),
+            token=active_session.token,
+        )
+
+    initial_revision = None
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        initial_revision = getattr(document, "current_revision", None) or document.latest_revision()
+        session = CollaborativeSession.objects.create(
+            project=project,
+            document_type=document_type,
+            started_by=request.user,
+            last_activity_at=timezone.now(),
+            initial_protocol_revision=initial_revision,
+        )
+    else:
+        initial_revision = getattr(document, "current_revision", None) or document.latest_revision()
+        session = CollaborativeSession.objects.create(
+            project=project,
+            document_type=document_type,
+            started_by=request.user,
+            last_activity_at=timezone.now(),
+            initial_action_list_revision=initial_revision,
+        )
+
+    document_label = _document_label(document_type)
+    _log_project_change(
+        project,
+        request.user,
+        f"{document_label} collaborative editing started",
+        f"Session {session.token} started by {_user_display(request.user)}",
+    )
+
+    messages.success(request, f"{document_label} editor is ready.")
+    return redirect(
+        "synopsis:collaborative_edit",
+        project_id=project.id,
+        document_slug=_document_type_slug(document_type),
+        token=session.token,
+    )
+
+
+@login_required
+def collaborative_edit(request, project_id, document_slug, token):
+    project = get_object_or_404(Project, pk=project_id)
+    document_type = _normalize_document_type(document_slug)
+    if not document_type:
+        raise Http404("Unknown document type")
+
+    if not _onlyoffice_enabled():
+        messages.error(
+            request,
+            "Collaborative editing is not configured. Please contact your administrator.",
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
+    session = _collaborative_session_or_404(project, document_type, token)
+    if session.has_expired():
+        session.mark_inactive(reason="Session expired")
+        messages.warning(request, "This collaborative session has expired.")
+        return redirect(_document_detail_url(project.id, document_type))
+
+    if not session.is_active:
+        messages.info(request, "This collaborative session is no longer active.")
+        return redirect(_document_detail_url(project.id, document_type))
+
+    if not _user_can_edit_project(request.user, project):
+        messages.error(
+            request, "You do not have access to this collaborative session."
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
+    document = _get_document_for_type(project, document_type)
+    if not _document_requires_file(document):
+        messages.error(
+            request,
+            f"No {_document_label(document_type).lower()} file is available to edit.",
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
+    editor_js_url = _onlyoffice_editor_js_url()
+    if not editor_js_url:
+        messages.error(
+            request,
+            "The OnlyOffice editor script URL is not configured. Please contact your administrator.",
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
+    participant_member = None
+    participant_feedback = None
+    feedback_token = request.GET.get("feedback")
+    if feedback_token:
+        feedback_model = (
+            ProtocolFeedback
+            if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
+            else ActionListFeedback
+        )
+        feedback_qs = feedback_model.objects.select_related("member")
+        try:
+            participant_feedback = feedback_qs.get(token=feedback_token, project=project)
+            participant_member = participant_feedback.member
+        except feedback_model.DoesNotExist:
+            participant_feedback = None
+    if not participant_member:
+        member_id = request.GET.get("member")
+        if member_id:
+            try:
+                participant_member = AdvisoryBoardMember.objects.get(
+                    pk=member_id, project=project
+                )
+            except AdvisoryBoardMember.DoesNotExist:
+                participant_member = None
+
+    participant_display = ""
+    participant_context = None
+    if participant_member:
+        participant_display = _advisory_member_display(participant_member)
+        participant_context = {
+            "id": f"abm:{participant_member.id}",
+            "name": participant_display,
+            "email": participant_member.email,
+        }
+    elif participant_feedback and participant_feedback.email:
+        participant_display = participant_feedback.email
+        participant_context = {
+            "id": f"abe:{participant_feedback.email.lower()}",
+            "name": participant_display,
+            "email": participant_feedback.email,
+        }
+
+    try:
+        config = _build_onlyoffice_config(
+            request,
+            project,
+            document,
+            session,
+            document_type,
+            participant=participant_context,
+        )
+    except ValueError as exc:
+        messages.error(request, str(exc))
+        return redirect(_document_detail_url(project.id, document_type))
+
+    session.last_activity_at = timezone.now()
+    update_fields = ["last_activity_at"]
+    if participant_display:
+        session.last_participant_name = participant_display
+        update_fields.append("last_participant_name")
+    session.save(update_fields=update_fields)
+
+    config_json = json.dumps(config)
+    document_label = _document_label(document_type)
+    force_end_url = reverse(
+        "synopsis:collaborative_force_end",
+        args=[project.id, _document_type_slug(document_type), session.token],
+    )
+    can_force_end = _user_can_force_end_session(request.user, project, session)
+
+    return render(
+        request,
+        "synopsis/collaborative_editor.html",
+        {
+            "project": project,
+            "session": session,
+            "document_label": document_label,
+            "editor_config": config_json,
+            "onlyoffice_js_url": editor_js_url,
+            "detail_url": _document_detail_url(project.id, document_type),
+            "can_force_end": can_force_end,
+            "force_end_url": force_end_url,
+            "participant_display": participant_display,
+        },
+    )
+
+
+@login_required
+def collaborative_force_end(request, project_id, document_slug, token):
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    project = get_object_or_404(Project, pk=project_id)
+    document_type = _normalize_document_type(document_slug)
+    if not document_type:
+        raise Http404("Unknown document type")
+
+    session = _collaborative_session_or_404(project, document_type, token)
+    if not session.is_active:
+        messages.info(request, "The collaborative session is already closed.")
+        return redirect(_document_detail_url(project.id, document_type))
+
+    if not _user_can_force_end_session(request.user, project, session):
+        messages.error(request, "You cannot override this collaborative lock.")
+        return redirect(_document_detail_url(project.id, document_type))
+
+    reason = (request.POST.get("reason") or "").strip() or "Session ended from portal"
+    session.change_summary = session.change_summary or reason
+    session.mark_inactive(
+        ended_by=request.user,
+        reason=reason,
+        extra_updates=["change_summary"],
+    )
+
+    document_label = _document_label(document_type)
+    _log_project_change(
+        project,
+        request.user,
+        f"{document_label} collaborative session ended",
+        f"Session {session.token} ended manually ({reason}).",
+    )
+    messages.success(request, f"{document_label} collaborative session closed.")
+    return redirect(_document_detail_url(project.id, document_type))
+
+
+@csrf_exempt
+def collaborative_edit_callback(request, project_id, document_slug, token):
+    if request.method != "POST":
+        return JsonResponse({"error": 1, "message": "POST required"}, status=405)
+
+    project = get_object_or_404(Project, pk=project_id)
+    document_type = _normalize_document_type(document_slug)
+    if not document_type:
+        return JsonResponse({"error": 1, "message": "Unknown document"}, status=404)
+
+    session = _collaborative_session_or_404(project, document_type, token)
+
+    try:
+        payload = _parse_onlyoffice_callback(request)
+    except PermissionDenied:
+        raise
+    except ValueError:
+        return JsonResponse({"error": 1, "message": "Invalid payload"}, status=400)
+
+    status = payload.get("status")
+    try:
+        status = int(status)
+    except (TypeError, ValueError):
+        status = 0
+
+    session.record_callback(payload)
+
+    document = _get_document_for_type(project, document_type)
+    if not _document_requires_file(document):
+        session.mark_inactive(reason="Document missing at save time")
+        return JsonResponse({"error": 0})
+
+    if status in {2, 6}:
+        success = _handle_collaborative_save(
+            project, document_type, document, session, payload, status
+        )
+        if not success:
+            return JsonResponse({"error": 1})
+        return JsonResponse({"error": 0})
+
+    if status in {3, 4, 7}:
+        reason_map = {
+            3: "Session closed without changes",
+            4: "Session closed by timeout",
+            7: "Session closed with errors",
+        }
+        session.mark_inactive(reason=reason_map.get(status, "Session closed"))
+        _log_project_change(
+            project,
+            session.started_by,
+            f"{_document_label(document_type)} collaborative session closed",
+            f"Session {session.token} closed (status {status}).",
+        )
+        return JsonResponse({"error": 0})
+
+    return JsonResponse({"error": 0})
 
 
 @login_required
@@ -2186,7 +3133,7 @@ def project_settings(request, project_id):
 
     if request.method == "POST":
         original_title = project.title
-        form = ProjectSettingsForm(request.POST, instance=project)
+        form = ProjectSettingsForm(request.POST, instance=project, project=project)
         if form.is_valid():
             updated_project = form.save()
             changes = []
@@ -2206,7 +3153,7 @@ def project_settings(request, project_id):
                 messages.info(request, "No changes saved.")
             return redirect("synopsis:project_hub", project_id=project.id)
     else:
-        form = ProjectSettingsForm(instance=project)
+        form = ProjectSettingsForm(instance=project, project=project)
 
     previous_titles = []
     seen_titles = set()
@@ -2258,6 +3205,7 @@ def project_settings(request, project_id):
         )
     context = {
         "project": project,
+        "form": form,
         "previous_titles": previous_titles,
     }
 
@@ -3431,18 +4379,51 @@ def advisory_send_protocol_member(request, project_id, member_id):
 
     proto_url = request.build_absolute_uri(project.protocol.document.url)
     subject = email_subject("protocol_review", project)
+    deadline_text = _format_deadline(m.feedback_on_protocol_deadline)
+    fb = _create_protocol_feedback(project, member=m, email=m.email)
+    feedback_url = request.build_absolute_uri(
+        reverse("synopsis:protocol_feedback", args=[str(fb.token)])
+    )
+
     text = (
         f"Dear {m.first_name or 'colleague'},\n\n"
         f"Please review the protocol for '{project.title}':\n{proto_url}\n\n"
-        f"Deadline for protocol feedback: "
-        f"{_format_deadline(m.feedback_on_protocol_deadline)}\n"
+        f"Deadline for protocol feedback: {deadline_text}\n"
+        f"Provide feedback: {feedback_url}\n"
     )
+
+    collaborative_url = ""
+    if _onlyoffice_enabled() and _document_requires_file(project.protocol):
+        collaborative_url = _ensure_collaborative_invite_link(
+            request,
+            project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+            None,
+            member=m,
+            feedback=fb,
+        )
+        if collaborative_url:
+            text += f"Collaborative editor: {collaborative_url}\n"
+
     msg = EmailMultiAlternatives(
         subject,
         text,
         to=[m.email],
         reply_to=reply_to_list(getattr(request.user, "email", None)),
     )
+    html = (
+        f"<p>Dear {m.first_name or 'colleague'},</p>"
+        f"<p>Please review the protocol for '<strong>{project.title}</strong>': "
+        f"<a href='{proto_url}'>View document</a></p>"
+        f"<p>Deadline for protocol feedback: {deadline_text}</p>"
+        f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
+    )
+    if collaborative_url:
+        html += (
+            "<p><strong>Collaborative editor:</strong> "
+            f"<a href='{collaborative_url}'>Open live editor</a></p>"
+        )
+    msg.attach_alternative(html, "text/html")
     msg.send()
 
     m.sent_protocol_at = timezone.now()
@@ -3467,8 +4448,9 @@ def advisory_send_protocol_compose_all(request, project_id):
     if not proto:
         messages.error(request, "No protocol configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
+    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(proto)
     if request.method == "POST":
-        form = ProtocolSendForm(request.POST)
+        form = ProtocolSendForm(request.POST, collaborative_enabled=collaborative_enabled)
         if form.is_valid():
             members = (
                 AdvisoryBoardMember.objects.filter(
@@ -3487,6 +4469,9 @@ def advisory_send_protocol_compose_all(request, project_id):
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
             content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
+            include_collab = collaborative_enabled and form.cleaned_data.get(
+                "include_collaborative_link"
+            )
             sent = 0
             for m in members:
                 fb = _create_protocol_feedback(project, member=m, email=m.email)
@@ -3507,6 +4492,21 @@ def advisory_send_protocol_compose_all(request, project_id):
                     html += "<hr>" + proto.text_version
                 text += f"Provide feedback: {feedback_url}\n"
                 html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
+                if include_collab:
+                    collaborative_url = _ensure_collaborative_invite_link(
+                        request,
+                        project,
+                        CollaborativeSession.DOCUMENT_PROTOCOL,
+                        None,
+                        member=m,
+                        feedback=fb,
+                    )
+                    if collaborative_url:
+                        text += f"Collaborative editor: {collaborative_url}\n"
+                        html += (
+                            "<p><strong>Collaborative editor:</strong> "
+                            f"<a href='{collaborative_url}'>Open live editor</a></p>"
+                        )
 
                 msg = EmailMultiAlternatives(
                     subject,
@@ -3534,7 +4534,13 @@ def advisory_send_protocol_compose_all(request, project_id):
             messages.success(request, f"Sent protocol to {sent} member(s).")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
-        form = ProtocolSendForm(initial={"content": "file"})
+        form = ProtocolSendForm(
+            initial={
+                "content": "file",
+                "include_collaborative_link": collaborative_enabled,
+            },
+            collaborative_enabled=collaborative_enabled,
+        )
     return render(
         request,
         "synopsis/protocol_send_compose.html",
@@ -3556,8 +4562,9 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             "This member has not accepted the invitation or has declined participation.",
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
+    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(proto)
     if request.method == "POST":
-        form = ProtocolSendForm(request.POST)
+        form = ProtocolSendForm(request.POST, collaborative_enabled=collaborative_enabled)
         if form.is_valid():
             content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
@@ -3578,6 +4585,24 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
                 html += "<hr>" + proto.text_version
             text += f"Provide feedback: {feedback_url}\n"
             html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
+            if (
+                collaborative_enabled
+                and form.cleaned_data.get("include_collaborative_link")
+            ):
+                collaborative_url = _ensure_collaborative_invite_link(
+                    request,
+                    project,
+                    CollaborativeSession.DOCUMENT_PROTOCOL,
+                    None,
+                    member=m,
+                    feedback=fb,
+                )
+                if collaborative_url:
+                    text += f"Collaborative editor: {collaborative_url}\n"
+                    html += (
+                        "<p><strong>Collaborative editor:</strong> "
+                        f"<a href='{collaborative_url}'>Open live editor</a></p>"
+                    )
 
             msg = EmailMultiAlternatives(
                 subject,
@@ -3601,7 +4626,13 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             messages.success(request, f"Sent protocol to {m.email}.")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
-        form = ProtocolSendForm(initial={"content": "file"})
+        form = ProtocolSendForm(
+            initial={
+                "content": "file",
+                "include_collaborative_link": collaborative_enabled,
+            },
+            collaborative_enabled=collaborative_enabled,
+        )
     return render(
         request,
         "synopsis/protocol_send_compose.html",
@@ -3616,8 +4647,11 @@ def advisory_send_action_list_compose_all(request, project_id):
     if not action_list:
         messages.error(request, "No action list configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
+    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(action_list)
     if request.method == "POST":
-        form = ActionListSendForm(request.POST)
+        form = ActionListSendForm(
+            request.POST, collaborative_enabled=collaborative_enabled
+        )
         if form.is_valid():
             members = (
                 AdvisoryBoardMember.objects.filter(
@@ -3636,6 +4670,9 @@ def advisory_send_action_list_compose_all(request, project_id):
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
             content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
+            include_collab = collaborative_enabled and form.cleaned_data.get(
+                "include_collaborative_link"
+            )
             sent = 0
             for m in members:
                 fb = _create_action_list_feedback(project, member=m, email=m.email)
@@ -3656,6 +4693,21 @@ def advisory_send_action_list_compose_all(request, project_id):
                     html += "<hr>" + action_list.text_version
                 text += f"Provide feedback: {feedback_url}\n"
                 html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
+                if include_collab:
+                    collaborative_url = _ensure_collaborative_invite_link(
+                        request,
+                        project,
+                        CollaborativeSession.DOCUMENT_ACTION_LIST,
+                        None,
+                        member=m,
+                        feedback=fb,
+                    )
+                    if collaborative_url:
+                        text += f"Collaborative editor: {collaborative_url}\n"
+                        html += (
+                            "<p><strong>Collaborative editor:</strong> "
+                            f"<a href='{collaborative_url}'>Open live editor</a></p>"
+                        )
 
                 msg = EmailMultiAlternatives(
                     subject,
@@ -3683,7 +4735,13 @@ def advisory_send_action_list_compose_all(request, project_id):
             messages.success(request, f"Sent action list to {sent} member(s).")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
-        form = ActionListSendForm(initial={"content": "file"})
+        form = ActionListSendForm(
+            initial={
+                "content": "file",
+                "include_collaborative_link": collaborative_enabled,
+            },
+            collaborative_enabled=collaborative_enabled,
+        )
     return render(
         request,
         "synopsis/action_list_send_compose.html",
@@ -3708,8 +4766,11 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             "This member has not accepted the invitation or has declined participation.",
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
+    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(action_list)
     if request.method == "POST":
-        form = ActionListSendForm(request.POST)
+        form = ActionListSendForm(
+            request.POST, collaborative_enabled=collaborative_enabled
+        )
         if form.is_valid():
             content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
@@ -3731,6 +4792,24 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
                 html += "<hr>" + action_list.text_version
             text += f"Provide feedback: {feedback_url}\n"
             html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
+            if (
+                collaborative_enabled
+                and form.cleaned_data.get("include_collaborative_link")
+            ):
+                collaborative_url = _ensure_collaborative_invite_link(
+                    request,
+                    project,
+                    CollaborativeSession.DOCUMENT_ACTION_LIST,
+                    None,
+                    member=member,
+                    feedback=fb,
+                )
+                if collaborative_url:
+                    text += f"Collaborative editor: {collaborative_url}\n"
+                    html += (
+                        "<p><strong>Collaborative editor:</strong> "
+                        f"<a href='{collaborative_url}'>Open live editor</a></p>"
+                    )
 
             msg = EmailMultiAlternatives(
                 subject,
@@ -3754,7 +4833,13 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             messages.success(request, f"Sent action list to {member.email}.")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
-        form = ActionListSendForm(initial={"content": "file"})
+        form = ActionListSendForm(
+            initial={
+                "content": "file",
+                "include_collaborative_link": collaborative_enabled,
+            },
+            collaborative_enabled=collaborative_enabled,
+        )
     return render(
         request,
         "synopsis/action_list_send_compose.html",
