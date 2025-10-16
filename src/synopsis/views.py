@@ -480,7 +480,69 @@ def _build_onlyoffice_config(
     return config
 
 
+def _trusted_onlyoffice_locations():
+    raw_entries = [ONLYOFFICE_SETTINGS.get("base_url", "")]
+    extra = ONLYOFFICE_SETTINGS.get("trusted_download_urls") or []
+    raw_entries.extend(extra if isinstance(extra, (list, tuple)) else [extra])
+    locations = []
+    for entry in raw_entries:
+        if not entry:
+            continue
+        try:
+            parsed = urlparse(entry)
+        except ValueError:
+            continue
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            continue
+        locations.append(
+            {
+                "scheme": parsed.scheme,
+                "host": parsed.hostname.lower(),
+                "port": parsed.port
+                or (443 if parsed.scheme == "https" else 80),
+                "path": parsed.path or "/",
+            }
+        )
+    return locations
+
+
+def _path_matches_prefix(candidate_path: str, prefix: str) -> bool:
+    if not prefix or prefix == "/":
+        return True
+    prefix = prefix.rstrip("/")
+    candidate = candidate_path or "/"
+    if candidate == prefix:
+        return True
+    return candidate.startswith(f"{prefix}/")
+
+
+def _is_trusted_onlyoffice_url(file_url: str) -> bool:
+    if not file_url:
+        return False
+    try:
+        parsed = urlparse(file_url)
+    except ValueError:
+        return False
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return False
+    candidate_host = parsed.hostname.lower()
+    candidate_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    candidate_path = parsed.path or "/"
+    for entry in _trusted_onlyoffice_locations():
+        if (
+            parsed.scheme == entry["scheme"]
+            and candidate_host == entry["host"]
+            and candidate_port == entry["port"]
+            and _path_matches_prefix(candidate_path, entry["path"])
+        ):
+            return True
+    return False
+
+
 def _download_onlyoffice_file(file_url: str) -> bytes:
+    if not _is_trusted_onlyoffice_url(file_url):
+        logger.warning("Blocked OnlyOffice download from untrusted URL: %s", file_url)
+        raise ValueError("Untrusted OnlyOffice download URL")
     timeout = ONLYOFFICE_SETTINGS.get("callback_timeout", 10)
     response = requests.get(file_url, timeout=timeout)
     response.raise_for_status()
