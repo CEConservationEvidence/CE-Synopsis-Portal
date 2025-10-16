@@ -16,6 +16,11 @@
                     {{ form.message }}
                 </div>
             </div>
+            <div class="form-check mt-3">
+                {{ form.include_collaborative_link }}
+                <label class="form-check-label" for="id_include_collaborative_link">Include collaborative editor link</label>
+                <div class="form-text">{{ form.include_collaborative_link.help_text }}</div>
+            </div>
             <button class="btn btn-primary mt-3">Send</button>
             <a class="btn btn-link" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>
         </form>

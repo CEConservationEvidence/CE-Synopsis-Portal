@@ -277,6 +277,15 @@ class ProjectDeleteForm(forms.Form):
 
 
 class ProjectSettingsForm(forms.ModelForm):
+    def __init__(self, *args, project: Project | None = None, **kwargs):
+        self.project = project
+        super().__init__(*args, **kwargs)
+        title_field = self.fields.get("title")
+        if title_field:
+            placeholder = "Currently: {}".format(project.title) if project else ""
+            if placeholder:
+                title_field.widget.attrs.setdefault("placeholder", placeholder)
+
     class Meta:
         model = Project
         fields = ["title"]
@@ -328,6 +337,20 @@ class ProtocolSendForm(forms.Form):
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
         help_text="Optional personal note to include.",
     )
+    include_collaborative_link = forms.BooleanField(
+        required=False,
+        initial=False,
+        help_text="Include a live OnlyOffice collaborative editor link.",
+    )
+
+    def __init__(self, *args, collaborative_enabled=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if collaborative_enabled:
+            self.fields["include_collaborative_link"].initial = True
+        else:
+            self.fields["include_collaborative_link"].initial = False
+            self.fields["include_collaborative_link"].disabled = True
+
 
 
 class ActionListSendForm(forms.Form):
@@ -340,6 +363,19 @@ class ActionListSendForm(forms.Form):
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
         help_text="Optional personal note to include.",
     )
+    include_collaborative_link = forms.BooleanField(
+        required=False,
+        initial=False,
+        help_text="Include a live OnlyOffice collaborative editor link.",
+    )
+
+    def __init__(self, *args, collaborative_enabled=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        if collaborative_enabled:
+            self.fields["include_collaborative_link"].initial = True
+        else:
+            self.fields["include_collaborative_link"].initial = False
+            self.fields["include_collaborative_link"].disabled = True
 
 
 class ReminderScheduleForm(forms.Form):
@@ -502,4 +538,24 @@ class ActionListFeedbackCloseForm(forms.Form):
             }
         ),
         help_text="Optional message to send when action list feedback is closed.",
+    )
+
+
+class CollaborativeUpdateForm(forms.Form):
+    document = forms.FileField(
+        required=True,
+        validators=[FileExtensionValidator(["docx", "pdf"])],
+        widget=forms.FileInput(attrs={"class": "form-control"}),
+        help_text="Upload the updated document (DOCX or PDF).",
+    )
+    change_reason = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "Summarise the edits made during this collaborative session (optional).",
+            }
+        ),
+        label="Change summary",
     )

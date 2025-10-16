@@ -18,6 +18,15 @@
                 <label class="form-label">Message (optional)</label>
                 {{ form.message }}
             </div>
+            <div class="form-check mb-2">
+                {{ form.include_protocol }}
+                <label class="form-check-label" for="id_include_protocol">Include protocol link</label>
+                <div class="form-text">{{ form.include_protocol.help_text }}</div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" for="id_protocol_content">How to include the protocol</label>
+                {{ form.protocol_content }}
+            </div>
             <button class="btn btn-primary">Send invitation</button>
             <a class="btn btn-link" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>
         </form>

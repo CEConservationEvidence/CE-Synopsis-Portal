@@ -26,7 +26,7 @@ SECRET_KEY = config("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", cast=bool, default=False)
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "host.docker.internal"]
 
 
 # Application definition
@@ -137,3 +137,16 @@ MEDIA_ROOT = BASE_DIR / "media"
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 # TODO: IMPORTANT!Change this in production to a real email address.
 DEFAULT_FROM_EMAIL = "CE Synopsis Portal <ce-portal@localhost>"
+
+
+# OnlyOffice Document Server configuration (collaborative editing)
+ONLYOFFICE = {
+    "base_url": config("ONLYOFFICE_URL", default="http://localhost"),
+    "jwt_secret": config("ONLYOFFICE_JWT_SECRET", default="change-me"),
+    "callback_timeout": config("ONLYOFFICE_CALLBACK_TIMEOUT", cast=int, default=10),
+}
+
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:8000",
+    "http://host.docker.internal:8000",
+]

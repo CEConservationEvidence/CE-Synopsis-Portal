@@ -104,6 +104,26 @@ urlpatterns = [
         name="protocol_delete",
     ),
     path(
+        "project/<int:project_id>/<slug:document_slug>/collaborative/start/",
+        views.collaborative_start,
+        name="collaborative_start",
+    ),
+    path(
+        "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/",
+        views.collaborative_edit,
+        name="collaborative_edit",
+    ),
+    path(
+        "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/force-end/",
+        views.collaborative_force_end,
+        name="collaborative_force_end",
+    ),
+    path(
+        "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/callback/",
+        views.collaborative_edit_callback,
+        name="collaborative_edit_callback",
+    ),
+    path(
         "project/<int:project_id>/funders/add/",
         views.project_funder_add,
         name="project_funder_add",

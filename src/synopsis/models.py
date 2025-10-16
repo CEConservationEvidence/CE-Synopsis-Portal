@@ -1,7 +1,9 @@
-from django.utils import timezone
-from django.db import models
-from django.contrib.auth.models import User
+import datetime as dt
 import uuid
+
+from django.contrib.auth.models import User
+from django.db import models
+from django.utils import timezone
 
 """
 TODO: Modularise models into synopsis/models/* (project.py, funding.py, protocol.py, etc.)
@@ -396,6 +398,116 @@ class ActionListRevision(models.Model):
 
     def __str__(self):
         return f"Action list revision for {self.action_list.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
+
+
+class CollaborativeSession(models.Model):
+    DOCUMENT_PROTOCOL = "protocol"
+    DOCUMENT_ACTION_LIST = "action_list"
+    DOCUMENT_CHOICES = [
+        (DOCUMENT_PROTOCOL, "Protocol"),
+        (DOCUMENT_ACTION_LIST, "Action list"),
+    ]
+
+    DEFAULT_DURATION = dt.timedelta(hours=4)
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="collaborative_sessions",
+    )
+    document_type = models.CharField(max_length=20, choices=DOCUMENT_CHOICES)
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    started_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_started",
+    )
+    started_at = models.DateTimeField(default=timezone.now, editable=False)
+    last_activity_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    ended_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_ended",
+    )
+    end_reason = models.CharField(max_length=255, blank=True)
+    change_summary = models.TextField(blank=True)
+    last_callback_payload = models.JSONField(blank=True, null=True)
+    last_participant_name = models.CharField(max_length=255, blank=True)
+    initial_protocol_revision = models.ForeignKey(
+        "ProtocolRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_started_protocol",
+    )
+    initial_action_list_revision = models.ForeignKey(
+        "ActionListRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_started_action_list",
+    )
+    result_protocol_revision = models.ForeignKey(
+        "ProtocolRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_completed_protocol",
+    )
+    result_action_list_revision = models.ForeignKey(
+        "ActionListRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_completed_action_list",
+    )
+    invitations = models.ManyToManyField(
+        "AdvisoryBoardInvitation",
+        blank=True,
+        related_name="collaborative_sessions",
+    )
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+
+    def __str__(self):
+        label = dict(self.DOCUMENT_CHOICES).get(self.document_type, self.document_type)
+        started = timezone.localtime(self.started_at).strftime("%Y-%m-%d %H:%M")
+        return f"{label} session for {self.project.title} @ {started}"
+
+    def has_expired(self, *, at_time=None, duration=None) -> bool:
+        if not self.is_active:
+            return False
+        reference = self.last_activity_at or self.started_at
+        limit = reference + (duration or self.DEFAULT_DURATION)
+        return limit < (at_time or timezone.now())
+
+    def mark_inactive(self, *, ended_by=None, reason="", when=None, extra_updates=None):
+        if not self.is_active:
+            return
+        self.is_active = False
+        self.ended_at = when or timezone.now()
+        update_fields = ["is_active", "ended_at"]
+        if ended_by is not None:
+            self.ended_by = ended_by
+            update_fields.append("ended_by")
+        if reason:
+            self.end_reason = reason
+            update_fields.append("end_reason")
+        if extra_updates:
+            update_fields.extend(extra_updates)
+        self.save(update_fields=sorted(set(update_fields)))
+
+    def record_callback(self, payload: dict | None, *, when=None):
+        self.last_activity_at = when or timezone.now()
+        self.last_callback_payload = payload or {}
+        self.save(update_fields=["last_activity_at", "last_callback_payload"])
 
 # TODO: Refactor AdvisoryBoardMember columns for clarity and normalization:
 #   - Consider renaming 'title', 'first_name', 'middle_name', 'last_name' for consistency with other models.

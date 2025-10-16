@@ -26,7 +26,7 @@
                 </div>
             </div>
         </nav>
-        <div class="container">
+        <div class="{% block page_container_class %}container{% endblock %}">
             {% for message in messages %}
             <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
                 {{ message }}
