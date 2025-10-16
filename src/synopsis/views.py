@@ -2052,7 +2052,24 @@ def _persist_collaborative_revision(
     document_type,
     document,
     content: bytes,
-    original_name,
+
+    # SSRF protection: validate file_url scheme and host
+    base_url = ONLYOFFICE_SETTINGS.get("base_url")
+    if not base_url:
+        logger.error("ONLYOFFICE base_url not configured; cannot validate file URL")
+        return False
+    parsed_file_url = urlparse(file_url)
+    parsed_base_url = urlparse(base_url)
+    if parsed_file_url.scheme not in ("http", "https"):
+        logger.warning("Collaborative callback file URL has invalid scheme: %s", parsed_file_url.scheme)
+        return False
+    if parsed_file_url.hostname != parsed_base_url.hostname:
+        logger.warning(
+            "Collaborative callback file URL host mismatch: %s (expected %s)",
+            parsed_file_url.hostname,
+            parsed_base_url.hostname,
+        )
+        return False
     uploader,
     change_reason: str,
 ):
