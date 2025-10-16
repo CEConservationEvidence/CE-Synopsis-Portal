@@ -1104,8 +1104,6 @@ def _advisory_board_context(
     ]
     for section in member_sections:
         section["has_fields"] = bool(section["fields"])
-    for section in member_sections:
-        section["has_fields"] = bool(section["fields"])
 
     return {
         "project": project,
