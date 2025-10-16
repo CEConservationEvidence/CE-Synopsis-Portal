@@ -2,6 +2,7 @@ import datetime as dt
 import uuid
 
 from django.contrib.auth.models import User
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils import timezone
 
@@ -588,6 +589,183 @@ class AdvisoryBoardMember(models.Model):
         return self.action_list_feedback.order_by(
             "-submitted_at", "-created_at"
         ).first()
+
+
+class AdvisoryBoardCustomField(models.Model):
+    TYPE_TEXT = "text"
+    TYPE_INTEGER = "integer"
+    TYPE_BOOLEAN = "boolean"
+    TYPE_DATE = "date"
+    DATA_TYPE_CHOICES = [
+        (TYPE_TEXT, "Text"),
+        (TYPE_INTEGER, "Integer"),
+        (TYPE_BOOLEAN, "Yes / No"),
+        (TYPE_DATE, "Date"),
+    ]
+
+    SECTION_ACCEPTED = "accepted"
+    SECTION_PENDING = "pending"
+    SECTION_DECLINED = "declined"
+    SECTION_CHOICES = [
+        (SECTION_ACCEPTED, "Accepted"),
+        (SECTION_PENDING, "Pending"),
+        (SECTION_DECLINED, "Declined"),
+    ]
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="advisory_custom_fields",
+    )
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=120, blank=True)
+    data_type = models.CharField(
+        max_length=20, choices=DATA_TYPE_CHOICES, default=TYPE_TEXT
+    )
+    sections = ArrayField(
+        models.CharField(max_length=20, choices=SECTION_CHOICES),
+        blank=True,
+        default=list,
+        help_text="Leave blank to display in every section.",
+    )
+    description = models.CharField(max_length=255, blank=True)
+    display_order = models.PositiveIntegerField(default=0)
+    is_required = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["display_order", "name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "slug"], name="unique_custom_field_slug"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.project.title})"
+
+    def applies_to(self, status: str) -> bool:
+        if not self.sections:
+            return True
+        return status in self.sections
+
+    def section_labels(self) -> list[str]:
+        if not self.sections:
+            return [label for _, label in self.SECTION_CHOICES]
+        lookup = dict(self.SECTION_CHOICES)
+        return [lookup.get(code, code.title()) for code in self.sections]
+
+    def clean_value(self, value):
+        if value in (None, ""):
+            return None
+        if self.data_type == self.TYPE_TEXT:
+            return str(value)
+        if self.data_type == self.TYPE_INTEGER:
+            return str(int(value))
+        if self.data_type == self.TYPE_BOOLEAN:
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            value_str = str(value).strip().lower()
+            if value_str in {"true", "1", "yes", "on"}:
+                return "true"
+            if value_str in {"false", "0", "no", "off"}:
+                return "false"
+            raise ValueError("Unrecognised boolean value")
+        if self.data_type == self.TYPE_DATE:
+            if isinstance(value, dt.date):
+                return value.isoformat()
+            return dt.date.fromisoformat(str(value)).isoformat()
+        return str(value)
+
+    def parse_value(self, value):
+        if value in (None, ""):
+            return None
+        if self.data_type == self.TYPE_TEXT:
+            return value
+        if self.data_type == self.TYPE_INTEGER:
+            return int(value)
+        if self.data_type == self.TYPE_BOOLEAN:
+            return str(value).lower() == "true"
+        if self.data_type == self.TYPE_DATE:
+            return dt.date.fromisoformat(str(value))
+        return value
+
+    def format_value(self, value):
+        typed = self.parse_value(value)
+        if typed is None:
+            return ""
+        if isinstance(typed, bool):
+            return "Yes" if typed else "No"
+        if isinstance(typed, dt.date):
+            return typed.strftime("%Y-%m-%d")
+        return str(typed)
+
+    def get_value_for_member(self, member):
+        try:
+            stored = self.values.get(member=member)
+        except AdvisoryBoardCustomFieldValue.DoesNotExist:
+            return None
+        return stored.value
+
+    def set_value_for_member(self, member, value):
+        cleaned = self.clean_value(value) if value not in (None, "") else None
+        if cleaned in (None, ""):
+            AdvisoryBoardCustomFieldValue.objects.filter(
+                field=self, member=member
+            ).delete()
+            return
+        AdvisoryBoardCustomFieldValue.objects.update_or_create(
+            field=self,
+            member=member,
+            defaults={"value": cleaned},
+        )
+
+    def save(self, *args, **kwargs):
+        from django.utils.text import slugify
+
+        if not self.slug:
+            base_slug = slugify(self.name) or "field"
+            slug = base_slug
+            index = 1
+            while AdvisoryBoardCustomField.objects.filter(
+                project=self.project, slug=slug
+            ).exclude(pk=self.pk).exists():
+                index += 1
+                slug = f"{base_slug}-{index}"
+            self.slug = slug
+        if self.display_order == 0:
+            max_order = (
+                AdvisoryBoardCustomField.objects.filter(project=self.project)
+                .exclude(pk=self.pk)
+                .aggregate(models.Max("display_order"))
+                .get("display_order__max")
+                or 0
+            )
+            self.display_order = max_order + 1
+        super().save(*args, **kwargs)
+
+
+class AdvisoryBoardCustomFieldValue(models.Model):
+    field = models.ForeignKey(
+        AdvisoryBoardCustomField,
+        on_delete=models.CASCADE,
+        related_name="values",
+    )
+    member = models.ForeignKey(
+        AdvisoryBoardMember,
+        on_delete=models.CASCADE,
+        related_name="custom_values",
+    )
+    value = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("field", "member")
+
+    def __str__(self):
+        return f"{self.field.name} for {self.member}"
+
 
 
 class AdvisoryBoardInvitation(models.Model):

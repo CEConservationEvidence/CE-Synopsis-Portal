@@ -1,5 +1,6 @@
 {# templates/synopsis/advisory_board_list.html #}
 {% extends "synopsis/base.html" %}
+{% load advisory_extras %}
 {% block title %}Advisory Board – {{ project.title }}{% endblock %}
 {% block content %}
 <h1 class="mb-3">Advisory Board – {{ project.title }}</h1>
@@ -143,8 +144,8 @@
         {% for section in member_sections %}
         <div class="card{% if not forloop.first %} mt-4{% endif %}">
             <div class="card-body">
-                <h5 class="mb-3">{{ section.0 }}</h5>
-                {% with members_list=section.1 empty_text=section.2 %}
+                <h5 class="mb-3">{{ section.title }}</h5>
+                {% with members_list=section.members empty_text=section.empty_text %}
                     {% if members_list %}
                 <div class="table-responsive">
                     <table class="table table-sm align-middle">
@@ -172,6 +173,15 @@
                                 <th>Added to protocol doc</th>
                                 <th>Feedback on guidance</th>
                                 <th>Feedback document</th>
+                                {% for field in section.fields %}
+                                <th>
+                                    <div class="fw-semibold">{{ field.name }}</div>
+                                    {% if field.description %}
+                                    <small class="text-muted d-block">{{ field.description }}</small>
+                                    {% endif %}
+                                    <small class="text-muted">{{ field.get_data_type_display }}</small>
+                                </th>
+                                {% endfor %}
                             </tr>
                         </thead>
                         <tbody>
@@ -324,12 +334,24 @@
                                     {% if m.latest_feedback.submitted_at %}
                                     <div class="text-muted small">{{ m.latest_feedback.submitted_at|date:"Y-m-d H:i" }}</div>
                                     {% endif %}
-                                        {% elif m.latest_feedback and m.latest_feedback.content %}
+                                    {% elif m.latest_feedback and m.latest_feedback.content %}
                                     <span class="text-muted">Submitted {{ m.latest_feedback.submitted_at|date:"Y-m-d H:i" }}</span>
                                     {% else %}
                                     <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
+                                {% for field in section.fields %}
+                                {% with value=m.custom_field_values|get_item:field.id %}
+                                <td>
+                                    {% if value and value != '—' %}
+                                    {{ value }}
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                    <div><a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}">Edit</a></div>
+                                </td>
+                                {% endwith %}
+                                {% endfor %}
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -450,6 +472,77 @@
                         </div>
                     </div>
                     <button class="btn btn-primary mt-3">Add</button>
+                </form>
+            </div>
+        </div>
+        <div class="card mt-3">
+            <div class="card-body">
+                <h5 class="mb-3">Custom columns</h5>
+                {% if custom_fields %}
+                <ul class="list-group list-group-flush mb-3">
+                    {% for field in custom_fields %}
+                    <li class="list-group-item px-0">
+                        <div class="d-flex justify-content-between align-items-start gap-3">
+                            <div>
+                                <div class="fw-semibold">{{ field.name }}</div>
+                                <div class="d-flex flex-wrap gap-2 mb-1">
+                                    <span class="badge text-bg-light text-muted border">{{ field.get_data_type_display }}</span>
+                                    {% if field.sections %}
+                                        {% for label in field.section_labels %}
+                                        <span class="badge bg-secondary-subtle text-dark">{{ label }}</span>
+                                        {% endfor %}
+                                    {% else %}
+                                    <span class="badge text-bg-light text-muted border">All sections</span>
+                                    {% endif %}
+                                </div>
+                                {% if field.description %}
+                                <div class="small text-muted">{{ field.description }}</div>
+                                {% endif %}
+                            </div>
+                            <form method="post" action="" onsubmit="return confirm('Remove this custom column?');">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="custom_field_delete">
+                                <input type="hidden" name="field_id" value="{{ field.id }}">
+                                <button class="btn btn-sm btn-outline-danger">Remove</button>
+                            </form>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted mb-2">No custom columns yet.</p>
+                {% endif %}
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="custom_field_add">
+                    <div class="mb-2">
+                        {{ custom_field_form.name.label_tag }}
+                        {{ custom_field_form.name }}
+                        {{ custom_field_form.name.errors }}
+                    </div>
+                    <div class="mb-2">
+                        {{ custom_field_form.data_type.label_tag }}
+                        {{ custom_field_form.data_type }}
+                        {{ custom_field_form.data_type.errors }}
+                    </div>
+                    <div class="mb-2">
+                        {{ custom_field_form.sections.label_tag }}
+                        {{ custom_field_form.sections }}
+                        {{ custom_field_form.sections.errors }}
+                        {% if custom_field_form.sections.help_text %}
+                        <div class="form-text">{{ custom_field_form.sections.help_text }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-2">
+                        {{ custom_field_form.description.label_tag }}
+                        {{ custom_field_form.description }}
+                        {{ custom_field_form.description.errors }}
+                    </div>
+                    <div class="form-check mb-3">
+                        {{ custom_field_form.is_required }}
+                        {{ custom_field_form.is_required.label_tag }}
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm">Add column</button>
                 </form>
             </div>
         </div>

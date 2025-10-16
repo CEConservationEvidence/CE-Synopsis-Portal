@@ -1,10 +1,12 @@
 from django import forms
 from django.contrib.auth.models import Group, User
 from django.core.validators import FileExtensionValidator
+from django.utils.text import slugify
 
 from .models import (
     ActionList,
     AdvisoryBoardMember,
+    AdvisoryBoardCustomField,
     Funder,
     Project,
     Protocol,
@@ -158,6 +160,137 @@ class AdvisoryInviteForm(forms.Form):
     )
 
 
+class AdvisoryCustomFieldForm(forms.ModelForm):
+    sections = forms.MultipleChoiceField(
+        choices=AdvisoryBoardCustomField.SECTION_CHOICES,
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Choose which member groups should display this column. Leave blank to show it in every section.",
+    )
+
+    class Meta:
+        model = AdvisoryBoardCustomField
+        fields = ["name", "data_type", "sections", "description", "is_required"]
+        widgets = {
+            "name": forms.TextInput(attrs={"class": "form-control"}),
+            "data_type": forms.Select(attrs={"class": "form-select"}),
+            "description": forms.TextInput(attrs={"class": "form-control"}),
+            "is_required": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+
+    def __init__(self, project, *args, **kwargs):
+        self.project = project
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            self.fields["sections"].initial = self.instance.sections or []
+
+    def clean_name(self):
+        name = (self.cleaned_data.get("name") or "").strip()
+        if not name:
+            raise forms.ValidationError("Name is required.")
+        slug = slugify(name) or "field"
+        qs = AdvisoryBoardCustomField.objects.filter(project=self.project, slug=slug)
+        if self.instance.pk:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise forms.ValidationError("A column with this name already exists for this project.")
+        return name
+
+    def clean_sections(self):
+        sections = self.cleaned_data.get("sections") or []
+        return list(dict.fromkeys(sections))
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.project = self.project
+        instance.sections = self.cleaned_data.get("sections")
+        if commit:
+            instance.save()
+        return instance
+
+
+class AdvisoryMemberCustomDataForm(forms.Form):
+    def __init__(
+        self,
+        custom_fields,
+        member_status,
+        initial_values,
+        *args,
+        form_id=None,
+        **kwargs,
+    ):
+        self.custom_fields = list(custom_fields)
+        self.member_status = member_status
+        self.initial_values = initial_values or {}
+        self.form_id = form_id
+        super().__init__(*args, **kwargs)
+
+        for field in self.custom_fields:
+            if not field.applies_to(member_status):
+                continue
+            key = self._field_key(field)
+            form_field = self._build_form_field(field)
+            form_field.label = field.name
+            if field.description:
+                form_field.help_text = field.description
+            form_field.required = field.is_required
+            self.fields[key] = form_field
+            stored_value = self.initial_values.get(field.id)
+            if stored_value not in (None, ""):
+                try:
+                    self.initial[key] = field.parse_value(stored_value)
+                except Exception:
+                    self.initial[key] = stored_value
+
+    @staticmethod
+    def _field_key(field):
+        return f"field_{field.id}"
+
+    def _build_form_field(self, field: AdvisoryBoardCustomField):
+        text_attrs = {"class": "form-control form-control-sm"}
+        if self.form_id:
+            text_attrs["form"] = self.form_id
+
+        if field.data_type == AdvisoryBoardCustomField.TYPE_INTEGER:
+            return forms.IntegerField(
+                required=False, widget=forms.NumberInput(attrs=text_attrs.copy())
+            )
+        if field.data_type == AdvisoryBoardCustomField.TYPE_BOOLEAN:
+            checkbox_attrs = {"class": "form-check-input"}
+            if self.form_id:
+                checkbox_attrs["form"] = self.form_id
+            return forms.BooleanField(required=False, widget=forms.CheckboxInput(attrs=checkbox_attrs))
+        if field.data_type == AdvisoryBoardCustomField.TYPE_DATE:
+            date_attrs = text_attrs.copy()
+            date_attrs["type"] = "date"
+            return forms.DateField(required=False, widget=forms.DateInput(attrs=date_attrs))
+        return forms.CharField(required=False, widget=forms.TextInput(attrs=text_attrs))
+
+    def iter_fields(self):
+        for field in self.custom_fields:
+            key = self._field_key(field)
+            bound = self.fields.get(key)
+            if bound:
+                yield field, self[key]
+
+    def cleaned_value(self, field):
+        key = self._field_key(field)
+        return self.cleaned_data.get(key)
+
+    def apply_widget_configuration(self):
+        for bound in self:
+            widget = bound.field.widget
+            css = widget.attrs.get("class", "")
+            if not css:
+                if isinstance(widget, forms.CheckboxInput):
+                    css = "form-check-input"
+                else:
+                    css = "form-control form-control-sm"
+                widget.attrs["class"] = css
+            if self.form_id and not widget.attrs.get("form"):
+                widget.attrs["form"] = self.form_id
+            if bound.errors and "is-invalid" not in widget.attrs.get("class", ""):
+                widget.attrs["class"] = f"{widget.attrs['class']} is-invalid".strip()
 class AssignAuthorsForm(forms.Form):
     authors = forms.ModelMultipleChoiceField(
         queryset=User.objects.order_by("username"),
