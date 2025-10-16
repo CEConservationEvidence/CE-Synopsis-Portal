@@ -480,72 +480,66 @@ def _build_onlyoffice_config(
     return config
 
 
-def _trusted_onlyoffice_locations():
+def _download_onlyoffice_file(file_url: str) -> bytes:
     raw_entries = [ONLYOFFICE_SETTINGS.get("base_url", "")]
     extra = ONLYOFFICE_SETTINGS.get("trusted_download_urls") or []
-    raw_entries.extend(extra if isinstance(extra, (list, tuple)) else [extra])
-    locations = []
+    if isinstance(extra, (list, tuple)):
+        raw_entries.extend(extra)
+    else:
+        raw_entries.append(extra)
+
+    allowed: list[tuple[str, str, int, str]] = []
     for entry in raw_entries:
         if not entry:
             continue
         try:
-            parsed = urlparse(entry)
+            parsed_allowed = urlparse(entry)
         except ValueError:
             continue
-        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        if parsed_allowed.scheme not in {"http", "https"} or not parsed_allowed.hostname:
             continue
-        locations.append(
-            {
-                "scheme": parsed.scheme,
-                "host": parsed.hostname.lower(),
-                "port": parsed.port
-                or (443 if parsed.scheme == "https" else 80),
-                "path": parsed.path or "/",
-            }
+        allowed.append(
+            (
+                parsed_allowed.scheme,
+                parsed_allowed.hostname.lower(),
+                parsed_allowed.port
+                or (443 if parsed_allowed.scheme == "https" else 80),
+                (parsed_allowed.path or "/").rstrip("/"),
+            )
         )
-    return locations
 
-
-def _path_matches_prefix(candidate_path: str, prefix: str) -> bool:
-    if not prefix or prefix == "/":
-        return True
-    prefix = prefix.rstrip("/")
-    candidate = candidate_path or "/"
-    if candidate == prefix:
-        return True
-    return candidate.startswith(f"{prefix}/")
-
-
-def _is_trusted_onlyoffice_url(file_url: str) -> bool:
-    if not file_url:
-        return False
     try:
         parsed = urlparse(file_url)
     except ValueError:
-        return False
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        return False
+        parsed = None
+
+    if not parsed or parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        logger.warning("Blocked OnlyOffice download from invalid URL: %s", file_url)
+        raise ValueError("Untrusted OnlyOffice download URL")
+
     candidate_host = parsed.hostname.lower()
     candidate_port = parsed.port or (443 if parsed.scheme == "https" else 80)
     candidate_path = parsed.path or "/"
-    for entry in _trusted_onlyoffice_locations():
-        if (
-            parsed.scheme == entry["scheme"]
-            and candidate_host == entry["host"]
-            and candidate_port == entry["port"]
-            and _path_matches_prefix(candidate_path, entry["path"])
-        ):
-            return True
-    return False
 
+    matched = False
+    for scheme, host, port, path_prefix in allowed:
+        if scheme != parsed.scheme:
+            continue
+        if candidate_host != host or candidate_port != port:
+            continue
+        if path_prefix and path_prefix != "/":
+            if candidate_path == path_prefix or candidate_path.startswith(f"{path_prefix}/"):
+                matched = True
+                break
+        else:
+            matched = True
+            break
 
-def _download_onlyoffice_file(file_url: str) -> bytes:
-    if not _is_trusted_onlyoffice_url(file_url):
+    if not matched:
         logger.warning("Blocked OnlyOffice download from untrusted URL: %s", file_url)
         raise ValueError("Untrusted OnlyOffice download URL")
+
     timeout = ONLYOFFICE_SETTINGS.get("callback_timeout", 10)
-    # Safe to request: file_url already vetted against OnlyOffice allow-list in _is_trusted_onlyoffice_url
-    # codeql[py/request-without-cert-validation] Suppressed: URL is validated against allow-list before request
     response = requests.get(file_url, timeout=timeout)
     response.raise_for_status()
     return response.content
