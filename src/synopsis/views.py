@@ -545,6 +545,7 @@ def _download_onlyoffice_file(file_url: str) -> bytes:
         raise ValueError("Untrusted OnlyOffice download URL")
     timeout = ONLYOFFICE_SETTINGS.get("callback_timeout", 10)
     # Safe to request: file_url already vetted against OnlyOffice allow-list in _is_trusted_onlyoffice_url
+    # codeql[py/request-without-cert-validation] Suppressed: URL is validated against allow-list before request
     response = requests.get(file_url, timeout=timeout)
     response.raise_for_status()
     return response.content
