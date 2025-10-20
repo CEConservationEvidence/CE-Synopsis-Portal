@@ -2790,7 +2790,7 @@ def collaborative_force_end(request, project_id, document_slug, token):
     )
     messages.success(request, f"{document_label} collaborative session closed.")
     return redirect(_document_detail_url(project.id, document_type))
-
+        return JsonResponse({"error": 1, "message": "Unauthorized"}, status=403)
 
 @csrf_exempt
 def collaborative_edit_callback(request, project_id, document_slug, token):
