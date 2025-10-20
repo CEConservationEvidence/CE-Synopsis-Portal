@@ -705,6 +705,64 @@ def _build_onlyoffice_config(
 
 
 def _download_onlyoffice_file(file_url: str) -> bytes:
+    raw_entries = [ONLYOFFICE_SETTINGS.get("base_url", "")]
+    extra = ONLYOFFICE_SETTINGS.get("trusted_download_urls") or []
+    if isinstance(extra, (list, tuple)):
+        raw_entries.extend(extra)
+    else:
+        raw_entries.append(extra)
+
+    allowed: list[tuple[str, str, int, str]] = []
+    for entry in raw_entries:
+        if not entry:
+            continue
+        try:
+            parsed_allowed = urlparse(entry)
+        except ValueError:
+            continue
+        if parsed_allowed.scheme not in {"http", "https"} or not parsed_allowed.hostname:
+            continue
+        allowed.append(
+            (
+                parsed_allowed.scheme,
+                parsed_allowed.hostname.lower(),
+                parsed_allowed.port
+                or (443 if parsed_allowed.scheme == "https" else 80),
+                (parsed_allowed.path or "/").rstrip("/"),
+            )
+        )
+
+    try:
+        parsed = urlparse(file_url)
+    except ValueError:
+        parsed = None
+
+    if not parsed or parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        logger.warning("Blocked OnlyOffice download from invalid URL: %s", file_url)
+        raise ValueError("Untrusted OnlyOffice download URL")
+
+    candidate_host = parsed.hostname.lower()
+    candidate_port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    candidate_path = parsed.path or "/"
+
+    matched = False
+    for scheme, host, port, path_prefix in allowed:
+        if scheme != parsed.scheme:
+            continue
+        if candidate_host != host or candidate_port != port:
+            continue
+        if path_prefix and path_prefix != "/":
+            if candidate_path == path_prefix or candidate_path.startswith(f"{path_prefix}/"):
+                matched = True
+                break
+        else:
+            matched = True
+            break
+
+    if not matched:
+        logger.warning("Blocked OnlyOffice download from untrusted URL: %s", file_url)
+        raise ValueError("Untrusted OnlyOffice download URL")
+
     timeout = ONLYOFFICE_SETTINGS.get("callback_timeout", 10)
     response = requests.get(file_url, timeout=timeout)
     response.raise_for_status()
