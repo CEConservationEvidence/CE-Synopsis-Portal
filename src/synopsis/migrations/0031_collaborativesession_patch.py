@@ -4,6 +4,9 @@ from django.db import migrations
 def forwards(apps, schema_editor):
     table = 'synopsis_collaborativesession'
     connection = schema_editor.connection
+    if connection.vendor != 'postgresql':
+        # Raw SQL uses PostgreSQL catalogs; skip on other databases.
+        return
     with connection.cursor() as cursor:
         cursor.execute(
             """
