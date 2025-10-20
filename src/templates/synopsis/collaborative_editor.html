@@ -37,10 +37,18 @@
   }
 </style>
 <div id="onlyoffice-editor"></div>
+{{ editor_config|json_script:"onlyoffice-config" }}
 <script src="{{ onlyoffice_js_url }}"></script>
 <script>
     (function() {
-        const config = {{ editor_config|safe }};
+        const configElement = document.getElementById('onlyoffice-config');
+        let config;
+        try {
+            config = JSON.parse(configElement.textContent);
+        } catch (err) {
+            console.error('Failed to parse OnlyOffice configuration', err);
+            return;
+        }
         const container = document.getElementById('onlyoffice-editor');
         if (!container) {
             console.error('OnlyOffice editor container is missing.');
