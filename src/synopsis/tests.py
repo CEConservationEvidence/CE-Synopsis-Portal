@@ -15,6 +15,7 @@ from django.utils import timezone
 from .models import (
     AdvisoryBoardInvitation,
     AdvisoryBoardMember,
+    AdvisoryBoardCustomField,
     Funder,
     Project,
     ProjectChangeLog,
@@ -25,7 +26,12 @@ from .models import (
     ActionListRevision,
     UserRole,
 )
-from .forms import FunderForm, ProjectDeleteForm, ProjectSettingsForm
+from .forms import (
+    AdvisoryMemberCustomDataForm,
+    FunderForm,
+    ProjectDeleteForm,
+    ProjectSettingsForm,
+)
 from .utils import (
     BRAND,
     GLOBAL_GROUPS,
@@ -34,6 +40,7 @@ from .utils import (
     reply_to_list,
 )
 from .views import (
+    _advisory_board_context,
     _create_protocol_feedback,
     _format_deadline,
     _format_value,
@@ -243,6 +250,178 @@ class FunderFormTests(TestCase):
             }
         )
         self.assertTrue(form.is_valid())
+
+
+class AdvisoryBoardCustomColumnsTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Dynamic Columns")
+        self.accepted = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ada",
+            email="ada@example.com",
+            response="Y",
+        )
+        self.pending = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ben",
+            email="ben@example.com",
+            response="",
+        )
+        self.general_field = AdvisoryBoardCustomField.objects.create(
+            project=self.project,
+            name="General note",
+            data_type=AdvisoryBoardCustomField.TYPE_TEXT,
+        )
+        self.pending_only_field = AdvisoryBoardCustomField.objects.create(
+            project=self.project,
+            name="Follow-up date",
+            data_type=AdvisoryBoardCustomField.TYPE_DATE,
+            sections=[AdvisoryBoardCustomField.SECTION_PENDING],
+        )
+        self.general_field.set_value_for_member(self.accepted, "Confirmed")
+        self.general_field.set_value_for_member(self.pending, "Need reply")
+        self.pending_only_field.set_value_for_member(self.pending, date(2025, 5, 1))
+
+    def test_section_fields_match_custom_field_configuration(self):
+        context = _advisory_board_context(self.project)
+        sections = {section["key"]: section for section in context["member_sections"]}
+
+        accepted_field_ids = [
+            field.id
+            for field in sections[AdvisoryBoardCustomField.SECTION_ACCEPTED]["fields"]
+        ]
+        pending_field_ids = [
+            field.id
+            for field in sections[AdvisoryBoardCustomField.SECTION_PENDING]["fields"]
+        ]
+
+        self.assertEqual(accepted_field_ids, [self.general_field.id])
+        self.assertEqual(
+            pending_field_ids, [self.general_field.id, self.pending_only_field.id]
+        )
+
+    def test_member_rows_include_formatted_custom_values(self):
+        context = _advisory_board_context(self.project)
+        sections = {section["key"]: section for section in context["member_sections"]}
+
+        accepted_member = sections[AdvisoryBoardCustomField.SECTION_ACCEPTED]["members"][
+            0
+        ]
+        pending_member = sections[AdvisoryBoardCustomField.SECTION_PENDING]["members"][0]
+
+        self.assertEqual(
+            accepted_member.custom_field_values[self.general_field.id], "Confirmed"
+        )
+        self.assertEqual(
+            pending_member.custom_field_values[self.general_field.id], "Need reply"
+        )
+        self.assertEqual(
+            pending_member.custom_field_values[self.pending_only_field.id], "2025-05-01"
+        )
+        self.assertNotIn(
+            self.pending_only_field.id, accepted_member.custom_field_values
+        )
+
+    def test_custom_fields_list_exposes_all_configured_fields(self):
+        context = _advisory_board_context(self.project)
+        custom_field_ids = [field.id for field in context["custom_fields"]]
+        self.assertEqual(
+            custom_field_ids, [self.general_field.id, self.pending_only_field.id]
+        )
+
+
+class AdvisoryMemberCustomDataFormTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Form Columns")
+        self.shared_field = AdvisoryBoardCustomField.objects.create(
+            project=self.project,
+            name="Notes",
+            data_type=AdvisoryBoardCustomField.TYPE_TEXT,
+        )
+        self.pending_field = AdvisoryBoardCustomField.objects.create(
+            project=self.project,
+            name="Reminder",
+            data_type=AdvisoryBoardCustomField.TYPE_BOOLEAN,
+            sections=[AdvisoryBoardCustomField.SECTION_PENDING],
+        )
+
+    def test_form_includes_only_fields_for_member_section(self):
+        initial_values = {self.shared_field.id: "hello"}
+        accepted_form = AdvisoryMemberCustomDataForm(
+            [self.shared_field, self.pending_field],
+            AdvisoryBoardCustomField.SECTION_ACCEPTED,
+            initial_values,
+        )
+        accepted_field_ids = [field.id for field, _ in accepted_form.iter_fields()]
+        self.assertEqual(accepted_field_ids, [self.shared_field.id])
+
+        pending_form = AdvisoryMemberCustomDataForm(
+            [self.shared_field, self.pending_field],
+            AdvisoryBoardCustomField.SECTION_PENDING,
+            initial_values,
+        )
+        pending_field_ids = [field.id for field, _ in pending_form.iter_fields()]
+        self.assertEqual(
+            pending_field_ids, [self.shared_field.id, self.pending_field.id]
+        )
+
+    def test_initial_values_are_parsed_for_form_fields(self):
+        initial_values = {
+            self.shared_field.id: "value",
+            self.pending_field.id: "true",
+        }
+        form = AdvisoryMemberCustomDataForm(
+            [self.shared_field, self.pending_field],
+            AdvisoryBoardCustomField.SECTION_PENDING,
+            initial_values,
+        )
+        key_shared = form._field_key(self.shared_field)
+        key_pending = form._field_key(self.pending_field)
+        self.assertEqual(form.initial[key_shared], "value")
+        self.assertTrue(form.initial[key_pending])
+
+
+class OnlyOfficeDownloadTests(TestCase):
+    def setUp(self):
+        from . import views
+
+        self.views = views
+        self.original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "https://onlyoffice.example.com/office",
+            "callback_timeout": 7,
+        }
+        self.addCleanup(self._restore_settings)
+
+    def _restore_settings(self):
+        self.views.ONLYOFFICE_SETTINGS = self.original_settings
+
+    @patch("synopsis.views.requests.get")
+    def test_download_allows_trusted_host(self, mock_get):
+        mock_response = MagicMock()
+        mock_response.content = b"doc"
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        url = "https://onlyoffice.example.com/office/storage/doc.docx"
+        content = self.views._download_onlyoffice_file(url)
+
+        self.assertEqual(content, b"doc")
+        mock_get.assert_called_once_with(url, timeout=7)
+
+    @patch("synopsis.views.requests.get")
+    def test_download_rejects_untrusted_host(self, mock_get):
+        url = "https://files.example.com/storage/doc.docx"
+        with self.assertRaisesMessage(ValueError, "Untrusted OnlyOffice download URL"):
+            self.views._download_onlyoffice_file(url)
+        mock_get.assert_not_called()
+
+    @patch("synopsis.views.requests.get")
+    def test_download_rejects_untrusted_path(self, mock_get):
+        url = "https://onlyoffice.example.com/other/doc.docx"
+        with self.assertRaisesMessage(ValueError, "Untrusted OnlyOffice download URL"):
+            self.views._download_onlyoffice_file(url)
+        mock_get.assert_not_called()
 
 
 class AdvisoryBoardCustomColumnsTests(TestCase):

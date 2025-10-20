@@ -53,6 +53,8 @@ from .forms import (
     ReferenceBatchUploadForm,
     ReferenceScreeningForm,
     CollaborativeUpdateForm,
+    AdvisoryCustomFieldForm,
+    AdvisoryMemberCustomDataForm,
 )
 from .models import (
     Project,
@@ -60,6 +62,8 @@ from .models import (
     ActionList,
     AdvisoryBoardMember,
     AdvisoryBoardInvitation,
+    AdvisoryBoardCustomField,
+    AdvisoryBoardCustomFieldValue,
     Funder,
     UserRole,
     ProjectPhaseEvent,
@@ -123,6 +127,226 @@ def _user_can_edit_project(user, project) -> bool:
         return project.author_users.filter(id=user.id).exists()
     except Exception:
         return False
+
+
+def _member_section_key(member: AdvisoryBoardMember) -> str:
+    response = (member.response or "").upper()
+    if response == "Y":
+        return AdvisoryBoardCustomField.SECTION_ACCEPTED
+    if response == "N":
+        return AdvisoryBoardCustomField.SECTION_DECLINED
+    return AdvisoryBoardCustomField.SECTION_PENDING
+
+
+def _localise_datetime(value):
+    if not value:
+        return None
+    if isinstance(value, dt.datetime):
+        try:
+            return timezone.localtime(value)
+        except (ValueError, TypeError, OverflowError):
+            return value
+    return value
+
+
+def _status_badge(label, value, badge, *, date=None, date_label=None, note=None):
+    payload = {
+        "label": label,
+        "value": value,
+        "badge": badge,
+    }
+    if date:
+        payload["date"] = _localise_datetime(date)
+    if date_label:
+        payload["date_label"] = date_label
+    if note:
+        payload["note"] = note
+    return payload
+
+
+def _member_glance_statuses(member: AdvisoryBoardMember) -> list[dict]:
+    statuses: list[dict] = []
+
+    if getattr(member, "invite_sent", False):
+        statuses.append(
+            _status_badge(
+                "Invite",
+                "Sent",
+                "success",
+                date=getattr(member, "invite_sent_at", None),
+                date_label="Sent",
+            )
+        )
+    else:
+        statuses.append(
+            _status_badge(
+                "Invite",
+                "Draft",
+                "secondary",
+                note="No invite sent yet",
+            )
+        )
+
+    response = (getattr(member, "response", "") or "").upper()
+    if response == "Y":
+        note = None
+        if getattr(member, "participation_confirmed", False):
+            note = "Participation confirmed"
+        elif not getattr(member, "participation_confirmed", False):
+            note = "Confirmation pending"
+        statuses.append(
+            _status_badge(
+                "Response",
+                "Accepted",
+                "success",
+                date=getattr(member, "response_date", None),
+                date_label="Responded",
+                note=note,
+            )
+        )
+    elif response == "N":
+        statuses.append(
+            _status_badge(
+                "Response",
+                "Declined",
+                "danger",
+                date=getattr(member, "response_date", None),
+                date_label="Responded",
+            )
+        )
+    else:
+        statuses.append(
+            _status_badge(
+                "Response",
+                "Pending",
+                "warning",
+                note="Awaiting response",
+            )
+        )
+
+    latest_action_feedback = getattr(member, "latest_action_list_feedback_obj", None)
+    if latest_action_feedback and getattr(latest_action_feedback, "submitted_at", None):
+        statuses.append(
+            _status_badge(
+                "Action list",
+                "Feedback received",
+                "success",
+                date=latest_action_feedback.submitted_at,
+                date_label="Received",
+            )
+        )
+    elif response == "N":
+        statuses.append(
+            _status_badge(
+                "Action list",
+                "Not applicable",
+                "secondary",
+                note="Member declined",
+            )
+        )
+    elif getattr(member, "sent_action_list_at", None):
+        if getattr(member, "feedback_on_action_list_deadline", None):
+            if getattr(member, "action_list_reminder_sent", False):
+                statuses.append(
+                    _status_badge(
+                        "Action list",
+                        "Reminder sent",
+                        "info",
+                        date=getattr(member, "action_list_reminder_sent_at", None),
+                        date_label="Reminded",
+                    )
+                )
+            else:
+                statuses.append(
+                    _status_badge(
+                        "Action list",
+                        "Awaiting feedback",
+                        "warning",
+                        date=getattr(member, "feedback_on_action_list_deadline", None),
+                        date_label="Due",
+                    )
+                )
+        else:
+            statuses.append(
+                _status_badge(
+                    "Action list",
+                    "Sent",
+                    "primary",
+                    date=getattr(member, "sent_action_list_at", None),
+                    date_label="Sent",
+                )
+            )
+    else:
+        statuses.append(
+            _status_badge(
+                "Action list",
+                "Not sent",
+                "secondary",
+            )
+        )
+
+    protocol_feedback_received = getattr(member, "feedback_on_protocol_received", None)
+    if protocol_feedback_received:
+        statuses.append(
+            _status_badge(
+                "Protocol",
+                "Feedback received",
+                "success",
+                date=protocol_feedback_received,
+                date_label="Received",
+            )
+        )
+    elif response == "N":
+        statuses.append(
+            _status_badge(
+                "Protocol",
+                "Not applicable",
+                "secondary",
+                note="Member declined",
+            )
+        )
+    elif getattr(member, "sent_protocol_at", None):
+        if getattr(member, "feedback_on_protocol_deadline", None):
+            if getattr(member, "protocol_reminder_sent", False):
+                statuses.append(
+                    _status_badge(
+                        "Protocol",
+                        "Reminder sent",
+                        "info",
+                        date=getattr(member, "protocol_reminder_sent_at", None),
+                        date_label="Reminded",
+                    )
+                )
+            else:
+                statuses.append(
+                    _status_badge(
+                        "Protocol",
+                        "Awaiting feedback",
+                        "warning",
+                        date=getattr(member, "feedback_on_protocol_deadline", None),
+                        date_label="Due",
+                    )
+                )
+        else:
+            statuses.append(
+                _status_badge(
+                    "Protocol",
+                    "Sent",
+                    "primary",
+                    date=getattr(member, "sent_protocol_at", None),
+                    date_label="Sent",
+                )
+            )
+    else:
+        statuses.append(
+            _status_badge(
+                "Protocol",
+                "Not sent",
+                "secondary",
+            )
+        )
+
+    return statuses
 
 
 def _user_can_force_end_session(user, project, session) -> bool:
@@ -698,6 +922,7 @@ def _advisory_board_context(
     feedback_close_form=None,
     action_list_form=None,
     action_list_feedback_close_form=None,
+    custom_field_form=None,
 ):
     members_qs = project.advisory_board_members.prefetch_related(
         "protocol_feedback"
@@ -721,6 +946,40 @@ def _advisory_board_context(
                 )
             ):
                 member.feedback_on_actions_received = True
+
+    all_members = accepted_members + pending_members + declined_members
+
+    custom_fields = list(
+        AdvisoryBoardCustomField.objects.filter(project=project).order_by(
+            "display_order", "name", "id"
+        )
+    )
+    fields_by_section = {
+        key: [f for f in custom_fields if f.applies_to(key)]
+        for key, _ in AdvisoryBoardCustomField.SECTION_CHOICES
+    }
+    values_map = {
+        (val.member_id, val.field_id): val.value
+        for val in AdvisoryBoardCustomFieldValue.objects.filter(
+            member__in=all_members, field__project=project
+        )
+    }
+
+    for member in all_members:
+        section_key = _member_section_key(member)
+        member.section_key = section_key
+        section_fields = fields_by_section.get(section_key, [])
+        member.custom_fields = section_fields
+        member.has_custom_fields = bool(section_fields)
+        member.custom_display_pairs = []
+        member.custom_field_values = {}
+        for field in section_fields:
+            raw_value = values_map.get((member.id, field.id))
+            formatted = field.format_value(raw_value)
+            display_value = formatted if formatted not in (None, "") else "—"
+            member.custom_display_pairs.append((field, display_value))
+            member.custom_field_values[field.id] = display_value
+        member.glance_statuses = _member_glance_statuses(member)
 
     direct_invites = project.invitations.filter(member__isnull=True).order_by(
         "-created_at"
@@ -761,6 +1020,9 @@ def _advisory_board_context(
 
     if member_form is None:
         member_form = AdvisoryBoardMemberForm()
+
+    if custom_field_form is None:
+        custom_field_form = AdvisoryCustomFieldForm(project)
 
     protocol_obj = getattr(project, "protocol", None)
     if feedback_close_form is None:
@@ -818,16 +1080,98 @@ def _advisory_board_context(
         "deadline": action_list_pending_dates[0] if action_list_pending_dates else None,
     }
 
+    section_palette = {
+        AdvisoryBoardCustomField.SECTION_ACCEPTED: {
+            "title": "Accepted members",
+            "empty": "No accepted members yet.",
+            "card": "border-start border-4 border-success",
+            "header": "bg-success text-white",
+        },
+        AdvisoryBoardCustomField.SECTION_PENDING: {
+            "title": "Pending members",
+            "empty": "No pending members yet.",
+            "card": "border-start border-4 border-warning",
+            "header": "bg-warning",
+        },
+        AdvisoryBoardCustomField.SECTION_DECLINED: {
+            "title": "Declined members",
+            "empty": "No declined members yet.",
+            "card": "border-start border-4 border-secondary",
+            "header": "bg-secondary text-white",
+        },
+    }
+
+    member_sections = [
+        {
+            "key": AdvisoryBoardCustomField.SECTION_ACCEPTED,
+            "title": section_palette[AdvisoryBoardCustomField.SECTION_ACCEPTED][
+                "title"
+            ],
+            "members": accepted_members,
+            "empty_text": section_palette[
+                AdvisoryBoardCustomField.SECTION_ACCEPTED
+            ]["empty"],
+            "card_class": section_palette[
+                AdvisoryBoardCustomField.SECTION_ACCEPTED
+            ]["card"],
+            "header_class": section_palette[
+                AdvisoryBoardCustomField.SECTION_ACCEPTED
+            ]["header"],
+            "fields": fields_by_section.get(
+                AdvisoryBoardCustomField.SECTION_ACCEPTED, []
+            ),
+        },
+        {
+            "key": AdvisoryBoardCustomField.SECTION_PENDING,
+            "title": section_palette[AdvisoryBoardCustomField.SECTION_PENDING][
+                "title"
+            ],
+            "members": pending_members,
+            "empty_text": section_palette[
+                AdvisoryBoardCustomField.SECTION_PENDING
+            ]["empty"],
+            "card_class": section_palette[
+                AdvisoryBoardCustomField.SECTION_PENDING
+            ]["card"],
+            "header_class": section_palette[
+                AdvisoryBoardCustomField.SECTION_PENDING
+            ]["header"],
+            "fields": fields_by_section.get(
+                AdvisoryBoardCustomField.SECTION_PENDING, []
+            ),
+        },
+        {
+            "key": AdvisoryBoardCustomField.SECTION_DECLINED,
+            "title": section_palette[AdvisoryBoardCustomField.SECTION_DECLINED][
+                "title"
+            ],
+            "members": declined_members,
+            "empty_text": section_palette[
+                AdvisoryBoardCustomField.SECTION_DECLINED
+            ]["empty"],
+            "card_class": section_palette[
+                AdvisoryBoardCustomField.SECTION_DECLINED
+            ]["card"],
+            "header_class": section_palette[
+                AdvisoryBoardCustomField.SECTION_DECLINED
+            ]["header"],
+            "fields": fields_by_section.get(
+                AdvisoryBoardCustomField.SECTION_DECLINED, []
+            ),
+        },
+    ]
+    for section in member_sections:
+        section["has_fields"] = bool(section["fields"])
+
     return {
         "project": project,
         "accepted_members": accepted_members,
         "declined_members": declined_members,
         "pending_members": pending_members,
-        "member_sections": [
-            ("Accepted members", accepted_members, "No accepted members yet."),
-            ("Pending members", pending_members, "No pending members yet."),
-            ("Declined members", declined_members, "No declined members yet."),
-        ],
+        "member_sections": member_sections,
+        "section_fields": fields_by_section,
+        "custom_fields": custom_fields,
+        "custom_field_form": custom_field_form,
         "direct_invites": direct_invites,
         "form": member_form,
         "reminder_form": reminder_form,
@@ -856,6 +1200,7 @@ def _advisory_board_context(
         .first(),
         "action_list_feedback_state": action_list_feedback_state,
         "action_list_feedback_close_form": action_list_feedback_close_form,
+        "section_palette": section_palette,
     }
 
 
@@ -2048,7 +2393,7 @@ def _persist_collaborative_revision(
     document_type,
     document,
     content: bytes,
-    original_name,
+    original_name: str,
     uploader,
     change_reason: str,
 ):
@@ -3324,6 +3669,30 @@ def advisory_board_list(request, project_id):
 
     if request.method == "POST":
         action = request.POST.get("action")
+
+        if action == "custom_field_add":
+            form = AdvisoryCustomFieldForm(project, request.POST)
+            if form.is_valid():
+                form.save()
+                messages.success(request, "Custom column added to advisory board.")
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
+            context = _advisory_board_context(
+                project, member_form=AdvisoryBoardMemberForm(), custom_field_form=form
+            )
+            return render(request, "synopsis/advisory_board_list.html", context)
+
+        if action == "custom_field_delete":
+            field_id = request.POST.get("field_id")
+            if field_id:
+                field = get_object_or_404(
+                    AdvisoryBoardCustomField, pk=field_id, project=project
+                )
+                field.delete()
+                messages.info(
+                    request,
+                    f"Removed custom column '{field.name}'.",
+                )
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
 
         if action == "add_member_confirm":
             form = AdvisoryBoardMemberForm(request.POST)
@@ -4906,6 +5275,71 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             "form": form,
             "scope": "member",
             "member": member,
+        },
+    )
+
+
+@login_required
+def advisory_member_custom_data(request, project_id, member_id):
+    project = get_object_or_404(Project, pk=project_id)
+    member = get_object_or_404(
+        AdvisoryBoardMember, pk=member_id, project=project
+    )
+
+    if not _user_can_edit_project(request.user, project):
+        messages.error(request, "You do not have permission to update this member.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    status_key = _member_section_key(member)
+    all_fields = list(
+        AdvisoryBoardCustomField.objects.filter(project=project).order_by(
+            "display_order", "name", "id"
+        )
+    )
+    applicable_fields = [
+        field for field in all_fields if field.applies_to(status_key)
+    ]
+
+    existing_values = {
+        value.field_id: value.value
+        for value in AdvisoryBoardCustomFieldValue.objects.filter(
+            member=member, field__project=project
+        )
+    }
+
+    if request.method == "POST":
+        form = AdvisoryMemberCustomDataForm(
+            applicable_fields,
+            status_key,
+            existing_values,
+            request.POST,
+            form_id=f"member-form-{member.id}",
+        )
+        if form.is_valid():
+            for field in applicable_fields:
+                cleaned_value = form.cleaned_value(field)
+                field.set_value_for_member(member, cleaned_value)
+            messages.success(
+                request,
+                f"Updated custom data for {member.first_name or member.email}.",
+            )
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    else:
+        form = AdvisoryMemberCustomDataForm(
+            applicable_fields, status_key, existing_values
+        )
+
+    form.apply_widget_configuration()
+
+    return render(
+        request,
+        "synopsis/advisory_member_custom_data.html",
+        {
+            "project": project,
+            "member": member,
+            "form": form,
+            "fields": applicable_fields,
+            "status_key": status_key,
         },
     )
 

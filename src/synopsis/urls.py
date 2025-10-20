@@ -201,6 +201,11 @@ urlpatterns = [
         name="advisory_invite_create_for_member",
     ),
     path(
+        "project/<int:project_id>/advisory-board/member/<int:member_id>/custom/",
+        views.advisory_member_custom_data,
+        name="advisory_member_custom_data",
+    ),
+    path(
         "advisory-board/invite/accept/<uuid:token>/",
         views.advisory_invite_accept,
         name="advisory_invite_accept",
