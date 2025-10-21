@@ -1,11 +1,14 @@
-from django.utils import timezone
-from django.db import models
-from django.contrib.auth.models import User
+import datetime as dt
 import uuid
+
+from django.contrib.auth.models import User
+from django.contrib.postgres.fields import ArrayField
+from django.db import models
+from django.utils import timezone
 
 """
 TODO: Modularise models into synopsis/models/* (project.py, funding.py, protocol.py, etc.)
-      once the schema stabilises. Everything is in one file for develpment but this should be made modular for other living evidence teams to easily adapt to their workflows.
+      once the schema stabilises. Everything is in one file for development but this should be made modular for other living evidence teams to easily adapt to their workflows.
 TODO: Add permissions to restrict access based on user roles.
 TODO: Add signals to notify users of changes in project status or roles.
 TODO: Add versioning to protocol model to track changes over time. Furthermore, this should be extended to other models like the draft final synopsis document, summaries, actions, etc.
@@ -397,6 +400,116 @@ class ActionListRevision(models.Model):
     def __str__(self):
         return f"Action list revision for {self.action_list.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
 
+
+class CollaborativeSession(models.Model):
+    DOCUMENT_PROTOCOL = "protocol"
+    DOCUMENT_ACTION_LIST = "action_list"
+    DOCUMENT_CHOICES = [
+        (DOCUMENT_PROTOCOL, "Protocol"),
+        (DOCUMENT_ACTION_LIST, "Action list"),
+    ]
+
+    DEFAULT_DURATION = dt.timedelta(hours=4)
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="collaborative_sessions",
+    )
+    document_type = models.CharField(max_length=20, choices=DOCUMENT_CHOICES)
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    started_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_started",
+    )
+    started_at = models.DateTimeField(default=timezone.now, editable=False)
+    last_activity_at = models.DateTimeField(null=True, blank=True)
+    is_active = models.BooleanField(default=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    ended_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_ended",
+    )
+    end_reason = models.CharField(max_length=255, blank=True)
+    change_summary = models.TextField(blank=True)
+    last_callback_payload = models.JSONField(blank=True, null=True)
+    last_participant_name = models.CharField(max_length=255, blank=True)
+    initial_protocol_revision = models.ForeignKey(
+        "ProtocolRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_started_protocol",
+    )
+    initial_action_list_revision = models.ForeignKey(
+        "ActionListRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_started_action_list",
+    )
+    result_protocol_revision = models.ForeignKey(
+        "ProtocolRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_completed_protocol",
+    )
+    result_action_list_revision = models.ForeignKey(
+        "ActionListRevision",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collaborative_sessions_completed_action_list",
+    )
+    invitations = models.ManyToManyField(
+        "AdvisoryBoardInvitation",
+        blank=True,
+        related_name="collaborative_sessions",
+    )
+
+    class Meta:
+        ordering = ["-started_at", "-id"]
+
+    def __str__(self):
+        label = dict(self.DOCUMENT_CHOICES).get(self.document_type, self.document_type)
+        started = timezone.localtime(self.started_at).strftime("%Y-%m-%d %H:%M")
+        return f"{label} session for {self.project.title} @ {started}"
+
+    def has_expired(self, *, at_time=None, duration=None) -> bool:
+        if not self.is_active:
+            return False
+        reference = self.last_activity_at or self.started_at
+        limit = reference + (duration or self.DEFAULT_DURATION)
+        return limit < (at_time or timezone.now())
+
+    def mark_inactive(self, *, ended_by=None, reason="", when=None, extra_updates=None):
+        if not self.is_active:
+            return
+        self.is_active = False
+        self.ended_at = when or timezone.now()
+        update_fields = ["is_active", "ended_at"]
+        if ended_by is not None:
+            self.ended_by = ended_by
+            update_fields.append("ended_by")
+        if reason:
+            self.end_reason = reason
+            update_fields.append("end_reason")
+        if extra_updates:
+            update_fields.extend(extra_updates)
+        self.save(update_fields=sorted(set(update_fields)))
+
+    def record_callback(self, payload: dict | None, *, when=None):
+        self.last_activity_at = when or timezone.now()
+        self.last_callback_payload = payload or {}
+        self.save(update_fields=["last_activity_at", "last_callback_payload"])
+
 # TODO: Refactor AdvisoryBoardMember columns for clarity and normalization:
 #   - Consider renaming 'title', 'first_name', 'middle_name', 'last_name' for consistency with other models.
 #   - Review if 'middle_name' is necessary or can be merged with 'first_name'.
@@ -476,6 +589,183 @@ class AdvisoryBoardMember(models.Model):
         return self.action_list_feedback.order_by(
             "-submitted_at", "-created_at"
         ).first()
+
+
+class AdvisoryBoardCustomField(models.Model):
+    TYPE_TEXT = "text"
+    TYPE_INTEGER = "integer"
+    TYPE_BOOLEAN = "boolean"
+    TYPE_DATE = "date"
+    DATA_TYPE_CHOICES = [
+        (TYPE_TEXT, "Text"),
+        (TYPE_INTEGER, "Integer"),
+        (TYPE_BOOLEAN, "Yes / No"),
+        (TYPE_DATE, "Date"),
+    ]
+
+    SECTION_ACCEPTED = "accepted"
+    SECTION_PENDING = "pending"
+    SECTION_DECLINED = "declined"
+    SECTION_CHOICES = [
+        (SECTION_ACCEPTED, "Accepted"),
+        (SECTION_PENDING, "Pending"),
+        (SECTION_DECLINED, "Declined"),
+    ]
+
+    project = models.ForeignKey(
+        Project,
+        on_delete=models.CASCADE,
+        related_name="advisory_custom_fields",
+    )
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=120, blank=True)
+    data_type = models.CharField(
+        max_length=20, choices=DATA_TYPE_CHOICES, default=TYPE_TEXT
+    )
+    sections = ArrayField(
+        models.CharField(max_length=20, choices=SECTION_CHOICES),
+        blank=True,
+        default=list,
+        help_text="Leave blank to display in every section.",
+    )
+    description = models.CharField(max_length=255, blank=True)
+    display_order = models.PositiveIntegerField(default=0)
+    is_required = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["display_order", "name", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "slug"], name="unique_custom_field_slug"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.project.title})"
+
+    def applies_to(self, status: str) -> bool:
+        if not self.sections:
+            return True
+        return status in self.sections
+
+    def section_labels(self) -> list[str]:
+        if not self.sections:
+            return [label for _, label in self.SECTION_CHOICES]
+        lookup = dict(self.SECTION_CHOICES)
+        return [lookup.get(code, code.title()) for code in self.sections]
+
+    def clean_value(self, value):
+        if value in (None, ""):
+            return None
+        if self.data_type == self.TYPE_TEXT:
+            return str(value)
+        if self.data_type == self.TYPE_INTEGER:
+            return str(int(value))
+        if self.data_type == self.TYPE_BOOLEAN:
+            if isinstance(value, bool):
+                return "true" if value else "false"
+            value_str = str(value).strip().lower()
+            if value_str in {"true", "1", "yes", "on"}:
+                return "true"
+            if value_str in {"false", "0", "no", "off"}:
+                return "false"
+            raise ValueError("Unrecognised boolean value")
+        if self.data_type == self.TYPE_DATE:
+            if isinstance(value, dt.date):
+                return value.isoformat()
+            return dt.date.fromisoformat(str(value)).isoformat()
+        return str(value)
+
+    def parse_value(self, value):
+        if value in (None, ""):
+            return None
+        if self.data_type == self.TYPE_TEXT:
+            return value
+        if self.data_type == self.TYPE_INTEGER:
+            return int(value)
+        if self.data_type == self.TYPE_BOOLEAN:
+            return str(value).lower() == "true"
+        if self.data_type == self.TYPE_DATE:
+            return dt.date.fromisoformat(str(value))
+        return value
+
+    def format_value(self, value):
+        typed = self.parse_value(value)
+        if typed is None:
+            return ""
+        if isinstance(typed, bool):
+            return "Yes" if typed else "No"
+        if isinstance(typed, dt.date):
+            return typed.strftime("%Y-%m-%d")
+        return str(typed)
+
+    def get_value_for_member(self, member):
+        try:
+            stored = self.values.get(member=member)
+        except AdvisoryBoardCustomFieldValue.DoesNotExist:
+            return None
+        return stored.value
+
+    def set_value_for_member(self, member, value):
+        cleaned = self.clean_value(value) if value not in (None, "") else None
+        if cleaned in (None, ""):
+            AdvisoryBoardCustomFieldValue.objects.filter(
+                field=self, member=member
+            ).delete()
+            return
+        AdvisoryBoardCustomFieldValue.objects.update_or_create(
+            field=self,
+            member=member,
+            defaults={"value": cleaned},
+        )
+
+    def save(self, *args, **kwargs):
+        from django.utils.text import slugify
+
+        if not self.slug:
+            base_slug = slugify(self.name) or "field"
+            slug = base_slug
+            index = 1
+            while AdvisoryBoardCustomField.objects.filter(
+                project=self.project, slug=slug
+            ).exclude(pk=self.pk).exists():
+                index += 1
+                slug = f"{base_slug}-{index}"
+            self.slug = slug
+        if self.display_order == 0:
+            max_order = (
+                AdvisoryBoardCustomField.objects.filter(project=self.project)
+                .exclude(pk=self.pk)
+                .aggregate(models.Max("display_order"))
+                .get("display_order__max")
+                or 0
+            )
+            self.display_order = max_order + 1
+        super().save(*args, **kwargs)
+
+
+class AdvisoryBoardCustomFieldValue(models.Model):
+    field = models.ForeignKey(
+        AdvisoryBoardCustomField,
+        on_delete=models.CASCADE,
+        related_name="values",
+    )
+    member = models.ForeignKey(
+        AdvisoryBoardMember,
+        on_delete=models.CASCADE,
+        related_name="custom_values",
+    )
+    value = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("field", "member")
+
+    def __str__(self):
+        return f"{self.field.name} for {self.member}"
+
 
 
 class AdvisoryBoardInvitation(models.Model):

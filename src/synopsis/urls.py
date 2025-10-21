@@ -104,6 +104,26 @@ urlpatterns = [
         name="protocol_delete",
     ),
     path(
+        "project/<int:project_id>/<slug:document_slug>/collaborative/start/",
+        views.collaborative_start,
+        name="collaborative_start",
+    ),
+    path(
+        "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/",
+        views.collaborative_edit,
+        name="collaborative_edit",
+    ),
+    path(
+        "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/force-end/",
+        views.collaborative_force_end,
+        name="collaborative_force_end",
+    ),
+    path(
+        "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/callback/",
+        views.collaborative_edit_callback,
+        name="collaborative_edit_callback",
+    ),
+    path(
         "project/<int:project_id>/funders/add/",
         views.project_funder_add,
         name="project_funder_add",
@@ -179,6 +199,11 @@ urlpatterns = [
         "project/<int:project_id>/advisory-board/member/<int:member_id>/invite/",
         views.advisory_invite_create,
         name="advisory_invite_create_for_member",
+    ),
+    path(
+        "project/<int:project_id>/advisory-board/member/<int:member_id>/custom/",
+        views.advisory_member_custom_data,
+        name="advisory_member_custom_data",
     ),
     path(
         "advisory-board/invite/accept/<uuid:token>/",
