@@ -8,7 +8,7 @@ from django.utils import timezone
 
 """
 TODO: Modularise models into synopsis/models/* (project.py, funding.py, protocol.py, etc.)
-      once the schema stabilises. Everything is in one file for develpment but this should be made modular for other living evidence teams to easily adapt to their workflows.
+      once the schema stabilises. Everything is in one file for development but this should be made modular for other living evidence teams to easily adapt to their workflows.
 TODO: Add permissions to restrict access based on user roles.
 TODO: Add signals to notify users of changes in project status or roles.
 TODO: Add versioning to protocol model to track changes over time. Furthermore, this should be extended to other models like the draft final synopsis document, summaries, actions, etc.
