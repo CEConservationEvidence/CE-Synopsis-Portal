@@ -55,6 +55,7 @@ from .views import (
 
 # TODO: #25 Clean up tests.py and see if some tests can be split into separate files.
 
+
 class EmailSubjectTests(TestCase):
     def setUp(self):
         self.project = SimpleNamespace(title="Coastal Restoration")
@@ -182,9 +183,7 @@ class ProjectAuthorUsersTests(TestCase):
         UserRole.objects.create(user=self.manager, project=self.project, role="manager")
 
     def test_returns_authors_sorted_by_username(self):
-        usernames = list(
-            self.project.author_users.values_list("username", flat=True)
-        )
+        usernames = list(self.project.author_users.values_list("username", flat=True))
         self.assertEqual(usernames, ["adam", "zoe"])
 
 
@@ -242,6 +241,7 @@ class FunderFormTests(TestCase):
             "Start date cannot be after the end date.",
             form.errors.get("fund_end_date", []),
         )
+
     def test_start_end_date_valid_when_ordered(self):
         form = FunderForm(
             data={
@@ -305,10 +305,12 @@ class AdvisoryBoardCustomColumnsTests(TestCase):
         context = _advisory_board_context(self.project)
         sections = {section["key"]: section for section in context["member_sections"]}
 
-        accepted_member = sections[AdvisoryBoardCustomField.SECTION_ACCEPTED]["members"][
+        accepted_member = sections[AdvisoryBoardCustomField.SECTION_ACCEPTED][
+            "members"
+        ][0]
+        pending_member = sections[AdvisoryBoardCustomField.SECTION_PENDING]["members"][
             0
         ]
-        pending_member = sections[AdvisoryBoardCustomField.SECTION_PENDING]["members"][0]
 
         self.assertEqual(
             accepted_member.custom_field_values[self.general_field.id], "Confirmed"
@@ -477,10 +479,12 @@ class AdvisoryBoardCustomColumnsTests(TestCase):
         context = _advisory_board_context(self.project)
         sections = {section["key"]: section for section in context["member_sections"]}
 
-        accepted_member = sections[AdvisoryBoardCustomField.SECTION_ACCEPTED]["members"][
+        accepted_member = sections[AdvisoryBoardCustomField.SECTION_ACCEPTED][
+            "members"
+        ][0]
+        pending_member = sections[AdvisoryBoardCustomField.SECTION_PENDING]["members"][
             0
         ]
-        pending_member = sections[AdvisoryBoardCustomField.SECTION_PENDING]["members"][0]
 
         self.assertEqual(
             accepted_member.custom_field_values[self.general_field.id], "Confirmed"
@@ -635,7 +639,9 @@ class RevisionDeleteViewTests(TestCase):
 
         # Protocol setup
         base_file = SimpleUploadedFile("protocol_base.docx", b"base")
-        self.protocol = Protocol.objects.create(project=self.project, document=base_file)
+        self.protocol = Protocol.objects.create(
+            project=self.project, document=base_file
+        )
         self.rev1 = ProtocolRevision.objects.create(
             protocol=self.protocol,
             file=SimpleUploadedFile("protocol_rev1.docx", b"rev1"),
@@ -691,9 +697,7 @@ class RevisionDeleteViewTests(TestCase):
 
         response = protocol_delete_revision(request, self.project.id, self.rev2.id)
         self.assertEqual(response.status_code, 302)
-        self.assertFalse(
-            ProtocolRevision.objects.filter(pk=self.rev2.pk).exists()
-        )
+        self.assertFalse(ProtocolRevision.objects.filter(pk=self.rev2.pk).exists())
         self.protocol.refresh_from_db()
         self.assertEqual(self.protocol.current_revision_id, self.rev1.id)
         self.assertTrue(
@@ -724,9 +728,7 @@ class RevisionDeleteViewTests(TestCase):
             request, self.project.id, self.al_rev2.id
         )
         self.assertEqual(response.status_code, 302)
-        self.assertFalse(
-            ActionListRevision.objects.filter(pk=self.al_rev2.pk).exists()
-        )
+        self.assertFalse(ActionListRevision.objects.filter(pk=self.al_rev2.pk).exists())
         self.action_list.refresh_from_db()
         self.assertEqual(self.action_list.current_revision_id, self.al_rev1.id)
         self.assertTrue(
@@ -746,9 +748,8 @@ class RevisionDeleteViewTests(TestCase):
             request, self.project.id, self.al_rev1.id
         )
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(
-            ActionListRevision.objects.filter(pk=self.al_rev1.pk).exists()
-        )
+        self.assertTrue(ActionListRevision.objects.filter(pk=self.al_rev1.pk).exists())
+
 
 class ProjectDeleteFormTests(TestCase):
     def setUp(self):
@@ -770,7 +771,9 @@ class ProjectDeleteFormTests(TestCase):
             data={"confirm_title": "Wetland Recovery"}, project=self.project
         )
         self.assertFalse(form.is_valid())
-        self.assertIn("This field is required.", form.errors["acknowledge_irreversible"][0])
+        self.assertIn(
+            "This field is required.", form.errors["acknowledge_irreversible"][0]
+        )
 
     def test_valid_when_all_checks_pass(self):
         form = ProjectDeleteForm(
@@ -806,7 +809,9 @@ class ViewHelperTests(TestCase):
         self.project = Project.objects.create(title="Helper Project")
 
     def test_user_is_manager_for_staff(self):
-        user = User.objects.create_user(username="staffer", password="pw", is_staff=True)
+        user = User.objects.create_user(
+            username="staffer", password="pw", is_staff=True
+        )
         self.assertTrue(_user_is_manager(user))
 
     def test_user_is_manager_for_group_member(self):
@@ -830,7 +835,11 @@ class ViewHelperTests(TestCase):
     def test_log_project_change_anonymous(self):
         anonymous = AnonymousUser()
         _log_project_change(self.project, anonymous, "Edited", "Updated title")
-        entry = ProjectChangeLog.objects.filter(project=self.project).order_by("-id").first()
+        entry = (
+            ProjectChangeLog.objects.filter(project=self.project)
+            .order_by("-id")
+            .first()
+        )
         self.assertIsNone(entry.changed_by)
 
     def test_format_value_handles_none_and_date(self):
@@ -846,7 +855,9 @@ class ViewHelperTests(TestCase):
     def test_format_deadline_formats_timezone(self):
         aware = timezone.make_aware(datetime(2025, 7, 1, 15, 0))
         formatted = _format_deadline(aware)
-        self.assertEqual(formatted, timezone.localtime(aware).strftime("%d %b %Y %H:%M"))
+        self.assertEqual(
+            formatted, timezone.localtime(aware).strftime("%d %b %Y %H:%M")
+        )
         self.assertEqual(_format_deadline(None), "—")
 
     def test_user_can_confirm_phase(self):
@@ -879,9 +890,13 @@ class CreateProtocolFeedbackTests(TestCase):
         feedback = _create_protocol_feedback(self.project, member=member)
         self.assertEqual(feedback.project, self.project)
         self.assertEqual(feedback.member, member)
-        self.assertEqual(feedback.feedback_deadline_at, member.feedback_on_protocol_deadline)
+        self.assertEqual(
+            feedback.feedback_deadline_at, member.feedback_on_protocol_deadline
+        )
         self.assertEqual(feedback.protocol_stage_snapshot, self.protocol.stage)
-        self.assertEqual(feedback.protocol_document_last_updated, self.protocol.last_updated)
+        self.assertEqual(
+            feedback.protocol_document_last_updated, self.protocol.last_updated
+        )
         self.assertEqual(
             feedback.protocol_document_name,
             self.protocol.document.name,
