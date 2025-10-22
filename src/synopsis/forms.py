@@ -612,7 +612,7 @@ class ProtocolFeedbackCloseForm(forms.Form):
     )
 
 
-# TODO: cleanup this form, add more validation and error handling (file types supported are currently .RIS but .txt is also being used by team).
+# TODO: #15 cleanup this form, add more validation and error handling (file types supported are currently .RIS but .txt is also being used by team).
 class ReferenceBatchUploadForm(forms.Form):
     label = forms.CharField(
         max_length=255,
