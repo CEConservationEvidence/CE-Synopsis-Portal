@@ -7,6 +7,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, RequestFactory, override_settings
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.urls import reverse
 
 import shutil
 import tempfile
@@ -16,6 +17,7 @@ from .models import (
     AdvisoryBoardInvitation,
     AdvisoryBoardMember,
     AdvisoryBoardCustomField,
+    AdvisoryBoardCustomFieldValueHistory,
     Funder,
     Project,
     ProjectChangeLog,
@@ -256,6 +258,7 @@ class FunderFormTests(TestCase):
 class AdvisoryBoardCustomColumnsTests(TestCase):
     def setUp(self):
         self.project = Project.objects.create(title="Dynamic Columns")
+        self.editor = User.objects.create_user(username="editor")
         self.accepted = AdvisoryBoardMember.objects.create(
             project=self.project,
             first_name="Ada",
@@ -331,6 +334,46 @@ class AdvisoryBoardCustomColumnsTests(TestCase):
         self.assertEqual(
             custom_field_ids, [self.general_field.id, self.pending_only_field.id]
         )
+
+    def test_history_records_updates(self):
+        base_count = AdvisoryBoardCustomFieldValueHistory.objects.filter(
+            field=self.general_field, member=self.accepted
+        ).count()
+
+        self.general_field.set_value_for_member(
+            self.accepted, "Updated note", changed_by=self.editor
+        )
+        self.general_field.set_value_for_member(
+            self.accepted, "", changed_by=self.editor
+        )
+
+        history = AdvisoryBoardCustomFieldValueHistory.objects.filter(
+            field=self.general_field, member=self.accepted
+        ).order_by("-created_at")
+
+        self.assertEqual(history.count(), base_count + 2)
+        latest = history.first()
+        self.assertTrue(latest.is_cleared)
+        previous = history[1]
+        self.assertEqual(previous.value, "Updated note")
+        self.assertEqual(previous.changed_by, self.editor)
+
+    def test_history_shows_current_value_first(self):
+        self.general_field.set_value_for_member(
+            self.accepted, "First", changed_by=self.editor
+        )
+        self.general_field.set_value_for_member(
+            self.accepted, "Second", changed_by=self.editor
+        )
+
+        history = list(
+            AdvisoryBoardCustomFieldValueHistory.objects.filter(
+                field=self.general_field, member=self.accepted
+            )
+        )
+
+        self.assertGreaterEqual(len(history), 2)
+        self.assertEqual(history[0].value, "Second")
 
 
 class AdvisoryMemberCustomDataFormTests(TestCase):
@@ -384,6 +427,58 @@ class AdvisoryMemberCustomDataFormTests(TestCase):
         self.assertTrue(form.initial[key_pending])
 
 
+class AdvisoryMemberCustomDataViewTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="View Columns")
+        self.manager = User.objects.create_user(username="manager", password="x")
+        self.manager.is_staff = True
+        self.manager.save(update_fields=["is_staff"])
+        self.member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            email="member@example.com",
+            first_name="Mia",
+            response="Y",
+        )
+        self.field_one = AdvisoryBoardCustomField.objects.create(
+            project=self.project,
+            name="Engagement",
+            data_type=AdvisoryBoardCustomField.TYPE_TEXT,
+        )
+        self.field_two = AdvisoryBoardCustomField.objects.create(
+            project=self.project,
+            name="Notes",
+            data_type=AdvisoryBoardCustomField.TYPE_TEXT,
+        )
+        self.field_one.set_value_for_member(
+            self.member, "Initial", changed_by=self.manager
+        )
+        self.field_two.set_value_for_member(
+            self.member, "Aux", changed_by=self.manager
+        )
+        self.url = reverse(
+            "synopsis:advisory_member_custom_data",
+            args=[self.project.id, self.member.id],
+        )
+        self.client.force_login(self.manager)
+
+    def test_focus_field_filters_form_and_history(self):
+        response = self.client.get(self.url, {"field": self.field_one.id})
+        self.assertEqual(response.status_code, 200)
+        fields = response.context["fields"]
+        self.assertEqual(len(fields), 1)
+        self.assertEqual(fields[0].id, self.field_one.id)
+        form_fields = list(response.context["form"].fields.keys())
+        self.assertEqual(form_fields, [f"field_{self.field_one.id}"])
+        history_map = response.context["history_map"]
+        self.assertEqual(list(history_map.keys()), [self.field_one.id])
+
+    def test_without_focus_shows_all_fields(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        field_ids = [field.id for field in response.context["fields"]]
+        self.assertCountEqual(field_ids, [self.field_one.id, self.field_two.id])
+
+
 class OnlyOfficeDownloadTests(TestCase):
     def setUp(self):
         from . import views
@@ -430,6 +525,7 @@ class OnlyOfficeDownloadTests(TestCase):
 class AdvisoryBoardCustomColumnsTests(TestCase):
     def setUp(self):
         self.project = Project.objects.create(title="Dynamic Columns")
+        self.editor = User.objects.create_user(username="editor-secondary")
         self.accepted = AdvisoryBoardMember.objects.create(
             project=self.project,
             first_name="Ada",
@@ -505,6 +601,29 @@ class AdvisoryBoardCustomColumnsTests(TestCase):
         self.assertEqual(
             custom_field_ids, [self.general_field.id, self.pending_only_field.id]
         )
+
+    def test_history_records_updates(self):
+        base_count = AdvisoryBoardCustomFieldValueHistory.objects.filter(
+            field=self.general_field, member=self.accepted
+        ).count()
+
+        self.general_field.set_value_for_member(
+            self.accepted, "Updated note", changed_by=self.editor
+        )
+        self.general_field.set_value_for_member(
+            self.accepted, "", changed_by=self.editor
+        )
+
+        history = AdvisoryBoardCustomFieldValueHistory.objects.filter(
+            field=self.general_field, member=self.accepted
+        ).order_by("-created_at")
+
+        self.assertEqual(history.count(), base_count + 2)
+        latest = history.first()
+        self.assertTrue(latest.is_cleared)
+        previous = history[1]
+        self.assertEqual(previous.value, "Updated note")
+        self.assertEqual(previous.changed_by, self.editor)
 
 
 class AdvisoryMemberCustomDataFormTests(TestCase):
