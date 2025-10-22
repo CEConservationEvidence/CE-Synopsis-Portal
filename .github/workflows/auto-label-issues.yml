@@ -15,51 +15,106 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
-            const body = (context.payload.issue && context.payload.issue.body) || '';
-            const title = (context.payload.issue && context.payload.issue.title) || '';
-            const labels = [];
+            const issue = context.payload.issue || {};
+            const body = issue.body || '';
+            const title = issue.title || '';
+            const bodyLower = body.toLowerCase();
+            const titleLower = title.toLowerCase();
+            const { owner, repo } = context.repo;
+            const issueNumber = issue.number;
+            const currentLabels = (issue.labels || []).map(label => label.name);
+            const managedLabels = new Set([
+              'bug',
+              'enhancement',
+              'documentation',
+              'browser:chrome',
+              'browser:safari',
+              'browser:firefox',
+              'browser:edge',
+              'os:windows',
+              'os:macos',
+              'os:linux',
+              'priority:high',
+              'needs-triage'
+            ]);
+            const desiredLabels = new Set();
+            const containsAny = (text, keywords) => keywords.some(keyword => text.includes(keyword));
+            const extractSection = headingPrefix => {
+              const pattern = new RegExp(`##\\s*${headingPrefix}[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)`, 'i');
+              const match = body.match(pattern);
+              return match ? match[1].trim() : '';
+            };
 
-            // Bug indicators
-            if (
-              body.includes('Steps to Reproduce') ||
-              /bug|error|crash/i.test(title) ||
-              /error|crash/i.test(body)
-            ) labels.push('bug');
+            const stepsSection = extractSection('Steps to Reproduce');
+            const actualSection = extractSection('Actual Behavior');
+            const environmentSection = extractSection('Environment');
 
-            // Feature / enhancement
-            if (/feature|enhancement/i.test(title) || /new feature/i.test(body)) {
-              labels.push('enhancement');
+            const hasNonPlaceholderSteps = (() => {
+              if (!stepsSection) return false;
+              const sanitized = stepsSection.replace(/\s+/g, ' ').trim();
+              if (!sanitized) return false;
+              const placeholderTokens = ["'...'", "'....'", '...'];
+              const stillPlaceholder = placeholderTokens.some(token => sanitized.includes(token)) || /See error/i.test(sanitized);
+              return !stillPlaceholder;
+            })();
+
+            const bugKeywords = ['bug', 'error', 'crash', 'exception', 'stack trace', 'fails', 'broken'];
+            if (hasNonPlaceholderSteps || containsAny(titleLower, bugKeywords) || containsAny(bodyLower, bugKeywords) || /unexpected/i.test(actualSection)) {
+              desiredLabels.add('bug');
             }
 
-            // Documentation
-            if (/documentation|docs/i.test(title) || /documentation/i.test(body)) {
-              labels.push('documentation');
+            const enhancementKeywords = ['enhancement', 'feature', 'improv', 'overhaul', 'optimiz', 'ux', 'ui', 'design', 'refactor', 'clean up', 'visual'];
+            if (containsAny(titleLower, enhancementKeywords) || containsAny(bodyLower, enhancementKeywords)) {
+              desiredLabels.add('enhancement');
             }
 
-            // Browser-specific labels
-            if (/Chrome/.test(body)) labels.push('browser:chrome');
-            if (/Safari/.test(body)) labels.push('browser:safari');
-            if (/Firefox/.test(body)) labels.push('browser:firefox');
-            if (/Edge/.test(body)) labels.push('browser:edge');
-
-            // OS-specific labels
-            if (/Windows/.test(body)) labels.push('os:windows');
-            if (/macOS|Mac/.test(body)) labels.push('os:macos');
-            if (/Linux|Ubuntu/.test(body)) labels.push('os:linux');
-
-            // Priority
-            if (/critical|urgent/i.test(body) || /critical/i.test(title)) {
-              labels.push('priority:high');
+            const documentationKeywords = ['documentation', 'docs', 'readme', 'guide', 'manual'];
+            if (containsAny(titleLower, documentationKeywords) || containsAny(bodyLower, documentationKeywords)) {
+              desiredLabels.add('documentation');
             }
 
-            // Always add needs-triage
-            labels.push('needs-triage');
+            const normalizeValue = value => value.toLowerCase();
+            const hasRealValue = value => value && value.trim() && !/\[e\.g\./i.test(value) && !value.includes('...');
 
-            if (labels.length) {
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                labels
-              });
+            if (environmentSection) {
+              const lines = environmentSection.split('\n').map(line => line.trim()).filter(Boolean);
+              for (const line of lines) {
+                const parts = line.split(':');
+                if (parts.length < 2) continue;
+                const rawValue = parts.slice(1).join(':').trim();
+                if (!hasRealValue(rawValue)) continue;
+                const value = normalizeValue(rawValue);
+                if (value.includes('chrome')) desiredLabels.add('browser:chrome');
+                if (value.includes('safari')) desiredLabels.add('browser:safari');
+                if (value.includes('firefox')) desiredLabels.add('browser:firefox');
+                if (value.includes('edge')) desiredLabels.add('browser:edge');
+                if (value.includes('window')) desiredLabels.add('os:windows');
+                if (value.includes('mac')) desiredLabels.add('os:macos');
+                if (value.includes('linux') || value.includes('ubuntu')) desiredLabels.add('os:linux');
+              }
+            }
+
+            const priorityKeywords = ['critical', 'urgent', 'blocker', 'severity'];
+            if (containsAny(titleLower, priorityKeywords) || containsAny(bodyLower, priorityKeywords)) {
+              desiredLabels.add('priority:high');
+            }
+
+            const action = context.payload.action;
+            if (action === 'opened' || currentLabels.includes('needs-triage')) {
+              desiredLabels.add('needs-triage');
+            }
+
+            const labelsToAdd = Array.from(desiredLabels).filter(label => !currentLabels.includes(label));
+            const labelsToRemove = currentLabels.filter(label => managedLabels.has(label) && !desiredLabels.has(label));
+
+            for (const label of labelsToRemove) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: issueNumber, name: label });
+              } catch (error) {
+                // Ignore if label was already removed manually
+              }
+            }
+
+            if (labelsToAdd.length) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issueNumber, labels: labelsToAdd });
             }
