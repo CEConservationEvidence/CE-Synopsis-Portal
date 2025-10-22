@@ -5368,9 +5368,14 @@ def advisory_member_custom_data(request, project_id, member_id):
             form_id=f"member-form-{member.id}",
         )
         if form.is_valid():
+            actor = request.user if getattr(request.user, "is_authenticated", False) else None
             for field in applicable_fields:
                 cleaned_value = form.cleaned_value(field)
-                field.set_value_for_member(member, cleaned_value)
+                field.set_value_for_member(
+                    member,
+                    cleaned_value,
+                    changed_by=actor,
+                )
             messages.success(
                 request,
                 f"Updated custom data for {member.first_name or member.email}.",
