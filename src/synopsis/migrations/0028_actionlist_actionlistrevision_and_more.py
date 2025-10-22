@@ -129,7 +129,12 @@ class Migration(migrations.Migration):
                 ),
                 ("content", models.TextField(blank=True)),
                 ("submitted_at", models.DateTimeField(blank=True, null=True)),
-                ("created_at", models.DateTimeField(default=django.utils.timezone.now, editable=False)),
+                (
+                    "created_at",
+                    models.DateTimeField(
+                        default=django.utils.timezone.now, editable=False
+                    ),
+                ),
                 (
                     "uploaded_document",
                     models.FileField(
