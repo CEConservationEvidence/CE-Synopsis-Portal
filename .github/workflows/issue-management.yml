@@ -1,3 +1,4 @@
+# TODO: #20 fix first issue post bug where it posts even if not first issue.
 name: Issue Management
 on:
   issues:
