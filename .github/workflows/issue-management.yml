@@ -19,10 +19,18 @@ jobs:
             const creator = context.payload.issue.user.login;
 
             const issues = await github.rest.issues.listForRepo({
-              owner, repo, creator, state: 'all', per_page: 1
+              owner,
+              repo,
+              creator,
+              state: 'all',
+              per_page: 1,
+              sort: 'created',
+              direction: 'asc'
             });
 
-            if (issues.data.length === 1) {
+            const isFirstIssue = issues.data[0]?.number === context.issue.number;
+
+            if (isFirstIssue) {
               await github.rest.issues.createComment({
                 owner, repo,
                 issue_number: context.issue.number,
@@ -31,8 +39,8 @@ jobs:
             The CE Synthesis Portal team will review your issue soon. Please make sure you've filled out all the mandatory sections in the issue template.
 
             For more information about contributing, please see our [Contributing Guidelines](https://github.com/${owner}/${repo}/blob/main/CONTRIBUTING.md).`
-                        });
-                        }
+              });
+            }
 
       - name: Auto-assign to maintainer (only if collaborator)
         uses: actions/github-script@v6
