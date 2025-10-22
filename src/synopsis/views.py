@@ -5388,6 +5388,21 @@ def advisory_member_custom_data(request, project_id, member_id):
 
     form.apply_widget_configuration()
 
+    history_map = {}
+    if applicable_fields:
+        history_qs = (
+            AdvisoryBoardCustomFieldValueHistory.objects.filter(
+                member=member, field__in=applicable_fields
+            )
+            .select_related("field", "changed_by")
+            .order_by("-created_at", "-id")
+        )
+        for entry in history_qs:
+            bucket = history_map.setdefault(entry.field_id, [])
+            if len(bucket) >= 10:
+                continue
+            bucket.append(entry)
+
     return render(
         request,
         "synopsis/advisory_member_custom_data.html",
@@ -5397,6 +5412,8 @@ def advisory_member_custom_data(request, project_id, member_id):
             "form": form,
             "fields": applicable_fields,
             "status_key": status_key,
+            "history_map": history_map,
+            "focused_field": focused_field,
         },
     )
 
