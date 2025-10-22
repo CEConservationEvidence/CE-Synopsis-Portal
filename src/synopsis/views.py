@@ -5342,6 +5342,7 @@ def advisory_member_custom_data(request, project_id, member_id):
     applicable_fields = [field for field in all_fields if field.applies_to(status_key)]
 
     focus_field_id = request.GET.get("field") or request.POST.get("focused_field")
+    focused_field = None
     if focus_field_id:
         try:
             focused_field = next(
