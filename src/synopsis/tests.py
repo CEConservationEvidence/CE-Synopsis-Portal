@@ -255,7 +255,7 @@ class FunderFormTests(TestCase):
         self.assertTrue(form.is_valid())
 
 
-class AdvisoryBoardCustomColumnsTests(TestCase):
+class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
     def setUp(self):
         self.project = Project.objects.create(title="Dynamic Columns")
         self.editor = User.objects.create_user(username="editor")
