@@ -547,7 +547,7 @@ class AdvisoryBoardMember(models.Model):
     )  # e.g. "accepted", "declined", etc.
     feedback_on_list = models.BooleanField(default=False)
     feedback_on_actions_received = models.BooleanField(default=False)
-    wm_replied = models.BooleanField(default=False)  # TODO: What is wm? Clarify.
+    wm_replied = models.BooleanField(default=False)
     feedback_added_to_action_list = models.BooleanField(default=False)
     reminder_sent = models.BooleanField(default=False)
     reminder_sent_at = models.DateTimeField(null=True, blank=True)
