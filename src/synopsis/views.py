@@ -2571,7 +2571,7 @@ def collaborative_start(request, project_id, document_slug):
         )
         return redirect(_document_detail_url(project.id, document_type))
 
-    # TODO: need to guard against race conditions by wrapping this check/create in a transaction
+    # TODO: #17 need to guard against race conditions by wrapping this check/create in a transaction
     # or enforcing a uniqueness constraint so concurrent POSTs cannot spawn two sessions.
     active_session = _get_active_collaborative_session(project, document_type)
     if active_session:
@@ -2983,7 +2983,7 @@ def action_list_set_stage(request, project_id):
     return redirect("synopsis:action_list_detail", project_id=project.id)
 
 
-# TODO: Investigate bug where uploading a new action list after deleting the file does not refresh the page with the latest document.
+# TODO: #18 Investigate bug where uploading a new action list after deleting the file does not refresh the page with the latest document.
 @login_required
 def action_list_delete_file(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -3277,7 +3277,7 @@ def protocol_set_stage(request, project_id):
     return redirect("synopsis:protocol_detail", project_id=project.id)
 
 
-# TODO: Investigate bug where uploading a new protocol after deleting the file does not refresh the page with the latest document.
+# TODO: #19 Investigate bug where uploading a new protocol after deleting the file does not refresh the page with the latest document.
 @login_required
 def protocol_delete_file(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -3452,7 +3452,6 @@ def protocol_clear_text(request, project_id):
         },
     )
 
-# TODO: only a manager can delete protocols and other material - apply user permissions functionality here and elsewhere later.
 @login_required
 def protocol_delete(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
