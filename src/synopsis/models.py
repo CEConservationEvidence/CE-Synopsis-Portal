@@ -708,8 +708,22 @@ class AdvisoryBoardCustomField(models.Model):
             return None
         return stored.value
 
-    def set_value_for_member(self, member, value):
+    def set_value_for_member(self, member, value, *, changed_by=None):
         cleaned = self.clean_value(value) if value not in (None, "") else None
+        current_value = self.get_value_for_member(member)
+        current_normalized = current_value or ""
+        new_normalized = cleaned or ""
+        if current_normalized == new_normalized:
+            return
+
+        AdvisoryBoardCustomFieldValueHistory.objects.create(
+            field=self,
+            member=member,
+            value=new_normalized,
+            is_cleared=cleaned in (None, ""),
+            changed_by=changed_by if isinstance(changed_by, User) else None,
+        )
+
         if cleaned in (None, ""):
             AdvisoryBoardCustomFieldValue.objects.filter(
                 field=self, member=member
