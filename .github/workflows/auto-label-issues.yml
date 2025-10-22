@@ -23,7 +23,7 @@ jobs:
             const { owner, repo } = context.repo;
             const issueNumber = issue.number;
             const currentLabels = (issue.labels || []).map(label => label.name);
-            const managedLabels = new Set([
+            const managedLabelKeys = [
               'bug',
               'enhancement',
               'documentation',
@@ -36,8 +36,23 @@ jobs:
               'os:linux',
               'priority:high',
               'needs-triage'
-            ]);
+            ];
             const desiredLabels = new Set();
+            const fetchExistingLabels = async () => {
+              const all = await github.paginate(github.rest.issues.listLabelsForRepo, {
+                owner,
+                repo,
+                per_page: 100
+              });
+              const map = new Map();
+              for (const label of all) {
+                map.set(label.name.toLowerCase(), label.name);
+              }
+              return map;
+            };
+            const labelNameMap = await fetchExistingLabels();
+            const resolveLabel = name => labelNameMap.get(name.toLowerCase()) || name;
+            const managedLabels = new Set(managedLabelKeys.map(resolveLabel));
             const containsAny = (text, keywords) => keywords.some(keyword => text.includes(keyword));
             const extractSection = headingPrefix => {
               const pattern = new RegExp(`##\\s*${headingPrefix}[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)`, 'i');
@@ -60,17 +75,17 @@ jobs:
 
             const bugKeywords = ['bug', 'error', 'crash', 'exception', 'stack trace', 'fails', 'broken'];
             if (hasNonPlaceholderSteps || containsAny(titleLower, bugKeywords) || containsAny(bodyLower, bugKeywords) || /unexpected/i.test(actualSection)) {
-              desiredLabels.add('bug');
+              desiredLabels.add(resolveLabel('bug'));
             }
 
             const enhancementKeywords = ['enhancement', 'feature', 'improv', 'overhaul', 'optimiz', 'ux', 'ui', 'design', 'refactor', 'clean up', 'visual'];
             if (containsAny(titleLower, enhancementKeywords) || containsAny(bodyLower, enhancementKeywords)) {
-              desiredLabels.add('enhancement');
+              desiredLabels.add(resolveLabel('enhancement'));
             }
 
             const documentationKeywords = ['documentation', 'docs', 'readme', 'guide', 'manual'];
             if (containsAny(titleLower, documentationKeywords) || containsAny(bodyLower, documentationKeywords)) {
-              desiredLabels.add('documentation');
+              desiredLabels.add(resolveLabel('documentation'));
             }
 
             const normalizeValue = value => value.toLowerCase();
@@ -84,26 +99,26 @@ jobs:
                 const rawValue = parts.slice(1).join(':').trim();
                 if (!hasRealValue(rawValue)) continue;
                 const value = normalizeValue(rawValue);
-                if (value.includes('chrome')) desiredLabels.add('browser:chrome');
-                if (value.includes('safari')) desiredLabels.add('browser:safari');
-                if (value.includes('firefox')) desiredLabels.add('browser:firefox');
-                if (value.includes('edge')) desiredLabels.add('browser:edge');
-                if (value.includes('window')) desiredLabels.add('os:windows');
-                if (value.includes('mac')) desiredLabels.add('os:macos');
-                if (value.includes('linux') || value.includes('ubuntu')) desiredLabels.add('os:linux');
+                if (value.includes('chrome')) desiredLabels.add(resolveLabel('browser:chrome'));
+                if (value.includes('safari')) desiredLabels.add(resolveLabel('browser:safari'));
+                if (value.includes('firefox')) desiredLabels.add(resolveLabel('browser:firefox'));
+                if (value.includes('edge')) desiredLabels.add(resolveLabel('browser:edge'));
+                if (value.includes('window')) desiredLabels.add(resolveLabel('os:windows'));
+                if (value.includes('mac')) desiredLabels.add(resolveLabel('os:macos'));
+                if (value.includes('linux') || value.includes('ubuntu')) desiredLabels.add(resolveLabel('os:linux'));
               }
             }
 
             const priorityKeywords = ['critical', 'urgent', 'blocker', 'severity'];
             if (containsAny(titleLower, priorityKeywords) || containsAny(bodyLower, priorityKeywords)) {
-              desiredLabels.add('priority:high');
+              desiredLabels.add(resolveLabel('priority:high'));
             }
 
             const action = context.payload.action;
-            const classificationLabels = new Set(['bug', 'enhancement', 'documentation', 'priority:high']);
+            const classificationLabels = new Set(['bug', 'enhancement', 'documentation', 'priority:high'].map(resolveLabel));
             const hasAutoClassification = Array.from(desiredLabels).some(label => classificationLabels.has(label));
-            if (!hasAutoClassification && (action === 'opened' || currentLabels.includes('needs-triage'))) {
-              desiredLabels.add('needs-triage');
+            if (!hasAutoClassification && (action === 'opened' || currentLabels.includes(resolveLabel('needs-triage')))) {
+              desiredLabels.add(resolveLabel('needs-triage'));
             }
 
             const labelsToAdd = Array.from(desiredLabels).filter(label => !currentLabels.includes(label));
