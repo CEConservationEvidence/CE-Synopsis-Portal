@@ -2571,6 +2571,8 @@ def collaborative_start(request, project_id, document_slug):
         )
         return redirect(_document_detail_url(project.id, document_type))
 
+    # TODO: need to guard against race conditions by wrapping this check/create in a transaction
+    # or enforcing a uniqueness constraint so concurrent POSTs cannot spawn two sessions.
     active_session = _get_active_collaborative_session(project, document_type)
     if active_session:
         messages.warning(
