@@ -3663,6 +3663,11 @@ def user_create(request):
 
     return render(request, "synopsis/user_create.html", {"form": form})
 
+# TODO: #22 Add pagination and search functionality to the advisory board member list for improved usability with large datasets.
+# TODO: #23 Implement CSV export functionality for advisory board members and their responses.
+# TODO: #24 Add email notification functionality for scheduled reminders.
+# TODO: #25 Implement role-based access control for advisory board management (or a mechanism for accessing files shared with advisory board members securely such as signed URLs, tokens, etc.).
+# TODO: #22 Visual overhaul of AB management pages to improve UX (very cluttered currently and needs color coding with base, standard columns and better grouping of actions).
 
 @login_required
 def advisory_board_list(request, project_id):
