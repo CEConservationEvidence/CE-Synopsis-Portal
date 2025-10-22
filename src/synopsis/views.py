@@ -2751,7 +2751,6 @@ def collaborative_edit(request, project_id, document_slug, token):
         update_fields.append("last_participant_name")
     session.save(update_fields=update_fields)
 
-    config_json = json.dumps(config)
     document_label = _document_label(document_type)
     force_end_url = reverse(
         "synopsis:collaborative_force_end",
@@ -2766,7 +2765,7 @@ def collaborative_edit(request, project_id, document_slug, token):
             "project": project,
             "session": session,
             "document_label": document_label,
-            "editor_config": config_json,
+            "editor_config": config,
             "onlyoffice_js_url": editor_js_url,
             "detail_url": _document_detail_url(project.id, document_type),
             "can_force_end": can_force_end,
