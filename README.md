@@ -203,3 +203,8 @@ Maintainer and main developer: **Ibrahim Alhas** (alhasacademy@gmail.com).
 # Contributing
 
 Please read the [Contributing Guidelines](CONTRIBUTING.md) before making a pull request.
+
+# Project-wide TODOs
+
+- TODO: #23 Project-wide: Refactor and modularize codebase for better maintainability and scalability.
+- TODO: #24 Project-wide: Organize project files and directories for improved clarity and navigation.
