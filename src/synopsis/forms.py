@@ -192,7 +192,9 @@ class AdvisoryCustomFieldForm(forms.ModelForm):
         if self.instance.pk:
             qs = qs.exclude(pk=self.instance.pk)
         if qs.exists():
-            raise forms.ValidationError("A column with this name already exists for this project.")
+            raise forms.ValidationError(
+                "A column with this name already exists for this project."
+            )
         return name
 
     def clean_sections(self):
@@ -258,11 +260,15 @@ class AdvisoryMemberCustomDataForm(forms.Form):
             checkbox_attrs = {"class": "form-check-input"}
             if self.form_id:
                 checkbox_attrs["form"] = self.form_id
-            return forms.BooleanField(required=False, widget=forms.CheckboxInput(attrs=checkbox_attrs))
+            return forms.BooleanField(
+                required=False, widget=forms.CheckboxInput(attrs=checkbox_attrs)
+            )
         if field.data_type == AdvisoryBoardCustomField.TYPE_DATE:
             date_attrs = text_attrs.copy()
             date_attrs["type"] = "date"
-            return forms.DateField(required=False, widget=forms.DateInput(attrs=date_attrs))
+            return forms.DateField(
+                required=False, widget=forms.DateInput(attrs=date_attrs)
+            )
         return forms.CharField(required=False, widget=forms.TextInput(attrs=text_attrs))
 
     def iter_fields(self):
@@ -290,6 +296,8 @@ class AdvisoryMemberCustomDataForm(forms.Form):
                 widget.attrs["form"] = self.form_id
             if bound.errors and "is-invalid" not in widget.attrs.get("class", ""):
                 widget.attrs["class"] = f"{widget.attrs['class']} is-invalid".strip()
+
+
 class AssignAuthorsForm(forms.Form):
     authors = forms.ModelMultipleChoiceField(
         queryset=User.objects.order_by("username"),
@@ -436,6 +444,7 @@ class ProjectSettingsForm(forms.ModelForm):
             raise forms.ValidationError("Enter a title for the synopsis.")
         return title
 
+
 class AdvisoryBulkInviteForm(forms.Form):
     due_date = forms.DateField(
         required=False,
@@ -482,7 +491,6 @@ class ProtocolSendForm(forms.Form):
         else:
             self.fields["include_collaborative_link"].initial = False
             self.fields["include_collaborative_link"].disabled = True
-
 
 
 class ActionListSendForm(forms.Form):

@@ -1,4 +1,9 @@
-<form method="post" action="{{ action_url }}" class="{{ form_class|default:'' }}" novalidate>
+<form
+    method="post"
+    action="{{ action_url }}"
+    class="{{ form_class|default:'' }}"
+    novalidate
+>
     {% csrf_token %}
     {% if next_url %}
     <input type="hidden" name="next" value="{{ next_url }}">

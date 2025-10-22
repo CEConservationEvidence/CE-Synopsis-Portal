@@ -11,20 +11,26 @@
     <div class="card-body">
         <div class="row g-3 small">
             <div class="col-sm-3">
-                <strong>Records imported:</strong> {{ batch.record_count }}
+                <strong>Records imported:</strong>
+                {{ batch.record_count }}
             </div>
             <div class="col-sm-3">
-                <strong>Uploaded:</strong> {{ batch.created_at|date:"Y-m-d H:i" }}
+                <strong>Uploaded:</strong>
+                {{ batch.created_at|date:"Y-m-d H:i" }}
             </div>
             <div class="col-sm-3">
-                <strong>Uploaded by:</strong> {% if batch.uploaded_by %}{{ batch.uploaded_by.get_full_name|default:batch.uploaded_by.username }}{% else %}
-                <span class="text-muted">—</span>{% endif %}
+                <strong>Uploaded by:</strong>
+                {% if batch.uploaded_by %}{{ batch.uploaded_by.get_full_name|default:batch.uploaded_by.username }}{% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
             </div>
             <div class="col-sm-3">
-                <strong>Search date:</strong> {{ batch.search_date|date:"Y-m-d"|default:"—" }}
+                <strong>Search date:</strong>
+                {{ batch.search_date|date:"Y-m-d"|default:"—" }}
             </div>
             <div class="col-sm-12">
-                <strong>Notes:</strong> {{ batch.notes|default:"—" }}
+                <strong>Notes:</strong>
+                {{ batch.notes|default:"—" }}
             </div>
         </div>
     </div>

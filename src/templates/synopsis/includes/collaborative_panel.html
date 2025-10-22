@@ -19,10 +19,20 @@
         </div>
         <div class="d-flex flex-wrap gap-2 align-items-center">
             {% if collaborative_resume_url %}
-            <a class="btn btn-primary btn-sm" href="{{ collaborative_resume_url }}" target="_blank" rel="noopener">Open editor</a>
+            <a
+                class="btn btn-primary btn-sm"
+                href="{{ collaborative_resume_url }}"
+                target="_blank"
+                rel="noopener"
+            >Open editor</a>
             {% endif %}
             {% if collaborative_can_override and collaborative_force_end_url %}
-            <form method="post" action="{{ collaborative_force_end_url }}" class="d-inline" onsubmit="return confirm('End this collaborative session for everyone?');">
+            <form
+                method="post"
+                action="{{ collaborative_force_end_url }}"
+                class="d-inline"
+                onsubmit="return confirm('End this collaborative session for everyone?');"
+            >
                 {% csrf_token %}
                 <button type="submit" class="btn btn-outline-danger btn-sm">End session</button>
             </form>

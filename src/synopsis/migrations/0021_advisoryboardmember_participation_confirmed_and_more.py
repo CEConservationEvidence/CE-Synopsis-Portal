@@ -28,7 +28,9 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="protocolfeedback",
             name="uploaded_document",
-            field=models.FileField(blank=True, null=True, upload_to="protocol_feedback_uploads/"),
+            field=models.FileField(
+                blank=True, null=True, upload_to="protocol_feedback_uploads/"
+            ),
         ),
         migrations.AddField(
             model_name="protocolfeedback",

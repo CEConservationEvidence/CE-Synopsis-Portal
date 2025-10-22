@@ -6,8 +6,10 @@
         <div class="card">
             <div class="card-body">
                 <h1 class="h4 mb-3">Confirm your participation</h1>
-                <p>Please confirm that you are able to actively participate in
-                    <strong>{{ project.title }}</strong> and contribute to the synopsis development.</p>
+                <p>
+                    Please confirm that you are able to actively participate in
+                    <strong>{{ project.title }}</strong> and contribute to the synopsis development.
+                </p>
                 <form method="post">
                     {% csrf_token %}
                     <div class="form-check mb-3">

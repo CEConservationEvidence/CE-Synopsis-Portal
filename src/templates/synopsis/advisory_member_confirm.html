@@ -30,7 +30,7 @@
                 {% csrf_token %}
                 <input type="hidden" name="action" value="add_member_confirm">
                 {% for name, value in cleaned_data.items %}
-                    <input type="hidden" name="{{ name }}" value="{{ value|default_if_none:''|escape }}">
+                <input type="hidden" name="{{ name }}" value="{{ value|default_if_none:''|escape }}">
                 {% endfor %}
                 <button class="btn btn-primary">Confirm and add member</button>
             </form>
@@ -38,7 +38,7 @@
                 {% csrf_token %}
                 <input type="hidden" name="action" value="add_member_back">
                 {% for name, value in cleaned_data.items %}
-                    <input type="hidden" name="{{ name }}" value="{{ value|default_if_none:''|escape }}">
+                <input type="hidden" name="{{ name }}" value="{{ value|default_if_none:''|escape }}">
                 {% endfor %}
                 <button class="btn btn-outline-secondary">Edit details</button>
             </form>
