@@ -729,6 +729,7 @@ class AdvisoryBoardCustomField(models.Model):
                 field=self, member=member
             ).delete()
             return
+
         AdvisoryBoardCustomFieldValue.objects.update_or_create(
             field=self,
             member=member,
@@ -783,6 +784,27 @@ class AdvisoryBoardCustomFieldValue(models.Model):
         return f"{self.field.name} for {self.member}"
 
 
+class AdvisoryBoardCustomFieldValueHistory(models.Model):
+    field = models.ForeignKey(
+        AdvisoryBoardCustomField,
+        on_delete=models.CASCADE,
+        related_name="value_history",
+    )
+    member = models.ForeignKey(
+        AdvisoryBoardMember,
+        on_delete=models.CASCADE,
+        related_name="custom_value_history",
+    )
+    value = models.TextField(blank=True)
+    is_cleared = models.BooleanField(default=False)
+    changed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="custom_field_value_history",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
 class AdvisoryBoardInvitation(models.Model):
     """Simply tracks invitations sent to advisory board members for a project."""
 
