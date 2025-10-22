@@ -15,7 +15,6 @@ from .models import (
     UserRole,
 )
 
-# TODO: see if these are enough, if not add more titles.
 FUNDER_TITLE_CHOICES = [
     ("", "Title"),
     ("Dr", "Dr"),
