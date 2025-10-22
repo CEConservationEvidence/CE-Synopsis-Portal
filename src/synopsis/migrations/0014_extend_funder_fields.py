@@ -6,7 +6,10 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("synopsis", "0013_remove_advisoryboardinvitation_synopsis_ad_project_7e64cb_idx_and_more"),
+        (
+            "synopsis",
+            "0013_remove_advisoryboardinvitation_synopsis_ad_project_7e64cb_idx_and_more",
+        ),
     ]
 
     operations = [
@@ -28,7 +31,8 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="funder",
             name="funds_allocated",
-            field=models.DecimalField(blank=True, decimal_places=2, max_digits=12, null=True),
+            field=models.DecimalField(
+                blank=True, decimal_places=2, max_digits=12, null=True
+            ),
         ),
     ]
-
