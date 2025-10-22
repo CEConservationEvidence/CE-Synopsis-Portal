@@ -348,7 +348,7 @@
                                     {% else %}
                                     <span class="text-muted">—</span>
                                     {% endif %}
-                                    <div><a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}">Edit</a></div>
+                                    <div><a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a></div>
                                 </td>
                                 {% endwith %}
                                 {% endfor %}

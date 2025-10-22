@@ -1,11 +1,16 @@
 {% extends "synopsis/base.html" %}
+{% load advisory_extras %}
 {% block title %}Custom Data – {{ member.first_name|default:member.email }}{% endblock %}
 {% block content %}
 <h1 class="mb-3">Custom data – {{ member.first_name|default:member.email }}</h1>
 <p class="text-muted">Update the additional columns configured for the advisory board. These values appear in the {{ status_key }} section.</p>
-<form method="post" class="card">
+<form method="post" class="card"{% if focused_field %} action="?field={{ focused_field.id }}"{% endif %}>
     <div class="card-body">
         {% csrf_token %}
+        {% if focused_field %}
+        <input type="hidden" name="focused_field" value="{{ focused_field.id }}">
+        <p class="small text-muted mb-3">Updating column: <strong>{{ focused_field.name }}</strong></p>
+        {% endif %}
     {% if not fields %}
         <p class="mb-0 text-muted">No custom columns are configured for this member&apos;s section yet.</p>
         {% else %}
@@ -21,11 +26,28 @@
             </div>
             {% else %}
           {{ bound_field }}
-          {% if bound_field.help_text %}
+        {% if bound_field.help_text %}
             <div class="form-text">{{ bound_field.help_text }}</div>
             {% endif %}
         {% endif %}
         {{ bound_field.errors }}
+        {% with history=history_map|get_item:field.id %}
+        {% if history %}
+        <details class="mt-2">
+            <summary class="small text-muted">History (latest {{ history|length }} entries)</summary>
+            <ul class="list-unstyled small mb-0 mt-2">
+            {% for entry in history %}
+                <li class="mb-1">
+                    <span class="text-body">{% if entry.is_cleared %}<em>Cleared</em>{% else %}{{ entry.value|default:"—" }}{% endif %}</span>
+                    <span class="text-muted">— {{ entry.created_at|date:"Y-m-d H:i" }}{% if entry.changed_by %} · {{ entry.changed_by.get_full_name|default:entry.changed_by.username }}{% endif %}</span>
+                </li>
+            {% empty %}
+                <li class="text-muted">No history yet.</li>
+            {% endfor %}
+            </ul>
+        </details>
+        {% endif %}
+        {% endwith %}
         </div>
         {% endfor %}
     {% endif %}
