@@ -2,8 +2,10 @@
 {% block title %}Update Authors – {{ project.title }}{% endblock %}
 {% block content %}
 <h1 class="mb-3">Update authors</h1>
-<p class="text-muted">Select the users who should be assigned as authors for
-    <strong>{{ project.title }}</strong>.
+<p class="text-muted">
+    Select the users who should be assigned as authors for
+    <strong>{{ project.title }}</strong>
+    .
 </p>
 <form method="post">
     {% csrf_token %}
