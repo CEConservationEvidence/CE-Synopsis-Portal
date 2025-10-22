@@ -53,6 +53,7 @@ from .views import (
     action_list_delete_revision,
 )
 
+# TODO: #25 Clean up tests.py and see if some tests can be split into separate files.
 
 class EmailSubjectTests(TestCase):
     def setUp(self):
