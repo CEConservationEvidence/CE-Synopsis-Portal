@@ -511,6 +511,7 @@ class CollaborativeSession(models.Model):
         self.last_callback_payload = payload or {}
         self.save(update_fields=["last_activity_at", "last_callback_payload"])
 
+
 # TODO: Refactor AdvisoryBoardMember columns for clarity and normalization:
 #   - Consider renaming 'title', 'first_name', 'middle_name', 'last_name' for consistency with other models.
 #   - Review if 'middle_name' is necessary or can be merged with 'first_name'.
@@ -727,9 +728,11 @@ class AdvisoryBoardCustomField(models.Model):
             base_slug = slugify(self.name) or "field"
             slug = base_slug
             index = 1
-            while AdvisoryBoardCustomField.objects.filter(
-                project=self.project, slug=slug
-            ).exclude(pk=self.pk).exists():
+            while (
+                AdvisoryBoardCustomField.objects.filter(project=self.project, slug=slug)
+                .exclude(pk=self.pk)
+                .exists()
+            ):
                 index += 1
                 slug = f"{base_slug}-{index}"
             self.slug = slug
@@ -764,7 +767,6 @@ class AdvisoryBoardCustomFieldValue(models.Model):
 
     def __str__(self):
         return f"{self.field.name} for {self.member}"
-
 
 
 class AdvisoryBoardInvitation(models.Model):
