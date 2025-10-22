@@ -20,8 +20,8 @@ jobs:
             const { owner, repo } = context.repo;
             const prNumber = context.payload.pull_request.number;
             const currentLabels = (context.payload.pull_request.labels || []).map(label => label.name);
-            const desiredLabels = new Set();
-            const managedLabels = new Set([
+
+            const managedLabelKeys = [
               'bug-fix',
               'feature',
               'enhancement',
@@ -31,46 +31,91 @@ jobs:
               'work-in-progress',
               'tested',
               'docs-updated'
-            ]);
-
-            const typeMappings = [
-              { marker: '- [x] Bug fix', label: 'bug-fix' },
-              { marker: '- [x] New feature', label: 'feature' },
-              { marker: '- [x] Enhancement', label: 'enhancement' },
-              { marker: '- [x] Documentation update', label: 'documentation' },
-              { marker: '- [x] Code refactoring', label: 'refactoring' }
             ];
 
-            for (const { marker, label } of typeMappings) {
-              if (body.includes(marker)) {
-                desiredLabels.add(label);
+            const fetchExistingLabels = async () => {
+              const all = await github.paginate(github.rest.issues.listLabelsForRepo, {
+                owner,
+                repo,
+                per_page: 100
+              });
+              const map = new Map();
+              for (const label of all) {
+                map.set(label.name.toLowerCase(), label.name);
+              }
+              return map;
+            };
+
+            const labelNameMap = await fetchExistingLabels();
+            const resolveLabel = name => labelNameMap.get(name.toLowerCase()) || name;
+            const managedLabels = new Set(managedLabelKeys.map(resolveLabel));
+
+            const normalize = text => text.toLowerCase().replace(/\s+/g, ' ').trim();
+            const extractSection = heading => {
+              const pattern = new RegExp(`##\\s*${heading}[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)`, 'i');
+              const match = body.match(pattern);
+              return match ? match[1] : '';
+            };
+            const parseCheckboxes = section => {
+              const map = new Map();
+              if (!section) return map;
+              for (const line of section.split(/\r?\n/)) {
+                const match = line.match(/^- \[([ xX])\]\s+(.*)$/);
+                if (!match) continue;
+                map.set(normalize(match[2]), match[1].toLowerCase() === 'x');
+              }
+              return map;
+            };
+
+            const typeSection = extractSection('Type of Change');
+            const checklistSection = extractSection('Checklist');
+            const typeCheckboxes = parseCheckboxes(typeSection);
+            const checklistCheckboxes = parseCheckboxes(checklistSection);
+            const desiredLabels = new Set();
+
+            const typeMappings = new Map([
+              ['bug fix', 'bug-fix'],
+              ['new feature', 'feature'],
+              ['enhancement', 'enhancement'],
+              ['documentation update', 'documentation'],
+              ['code refactoring', 'refactoring']
+            ]);
+
+            for (const [choice, label] of typeMappings.entries()) {
+              if (typeCheckboxes.get(normalize(choice))) {
+                desiredLabels.add(resolveLabel(label));
               }
             }
 
-            const checklistMatch = body.match(/## Checklist([\s\S]*?)(##|$)/i);
-            const checklistSection = checklistMatch ? checklistMatch[1] : '';
-            const checklistItems = checklistSection.match(/- \[[ x]\] .+/g) || [];
-            const uncheckedChecklist = checklistItems.filter(item => item.startsWith('- [ ]'));
+            const checklistValues = Array.from(checklistCheckboxes.values());
+            const hasChecklist = checklistValues.length > 0;
+            const allChecked = hasChecklist && checklistValues.every(Boolean);
 
-            if (checklistItems.length && uncheckedChecklist.length === 0) {
-              desiredLabels.add('ready-for-review');
+            if (allChecked) {
+              desiredLabels.add(resolveLabel('ready-for-review'));
             } else {
-              desiredLabels.add('work-in-progress');
+              desiredLabels.add(resolveLabel('work-in-progress'));
             }
 
-            if (body.includes('- [x] All new and existing tests pass')) {
-              desiredLabels.add('tested');
+            const isChecklistChecked = text => checklistCheckboxes.get(normalize(text)) === true;
+
+            if (isChecklistChecked('all new and existing tests pass')) {
+              desiredLabels.add(resolveLabel('tested'));
             }
 
-            if (body.includes('- [x] I have updated the documentation accordingly')) {
-              desiredLabels.add('docs-updated');
+            if (isChecklistChecked('i have updated the documentation accordingly')) {
+              desiredLabels.add(resolveLabel('docs-updated'));
             }
 
             const labelsToAdd = Array.from(desiredLabels).filter(label => !currentLabels.includes(label));
             const labelsToRemove = currentLabels.filter(label => managedLabels.has(label) && !desiredLabels.has(label));
 
             for (const label of labelsToRemove) {
-              await github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name: label });
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name: label });
+              } catch (error) {
+                // Ignore removal failures (label already removed manually, etc.)
+              }
             }
 
             if (labelsToAdd.length) {
