@@ -537,7 +537,11 @@ def _ensure_collaborative_invite_link(
         session_kwargs = {
             "project": project,
             "document_type": document_type,
-            "started_by": request.user if getattr(request.user, "is_authenticated", False) else None,
+            "started_by": (
+                request.user
+                if getattr(request.user, "is_authenticated", False)
+                else None
+            ),
             "last_activity_at": timezone.now(),
         }
 
@@ -573,7 +577,9 @@ def _ensure_collaborative_invite_link(
         params["feedback"] = str(feedback.token)
 
     slug = _document_type_slug(document_type)
-    path = reverse("synopsis:collaborative_edit", args=[project.id, slug, session.token])
+    path = reverse(
+        "synopsis:collaborative_edit", args=[project.id, slug, session.token]
+    )
     if params:
         path = f"{path}?{urlencode(params)}"
     return request.build_absolute_uri(path)
@@ -641,16 +647,18 @@ def _build_onlyoffice_config(
     file_url = request.build_absolute_uri(document_file.url)
     file_type = _document_filetype(document_file.name)
     title = os.path.basename(document_file.name) or _document_label(document_type)
-    doc_key = f"{project.id}-{document_type}-{session.id}-{int(session.started_at.timestamp())}"[-128:]
+    doc_key = f"{project.id}-{document_type}-{session.id}-{int(session.started_at.timestamp())}"[
+        -128:
+    ]
 
     user = request.user
     user_id = str(getattr(user, "id", "anonymous"))
     user_name = (
-        _user_display(user)
-        if getattr(user, "is_authenticated", False)
-        else "Anonymous"
+        _user_display(user) if getattr(user, "is_authenticated", False) else "Anonymous"
     )
-    user_email = getattr(user, "email", "") if getattr(user, "is_authenticated", False) else ""
+    user_email = (
+        getattr(user, "email", "") if getattr(user, "is_authenticated", False) else ""
+    )
 
     if participant:
         user_id = participant.get("id", user_id)
@@ -720,7 +728,10 @@ def _download_onlyoffice_file(file_url: str) -> bytes:
             parsed_allowed = urlparse(entry)
         except ValueError:
             continue
-        if parsed_allowed.scheme not in {"http", "https"} or not parsed_allowed.hostname:
+        if (
+            parsed_allowed.scheme not in {"http", "https"}
+            or not parsed_allowed.hostname
+        ):
             continue
         allowed.append(
             (
@@ -752,7 +763,9 @@ def _download_onlyoffice_file(file_url: str) -> bytes:
         if candidate_host != host or candidate_port != port:
             continue
         if path_prefix and path_prefix != "/":
-            if candidate_path == path_prefix or candidate_path.startswith(f"{path_prefix}/"):
+            if candidate_path == path_prefix or candidate_path.startswith(
+                f"{path_prefix}/"
+            ):
                 matched = True
                 break
         else:
@@ -865,9 +878,7 @@ def _create_action_list_feedback(project, member=None, email=None, invitation=No
     if action_list:
         kwargs.update(
             {
-                "action_list_document_name": getattr(
-                    action_list.document, "name", ""
-                ),
+                "action_list_document_name": getattr(action_list.document, "name", ""),
                 "action_list_document_last_updated": action_list.last_updated,
                 "action_list_stage_snapshot": action_list.stage,
             }
@@ -1064,9 +1075,7 @@ def _advisory_board_context(
     if action_list_feedback_close_form is None:
         action_close_initial = {}
         if action_list_obj and action_list_obj.feedback_closure_message:
-            action_close_initial["message"] = (
-                action_list_obj.feedback_closure_message
-            )
+            action_close_initial["message"] = action_list_obj.feedback_closure_message
         action_list_feedback_close_form = ActionListFeedbackCloseForm(
             initial=action_close_initial
         )
@@ -1074,9 +1083,7 @@ def _advisory_board_context(
         "action_list": action_list_obj,
         "is_closed": bool(getattr(action_list_obj, "feedback_closed_at", None)),
         "closed_at": getattr(action_list_obj, "feedback_closed_at", None),
-        "closure_message": getattr(
-            action_list_obj, "feedback_closure_message", ""
-        ),
+        "closure_message": getattr(action_list_obj, "feedback_closure_message", ""),
         "deadline": action_list_pending_dates[0] if action_list_pending_dates else None,
     }
 
@@ -1108,34 +1115,32 @@ def _advisory_board_context(
                 "title"
             ],
             "members": accepted_members,
-            "empty_text": section_palette[
-                AdvisoryBoardCustomField.SECTION_ACCEPTED
-            ]["empty"],
-            "card_class": section_palette[
-                AdvisoryBoardCustomField.SECTION_ACCEPTED
-            ]["card"],
-            "header_class": section_palette[
-                AdvisoryBoardCustomField.SECTION_ACCEPTED
-            ]["header"],
+            "empty_text": section_palette[AdvisoryBoardCustomField.SECTION_ACCEPTED][
+                "empty"
+            ],
+            "card_class": section_palette[AdvisoryBoardCustomField.SECTION_ACCEPTED][
+                "card"
+            ],
+            "header_class": section_palette[AdvisoryBoardCustomField.SECTION_ACCEPTED][
+                "header"
+            ],
             "fields": fields_by_section.get(
                 AdvisoryBoardCustomField.SECTION_ACCEPTED, []
             ),
         },
         {
             "key": AdvisoryBoardCustomField.SECTION_PENDING,
-            "title": section_palette[AdvisoryBoardCustomField.SECTION_PENDING][
-                "title"
-            ],
+            "title": section_palette[AdvisoryBoardCustomField.SECTION_PENDING]["title"],
             "members": pending_members,
-            "empty_text": section_palette[
-                AdvisoryBoardCustomField.SECTION_PENDING
-            ]["empty"],
-            "card_class": section_palette[
-                AdvisoryBoardCustomField.SECTION_PENDING
-            ]["card"],
-            "header_class": section_palette[
-                AdvisoryBoardCustomField.SECTION_PENDING
-            ]["header"],
+            "empty_text": section_palette[AdvisoryBoardCustomField.SECTION_PENDING][
+                "empty"
+            ],
+            "card_class": section_palette[AdvisoryBoardCustomField.SECTION_PENDING][
+                "card"
+            ],
+            "header_class": section_palette[AdvisoryBoardCustomField.SECTION_PENDING][
+                "header"
+            ],
             "fields": fields_by_section.get(
                 AdvisoryBoardCustomField.SECTION_PENDING, []
             ),
@@ -1146,15 +1151,15 @@ def _advisory_board_context(
                 "title"
             ],
             "members": declined_members,
-            "empty_text": section_palette[
-                AdvisoryBoardCustomField.SECTION_DECLINED
-            ]["empty"],
-            "card_class": section_palette[
-                AdvisoryBoardCustomField.SECTION_DECLINED
-            ]["card"],
-            "header_class": section_palette[
-                AdvisoryBoardCustomField.SECTION_DECLINED
-            ]["header"],
+            "empty_text": section_palette[AdvisoryBoardCustomField.SECTION_DECLINED][
+                "empty"
+            ],
+            "card_class": section_palette[AdvisoryBoardCustomField.SECTION_DECLINED][
+                "card"
+            ],
+            "header_class": section_palette[AdvisoryBoardCustomField.SECTION_DECLINED][
+                "header"
+            ],
             "fields": fields_by_section.get(
                 AdvisoryBoardCustomField.SECTION_DECLINED, []
             ),
@@ -1296,9 +1301,7 @@ def project_create(request):
                         user=user, project=project, role="author"
                     )
                 if authors:
-                    author_labels = ", ".join(
-                        _user_display(user) for user in authors
-                    )
+                    author_labels = ", ".join(_user_display(user) for user in authors)
                     _log_project_change(
                         project,
                         request.user,
@@ -1405,7 +1408,9 @@ def project_hub(request, project_id):
     funders.sort(
         key=lambda f: (
             f.fund_start_date or dt.date.max,
-            (f.organisation or f.contact_last_name or f.contact_first_name or "").lower(),
+            (
+                f.organisation or f.contact_last_name or f.contact_first_name or ""
+            ).lower(),
         )
     )
     funding_values = [
@@ -1463,8 +1468,8 @@ def project_hub(request, project_id):
         "synopsis/project_hub.html",
         {
             "project": project,
-        "protocol": protocol,
-        "action_list": action_list,
+            "protocol": protocol,
+            "action_list": action_list,
             "ab_stats": ab_stats,
             "reference_stats": reference_stats,
             "phase_labels": phase_labels,
@@ -1767,7 +1772,12 @@ def project_delete(request, project_id):
     return render(
         request,
         "synopsis/project_confirm_delete.html",
-        {"project": project, "form": form, "next_url": next_url, "cancel_url": cancel_url},
+        {
+            "project": project,
+            "form": form,
+            "next_url": next_url,
+            "cancel_url": cancel_url,
+        },
     )
 
 
@@ -1855,9 +1865,7 @@ def protocol_detail(request, project_id):
     collaborative_session = None
     collaborative_resume_url = ""
     collaborative_force_end_url = ""
-    collaborative_slug = _document_type_slug(
-        CollaborativeSession.DOCUMENT_PROTOCOL
-    )
+    collaborative_slug = _document_type_slug(CollaborativeSession.DOCUMENT_PROTOCOL)
     if collaborative_enabled:
         collaborative_session = _get_active_collaborative_session(
             project, CollaborativeSession.DOCUMENT_PROTOCOL
@@ -2067,7 +2075,9 @@ def action_list_detail(request, project_id):
     )
     history_entries = []
     for log in history_queryset:
-        segments = [segment.strip() for segment in log.details.split("|") if segment.strip()]
+        segments = [
+            segment.strip() for segment in log.details.split("|") if segment.strip()
+        ]
         reason = ""
         changes = []
         for segment in segments:
@@ -2099,7 +2109,11 @@ def action_list_detail(request, project_id):
                     "is_current": action_list.current_revision_id == revision.id,
                     "file_name": file_name,
                     "file_size": _format_file_size(revision.file_size),
-                    "uploaded_by": _user_display(revision.uploaded_by) if revision.uploaded_by else "—",
+                    "uploaded_by": (
+                        _user_display(revision.uploaded_by)
+                        if revision.uploaded_by
+                        else "—"
+                    ),
                     "download_url": download_url,
                     "can_mark_final": can_manage
                     and (
@@ -2132,9 +2146,7 @@ def action_list_detail(request, project_id):
     collaborative_session = None
     collaborative_resume_url = ""
     collaborative_force_end_url = ""
-    collaborative_slug = _document_type_slug(
-        CollaborativeSession.DOCUMENT_ACTION_LIST
-    )
+    collaborative_slug = _document_type_slug(CollaborativeSession.DOCUMENT_ACTION_LIST)
     if collaborative_enabled:
         collaborative_session = _get_active_collaborative_session(
             project, CollaborativeSession.DOCUMENT_ACTION_LIST
@@ -2172,7 +2184,9 @@ def action_list_detail(request, project_id):
                     "Finalized action lists cannot be replaced. Switch the stage back to Draft to revise the document.",
                 )
 
-            needs_reason = (not is_new_action_list) and (stage_changed or replacing_file)
+            needs_reason = (not is_new_action_list) and (
+                stage_changed or replacing_file
+            )
             if needs_reason and not reason:
                 form.add_error(
                     "change_reason",
@@ -2182,7 +2196,9 @@ def action_list_detail(request, project_id):
             if not form.errors:
                 old_stage = action_list.stage if action_list else None
                 old_file = (
-                    action_list.document.name if action_list and action_list.document else None
+                    action_list.document.name
+                    if action_list and action_list.document
+                    else None
                 )
 
                 revision_content = None
@@ -2453,7 +2469,9 @@ def _handle_collaborative_save(
 ):
     file_url = payload.get("url")
     if not file_url:
-        logger.warning("Collaborative callback missing file URL for session %s", session.pk)
+        logger.warning(
+            "Collaborative callback missing file URL for session %s", session.pk
+        )
         return False
 
     try:
@@ -2468,9 +2486,7 @@ def _handle_collaborative_save(
     if not original_name:
         original_name = f"{_document_type_slug(document_type)}.docx"
 
-    resolved_users, user_labels = _resolve_collaborative_users(
-        payload.get("users", [])
-    )
+    resolved_users, user_labels = _resolve_collaborative_users(payload.get("users", []))
     uploader = resolved_users[0] if resolved_users else session.started_by
     if not user_labels and session.started_by:
         user_labels.append(_user_display(session.started_by))
@@ -2588,7 +2604,9 @@ def collaborative_start(request, project_id, document_slug):
 
     initial_revision = None
     if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
-        initial_revision = getattr(document, "current_revision", None) or document.latest_revision()
+        initial_revision = (
+            getattr(document, "current_revision", None) or document.latest_revision()
+        )
         session = CollaborativeSession.objects.create(
             project=project,
             document_type=document_type,
@@ -2597,7 +2615,9 @@ def collaborative_start(request, project_id, document_slug):
             initial_protocol_revision=initial_revision,
         )
     else:
-        initial_revision = getattr(document, "current_revision", None) or document.latest_revision()
+        initial_revision = (
+            getattr(document, "current_revision", None) or document.latest_revision()
+        )
         session = CollaborativeSession.objects.create(
             project=project,
             document_type=document_type,
@@ -2648,9 +2668,7 @@ def collaborative_edit(request, project_id, document_slug, token):
         return redirect(_document_detail_url(project.id, document_type))
 
     if not _user_can_edit_project(request.user, project):
-        messages.error(
-            request, "You do not have access to this collaborative session."
-        )
+        messages.error(request, "You do not have access to this collaborative session.")
         return redirect(_document_detail_url(project.id, document_type))
 
     document = _get_document_for_type(project, document_type)
@@ -2680,7 +2698,9 @@ def collaborative_edit(request, project_id, document_slug, token):
         )
         feedback_qs = feedback_model.objects.select_related("member")
         try:
-            participant_feedback = feedback_qs.get(token=feedback_token, project=project)
+            participant_feedback = feedback_qs.get(
+                token=feedback_token, project=project
+            )
             participant_member = participant_feedback.member
         except feedback_model.DoesNotExist:
             participant_feedback = None
@@ -3319,7 +3339,9 @@ def protocol_delete_revision(request, project_id, revision_id):
 
     project = get_object_or_404(Project, pk=project_id)
     if not _user_can_edit_project(request.user, project):
-        messages.error(request, "Only assigned authors or managers can delete protocol revisions.")
+        messages.error(
+            request, "Only assigned authors or managers can delete protocol revisions."
+        )
         return redirect("synopsis:protocol_detail", project_id=project.id)
 
     protocol = getattr(project, "protocol", None)
@@ -3334,13 +3356,17 @@ def protocol_delete_revision(request, project_id, revision_id):
     revision.delete()
 
     next_revision = (
-        protocol.revisions.exclude(pk=revision_id).order_by("-uploaded_at", "-id").first()
+        protocol.revisions.exclude(pk=revision_id)
+        .order_by("-uploaded_at", "-id")
+        .first()
     )
 
     if was_current:
         if next_revision:
             try:
-                base_name, size_text = _apply_revision_to_protocol(protocol, next_revision)
+                base_name, size_text = _apply_revision_to_protocol(
+                    protocol, next_revision
+                )
             except (FileNotFoundError, ValueError):
                 protocol.current_revision = next_revision
                 protocol.save(update_fields=["current_revision"])
@@ -3452,6 +3478,7 @@ def protocol_clear_text(request, project_id):
         },
     )
 
+
 @login_required
 def protocol_delete(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -3489,6 +3516,7 @@ def protocol_delete(request, project_id):
         },
     )
 
+
 # TODO: #21 Expand manager's dashboard to include user management features, such as inviting via email, resetting passwords, and modifying global roles.
 @login_required
 def manager_dashboard(request):
@@ -3499,20 +3527,15 @@ def manager_dashboard(request):
     ensure_global_groups()
     users = User.objects.order_by("username")
 
-    projects = (
-        Project.objects.prefetch_related("userrole_set__user")
-        .order_by("-created_at", "-id")
+    projects = Project.objects.prefetch_related("userrole_set__user").order_by(
+        "-created_at", "-id"
     )
     project_entries = []
     for project in projects:
         authors = [
-            role.user
-            for role in project.userrole_set.all()
-            if role.role == "author"
+            role.user for role in project.userrole_set.all() if role.role == "author"
         ]
-        form = ProjectDeleteForm(
-            project=project, auto_id=f"id_project_{project.id}_%s"
-        )
+        form = ProjectDeleteForm(project=project, auto_id=f"id_project_{project.id}_%s")
         project_entries.append(
             {
                 "project": project,
@@ -3542,9 +3565,7 @@ def project_settings(request, project_id):
             updated_project = form.save()
             changes = []
             if original_title != updated_project.title:
-                changes.append(
-                    f"Title: {original_title} → {updated_project.title}"
-                )
+                changes.append(f"Title: {original_title} → {updated_project.title}")
             if changes:
                 _log_project_change(
                     updated_project,
@@ -3584,7 +3605,9 @@ def project_settings(request, project_id):
 
     for log in change_logs:
         actor = _user_display(log.changed_by) if log.changed_by else "System"
-        segments = [segment.strip() for segment in log.details.split(";") if segment.strip()]
+        segments = [
+            segment.strip() for segment in log.details.split(";") if segment.strip()
+        ]
         for segment in segments:
             if segment.startswith("Title:") and "→" in segment:
                 old_part, new_part = segment.split("→", 1)
@@ -3594,7 +3617,9 @@ def project_settings(request, project_id):
                     new_title,
                     log.created_at,
                     actor,
-                    is_current=(new_title == project.title and project.title not in seen_titles),
+                    is_current=(
+                        new_title == project.title and project.title not in seen_titles
+                    ),
                 )
                 add_title_entry(old_title, log.created_at, actor)
 
@@ -3618,6 +3643,7 @@ def project_settings(request, project_id):
         "synopsis/project_settings_form.html",
         context,
     )
+
 
 # TODO: #20 Implement email verification and password setup workflow for newly created users.
 @login_required
@@ -3663,11 +3689,13 @@ def user_create(request):
 
     return render(request, "synopsis/user_create.html", {"form": form})
 
+
 # TODO: #22 Add pagination and search functionality to the advisory board member list for improved usability with large datasets.
 # TODO: #23 Implement CSV export functionality for advisory board members and their responses.
 # TODO: #24 Add email notification functionality for scheduled reminders.
 # TODO: #25 Implement role-based access control for advisory board management (or a mechanism for accessing files shared with advisory board members securely such as signed URLs, tokens, etc.).
 # TODO: #22 Visual overhaul of AB management pages to improve UX (very cluttered currently and needs color coding with base, standard columns and better grouping of actions).
+
 
 @login_required
 def advisory_board_list(request, project_id):
@@ -3832,7 +3860,10 @@ def advisory_schedule_protocol_reminders(request, project_id):
             f"Protocol deadline {timezone.localtime(deadline).strftime('%Y-%m-%d %H:%M')} for {updated} member(s)",
         )
 
-    messages.success(request, f"Protocol reminder scheduled for {updated} member(s). Reminder now set as required.")
+    messages.success(
+        request,
+        f"Protocol reminder scheduled for {updated} member(s). Reminder now set as required.",
+    )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -4213,15 +4244,15 @@ def advisory_action_list_feedback_close(request, project_id):
             return HttpResponseBadRequest("POST required")
         action_list.feedback_closed_at = None
         action_list.feedback_closure_message = ""
-        action_list.save(update_fields=["feedback_closed_at", "feedback_closure_message"])
+        action_list.save(
+            update_fields=["feedback_closed_at", "feedback_closure_message"]
+        )
         _log_project_change(
             project,
             request.user,
             "Action list feedback reopened",
         )
-        messages.success(
-            request, "Action list feedback reopened for advisory members."
-        )
+        messages.success(request, "Action list feedback reopened for advisory members.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
     if request.method != "POST":
@@ -4883,7 +4914,9 @@ def advisory_send_protocol_compose_all(request, project_id):
         return redirect("synopsis:advisory_board_list", project_id=project.id)
     collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(proto)
     if request.method == "POST":
-        form = ProtocolSendForm(request.POST, collaborative_enabled=collaborative_enabled)
+        form = ProtocolSendForm(
+            request.POST, collaborative_enabled=collaborative_enabled
+        )
         if form.is_valid():
             members = (
                 AdvisoryBoardMember.objects.filter(
@@ -4997,7 +5030,9 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
         return redirect("synopsis:advisory_board_list", project_id=project.id)
     collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(proto)
     if request.method == "POST":
-        form = ProtocolSendForm(request.POST, collaborative_enabled=collaborative_enabled)
+        form = ProtocolSendForm(
+            request.POST, collaborative_enabled=collaborative_enabled
+        )
         if form.is_valid():
             content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
@@ -5018,9 +5053,8 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
                 html += "<hr>" + proto.text_version
             text += f"Provide feedback: {feedback_url}\n"
             html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
-            if (
-                collaborative_enabled
-                and form.cleaned_data.get("include_collaborative_link")
+            if collaborative_enabled and form.cleaned_data.get(
+                "include_collaborative_link"
             ):
                 collaborative_url = _ensure_collaborative_invite_link(
                     request,
@@ -5080,7 +5114,9 @@ def advisory_send_action_list_compose_all(request, project_id):
     if not action_list:
         messages.error(request, "No action list configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
-    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(action_list)
+    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(
+        action_list
+    )
     if request.method == "POST":
         form = ActionListSendForm(
             request.POST, collaborative_enabled=collaborative_enabled
@@ -5199,7 +5235,9 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             "This member has not accepted the invitation or has declined participation.",
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
-    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(action_list)
+    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(
+        action_list
+    )
     if request.method == "POST":
         form = ActionListSendForm(
             request.POST, collaborative_enabled=collaborative_enabled
@@ -5207,7 +5245,9 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
         if form.is_valid():
             content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
-            fb = _create_action_list_feedback(project, member=member, email=member.email)
+            fb = _create_action_list_feedback(
+                project, member=member, email=member.email
+            )
             feedback_url = request.build_absolute_uri(
                 reverse("synopsis:action_list_feedback", args=[str(fb.token)])
             )
@@ -5225,9 +5265,8 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
                 html += "<hr>" + action_list.text_version
             text += f"Provide feedback: {feedback_url}\n"
             html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
-            if (
-                collaborative_enabled
-                and form.cleaned_data.get("include_collaborative_link")
+            if collaborative_enabled and form.cleaned_data.get(
+                "include_collaborative_link"
             ):
                 collaborative_url = _ensure_collaborative_invite_link(
                     request,
@@ -5288,9 +5327,7 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
 @login_required
 def advisory_member_custom_data(request, project_id, member_id):
     project = get_object_or_404(Project, pk=project_id)
-    member = get_object_or_404(
-        AdvisoryBoardMember, pk=member_id, project=project
-    )
+    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
 
     if not _user_can_edit_project(request.user, project):
         messages.error(request, "You do not have permission to update this member.")
@@ -5302,9 +5339,7 @@ def advisory_member_custom_data(request, project_id, member_id):
             "display_order", "name", "id"
         )
     )
-    applicable_fields = [
-        field for field in all_fields if field.applies_to(status_key)
-    ]
+    applicable_fields = [field for field in all_fields if field.applies_to(status_key)]
 
     existing_values = {
         value.field_id: value.value
@@ -5618,7 +5653,10 @@ def action_list_delete_revision(request, project_id, revision_id):
 
     project = get_object_or_404(Project, pk=project_id)
     if not _user_can_edit_project(request.user, project):
-        messages.error(request, "Only assigned authors or managers can delete action list revisions.")
+        messages.error(
+            request,
+            "Only assigned authors or managers can delete action list revisions.",
+        )
         return redirect("synopsis:action_list_detail", project_id=project.id)
 
     action_list = getattr(project, "action_list", None)
