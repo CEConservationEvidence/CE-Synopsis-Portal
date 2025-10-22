@@ -3,7 +3,6 @@
 {% block content %}
 <div class="container py-4">
     <h1 class="mb-4 text-center">Manager Dashboard</h1>
-
     <!-- Synopsis Management Section -->
     <section class="mb-5">
         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -34,7 +33,7 @@
                                     {{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}
                                 {% endfor %}
                             {% else %}
-                                <span class="text-muted">No authors assigned</span>
+                            <span class="text-muted">No authors assigned</span>
                             {% endif %}
                         </td>
                         <td>{{ project.created_at|date:"Y-m-d H:i" }}</td>
@@ -73,7 +72,6 @@
             </table>
         </div>
     </section>
-
     <!-- User Management Section -->
     <section>
         <div class="d-flex justify-content-between align-items-center mb-3">
