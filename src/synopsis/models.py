@@ -7,6 +7,7 @@ from django.db import models
 from django.utils import timezone
 
 """
+TODO: #16 Cleanup models.py by modularising models into separate files for organization and maintainability. Also add docstring comments (AI generated but reviewed) to explain purpose and usage.
 TODO: Modularise models into synopsis/models/* (project.py, funding.py, protocol.py, etc.)
       once the schema stabilises. Everything is in one file for development but this should be made modular for other living evidence teams to easily adapt to their workflows.
 TODO: Add permissions to restrict access based on user roles.
