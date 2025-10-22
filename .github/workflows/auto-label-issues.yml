@@ -100,7 +100,9 @@ jobs:
             }
 
             const action = context.payload.action;
-            if (action === 'opened' || currentLabels.includes('needs-triage')) {
+            const classificationLabels = new Set(['bug', 'enhancement', 'documentation', 'priority:high']);
+            const hasAutoClassification = Array.from(desiredLabels).some(label => classificationLabels.has(label));
+            if (!hasAutoClassification && (action === 'opened' || currentLabels.includes('needs-triage'))) {
               desiredLabels.add('needs-triage');
             }
 
