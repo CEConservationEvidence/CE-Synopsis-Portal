@@ -10,48 +10,57 @@
                 <dl class="row mb-0">
                     <dt class="col-sm-3">Title</dt>
                     <dd class="col-sm-9">{{ summary.title }}</dd>
-
                     <dt class="col-sm-3">Start date</dt>
                     <dd class="col-sm-9">
                         {% if summary.start_date %}
                             {{ summary.start_date|date:"d M Y" }}
                         {% else %}
-                            <span class="text-muted">Not specified</span>
+                        <span class="text-muted">Not specified</span>
                         {% endif %}
                     </dd>
-
                     <dt class="col-sm-3">Authors</dt>
                     <dd class="col-sm-9">
                         {% if summary.authors %}
                             {{ summary.authors|join:", " }}
                         {% else %}
-                            <span class="text-muted">No authors selected</span>
+                        <span class="text-muted">No authors selected</span>
                         {% endif %}
                     </dd>
-
                     <dt class="col-sm-3">Funder</dt>
                     <dd class="col-sm-9">
                         {% if summary.funder.has_details %}
                             {% if summary.funder.organisation %}
-                                <div><strong>Organisation:</strong> {{ summary.funder.organisation }}</div>
-                            {% endif %}
+                        <div>
+                            <strong>Organisation:</strong> {{ summary.funder.organisation }}
+                        </div>
+                        {% endif %}
                             {% if summary.funder.contact_title %}
-                                <div><strong>Title:</strong> {{ summary.funder.contact_title }}</div>
-                            {% endif %}
+                        <div>
+                            <strong>Title:</strong> {{ summary.funder.contact_title }}
+                        </div>
+                        {% endif %}
                             {% if summary.funder.contact and summary.funder.contact != "—" %}
-                                <div><strong>Contact:</strong> {{ summary.funder.contact }}</div>
-                            {% endif %}
+                        <div>
+                            <strong>Contact:</strong> {{ summary.funder.contact }}
+                        </div>
+                        {% endif %}
                             {% if summary.funder.funds_allocated %}
-                                <div><strong>Funds allocated:</strong> {{ summary.funder.funds_allocated }}</div>
-                            {% endif %}
+                        <div>
+                            <strong>Funds allocated:</strong> {{ summary.funder.funds_allocated }}
+                        </div>
+                        {% endif %}
                             {% if summary.funder.fund_start_date %}
-                                <div><strong>Start date:</strong> {{ summary.funder.fund_start_date|date:"d M Y" }}</div>
-                            {% endif %}
+                        <div>
+                            <strong>Start date:</strong> {{ summary.funder.fund_start_date|date:"d M Y" }}
+                        </div>
+                        {% endif %}
                             {% if summary.funder.fund_end_date %}
-                                <div><strong>End date:</strong> {{ summary.funder.fund_end_date|date:"d M Y" }}</div>
-                            {% endif %}
+                        <div>
+                            <strong>End date:</strong> {{ summary.funder.fund_end_date|date:"d M Y" }}
+                        </div>
+                        {% endif %}
                         {% else %}
-                            <span class="text-muted">No funder details provided</span>
+                        <span class="text-muted">No funder details provided</span>
                         {% endif %}
                     </dd>
                 </dl>
@@ -67,8 +76,18 @@
                 {{ field }}
             {% endfor %}
             <div class="d-flex justify-content-between">
-                <button class="btn btn-outline-secondary" type="submit" name="edit" value="1">Edit details</button>
-                <button class="btn btn-primary" type="submit" name="confirm" value="1">Create synopsis</button>
+                <button
+                    class="btn btn-outline-secondary"
+                    type="submit"
+                    name="edit"
+                    value="1"
+                >Edit details</button>
+                <button
+                    class="btn btn-primary"
+                    type="submit"
+                    name="confirm"
+                    value="1"
+                >Create synopsis</button>
             </div>
         </form>
     </div>
