@@ -15,6 +15,7 @@ TODO: Add signals to notify users of changes in project status or roles.
 TODO: Add versioning to protocol model to track changes over time. Furthermore, this should be extended to other models like the draft final synopsis document, summaries, actions, etc.
 TODO: Add audit trails to track changes made to critical fields in models (define the data model for this).
 TODO: Add comments to models where necessary to explain their purpose and usage (for other teams adapting this).
+TODO: Add ability to modify already added AB member information via form.
 """
 
 
@@ -805,6 +806,15 @@ class AdvisoryBoardCustomFieldValueHistory(models.Model):
         related_name="custom_field_value_history",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        action = "cleared" if self.is_cleared else "set"
+        return f"{self.field.name} {action} for {self.member} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
 class AdvisoryBoardInvitation(models.Model):
     """Simply tracks invitations sent to advisory board members for a project."""
 
