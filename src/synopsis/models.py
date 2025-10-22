@@ -569,8 +569,6 @@ class AdvisoryBoardMember(models.Model):
     added_to_protocol_doc = models.BooleanField(default=False)
     feedback_on_guidance = models.BooleanField(default=False)
 
-    # TODO rework protocol interaction - one document with version control, shareable link to AB (every AB member comments seen by other AB member)
-
     # Participation confirmation
     participation_confirmed = models.BooleanField(default=False)
     participation_confirmed_at = models.DateTimeField(null=True, blank=True)
