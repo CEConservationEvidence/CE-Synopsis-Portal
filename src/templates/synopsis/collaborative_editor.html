@@ -3,22 +3,27 @@
 {% block page_container_class %}container-fluid p-0{% endblock %}
 {% block content %}
 <div class="collab-header py-3 px-3 px-md-4">
-  <h1 class="mb-2">Collaborative editor – {{ document_label }}</h1>
-  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-    <div>
-        <div class="fw-semibold">{{ project.title }}</div>
-        <a class="small" href="{{ detail_url }}">Back to {{ document_label|lower }} detail</a>
+    <h1 class="mb-2">Collaborative editor – {{ document_label }}</h1>
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <div>
+            <div class="fw-semibold">{{ project.title }}</div>
+            <a class="small" href="{{ detail_url }}">Back to {{ document_label|lower }} detail</a>
+        </div>
+        {% if can_force_end %}
+        <form
+            method="post"
+            action="{{ force_end_url }}"
+            class="d-inline"
+            onsubmit="return confirm('End this collaborative session for everyone?');"
+        >
+            {% csrf_token %}
+            <button type="submit" class="btn btn-outline-danger btn-sm">End session</button>
+        </form>
+        {% endif %}
     </div>
-    {% if can_force_end %}
-    <form method="post" action="{{ force_end_url }}" class="d-inline" onsubmit="return confirm('End this collaborative session for everyone?');">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-outline-danger btn-sm">End session</button>
-    </form>
+    {% if participant_display %}
+    <div class="small text-muted mt-2">You are editing as {{ participant_display }}.</div>
     {% endif %}
-  </div>
-  {% if participant_display %}
-  <div class="small text-muted mt-2">You are editing as {{ participant_display }}.</div>
-  {% endif %}
 </div>
 <style>
   #onlyoffice-editor {
@@ -37,13 +42,30 @@
   }
 </style>
 <div id="onlyoffice-editor"></div>
+{{ editor_config|json_script:"onlyoffice-editor-config" }}
 <script src="{{ onlyoffice_js_url }}"></script>
 <script>
     (function() {
-        const config = {{ editor_config|safe }};
         const container = document.getElementById('onlyoffice-editor');
+        const errorMessage = '<div class="p-4 text-danger">Unable to load the OnlyOffice editor. Check your OnlyOffice configuration.</div>';
         if (!container) {
             console.error('OnlyOffice editor container is missing.');
+            return;
+        }
+
+        const configElement = document.getElementById('onlyoffice-editor-config');
+        if (!configElement) {
+            console.error('OnlyOffice editor configuration element is missing.');
+            container.innerHTML = errorMessage;
+            return;
+        }
+
+        let config;
+        try {
+            config = JSON.parse(configElement.textContent);
+        } catch (error) {
+            console.error('OnlyOffice editor configuration is invalid.', error);
+            container.innerHTML = errorMessage;
             return;
         }
 
@@ -84,8 +106,8 @@
             window.addEventListener('load', handleResize);
         } else {
             console.error('OnlyOffice DocsAPI is not available.');
-            container.innerHTML = '<div class="p-4 text-danger">Unable to load the OnlyOffice editor. Check your OnlyOffice configuration.</div>';
+            container.innerHTML = errorMessage;
         }
-    })(); // TODO: #27 fix linting issue with IIFE on collaborative_editor.html (line 89).
+    })();
 </script>
 {% endblock %}
