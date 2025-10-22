@@ -70,7 +70,14 @@
                         <input type="hidden" name="revision_id" value="{{ current_revision_entry.revision.id }}">
                         <div class="col-md-8 col-lg-6">
                             <label class="form-label" for="id_final_reason">Reason for marking final</label>
-                            <input type="text" class="form-control" id="id_final_reason" name="reason" placeholder="e.g., Consensus reached with authors" required>
+                            <input
+                                type="text"
+                                class="form-control"
+                                id="id_final_reason"
+                                name="reason"
+                                placeholder="e.g., Consensus reached with authors"
+                                required
+                            >
                         </div>
                         <div class="col-md-4 col-lg-3">
                             <button class="btn btn-success w-100" type="submit">Mark as Final</button>
@@ -100,7 +107,9 @@
                 <h5 class="card-title">Upload a new version</h5>
                 {% if final_stage_locked %}
                 <div class="alert alert-warning">
-                    This protocol is marked as <strong>Final</strong>. Switch the stage back to Draft and include a revision reason before uploading a new version.
+                    This protocol is marked as
+                    <strong>Final</strong>
+                    . Switch the stage back to Draft and include a revision reason before uploading a new version.
                 </div>
                 {% endif %}
                 <form method="post" enctype="multipart/form-data">
@@ -157,7 +166,13 @@
                     <input type="hidden" name="stage" value="draft">
                     <label class="form-label" for="id_return_draft">Reason for returning to draft (optional)</label>
                     <div class="input-group">
-                        <input type="text" class="form-control" id="id_return_draft" name="reason" placeholder="e.g., Additional edits required">
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="id_return_draft"
+                            name="reason"
+                            placeholder="e.g., Additional edits required"
+                        >
                         <button class="btn btn-outline-secondary" type="submit">Switch to Draft</button>
                     </div>
                 </form>
@@ -205,7 +220,12 @@
                                 <a class="btn btn-outline-secondary btn-sm mb-1" href="{{ entry.download_url }}" download>Download</a>
                                 {% endif %}
                                 {% if not entry.is_current %}
-                                <form method="post" action="{% url 'synopsis:protocol_restore_revision' project.id entry.revision.id %}" class="d-inline" onsubmit="return confirm('Restore this revision as the active protocol?');">
+                                <form
+                                    method="post"
+                                    action="{% url 'synopsis:protocol_restore_revision' project.id entry.revision.id %}"
+                                    class="d-inline"
+                                    onsubmit="return confirm('Restore this revision as the active protocol?');"
+                                >
                                     {% csrf_token %}
                                     <button class="btn btn-outline-primary btn-sm">Restore</button>
                                 </form>
@@ -213,16 +233,32 @@
                                 <span class="badge text-bg-secondary align-self-center">Active</span>
                                 {% endif %}
                                 {% if entry.can_mark_final %}
-                                <form method="post" action="{% url 'synopsis:protocol_set_stage' project.id %}" class="d-inline-flex align-items-center gap-2 mt-2 mt-sm-0" onsubmit="return confirm('Set this revision as the final protocol?');">
+                                <form
+                                    method="post"
+                                    action="{% url 'synopsis:protocol_set_stage' project.id %}"
+                                    class="d-inline-flex align-items-center gap-2 mt-2 mt-sm-0"
+                                    onsubmit="return confirm('Set this revision as the final protocol?');"
+                                >
                                     {% csrf_token %}
                                     <input type="hidden" name="stage" value="final">
                                     <input type="hidden" name="revision_id" value="{{ entry.revision.id }}">
-                                    <input type="text" name="reason" class="form-control form-control-sm" placeholder="Reason" required>
+                                    <input
+                                        type="text"
+                                        name="reason"
+                                        class="form-control form-control-sm"
+                                        placeholder="Reason"
+                                        required
+                                    >
                                     <button class="btn btn-success btn-sm">Set as Final</button>
                                 </form>
                                 {% endif %}
                                 {% if can_edit_documents %}
-                                <form method="post" action="{% url 'synopsis:protocol_delete_revision' project.id entry.revision.id %}" class="d-inline mt-2" onsubmit="return confirm('Delete this protocol revision? This cannot be undone.');">
+                                <form
+                                    method="post"
+                                    action="{% url 'synopsis:protocol_delete_revision' project.id entry.revision.id %}"
+                                    class="d-inline mt-2"
+                                    onsubmit="return confirm('Delete this protocol revision? This cannot be undone.');"
+                                >
                                     {% csrf_token %}
                                     <button class="btn btn-outline-danger btn-sm">Delete</button>
                                 </form>
@@ -260,7 +296,9 @@
                                 </ul>
                                 {% endif %}
                                 {% if item.reason %}
-                                <div class="small"><strong>Reason:</strong> {{ item.reason }}</div>
+                                <div class="small">
+                                    <strong>Reason:</strong> {{ item.reason }}
+                                </div>
                                 {% endif %}
                             </div>
                         </div>
