@@ -13,9 +13,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(
-            migrate_decimal_to_text, migrations.RunPython.noop
-        ),
+        migrations.RunPython(migrate_decimal_to_text, migrations.RunPython.noop),
         migrations.AlterField(
             model_name="advisoryboardcustomfield",
             name="data_type",
