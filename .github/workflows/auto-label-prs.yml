@@ -17,36 +17,62 @@ jobs:
         with:
           script: |
             const body = (context.payload.pull_request && context.payload.pull_request.body) || '';
-            const labels = [];
+            const { owner, repo } = context.repo;
+            const prNumber = context.payload.pull_request.number;
+            const currentLabels = (context.payload.pull_request.labels || []).map(label => label.name);
+            const desiredLabels = new Set();
+            const managedLabels = new Set([
+              'bug-fix',
+              'feature',
+              'enhancement',
+              'documentation',
+              'refactoring',
+              'ready-for-review',
+              'work-in-progress',
+              'tested',
+              'docs-updated'
+            ]);
 
-            if (body.includes('- [x] Bug fix')) labels.push('bug-fix');
-            if (body.includes('- [x] New feature')) labels.push('feature');
-            if (body.includes('- [x] Enhancement')) labels.push('enhancement');
-            if (body.includes('- [x] Documentation update')) labels.push('documentation');
-            if (body.includes('- [x] Code refactoring')) labels.push('refactoring');
+            const typeMappings = [
+              { marker: '- [x] Bug fix', label: 'bug-fix' },
+              { marker: '- [x] New feature', label: 'feature' },
+              { marker: '- [x] Enhancement', label: 'enhancement' },
+              { marker: '- [x] Documentation update', label: 'documentation' },
+              { marker: '- [x] Code refactoring', label: 'refactoring' }
+            ];
 
-            const checked = body.match(/- \[x\]/gi) || [];
-            const unchecked = body.match(/- \[ \]/g) || [];
-            if (checked.length >= 6 && unchecked.length === 0) {
-              labels.push('ready-for-review');
-            } else {
-              labels.push('work-in-progress');
+            for (const { marker, label } of typeMappings) {
+              if (body.includes(marker)) {
+                desiredLabels.add(label);
+              }
             }
 
-            if (body.toLowerCase().includes('test') &&
-                body.includes('- [x] All new and existing tests pass')) {
-              labels.push('tested');
+            const checklistMatch = body.match(/## Checklist([\s\S]*?)(##|$)/i);
+            const checklistSection = checklistMatch ? checklistMatch[1] : '';
+            const checklistItems = checklistSection.match(/- \[[ x]\] .+/g) || [];
+            const uncheckedChecklist = checklistItems.filter(item => item.startsWith('- [ ]'));
+
+            if (checklistItems.length && uncheckedChecklist.length === 0) {
+              desiredLabels.add('ready-for-review');
+            } else {
+              desiredLabels.add('work-in-progress');
+            }
+
+            if (body.includes('- [x] All new and existing tests pass')) {
+              desiredLabels.add('tested');
             }
 
             if (body.includes('- [x] I have updated the documentation accordingly')) {
-              labels.push('docs-updated');
+              desiredLabels.add('docs-updated');
             }
 
-            if (labels.length) {
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.pull_request.number,
-                labels
-              });
+            const labelsToAdd = Array.from(desiredLabels).filter(label => !currentLabels.includes(label));
+            const labelsToRemove = currentLabels.filter(label => managedLabels.has(label) && !desiredLabels.has(label));
+
+            for (const label of labelsToRemove) {
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: prNumber, name: label });
+            }
+
+            if (labelsToAdd.length) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: prNumber, labels: labelsToAdd });
             }
