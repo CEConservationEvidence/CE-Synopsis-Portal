@@ -6,8 +6,12 @@
         <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
             <div>
                 <h1 class="mb-1">{{ project.title }}</h1>
-                <p class="text-muted mb-2">Start date: <strong>{{ project.start_date|date:"Y-m-d"|default:"—" }}</strong></p>
-                <p class="text-muted mb-2">Phase: <strong>{{ project.get_phase_display }}</strong></p>
+                <p class="text-muted mb-2">Start date:
+                    <strong>{{ project.start_date|date:"Y-m-d"|default:"—" }}</strong>
+                </p>
+                <p class="text-muted mb-2">Phase:
+                    <strong>{{ project.get_phase_display }}</strong>
+                </p>
                 {% if last_phase_event %}
                 <p class="text-muted small mb-1">Last confirmed by {{ last_phase_event.confirmed_by|default:"—" }} on {{ last_phase_event.confirmed_at|date:"Y-m-d H:i" }}</p>
                 {% else %}
@@ -25,22 +29,29 @@
             </div>
             {% endif %}
         </div>
-
         <hr class="my-3">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div>
                 <h5 class="mb-1">Funders</h5>
                 {% if funder_summary.count %}
                 <div class="small text-muted d-flex flex-wrap gap-3">
-                    <span>Count: <strong>{{ funder_summary.count }}</strong></span>
+                    <span>Count:
+                        <strong>{{ funder_summary.count }}</strong>
+                    </span>
                     {% if funder_summary.total is not None %}
-                    <span>Total allocated: <strong>{{ funder_summary.total|floatformat:2 }}</strong></span>
+                    <span>Total allocated:
+                        <strong>{{ funder_summary.total|floatformat:2 }}</strong>
+                    </span>
                     {% endif %}
                     {% if funder_summary.earliest_start %}
-                    <span>From: <strong>{{ funder_summary.earliest_start|date:"Y-m-d" }}</strong></span>
+                    <span>From:
+                        <strong>{{ funder_summary.earliest_start|date:"Y-m-d" }}</strong>
+                    </span>
                     {% endif %}
                     {% if funder_summary.latest_end %}
-                    <span>To: <strong>{{ funder_summary.latest_end|date:"Y-m-d" }}</strong></span>
+                    <span>To:
+                        <strong>{{ funder_summary.latest_end|date:"Y-m-d" }}</strong>
+                    </span>
                     {% endif %}
                 </div>
                 {% else %}
@@ -78,10 +89,12 @@
                         </td>
                         <td>
                             {% if f.contact_first_name or f.contact_last_name %}
-                                {% if f.contact_title %}<span class="text-muted me-1">{{ f.contact_title }}</span>{% endif %}
+                                {% if f.contact_title %}
+                            <span class="text-muted me-1">{{ f.contact_title }}</span>
+                            {% endif %}
                                 {{ f.contact_first_name }} {{ f.contact_last_name }}
                             {% elif f.contact_title %}
-                                <span class="text-muted">{{ f.contact_title }}</span>
+                            <span class="text-muted">{{ f.contact_title }}</span>
                             {% else %}
                                 —
                             {% endif %}
@@ -109,7 +122,6 @@
         {% elif can_manage_project %}
         <p class="text-muted small mt-2 mb-0">Add your first funder to track financial support.</p>
         {% endif %}
-
         <hr class="my-4">
         <div class="d-flex justify-content-between align-items-center mb-2">
             <h5 class="mb-0">Authors</h5>
@@ -204,31 +216,40 @@
             <div class="card-body">
                 <h5>Advisory Board Stats</h5>
                 <div class="row g-2 small">
-                    <div class="col-6">Members:
+                    <div class="col-6">
+                        Members:
                         <strong>{{ ab_stats.members }}</strong>
                     </div>
-                    <div class="col-6">Member invites sent:
+                    <div class="col-6">
+                        Member invites sent:
                         <strong>{{ ab_stats.member_invites_sent }}</strong>
                     </div>
-                    <div class="col-6">Invitations (total):
+                    <div class="col-6">
+                        Invitations (total):
                         <strong>{{ ab_stats.invites_total }}</strong>
                     </div>
-                    <div class="col-6">Linked to members:
+                    <div class="col-6">
+                        Linked to members:
                         <strong>{{ ab_stats.invites_member }}</strong>
                     </div>
-                    <div class="col-6">Direct email invites:
+                    <div class="col-6">
+                        Direct email invites:
                         <strong>{{ ab_stats.invites_direct }}</strong>
                     </div>
-                    <div class="col-4">Accepted:
+                    <div class="col-4">
+                        Accepted:
                         <strong class="text-success">{{ ab_stats.accepted }}</strong>
                     </div>
-                    <div class="col-4">Declined:
+                    <div class="col-4">
+                        Declined:
                         <strong class="text-danger">{{ ab_stats.declined }}</strong>
                     </div>
-                    <div class="col-4">Pending:
+                    <div class="col-4">
+                        Pending:
                         <strong class="text-muted">{{ ab_stats.pending }}</strong>
                     </div>
-                    <div class="col-12">Protocol sent to members:
+                    <div class="col-12">
+                        Protocol sent to members:
                         <strong>{{ ab_stats.protocol_sent_to_members }}</strong>
                     </div>
                 </div>
@@ -241,13 +262,16 @@
             <div class="card-body">
                 <h5>References</h5>
                 <div class="row g-2 small mb-2">
-                    <div class="col-6">Batches:
+                    <div class="col-6">
+                        Batches:
                         <strong>{{ reference_stats.batches }}</strong>
                     </div>
-                    <div class="col-6">Total references:
+                    <div class="col-6">
+                        Total references:
                         <strong>{{ reference_stats.references }}</strong>
                     </div>
-                    <div class="col-6">Pending screening:
+                    <div class="col-6">
+                        Pending screening:
                         <strong>{{ reference_stats.pending }}</strong>
                     </div>
                 </div>
