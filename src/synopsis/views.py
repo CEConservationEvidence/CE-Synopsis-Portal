@@ -64,6 +64,7 @@ from .models import (
     AdvisoryBoardInvitation,
     AdvisoryBoardCustomField,
     AdvisoryBoardCustomFieldValue,
+    AdvisoryBoardCustomFieldValueHistory,
     Funder,
     UserRole,
     ProjectPhaseEvent,
@@ -5339,6 +5340,16 @@ def advisory_member_custom_data(request, project_id, member_id):
         )
     )
     applicable_fields = [field for field in all_fields if field.applies_to(status_key)]
+
+    focus_field_id = request.GET.get("field") or request.POST.get("focused_field")
+    if focus_field_id:
+        try:
+            focused_field = next(
+                field for field in applicable_fields if str(field.id) == str(focus_field_id)
+            )
+            applicable_fields = [focused_field]
+        except StopIteration:
+            focused_field = None
 
     existing_values = {
         value.field_id: value.value
