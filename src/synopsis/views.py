@@ -3489,7 +3489,7 @@ def protocol_delete(request, project_id):
         },
     )
 
-
+# TODO: #21 Expand manager's dashboard to include user management features, such as inviting via email, resetting passwords, and modifying global roles.
 @login_required
 def manager_dashboard(request):
     if not request.user.is_staff:
@@ -3619,7 +3619,7 @@ def project_settings(request, project_id):
         context,
     )
 
-
+# TODO: #20 Implement email verification and password setup workflow for newly created users.
 @login_required
 def user_create(request):
     if not request.user.is_staff:
