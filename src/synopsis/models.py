@@ -15,6 +15,7 @@ TODO: Add signals to notify users of changes in project status or roles.
 TODO: Add versioning to protocol model to track changes over time. Furthermore, this should be extended to other models like the draft final synopsis document, summaries, actions, etc.
 TODO: Add audit trails to track changes made to critical fields in models (define the data model for this).
 TODO: Add comments to models where necessary to explain their purpose and usage (for other teams adapting this).
+TODO: Add ability to modify already added AB member information via form.
 """
 
 
@@ -708,13 +709,28 @@ class AdvisoryBoardCustomField(models.Model):
             return None
         return stored.value
 
-    def set_value_for_member(self, member, value):
+    def set_value_for_member(self, member, value, *, changed_by=None):
         cleaned = self.clean_value(value) if value not in (None, "") else None
+        current_value = self.get_value_for_member(member)
+        current_normalized = current_value or ""
+        new_normalized = cleaned or ""
+        if current_normalized == new_normalized:
+            return
+
+        AdvisoryBoardCustomFieldValueHistory.objects.create(
+            field=self,
+            member=member,
+            value=new_normalized,
+            is_cleared=cleaned in (None, ""),
+            changed_by=changed_by if isinstance(changed_by, User) else None,
+        )
+
         if cleaned in (None, ""):
             AdvisoryBoardCustomFieldValue.objects.filter(
                 field=self, member=member
             ).delete()
             return
+
         AdvisoryBoardCustomFieldValue.objects.update_or_create(
             field=self,
             member=member,
@@ -767,6 +783,36 @@ class AdvisoryBoardCustomFieldValue(models.Model):
 
     def __str__(self):
         return f"{self.field.name} for {self.member}"
+
+
+class AdvisoryBoardCustomFieldValueHistory(models.Model):
+    field = models.ForeignKey(
+        AdvisoryBoardCustomField,
+        on_delete=models.CASCADE,
+        related_name="value_history",
+    )
+    member = models.ForeignKey(
+        AdvisoryBoardMember,
+        on_delete=models.CASCADE,
+        related_name="custom_value_history",
+    )
+    value = models.TextField(blank=True)
+    is_cleared = models.BooleanField(default=False)
+    changed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="custom_field_value_history",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        action = "cleared" if self.is_cleared else "set"
+        return f"{self.field.name} {action} for {self.member} @ {self.created_at:%Y-%m-%d %H:%M}"
 
 
 class AdvisoryBoardInvitation(models.Model):

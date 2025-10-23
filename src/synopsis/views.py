@@ -64,6 +64,7 @@ from .models import (
     AdvisoryBoardInvitation,
     AdvisoryBoardCustomField,
     AdvisoryBoardCustomFieldValue,
+    AdvisoryBoardCustomFieldValueHistory,
     Funder,
     UserRole,
     ProjectPhaseEvent,
@@ -5340,6 +5341,17 @@ def advisory_member_custom_data(request, project_id, member_id):
     )
     applicable_fields = [field for field in all_fields if field.applies_to(status_key)]
 
+    focus_field_id = request.GET.get("field") or request.POST.get("focused_field")
+    focused_field = None
+    if focus_field_id:
+        try:
+            focused_field = next(
+                field for field in applicable_fields if str(field.id) == str(focus_field_id)
+            )
+            applicable_fields = [focused_field]
+        except StopIteration:
+            focused_field = None
+
     existing_values = {
         value.field_id: value.value
         for value in AdvisoryBoardCustomFieldValue.objects.filter(
@@ -5356,9 +5368,14 @@ def advisory_member_custom_data(request, project_id, member_id):
             form_id=f"member-form-{member.id}",
         )
         if form.is_valid():
+            actor = request.user if getattr(request.user, "is_authenticated", False) else None
             for field in applicable_fields:
                 cleaned_value = form.cleaned_value(field)
-                field.set_value_for_member(member, cleaned_value)
+                field.set_value_for_member(
+                    member,
+                    cleaned_value,
+                    changed_by=actor,
+                )
             messages.success(
                 request,
                 f"Updated custom data for {member.first_name or member.email}.",
@@ -5371,6 +5388,21 @@ def advisory_member_custom_data(request, project_id, member_id):
 
     form.apply_widget_configuration()
 
+    history_map = {}
+    if applicable_fields:
+        history_qs = (
+            AdvisoryBoardCustomFieldValueHistory.objects.filter(
+                member=member, field__in=applicable_fields
+            )
+            .select_related("field", "changed_by")
+            .order_by("-created_at", "-id")
+        )
+        for entry in history_qs:
+            bucket = history_map.setdefault(entry.field_id, [])
+            if len(bucket) >= 10:
+                continue
+            bucket.append(entry)
+
     return render(
         request,
         "synopsis/advisory_member_custom_data.html",
@@ -5380,6 +5412,8 @@ def advisory_member_custom_data(request, project_id, member_id):
             "form": form,
             "fields": applicable_fields,
             "status_key": status_key,
+            "history_map": history_map,
+            "focused_field": focused_field,
         },
     )
 
