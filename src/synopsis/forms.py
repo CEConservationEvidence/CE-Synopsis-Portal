@@ -113,7 +113,7 @@ class AdvisoryBoardMemberForm(forms.ModelForm):
     class Meta:
         model = AdvisoryBoardMember
         fields = [
-            "title",
+            "title", # TODO: #31 This should be not shown in the columns if its not set - also should be mandatory. 
             "first_name",
             "middle_name",
             "last_name",
