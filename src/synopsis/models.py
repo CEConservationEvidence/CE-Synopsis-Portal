@@ -665,6 +665,7 @@ class AdvisoryBoardCustomField(models.Model):
         max_length=20,
         choices=DISPLAY_GROUP_CHOICES,
         default=DISPLAY_GROUP_CUSTOM,
+        help_text="Choose where this column should appear in the advisory board table.",
     )
     is_required = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
