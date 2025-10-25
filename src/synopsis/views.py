@@ -970,6 +970,10 @@ def _advisory_board_context(
         key: [f for f in custom_fields if f.applies_to(key)]
         for key, _ in AdvisoryBoardCustomField.SECTION_CHOICES
     }
+    grouped_fields_by_section = {
+        key: AdvisoryBoardCustomField.group_fields_by_display(fields_by_section.get(key, []))
+        for key, _ in AdvisoryBoardCustomField.SECTION_CHOICES
+    }
     values_map = {
         (val.member_id, val.field_id): val.value
         for val in AdvisoryBoardCustomFieldValue.objects.filter(
@@ -1128,6 +1132,10 @@ def _advisory_board_context(
             "fields": fields_by_section.get(
                 AdvisoryBoardCustomField.SECTION_ACCEPTED, []
             ),
+            "fields_by_group": grouped_fields_by_section.get(
+                AdvisoryBoardCustomField.SECTION_ACCEPTED,
+                AdvisoryBoardCustomField.group_fields_by_display([]),
+            ),
         },
         {
             "key": AdvisoryBoardCustomField.SECTION_PENDING,
@@ -1144,6 +1152,10 @@ def _advisory_board_context(
             ],
             "fields": fields_by_section.get(
                 AdvisoryBoardCustomField.SECTION_PENDING, []
+            ),
+            "fields_by_group": grouped_fields_by_section.get(
+                AdvisoryBoardCustomField.SECTION_PENDING,
+                AdvisoryBoardCustomField.group_fields_by_display([]),
             ),
         },
         {
@@ -1163,6 +1175,10 @@ def _advisory_board_context(
             ],
             "fields": fields_by_section.get(
                 AdvisoryBoardCustomField.SECTION_DECLINED, []
+            ),
+            "fields_by_group": grouped_fields_by_section.get(
+                AdvisoryBoardCustomField.SECTION_DECLINED,
+                AdvisoryBoardCustomField.group_fields_by_display([]),
             ),
         },
     ]
