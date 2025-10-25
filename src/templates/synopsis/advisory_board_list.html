@@ -172,7 +172,6 @@
                 {% with members_list=section.members empty_text=section.empty_text %}
                     {% if members_list %}
                 <div class="table-responsive">
-                    <table class="table table-sm align-middle">
                     <table class="table table-sm align-middle advisory-board-table">
                         <thead class="table-light">
                             <tr class="small text-uppercase text-muted">
@@ -196,10 +195,6 @@
                                 <th>Continent</th>
                                 <th>Notes</th>
 
-                                <th>Invite sent</th>
-                                <th>Response deadline</th>
-                                <th>Reminder sent</th>
-                                <th>Accepted</th>
                                 <th class="ab-status-invite">Invite sent</th>
                                 <th class="ab-status-invite">Response deadline</th>
                                 <th class="ab-status-invite">Reminder sent</th>
@@ -209,6 +204,10 @@
                                 <th>Feedback received</th>
                                 <th>Author replied</th>
                                 <th>Feedback added to doc</th>
+                                <th class="ab-status-action">Action list sent</th>
+                                <th class="ab-status-action">Feedback received</th>
+                                <th class="ab-status-action">Author replied</th>
+                                <th class="ab-status-action">Feedback added to doc</th>
 
                                 <th>Protocol sent</th>
                                 <th>Feedback deadline</th>
