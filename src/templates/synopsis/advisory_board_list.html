@@ -349,7 +349,8 @@
                                     <span class="badge text-bg-success">Sent</span>
                                     {% if m.reminder_sent_at %}
                                     <div class="small text-muted">{{ m.reminder_sent_at|date:"Y-m-d" }}</div>
-                                    {% endif %}{% elif m.response == 'Y' %}
+                                    {% endif %}
+                                    {% elif m.response == 'Y' %}
                                     <span class="text-muted">Not needed</span>
                                     {% else %}
                                     <span class="text-muted">—</span>
