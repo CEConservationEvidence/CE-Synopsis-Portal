@@ -10,6 +10,16 @@
         --ab-action-bg: var(--bs-info-bg-subtle, #d7f3fe);
         --ab-protocol-bg: #f1e7ff;
         --ab-synopsis-bg: #e4f4ec;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .advisory-board-table :is(th, td) {
+        padding: 0.5rem 0.9rem;
+    }
+
+    .advisory-board-table thead th {
+        white-space: nowrap;
     }
 
     .advisory-board-table :is(th, td).ab-status-invite {
