@@ -105,7 +105,7 @@ class AssignRoleForm(forms.Form):
 class AdvisoryBoardMemberForm(forms.ModelForm):
     title = forms.ChoiceField(
         choices=FUNDER_TITLE_CHOICES,
-        required=False,
+        required=True,
         widget=forms.Select(attrs={"class": "form-select"}),
         label="Title",
     )
@@ -133,6 +133,12 @@ class AdvisoryBoardMemberForm(forms.ModelForm):
             "continent": forms.TextInput(attrs={"class": "form-control"}),
             "notes": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Always capture core identity information when creating or editing a member.
+        for field_name in ("first_name", "last_name", "email"):
+            self.fields[field_name].required = True
 
 
 class AdvisoryInviteForm(forms.Form):
