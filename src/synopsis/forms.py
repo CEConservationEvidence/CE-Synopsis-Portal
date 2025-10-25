@@ -175,10 +175,18 @@ class AdvisoryCustomFieldForm(forms.ModelForm):
 
     class Meta:
         model = AdvisoryBoardCustomField
-        fields = ["name", "data_type", "sections", "description", "is_required"]
+        fields = [
+            "name",
+            "data_type",
+            "display_group",
+            "sections",
+            "description",
+            "is_required",
+        ]
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "data_type": forms.Select(attrs={"class": "form-select"}),
+            "display_group": forms.Select(attrs={"class": "form-select"}),
             "description": forms.TextInput(attrs={"class": "form-control"}),
             "is_required": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
