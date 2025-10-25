@@ -4,6 +4,29 @@
 {% block title %}Advisory Board – {{ project.title }}{% endblock %}
 {% block content %}
 <h1 class="mb-3">Advisory Board – {{ project.title }}</h1>
+<style>
+    .advisory-board-table {
+        --ab-invite-bg: var(--bs-warning-bg-subtle, #fff7d6);
+        --ab-action-bg: var(--bs-info-bg-subtle, #d7f3fe);
+        --ab-protocol-bg: #f1e7ff;
+        --ab-synopsis-bg: #e4f4ec;
+    }
+
+    .advisory-board-table :is(th, td).ab-status-invite {
+        background-color: var(--ab-invite-bg);
+    }
+
+    .advisory-board-table :is(th, td).ab-status-action {
+        background-color: var(--ab-action-bg);
+    }
+
+    .advisory-board-table :is(th, td).ab-status-protocol {
+        background-color: var(--ab-protocol-bg);
+    }
+
+    .advisory-board-table :is(th, td).ab-status-synopsis {
+        background-color: var(--ab-synopsis-bg);
+    }
 <div class="d-flex flex-wrap gap-2 mb-3">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
     <a class="btn btn-primary" href="{% url 'synopsis:advisory_invite_create' project.id %}">Invite by email</a>
