@@ -448,7 +448,8 @@
                                     <a href="{{ m.latest_feedback.uploaded_document.url }}">{{ m.latest_feedback.latest_document_label }}</a>
                                     {% if m.latest_feedback.submitted_at %}
                                     <div class="text-muted small">{{ m.latest_feedback.submitted_at|date:"Y-m-d H:i" }}</div>
-                                    {% endif %}{% elif m.latest_feedback and m.latest_feedback.content %}
+                                    {% endif %}
+                                    {% elif m.latest_feedback and m.latest_feedback.content %}
                                     <span class="text-muted">Submitted {{ m.latest_feedback.submitted_at|date:"Y-m-d H:i" }}</span>
                                     {% else %}
                                     <span class="text-muted">—</span>
