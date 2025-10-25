@@ -429,7 +429,8 @@
                                     <span class="badge text-bg-success">Sent</span>
                                     {% if m.protocol_reminder_sent_at %}
                                     <div class="small text-muted">{{ m.protocol_reminder_sent_at|date:"Y-m-d" }}</div>
-                                    {% endif %}{% elif m.feedback_on_protocol_deadline %}
+                                    {% endif %}
+                                    {% elif m.feedback_on_protocol_deadline %}
                                     <span class="badge text-bg-warning">Scheduled</span>
                                     {% else %}
                                     <span class="text-muted">—</span>
