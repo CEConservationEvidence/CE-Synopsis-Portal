@@ -571,6 +571,14 @@ class AdvisoryBoardMember(models.Model):
     added_to_protocol_doc = models.BooleanField(default=False)
     feedback_on_guidance = models.BooleanField(default=False)
 
+    # Synopsis interaction
+    sent_synopsis_at = models.DateTimeField(null=True, blank=True)
+    synopsis_reminder_sent = models.BooleanField(default=False)
+    synopsis_reminder_sent_at = models.DateTimeField(null=True, blank=True)
+    feedback_on_synopsis_deadline = models.DateTimeField(null=True, blank=True)
+    feedback_on_synopsis_received = models.DateField(null=True, blank=True)
+    added_to_synopsis_doc = models.BooleanField(default=False)
+
     # Participation confirmation
     participation_confirmed = models.BooleanField(default=False)
     participation_confirmed_at = models.DateTimeField(null=True, blank=True)
