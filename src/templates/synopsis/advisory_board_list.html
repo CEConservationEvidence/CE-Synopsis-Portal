@@ -27,6 +27,7 @@
     .advisory-board-table :is(th, td).ab-status-synopsis {
         background-color: var(--ab-synopsis-bg);
     }
+</style>
 <div class="d-flex flex-wrap gap-2 mb-3">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
     <a class="btn btn-primary" href="{% url 'synopsis:advisory_invite_create' project.id %}">Invite by email</a>
