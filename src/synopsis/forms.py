@@ -166,36 +166,24 @@ class AdvisoryInviteForm(forms.Form):
 
 
 class AdvisoryCustomFieldForm(forms.ModelForm):
-    sections = forms.MultipleChoiceField(
-        choices=AdvisoryBoardCustomField.SECTION_CHOICES,
-        required=False,
-        widget=forms.CheckboxSelectMultiple,
-        help_text="Choose which member groups should display this column. Leave blank to show it in every section.",
-    )
-
     class Meta:
         model = AdvisoryBoardCustomField
         fields = [
             "name",
             "data_type",
             "display_group",
-            "sections",
             "description",
-            "is_required",
         ]
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "data_type": forms.Select(attrs={"class": "form-select"}),
             "display_group": forms.Select(attrs={"class": "form-select"}),
             "description": forms.TextInput(attrs={"class": "form-control"}),
-            "is_required": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
 
     def __init__(self, project, *args, **kwargs):
         self.project = project
         super().__init__(*args, **kwargs)
-        if self.instance and self.instance.pk:
-            self.fields["sections"].initial = self.instance.sections or []
 
     def clean_name(self):
         name = (self.cleaned_data.get("name") or "").strip()
@@ -211,14 +199,9 @@ class AdvisoryCustomFieldForm(forms.ModelForm):
             )
         return name
 
-    def clean_sections(self):
-        sections = self.cleaned_data.get("sections") or []
-        return list(dict.fromkeys(sections))
-
     def save(self, commit=True):
         instance = super().save(commit=False)
         instance.project = self.project
-        instance.sections = self.cleaned_data.get("sections")
         if commit:
             instance.save()
         return instance
