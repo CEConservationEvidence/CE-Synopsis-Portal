@@ -661,6 +661,11 @@ class AdvisoryBoardCustomField(models.Model):
     )
     description = models.CharField(max_length=255, blank=True)
     display_order = models.PositiveIntegerField(default=0)
+    display_group = models.CharField(
+        max_length=20,
+        choices=DISPLAY_GROUP_CHOICES,
+        default=DISPLAY_GROUP_CUSTOM,
+    )
     is_required = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
