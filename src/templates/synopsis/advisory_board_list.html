@@ -487,7 +487,8 @@
                                     <span class="badge text-bg-success">Sent</span>
                                     {% if m.synopsis_reminder_sent_at %}
                                     <div class="small text-muted">{{ m.synopsis_reminder_sent_at|date:"Y-m-d" }}</div>
-                                    {% endif %}{% elif m.feedback_on_synopsis_deadline %}
+                                    {% endif %}
+                                    {% elif m.feedback_on_synopsis_deadline %}
                                     <span class="badge text-bg-warning">Scheduled</span>
                                     {% else %}
                                     <span class="text-muted">—</span>
