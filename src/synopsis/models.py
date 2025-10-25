@@ -620,6 +620,28 @@ class AdvisoryBoardCustomField(models.Model):
         (SECTION_PENDING, "Pending"),
         (SECTION_DECLINED, "Declined"),
     ]
+    DISPLAY_GROUP_PERSONAL = "personal"
+    DISPLAY_GROUP_INVITATION = "invitation"
+    DISPLAY_GROUP_ACTION = "action"
+    DISPLAY_GROUP_PROTOCOL = "protocol"
+    DISPLAY_GROUP_SYNOPSIS = "synopsis"
+    DISPLAY_GROUP_CUSTOM = "custom"
+    DISPLAY_GROUP_CHOICES = [
+        (DISPLAY_GROUP_PERSONAL, "Personal details"),
+        (DISPLAY_GROUP_INVITATION, "Invitation"),
+        (DISPLAY_GROUP_ACTION, "Action list"),
+        (DISPLAY_GROUP_PROTOCOL, "Protocol"),
+        (DISPLAY_GROUP_SYNOPSIS, "Synopsis"),
+        (DISPLAY_GROUP_CUSTOM, "Custom section"),
+    ]
+    DISPLAY_GROUP_ORDER = [
+        DISPLAY_GROUP_PERSONAL,
+        DISPLAY_GROUP_INVITATION,
+        DISPLAY_GROUP_ACTION,
+        DISPLAY_GROUP_PROTOCOL,
+        DISPLAY_GROUP_SYNOPSIS,
+        DISPLAY_GROUP_CUSTOM,
+    ]
 
     project = models.ForeignKey(
         Project,
@@ -664,6 +686,16 @@ class AdvisoryBoardCustomField(models.Model):
             return [label for _, label in self.SECTION_CHOICES]
         lookup = dict(self.SECTION_CHOICES)
         return [lookup.get(code, code.title()) for code in self.sections]
+
+    @classmethod
+    def group_fields_by_display(cls, fields: list["AdvisoryBoardCustomField"]):
+        grouped: dict[str, list["AdvisoryBoardCustomField"]] = {
+            key: [] for key in cls.DISPLAY_GROUP_ORDER
+        }
+        for field in fields:
+            group = getattr(field, "display_group", None) or cls.DISPLAY_GROUP_CUSTOM
+            grouped.setdefault(group, []).append(field)
+        return grouped
 
     def clean_value(self, value):
         if value in (None, ""):
