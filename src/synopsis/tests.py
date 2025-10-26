@@ -380,6 +380,24 @@ class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
             [self.general_field.id],
         )
 
+    def test_move_custom_field_action_updates_display_group(self):
+        self.client.force_login(self.editor)
+        url = reverse("synopsis:advisory_board_list", args=[self.project.id])
+        response = self.client.post(
+            url,
+            {
+                "action": "custom_field_move",
+                "field_id": self.general_field.id,
+                "display_group": AdvisoryBoardCustomField.DISPLAY_GROUP_PROTOCOL,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.general_field.refresh_from_db()
+        self.assertEqual(
+            self.general_field.display_group,
+            AdvisoryBoardCustomField.DISPLAY_GROUP_PROTOCOL,
+        )
+
     def test_history_records_updates(self):
         base_count = AdvisoryBoardCustomFieldValueHistory.objects.filter(
             field=self.general_field, member=self.accepted
