@@ -207,6 +207,14 @@ class AdvisoryCustomFieldForm(forms.ModelForm):
         return instance
 
 
+class AdvisoryCustomFieldPlacementForm(forms.Form):
+    display_group = forms.ChoiceField(
+        choices=AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+        label="Show in section",
+    )
+
+
 class AdvisoryMemberCustomDataForm(forms.Form):
     def __init__(
         self,
