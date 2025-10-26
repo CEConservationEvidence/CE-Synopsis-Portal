@@ -54,6 +54,7 @@ from .forms import (
     ReferenceScreeningForm,
     CollaborativeUpdateForm,
     AdvisoryCustomFieldForm,
+    AdvisoryCustomFieldPlacementForm,
     AdvisoryMemberCustomDataForm,
 )
 from .models import (
@@ -1223,6 +1224,7 @@ def _advisory_board_context(
         "action_list_feedback_state": action_list_feedback_state,
         "action_list_feedback_close_form": action_list_feedback_close_form,
         "section_palette": section_palette,
+        "custom_field_group_choices": AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
     }
 
 
@@ -3743,6 +3745,27 @@ def advisory_board_list(request, project_id):
                     f"Removed custom column '{field.name}'.",
                 )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+        if action == "custom_field_move":
+            field_id = request.POST.get("field_id")
+            field = get_object_or_404(
+                AdvisoryBoardCustomField, pk=field_id, project=project
+            )
+            placement_form = AdvisoryCustomFieldPlacementForm(request.POST)
+            if placement_form.is_valid():
+                field.display_group = placement_form.cleaned_data["display_group"]
+                field.save(update_fields=["display_group"])
+                messages.success(
+                    request, f"Moved custom column '{field.name}' to a new section."
+                )
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
+            messages.error(request, "Choose a valid section for this column.")
+            context = _advisory_board_context(
+                project,
+                member_form=AdvisoryBoardMemberForm(),
+                custom_field_form=AdvisoryCustomFieldForm(project),
+            )
+            return render(request, "synopsis/advisory_board_list.html", context)
 
         if action == "add_member_confirm":
             form = AdvisoryBoardMemberForm(request.POST)
