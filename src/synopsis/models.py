@@ -571,6 +571,14 @@ class AdvisoryBoardMember(models.Model):
     added_to_protocol_doc = models.BooleanField(default=False)
     feedback_on_guidance = models.BooleanField(default=False)
 
+    # Synopsis interaction
+    sent_synopsis_at = models.DateTimeField(null=True, blank=True)
+    synopsis_reminder_sent = models.BooleanField(default=False)
+    synopsis_reminder_sent_at = models.DateTimeField(null=True, blank=True)
+    feedback_on_synopsis_deadline = models.DateTimeField(null=True, blank=True)
+    feedback_on_synopsis_received = models.DateField(null=True, blank=True)
+    added_to_synopsis_doc = models.BooleanField(default=False)
+
     # Participation confirmation
     participation_confirmed = models.BooleanField(default=False)
     participation_confirmed_at = models.DateTimeField(null=True, blank=True)
@@ -612,6 +620,28 @@ class AdvisoryBoardCustomField(models.Model):
         (SECTION_PENDING, "Pending"),
         (SECTION_DECLINED, "Declined"),
     ]
+    DISPLAY_GROUP_PERSONAL = "personal"
+    DISPLAY_GROUP_INVITATION = "invitation"
+    DISPLAY_GROUP_ACTION = "action"
+    DISPLAY_GROUP_PROTOCOL = "protocol"
+    DISPLAY_GROUP_SYNOPSIS = "synopsis"
+    DISPLAY_GROUP_CUSTOM = "custom"
+    DISPLAY_GROUP_CHOICES = [
+        (DISPLAY_GROUP_PERSONAL, "Personal details"),
+        (DISPLAY_GROUP_INVITATION, "Invitation"),
+        (DISPLAY_GROUP_ACTION, "Action list"),
+        (DISPLAY_GROUP_PROTOCOL, "Protocol"),
+        (DISPLAY_GROUP_SYNOPSIS, "Synopsis"),
+        (DISPLAY_GROUP_CUSTOM, "Custom section"),
+    ]
+    DISPLAY_GROUP_ORDER = [
+        DISPLAY_GROUP_PERSONAL,
+        DISPLAY_GROUP_INVITATION,
+        DISPLAY_GROUP_ACTION,
+        DISPLAY_GROUP_PROTOCOL,
+        DISPLAY_GROUP_SYNOPSIS,
+        DISPLAY_GROUP_CUSTOM,
+    ]
 
     project = models.ForeignKey(
         Project,
@@ -631,6 +661,12 @@ class AdvisoryBoardCustomField(models.Model):
     )
     description = models.CharField(max_length=255, blank=True)
     display_order = models.PositiveIntegerField(default=0)
+    display_group = models.CharField(
+        max_length=20,
+        choices=DISPLAY_GROUP_CHOICES,
+        default=DISPLAY_GROUP_CUSTOM,
+        help_text="Choose where this column should appear in the advisory board table.",
+    )
     is_required = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -656,6 +692,16 @@ class AdvisoryBoardCustomField(models.Model):
             return [label for _, label in self.SECTION_CHOICES]
         lookup = dict(self.SECTION_CHOICES)
         return [lookup.get(code, code.title()) for code in self.sections]
+
+    @classmethod
+    def group_fields_by_display(cls, fields: list["AdvisoryBoardCustomField"]):
+        grouped: dict[str, list["AdvisoryBoardCustomField"]] = {
+            key: [] for key in cls.DISPLAY_GROUP_ORDER
+        }
+        for field in fields:
+            group = getattr(field, "display_group", None) or cls.DISPLAY_GROUP_CUSTOM
+            grouped.setdefault(group, []).append(field)
+        return grouped
 
     def clean_value(self, value):
         if value in (None, ""):

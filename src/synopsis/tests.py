@@ -335,6 +335,69 @@ class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
             custom_field_ids, [self.general_field.id, self.pending_only_field.id]
         )
 
+    def test_custom_fields_can_target_specific_table_groups(self):
+        invite_field = AdvisoryBoardCustomField.objects.create(
+            project=self.project,
+            name="Invite progress",
+            data_type=AdvisoryBoardCustomField.TYPE_TEXT,
+            display_group=AdvisoryBoardCustomField.DISPLAY_GROUP_INVITATION,
+        )
+        synopsis_field = AdvisoryBoardCustomField.objects.create(
+            project=self.project,
+            name="Synopsis note",
+            data_type=AdvisoryBoardCustomField.TYPE_TEXT,
+            sections=[AdvisoryBoardCustomField.SECTION_PENDING],
+            display_group=AdvisoryBoardCustomField.DISPLAY_GROUP_SYNOPSIS,
+        )
+
+        context = _advisory_board_context(self.project)
+        sections = {section["key"]: section for section in context["member_sections"]}
+        pending_groups = sections[AdvisoryBoardCustomField.SECTION_PENDING][
+            "fields_by_group"
+        ]
+        accepted_groups = sections[AdvisoryBoardCustomField.SECTION_ACCEPTED][
+            "fields_by_group"
+        ]
+
+        self.assertIn(
+            invite_field.id,
+            [field.id for field in pending_groups[AdvisoryBoardCustomField.DISPLAY_GROUP_INVITATION]],
+        )
+        self.assertIn(
+            invite_field.id,
+            [field.id for field in accepted_groups[AdvisoryBoardCustomField.DISPLAY_GROUP_INVITATION]],
+        )
+        self.assertEqual(
+            [field.id for field in pending_groups[AdvisoryBoardCustomField.DISPLAY_GROUP_SYNOPSIS]],
+            [synopsis_field.id],
+        )
+        self.assertEqual(
+            [field.id for field in pending_groups[AdvisoryBoardCustomField.DISPLAY_GROUP_CUSTOM]],
+            [self.general_field.id, self.pending_only_field.id],
+        )
+        self.assertEqual(
+            [field.id for field in accepted_groups[AdvisoryBoardCustomField.DISPLAY_GROUP_CUSTOM]],
+            [self.general_field.id],
+        )
+
+    def test_move_custom_field_action_updates_display_group(self):
+        self.client.force_login(self.editor)
+        url = reverse("synopsis:advisory_board_list", args=[self.project.id])
+        response = self.client.post(
+            url,
+            {
+                "action": "custom_field_move",
+                "field_id": self.general_field.id,
+                "display_group": AdvisoryBoardCustomField.DISPLAY_GROUP_PROTOCOL,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.general_field.refresh_from_db()
+        self.assertEqual(
+            self.general_field.display_group,
+            AdvisoryBoardCustomField.DISPLAY_GROUP_PROTOCOL,
+        )
+
     def test_history_records_updates(self):
         base_count = AdvisoryBoardCustomFieldValueHistory.objects.filter(
             field=self.general_field, member=self.accepted

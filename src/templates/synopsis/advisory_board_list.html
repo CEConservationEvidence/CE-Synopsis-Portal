@@ -4,6 +4,40 @@
 {% block title %}Advisory Board – {{ project.title }}{% endblock %}
 {% block content %}
 <h1 class="mb-3">Advisory Board – {{ project.title }}</h1>
+<style>
+    .advisory-board-table {
+        --ab-invite-bg: var(--bs-warning-bg-subtle, #fff7d6);
+        --ab-action-bg: var(--bs-info-bg-subtle, #d7f3fe);
+        --ab-protocol-bg: #f1e7ff;
+        --ab-synopsis-bg: #e4f4ec;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .advisory-board-table :is(th, td) {
+        padding: 0.5rem 0.9rem;
+    }
+
+    .advisory-board-table thead th {
+        white-space: nowrap;
+    }
+
+    .advisory-board-table :is(th, td).ab-status-invite {
+        background-color: var(--ab-invite-bg);
+    }
+
+    .advisory-board-table :is(th, td).ab-status-action {
+        background-color: var(--ab-action-bg);
+    }
+
+    .advisory-board-table :is(th, td).ab-status-protocol {
+        background-color: var(--ab-protocol-bg);
+    }
+
+    .advisory-board-table :is(th, td).ab-status-synopsis {
+        background-color: var(--ab-synopsis-bg);
+    }
+</style>
 <div class="d-flex flex-wrap gap-2 mb-3">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
     <a class="btn btn-primary" href="{% url 'synopsis:advisory_invite_create' project.id %}">Invite by email</a>
@@ -12,9 +46,12 @@
         Send protocol to all
     </a>
     {% with has_action_list=action_list_feedback_state.action_list %}
-    <a class="btn btn-outline-primary{% if not has_action_list %} disabled{% endif %}"
-       href="{% url 'synopsis:advisory_send_action_list_compose_all' project.id %}"
-       {% if not has_action_list %}tabindex="-1" aria-disabled="true"{% endif %}>
+    <a
+        class="btn btn-outline-primary{% if not has_action_list %} disabled{% endif %}"
+        href="{% url 'synopsis:advisory_send_action_list_compose_all' project.id %}"
+        tabindex="{% if not has_action_list %}-1{% else %}0{% endif %}"
+        aria-disabled="{% if not has_action_list %}true{% else %}false{% endif %}"
+    >
         Send action list to all
     </a>
     {% endwith %}
@@ -33,47 +70,48 @@
                 </p>
                 {% if protocol_feedback_state.protocol %}
                     {% if protocol_feedback_state.is_closed %}
-                    <span class="badge text-bg-danger">Closed {{ protocol_feedback_state.closed_at|date:"Y-m-d H:i" }}</span>
-                    {% else %}
-                    <span class="badge text-bg-success">Open for submissions</span>
-                    {% endif %}
-                    <p class="text-muted small mb-0">Links stay open until this deadline or until you close them manually.</p>
-                    {% if protocol_feedback_state.closure_message %}
-                    <p class="mt-2 mb-0">
-                        <strong>Message shown to members:</strong> {{ protocol_feedback_state.closure_message }}
-                    </p>
-                    {% endif %}
+                <span class="badge text-bg-danger">Closed {{ protocol_feedback_state.closed_at|date:"Y-m-d H:i" }}</span>
                 {% else %}
-                    <span class="badge text-bg-secondary">Waiting for upload</span>
-                    <p class="text-muted small mb-0">Upload a protocol file to enable the feedback window.</p>
+                <span class="badge text-bg-success">Open for submissions</span>
+                {% endif %}
+                <p class="text-muted small mb-0">Links stay open until this deadline or until you close them manually.</p>
+                {% if protocol_feedback_state.closure_message %}
+                <p class="mt-2 mb-0">
+                    <strong>Message shown to members:</strong>
+                    {{ protocol_feedback_state.closure_message }}
+                </p>
+                {% endif %}
+                {% else %}
+                <span class="badge text-bg-secondary">Waiting for upload</span>
+                <p class="text-muted small mb-0">Upload a protocol file to enable the feedback window.</p>
                 {% endif %}
             </div>
             <div class="flex-grow-1">
                 {% if protocol_feedback_state.protocol %}
                     {% if protocol_feedback_state.is_closed %}
-                    <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="reopen">
-                        <button class="btn btn-outline-secondary align-self-start">Reopen feedback</button>
-                        {% if protocol_feedback_state.deadline %}
-                        <small class="text-muted">The deadline still blocks submissions after {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}.</small>
-                        {% endif %}
-                    </form>
-                    {% else %}
-                    <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">
-                        {% csrf_token %}
+                <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="reopen">
+                    <button class="btn btn-outline-secondary align-self-start">Reopen feedback</button>
+                    {% if protocol_feedback_state.deadline %}
+                    <small class="text-muted">The deadline still blocks submissions after {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}.</small>
+                    {% endif %}
+                </form>
+                {% else %}
+                <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                    {% csrf_token %}
                             {{ protocol_feedback_close_form.non_field_errors }}
-                        <div>
-                            {{ protocol_feedback_close_form.message.label_tag }}
+                    <div>
+                        {{ protocol_feedback_close_form.message.label_tag }}
                                 {{ protocol_feedback_close_form.message }}
                                 {{ protocol_feedback_close_form.message.errors }}
-                            <div class="form-text">Members will see this note when they open their feedback link after closure.</div>
-                        </div>
-                        <button class="btn btn-outline-danger align-self-start">Close feedback now</button>
-                    </form>
-                    {% endif %}
+                        <div class="form-text">Members will see this note when they open their feedback link after closure.</div>
+                    </div>
+                    <button class="btn btn-outline-danger align-self-start">Close feedback now</button>
+                </form>
+                {% endif %}
                 {% else %}
-                    <button class="btn btn-outline-secondary align-self-start" disabled>Close feedback (protocol missing)</button>
+                <button class="btn btn-outline-secondary align-self-start" disabled>Close feedback (protocol missing)</button>
                 {% endif %}
             </div>
         </div>
@@ -93,47 +131,48 @@
                 </p>
                 {% if action_list_feedback_state.action_list %}
                     {% if action_list_feedback_state.is_closed %}
-                    <span class="badge text-bg-danger">Closed {{ action_list_feedback_state.closed_at|date:"Y-m-d H:i" }}</span>
-                    {% else %}
-                    <span class="badge text-bg-success">Open for submissions</span>
-                    {% endif %}
-                    <p class="text-muted small mb-0">Links stay open until this deadline or until you close them manually.</p>
-                    {% if action_list_feedback_state.closure_message %}
-                    <p class="mt-2 mb-0">
-                        <strong>Message shown to members:</strong> {{ action_list_feedback_state.closure_message }}
-                    </p>
-                    {% endif %}
+                <span class="badge text-bg-danger">Closed {{ action_list_feedback_state.closed_at|date:"Y-m-d H:i" }}</span>
                 {% else %}
-                    <span class="badge text-bg-secondary">Waiting for upload</span>
-                    <p class="text-muted small mb-0">Upload an action list file to enable the feedback window.</p>
+                <span class="badge text-bg-success">Open for submissions</span>
+                {% endif %}
+                <p class="text-muted small mb-0">Links stay open until this deadline or until you close them manually.</p>
+                {% if action_list_feedback_state.closure_message %}
+                <p class="mt-2 mb-0">
+                    <strong>Message shown to members:</strong>
+                    {{ action_list_feedback_state.closure_message }}
+                </p>
+                {% endif %}
+                {% else %}
+                <span class="badge text-bg-secondary">Waiting for upload</span>
+                <p class="text-muted small mb-0">Upload an action list file to enable the feedback window.</p>
                 {% endif %}
             </div>
             <div class="flex-grow-1">
                 {% if action_list_feedback_state.action_list %}
                     {% if action_list_feedback_state.is_closed %}
-                    <form method="post" action="{% url 'synopsis:advisory_action_list_feedback_close' project.id %}" class="d-flex flex-column gap-2">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="reopen">
-                        <button class="btn btn-outline-secondary align-self-start">Reopen feedback</button>
-                        {% if action_list_feedback_state.deadline %}
-                        <small class="text-muted">The deadline still blocks submissions after {{ action_list_feedback_state.deadline|date:"Y-m-d H:i" }}.</small>
-                        {% endif %}
-                    </form>
-                    {% else %}
-                    <form method="post" action="{% url 'synopsis:advisory_action_list_feedback_close' project.id %}" class="d-flex flex-column gap-2">
-                        {% csrf_token %}
+                <form method="post" action="{% url 'synopsis:advisory_action_list_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="reopen">
+                    <button class="btn btn-outline-secondary align-self-start">Reopen feedback</button>
+                    {% if action_list_feedback_state.deadline %}
+                    <small class="text-muted">The deadline still blocks submissions after {{ action_list_feedback_state.deadline|date:"Y-m-d H:i" }}.</small>
+                    {% endif %}
+                </form>
+                {% else %}
+                <form method="post" action="{% url 'synopsis:advisory_action_list_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                    {% csrf_token %}
                             {{ action_list_feedback_close_form.non_field_errors }}
-                        <div>
-                            {{ action_list_feedback_close_form.message.label_tag }}
+                    <div>
+                        {{ action_list_feedback_close_form.message.label_tag }}
                                 {{ action_list_feedback_close_form.message }}
                                 {{ action_list_feedback_close_form.message.errors }}
-                            <div class="form-text">Members will see this note when they open their feedback link after closure.</div>
-                        </div>
-                        <button class="btn btn-outline-danger align-self-start">Close feedback now</button>
-                    </form>
-                    {% endif %}
+                        <div class="form-text">Members will see this note when they open their feedback link after closure.</div>
+                    </div>
+                    <button class="btn btn-outline-danger align-self-start">Close feedback now</button>
+                </form>
+                {% endif %}
                 {% else %}
-                    <button class="btn btn-outline-secondary align-self-start" disabled>Close feedback (action list missing)</button>
+                <button class="btn btn-outline-secondary align-self-start" disabled>Close feedback (action list missing)</button>
                 {% endif %}
             </div>
         </div>
@@ -148,32 +187,106 @@
                 {% with members_list=section.members empty_text=section.empty_text %}
                     {% if members_list %}
                 <div class="table-responsive">
-                    <table class="table table-sm align-middle">
+                    <table class="table table-sm align-middle advisory-board-table">
                         <thead class="table-light">
+                            <tr class="small text-uppercase text-muted">
+                                {% with personal_extra=section.fields_by_group.personal|length %}
+                                <th colspan="{{ personal_extra|add:9 }}">Personal Details</th>
+                                {% endwith %}
+                                {% with invitation_extra=section.fields_by_group.invitation|length %}
+                                <th colspan="{{ invitation_extra|add:4 }}">Invitation</th>
+                                {% endwith %}
+                                {% with action_extra=section.fields_by_group.action|length %}
+                                <th colspan="{{ action_extra|add:4 }}">Action List</th>
+                                {% endwith %}
+                                {% with protocol_extra=section.fields_by_group.protocol|length %}
+                                <th colspan="{{ protocol_extra|add:7 }}">Protocol</th>
+                                {% endwith %}
+                                {% with synopsis_extra=section.fields_by_group.synopsis|length %}
+                                <th colspan="{{ synopsis_extra|add:5 }}">Synopsis</th>
+                                {% endwith %}
+                                {% with custom_extra=section.fields_by_group.custom|length %}
+                                {% if custom_extra %}
+                                <th colspan="{{ custom_extra }}">Custom Columns</th>
+                                {% endif %}
+                                {% endwith %}
+                            </tr>
                             <tr>
-                                <th>Name</th>
+                                <th>Title</th>
+                                <th>Name 1</th>
+                                <th>Name 2</th>
+                                <th>Name 3</th>
                                 <th>Organisation</th>
                                 <th>Email</th>
                                 <th>Location</th>
                                 <th>Continent</th>
-                                <th>Invite</th>
-                                <th>Response</th>
-                                <th>Participation</th>
-                                <th>Reminder</th>
-                                <th>Feedback on list</th>
-                                <th>Actions feedback rec'd</th>
-                                <th>WM replied</th>
-                                <th>Added to action list</th>
-                                <th>Action list sent</th>
-                                <th>Action list deadline</th>
-                                <th>Action list feedback</th>
-                                <th>Protocol sent</th>
-                                <th>Protocol deadline</th>
-                                <th>Protocol feedback rec'd</th>
-                                <th>Added to protocol doc</th>
-                                <th>Feedback on guidance</th>
-                                <th>Feedback document</th>
-                                {% for field in section.fields %}
+                                <th>Notes</th>
+                                {% for field in section.fields_by_group.personal %}
+                                <th>
+                                    <div class="fw-semibold">{{ field.name }}</div>
+                                    {% if field.description %}
+                                    <small class="text-muted d-block">{{ field.description }}</small>
+                                    {% endif %}
+                                    <small class="text-muted">{{ field.get_data_type_display }}</small>
+                                </th>
+                                {% endfor %}
+                                <th class="ab-status-invite">Invite sent</th>
+                                <th class="ab-status-invite">Response deadline</th>
+                                <th class="ab-status-invite">Reminder sent</th>
+                                <th class="ab-status-invite">Accepted</th>
+                                {% for field in section.fields_by_group.invitation %}
+                                <th class="ab-status-invite">
+                                    <div class="fw-semibold">{{ field.name }}</div>
+                                    {% if field.description %}
+                                    <small class="text-muted d-block">{{ field.description }}</small>
+                                    {% endif %}
+                                    <small class="text-muted">{{ field.get_data_type_display }}</small>
+                                </th>
+                                {% endfor %}
+                                <th class="ab-status-action">Action list sent</th>
+                                <th class="ab-status-action">Feedback received</th>
+                                <th class="ab-status-action">Author replied</th>
+                                <th class="ab-status-action">Feedback added to doc</th>
+                                {% for field in section.fields_by_group.action %}
+                                <th class="ab-status-action">
+                                    <div class="fw-semibold">{{ field.name }}</div>
+                                    {% if field.description %}
+                                    <small class="text-muted d-block">{{ field.description }}</small>
+                                    {% endif %}
+                                    <small class="text-muted">{{ field.get_data_type_display }}</small>
+                                </th>
+                                {% endfor %}
+                                <th class="ab-status-protocol">Protocol sent</th>
+                                <th class="ab-status-protocol">Feedback deadline</th>
+                                <th class="ab-status-protocol">Reminder sent</th>
+                                <th class="ab-status-protocol">Feedback received</th>
+                                <th class="ab-status-protocol">Added to doc</th>
+                                <th class="ab-status-protocol">Guidance feedback</th>
+                                <th class="ab-status-protocol">Feedback document</th>
+                                {% for field in section.fields_by_group.protocol %}
+                                <th class="ab-status-protocol">
+                                    <div class="fw-semibold">{{ field.name }}</div>
+                                    {% if field.description %}
+                                    <small class="text-muted d-block">{{ field.description }}</small>
+                                    {% endif %}
+                                    <small class="text-muted">{{ field.get_data_type_display }}</small>
+                                </th>
+                                {% endfor %}
+                                <th class="ab-status-synopsis">Synopsis sent</th>
+                                <th class="ab-status-synopsis">Feedback deadline</th>
+                                <th class="ab-status-synopsis">Reminder sent</th>
+                                <th class="ab-status-synopsis">Feedback received</th>
+                                <th class="ab-status-synopsis">Added to doc</th>
+                                {% for field in section.fields_by_group.synopsis %}
+                                <th class="ab-status-synopsis">
+                                    <div class="fw-semibold">{{ field.name }}</div>
+                                    {% if field.description %}
+                                    <small class="text-muted d-block">{{ field.description }}</small>
+                                    {% endif %}
+                                    <small class="text-muted">{{ field.get_data_type_display }}</small>
+                                </th>
+                                {% endfor %}
+                                {% for field in section.fields_by_group.custom %}
                                 <th>
                                     <div class="fw-semibold">{{ field.name }}</div>
                                     {% if field.description %}
@@ -187,148 +300,150 @@
                         <tbody>
                             {% for m in members_list %}
                             <tr>
+                                <td>{{ m.title|default:"—" }}</td>
+                                <td>{{ m.first_name|default:"—" }}</td>
+                                <td>{{ m.middle_name|default:"—" }}</td>
+                                <td>{{ m.last_name|default:"—" }}</td>
+                                <td>{{ m.organisation|default:"—" }}</td>
                                 <td>
-                                    {% if m.title %}<span class="text-muted me-1">{{ m.title }}</span>{% endif %}
-                                    {{ m.first_name }} {% if m.middle_name %}{{ m.middle_name }}{% endif %} {{ m.last_name }}
-                                </td>
-                                <td>{{ m.organisation }}</td>
-                                <td>
+                                    {% if m.email %}
                                     <a href="mailto:{{ m.email }}">{{ m.email }}</a>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
                                 </td>
-                                <td>{{ m.location }}</td>
-                                <td>{{ m.continent }}</td>
+                                <td>{{ m.location|default:"—" }}</td>
+                                <td>{{ m.continent|default:"—" }}</td>
+                                <td>{{ m.notes|default:"—" }}</td>
+                                {% for field in section.fields_by_group.personal %}
+                                {% with value=m.custom_field_values|get_item:field.id %}
                                 <td>
+                                    {% if value and value != '—' %}
+                                    {{ value }}
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                    <div>
+                                        <a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                    </div>
+                                </td>
+                                {% endwith %}
+                                {% endfor %}
+                                <td class="ab-status-invite">
                                     {% if m.invite_sent %}
                                     <span class="badge text-bg-success">Sent</span>
                                     {% if m.invite_sent_at %}
-                                    <div>
-                                        <small class="text-muted">{{ m.invite_sent_at|date:"Y-m-d" }}</small>
-                                    </div>
+                                    <div class="small text-muted">{{ m.invite_sent_at|date:"Y-m-d" }}</div>
                                     {% endif %}
-                                        {% else %}
+                                    {% else %}
                                     <a class="btn btn-sm btn-outline-primary" href="{% url 'synopsis:advisory_invite_create_for_member' project.id m.id %}">Compose invite</a>
                                     {% endif %}
                                 </td>
-                                <td>
-                                    {% if m.response %}
-                                    <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.response == 'N' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
-                                        {{ m.response }}
-                                    </span>
-                                    {% if m.response_date %}
-                                    <div>
-                                        <small class="text-muted">{{ m.response_date|date:"Y-m-d" }}</small>
-                                    </div>
-                                    {% endif %}
-                                        {% else %}
+                                <td class="ab-status-invite">
+                                    {% if m.response_date %}{{ m.response_date|date:"Y-m-d" }}{% else %}
                                     <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
-                                <td>
-                                    {% if m.participation_confirmed %}
-                                            ✅
-                                    <small class="text-muted">{{ m.participation_confirmed_at|date:"Y-m-d H:i" }}</small>
-                                    {% if m.participation_statement %}
-                                    <div class="text-muted small">{{ m.participation_statement }}</div>
-                                    {% endif %}
-                                        {% elif m.response == 'Y' %}
-                                    <span class="badge text-bg-warning">Awaiting confirmation</span>
-                                    {% elif m.response == 'N' %}
-                                    <span class="text-muted">Declined</span>
-                                    {% else %}
-                                    <span class="text-muted">—</span>
-                                    {% endif %}
-                                </td>
-                                <td>
+                                <td class="ab-status-invite">
                                     {% if m.reminder_sent %}
-                                            ✅
-                                    <small class="text-muted">{{ m.reminder_sent_at|date:"Y-m-d" }}</small>
-                                    {% elif m.response == 'N' %}
-                                    <span class="text-muted">Declined</span>
-                                    {% else %}
-                                            {% if m.response_date %}
-                                    <span class="badge text-bg-warning">Scheduled</span>
-                                    <div>
-                                        <small class="text-muted">{{ m.response_date|date:"Y-m-d" }}</small>
-                                    </div>
+                                    <span class="badge text-bg-success">Sent</span>
+                                    {% if m.reminder_sent_at %}
+                                    <div class="small text-muted">{{ m.reminder_sent_at|date:"Y-m-d" }}</div>
+                                    {% endif %}
+                                    {% elif m.response == 'Y' %}
+                                    <span class="text-muted">Not needed</span>
                                     {% else %}
                                     <span class="text-muted">—</span>
                                     {% endif %}
-                                        {% endif %}
                                 </td>
-                                <td>{% if m.feedback_on_list %}✅{% else %}—{% endif %}</td>
-                                <td>{% if m.feedback_on_actions_received %}✅{% else %}—{% endif %}</td>
-                                <td>{% if m.wm_replied %}✅{% else %}—{% endif %}</td>
-                                <td>{% if m.feedback_added_to_action_list %}✅{% else %}—{% endif %}</td>
-                                <td>
+                                <td class="ab-status-invite">
+                                    {% if m.response %}
+                                    <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.response == 'N' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ m.response }}</span>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                {% for field in section.fields_by_group.invitation %}
+                                {% with value=m.custom_field_values|get_item:field.id %}
+                                <td class="ab-status-invite">
+                                    {% if value and value != '—' %}
+                                    {{ value }}
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                    <div>
+                                        <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                    </div>
+                                </td>
+                                {% endwith %}
+                                {% endfor %}
+                                <td class="ab-status-action">
                                     {% if m.sent_action_list_at %}
-                                            ✅
-                                    <small class="text-muted">{{ m.sent_action_list_at|date:"Y-m-d" }}</small>
-                                    {% elif action_list_feedback_state.action_list %}
-                                    <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_action_list_compose_member' project.id m.id %}">Send</a>
+                                    <span class="badge text-bg-success">Sent</span>
+                                    <div class="small text-muted">{{ m.sent_action_list_at|date:"Y-m-d" }}</div>
                                     {% else %}
-                                    <span class="text-muted">Upload action list to send</span>
+                                    <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_action_list_compose_member' project.id m.id %}">Send</a>
                                     {% endif %}
                                 </td>
-                                <td>
-                                    {% if m.response == 'N' %}
-                                    <span class="text-muted">Declined</span>
+                                <td class="ab-status-action">
+                                    {% if m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.submitted_at %}
+                                    <span class="badge text-bg-success">Received</span>
+                                    <div class="small text-muted">{{ m.latest_action_list_feedback_obj.submitted_at|date:"Y-m-d" }}</div>
                                     {% elif m.feedback_on_action_list_deadline %}
-                                            {% if m.action_list_reminder_sent %}
-                                                ✅
-                                    <small class="text-muted">{{ m.action_list_reminder_sent_at|date:"Y-m-d" }}</small>
+                                    <span class="badge text-bg-warning">Awaiting</span>
                                     {% else %}
-                                    <span class="badge text-bg-warning">Scheduled</span>
-                                    <div>
-                                        <small class="text-muted">{{ m.feedback_on_action_list_deadline|date:"Y-m-d H:i" }}</small>
-                                    </div>
-                                    {% endif %}
-                                        {% else %}
                                     <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
-                                <td>
-                                    {% with latest=m.latest_action_list_feedback_obj %}
-                                        {% if latest and latest.uploaded_document %}
-                                        <a href="{{ latest.uploaded_document.url }}">{{ latest.latest_document_label }}</a>
-                                        {% if latest.submitted_at %}
-                                        <div class="text-muted small">{{ latest.submitted_at|date:"Y-m-d H:i" }}</div>
-                                        {% endif %}
-                                        {% elif latest and latest.content %}
-                                        <span class="text-muted">Submitted {{ latest.submitted_at|date:"Y-m-d H:i" }}</span>
-                                        {% else %}
-                                        <span class="text-muted">—</span>
-                                        {% endif %}
-                                    {% endwith %}
+                                <td class="ab-status-action">{% if m.wm_replied %}✅{% else %}—{% endif %}</td>
+                                <td class="ab-status-action">{% if m.added_to_action_list_doc %}✅{% else %}—{% endif %}</td>
+                                {% for field in section.fields_by_group.action %}
+                                {% with value=m.custom_field_values|get_item:field.id %}
+                                <td class="ab-status-action">
+                                    {% if value and value != '—' %}
+                                    {{ value }}
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                    <div>
+                                        <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                    </div>
                                 </td>
-                                <td>
+                                {% endwith %}
+                                {% endfor %}
+                                <td class="ab-status-protocol">
                                     {% if m.sent_protocol_at %}
-                                            ✅
-                                    <small class="text-muted">{{ m.sent_protocol_at|date:"Y-m-d" }}</small>
+                                    <span class="badge text-bg-success">Sent</span>
+                                    <div class="small text-muted">{{ m.sent_protocol_at|date:"Y-m-d" }}</div>
                                     {% else %}
                                     <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_protocol_compose_member' project.id m.id %}">Send</a>
                                     {% endif %}
                                 </td>
-                                <td>
-                                    {% if m.response == 'N' %}
-                                    <span class="text-muted">Declined</span>
-                                    {% elif m.feedback_on_protocol_deadline %}
-                                            {% if m.protocol_reminder_sent %}
-                                                ✅
-                                    <small class="text-muted">{{ m.protocol_reminder_sent_at|date:"Y-m-d" }}</small>
-                                    {% else %}
-                                    <span class="badge text-bg-warning">Scheduled</span>
-                                    <div>
-                                        <small class="text-muted">{{ m.feedback_on_protocol_deadline|date:"Y-m-d H:i" }}</small>
-                                    </div>
-                                    {% endif %}
-                                        {% else %}
+                                <td class="ab-status-protocol">
+                                    {% if m.feedback_on_protocol_deadline %}{{ m.feedback_on_protocol_deadline|date:"Y-m-d H:i" }}{% else %}
                                     <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
-                                <td>{{ m.feedback_on_protocol_received|date:"Y-m-d" }}</td>
-                                <td>{% if m.added_to_protocol_doc %}✅{% else %}—{% endif %}</td>
-                                <td>{% if m.feedback_on_guidance %}✅{% else %}—{% endif %}</td>
-                                <td>
+                                <td class="ab-status-protocol">
+                                    {% if m.protocol_reminder_sent %}
+                                    <span class="badge text-bg-success">Sent</span>
+                                    {% if m.protocol_reminder_sent_at %}
+                                    <div class="small text-muted">{{ m.protocol_reminder_sent_at|date:"Y-m-d" }}</div>
+                                    {% endif %}
+                                    {% elif m.feedback_on_protocol_deadline %}
+                                    <span class="badge text-bg-warning">Scheduled</span>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="ab-status-protocol">
+                                    {% if m.feedback_on_protocol_received %}{{ m.feedback_on_protocol_received|date:"Y-m-d" }}{% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="ab-status-protocol">{% if m.added_to_protocol_doc %}✅{% else %}—{% endif %}</td>
+                                <td class="ab-status-protocol">{% if m.feedback_on_guidance %}✅{% else %}—{% endif %}</td>
+                                <td class="ab-status-protocol">
                                     {% if m.latest_feedback and m.latest_feedback.uploaded_document %}
                                     <a href="{{ m.latest_feedback.uploaded_document.url }}">{{ m.latest_feedback.latest_document_label }}</a>
                                     {% if m.latest_feedback.submitted_at %}
@@ -340,7 +455,66 @@
                                     <span class="text-muted">—</span>
                                     {% endif %}
                                 </td>
-                                {% for field in section.fields %}
+                                {% for field in section.fields_by_group.protocol %}
+                                {% with value=m.custom_field_values|get_item:field.id %}
+                                <td class="ab-status-protocol">
+                                    {% if value and value != '—' %}
+                                    {{ value }}
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                    <div>
+                                        <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                    </div>
+                                </td>
+                                {% endwith %}
+                                {% endfor %}
+                                <td class="ab-status-synopsis">
+                                    {% if m.sent_synopsis_at %}
+                                    <span class="badge text-bg-success">Sent</span>
+                                    <div class="small text-muted">{{ m.sent_synopsis_at|date:"Y-m-d" }}</div>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="ab-status-synopsis">
+                                    {% if m.feedback_on_synopsis_deadline %}{{ m.feedback_on_synopsis_deadline|date:"Y-m-d H:i" }}{% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="ab-status-synopsis">
+                                    {% if m.synopsis_reminder_sent %}
+                                    <span class="badge text-bg-success">Sent</span>
+                                    {% if m.synopsis_reminder_sent_at %}
+                                    <div class="small text-muted">{{ m.synopsis_reminder_sent_at|date:"Y-m-d" }}</div>
+                                    {% endif %}
+                                    {% elif m.feedback_on_synopsis_deadline %}
+                                    <span class="badge text-bg-warning">Scheduled</span>
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="ab-status-synopsis">
+                                    {% if m.feedback_on_synopsis_received %}{{ m.feedback_on_synopsis_received|date:"Y-m-d" }}{% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="ab-status-synopsis">{% if m.added_to_synopsis_doc %}✅{% else %}—{% endif %}</td>
+                                {% for field in section.fields_by_group.synopsis %}
+                                {% with value=m.custom_field_values|get_item:field.id %}
+                                <td class="ab-status-synopsis">
+                                    {% if value and value != '—' %}
+                                    {{ value }}
+                                    {% else %}
+                                    <span class="text-muted">—</span>
+                                    {% endif %}
+                                    <div>
+                                        <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                    </div>
+                                </td>
+                                {% endwith %}
+                                {% endfor %}
+                                {% for field in section.fields_by_group.custom %}
                                 {% with value=m.custom_field_values|get_item:field.id %}
                                 <td>
                                     {% if value and value != '—' %}
@@ -348,7 +522,9 @@
                                     {% else %}
                                     <span class="text-muted">—</span>
                                     {% endif %}
-                                    <div><a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a></div>
+                                    <div>
+                                        <a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                    </div>
                                 </td>
                                 {% endwith %}
                                 {% endfor %}
@@ -483,21 +659,38 @@
                     {% for field in custom_fields %}
                     <li class="list-group-item px-0">
                         <div class="d-flex justify-content-between align-items-start gap-3">
-                            <div>
+                            <div class="flex-grow-1">
                                 <div class="fw-semibold">{{ field.name }}</div>
                                 <div class="d-flex flex-wrap gap-2 mb-1">
                                     <span class="badge text-bg-light text-muted border">{{ field.get_data_type_display }}</span>
+                                    <span class="badge text-bg-light border text-muted">{{ field.get_display_group_display }}</span>
                                     {% if field.sections %}
                                         {% for label in field.section_labels %}
-                                        <span class="badge bg-secondary-subtle text-dark">{{ label }}</span>
-                                        {% endfor %}
+                                    <span class="badge bg-secondary-subtle text-dark">{{ label }}</span>
+                                    {% endfor %}
                                     {% else %}
                                     <span class="badge text-bg-light text-muted border">All sections</span>
                                     {% endif %}
                                 </div>
                                 {% if field.description %}
-                                <div class="small text-muted">{{ field.description }}</div>
+                                <div class="small text-muted mb-2">{{ field.description }}</div>
                                 {% endif %}
+                                <form method="post" class="d-flex align-items-center gap-2 flex-wrap">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="custom_field_move">
+                                    <input type="hidden" name="field_id" value="{{ field.id }}">
+                                    <label class="form-label small mb-0" for="display-group-{{ field.id }}">Show in</label>
+                                    <select
+                                        id="display-group-{{ field.id }}"
+                                        name="display_group"
+                                        class="form-select form-select-sm w-auto"
+                                    >
+                                        {% for value, label in custom_field_group_choices %}
+                                        <option value="{{ value }}"{% if field.display_group == value %} selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <button class="btn btn-outline-secondary btn-sm">Move</button>
+                                </form>
                             </div>
                             <form method="post" action="" onsubmit="return confirm('Remove this custom column?');">
                                 {% csrf_token %}
@@ -526,21 +719,17 @@
                         {{ custom_field_form.data_type.errors }}
                     </div>
                     <div class="mb-2">
-                        {{ custom_field_form.sections.label_tag }}
-                        {{ custom_field_form.sections }}
-                        {{ custom_field_form.sections.errors }}
-                        {% if custom_field_form.sections.help_text %}
-                        <div class="form-text">{{ custom_field_form.sections.help_text }}</div>
+                        {{ custom_field_form.display_group.label_tag }}
+                        {{ custom_field_form.display_group }}
+                        {{ custom_field_form.display_group.errors }}
+                        {% if custom_field_form.display_group.help_text %}
+                        <div class="form-text">{{ custom_field_form.display_group.help_text }}</div>
                         {% endif %}
                     </div>
                     <div class="mb-2">
                         {{ custom_field_form.description.label_tag }}
                         {{ custom_field_form.description }}
                         {{ custom_field_form.description.errors }}
-                    </div>
-                    <div class="form-check mb-3">
-                        {{ custom_field_form.is_required }}
-                        {{ custom_field_form.is_required.label_tag }}
                     </div>
                     <button class="btn btn-outline-primary btn-sm">Add column</button>
                 </form>
@@ -552,7 +741,8 @@
                 <p class="text-muted small">
                     Set a response deadline for members who have been added but not yet sent an invite. Our reminder job will email them two business days before that date.
                 </p>
-                <p class="small">Pending members:
+                <p class="small">
+                    Pending members:
                     <strong>{{ pending_reminders }}</strong>
                 </p>
                 {% if initial_reminder_log %}
@@ -590,7 +780,8 @@
                 <p class="text-muted small">
                     Choose a protocol feedback deadline (date and time) for members who already received the protocol. We will remind them two business days before that deadline.
                 </p>
-                <p class="small">Members with protocol:
+                <p class="small">
+                    Members with protocol:
                     <strong>{{ protocol_pending_count }}</strong>
                 </p>
                 {% if initial_protocol_reminder_log %}
@@ -628,7 +819,8 @@
                 <p class="text-muted small">
                     Choose an action list feedback deadline (date and time) for members who already received the action list. We will remind them two business days before that deadline.
                 </p>
-                <p class="small">Members with action list:
+                <p class="small">
+                    Members with action list:
                     <strong>{{ action_list_pending_count }}</strong>
                 </p>
                 {% if initial_action_list_reminder_log %}

@@ -105,7 +105,7 @@ class AssignRoleForm(forms.Form):
 class AdvisoryBoardMemberForm(forms.ModelForm):
     title = forms.ChoiceField(
         choices=FUNDER_TITLE_CHOICES,
-        required=False,
+        required=True,
         widget=forms.Select(attrs={"class": "form-select"}),
         label="Title",
     )
@@ -134,6 +134,12 @@ class AdvisoryBoardMemberForm(forms.ModelForm):
             "notes": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Always capture core identity information when creating or editing a member.
+        for field_name in ("first_name", "last_name", "email"):
+            self.fields[field_name].required = True
+
 
 class AdvisoryInviteForm(forms.Form):
     email = forms.EmailField(widget=forms.EmailInput(attrs={"class": "form-control"}))
@@ -160,28 +166,24 @@ class AdvisoryInviteForm(forms.Form):
 
 
 class AdvisoryCustomFieldForm(forms.ModelForm):
-    sections = forms.MultipleChoiceField(
-        choices=AdvisoryBoardCustomField.SECTION_CHOICES,
-        required=False,
-        widget=forms.CheckboxSelectMultiple,
-        help_text="Choose which member groups should display this column. Leave blank to show it in every section.",
-    )
-
     class Meta:
         model = AdvisoryBoardCustomField
-        fields = ["name", "data_type", "sections", "description", "is_required"]
+        fields = [
+            "name",
+            "data_type",
+            "display_group",
+            "description",
+        ]
         widgets = {
             "name": forms.TextInput(attrs={"class": "form-control"}),
             "data_type": forms.Select(attrs={"class": "form-select"}),
+            "display_group": forms.Select(attrs={"class": "form-select"}),
             "description": forms.TextInput(attrs={"class": "form-control"}),
-            "is_required": forms.CheckboxInput(attrs={"class": "form-check-input"}),
         }
 
     def __init__(self, project, *args, **kwargs):
         self.project = project
         super().__init__(*args, **kwargs)
-        if self.instance and self.instance.pk:
-            self.fields["sections"].initial = self.instance.sections or []
 
     def clean_name(self):
         name = (self.cleaned_data.get("name") or "").strip()
@@ -197,17 +199,20 @@ class AdvisoryCustomFieldForm(forms.ModelForm):
             )
         return name
 
-    def clean_sections(self):
-        sections = self.cleaned_data.get("sections") or []
-        return list(dict.fromkeys(sections))
-
     def save(self, commit=True):
         instance = super().save(commit=False)
         instance.project = self.project
-        instance.sections = self.cleaned_data.get("sections")
         if commit:
             instance.save()
         return instance
+
+
+class AdvisoryCustomFieldPlacementForm(forms.Form):
+    display_group = forms.ChoiceField(
+        choices=AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+        label="Show in section",
+    )
 
 
 class AdvisoryMemberCustomDataForm(forms.Form):
