@@ -122,6 +122,10 @@ class Command(BaseCommand):
             )
         self.stdout.write(
             self.style.SUCCESS(
-                f"Reminders sent: invites={len(to_remind)}, protocol={len(proto_to_remind)}, action_list={len(action_to_remind)}"
+                (
+                    f"Reminders sent: invites={len(to_remind)}, "
+                    f"protocol={len(proto_to_remind)}, "
+                    f"action_list={len(action_to_remind)}"
+                )
             )
         )
