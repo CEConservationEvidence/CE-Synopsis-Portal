@@ -1186,12 +1186,71 @@ def _advisory_board_context(
     for section in member_sections:
         section["has_fields"] = bool(section["fields"])
 
+    group_names = [
+        "personal",
+        "invitation",
+        "action",
+        "protocol",
+        "synopsis",
+        "custom",
+    ]
+    combined_fields_by_group = {name: [] for name in group_names}
+    seen_field_ids = {name: set() for name in group_names}
+
+    for section in member_sections:
+        field_ids_by_group = {}
+        for group_name in group_names:
+            group_fields = section["fields_by_group"].get(group_name, [])
+            field_ids = [field.id for field in group_fields]
+            field_ids_by_group[group_name] = field_ids
+            for field in group_fields:
+                if field.id not in seen_field_ids[group_name]:
+                    combined_fields_by_group[group_name].append(field)
+                    seen_field_ids[group_name].add(field.id)
+        section["field_ids_by_group"] = field_ids_by_group
+
+    def safe_count(members):
+        count_attr = getattr(members, "count", None)
+        if callable(count_attr):
+            try:
+                return count_attr()
+            except TypeError:
+                pass
+        return len(members)
+
+    total_member_count = (
+        safe_count(accepted_members)
+        + safe_count(pending_members)
+        + safe_count(declined_members)
+    )
+
+    status_badges = {
+        AdvisoryBoardCustomField.SECTION_ACCEPTED: {
+            "label": "Accepted",
+            "badge_class": "text-bg-success",
+            "row_class": "ab-row-status-accepted",
+        },
+        AdvisoryBoardCustomField.SECTION_PENDING: {
+            "label": "Pending",
+            "badge_class": "text-bg-warning",
+            "row_class": "ab-row-status-pending",
+        },
+        AdvisoryBoardCustomField.SECTION_DECLINED: {
+            "label": "Declined",
+            "badge_class": "text-bg-danger",
+            "row_class": "ab-row-status-declined",
+        },
+    }
+
     return {
         "project": project,
         "accepted_members": accepted_members,
         "declined_members": declined_members,
         "pending_members": pending_members,
         "member_sections": member_sections,
+        "combined_fields_by_group": combined_fields_by_group,
+        "member_status_badges": status_badges,
+        "total_member_count": total_member_count,
         "section_fields": fields_by_section,
         "custom_fields": custom_fields,
         "custom_field_form": custom_field_form,
