@@ -88,7 +88,65 @@
         Send action list to all
     </a>
     {% endwith %}
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addMemberModal">Add member</button>
 </div>
+
+<div class="modal fade" id="addMemberModal" tabindex="-1" aria-labelledby="addMemberModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addMemberModalLabel">Add advisory board member</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form method="post" class="row g-3">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="add_member">
+                    <div class="col-md-4">
+                        <label class="form-label">Title</label>
+                        {{ form.title }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">First name</label>
+                        {{ form.first_name }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Middle name</label>
+                        {{ form.middle_name }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Last name</label>
+                        {{ form.last_name }}
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">Organisation</label>
+                        {{ form.organisation }}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Email</label>
+                        {{ form.email }}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Location</label>
+                        {{ form.location }}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Continent</label>
+                        {{ form.continent }}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Notes</label>
+                        {{ form.notes }}
+                    </div>
+                    <div class="col-12">
+                        <button class="btn btn-primary">Add member</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="card mb-4">
     <div class="card-body">
         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start gap-3">
@@ -616,54 +674,6 @@
                 </div>
     </div>
     <div class="col-12 col-lg-4 d-flex flex-column gap-3">
-        <div class="card">
-            <div class="card-body">
-                        <h5 class="mb-3">Add member</h5>
-                        <form method="post">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="add_member">
-                            <div class="row g-2">
-                                <div class="col-md-4">
-                                    <label class="form-label">Title</label>
-                                    {{ form.title }}
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">First name</label>
-                                    {{ form.first_name }}
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Middle name</label>
-                                    {{ form.middle_name }}
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Last name</label>
-                                    {{ form.last_name }}
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label">Organisation</label>
-                                    {{ form.organisation }}
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label">Email</label>
-                                    {{ form.email }}
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Location</label>
-                                    {{ form.location }}
-                                </div>
-                                <div class="col-md-6">
-                                    <label class="form-label">Continent</label>
-                                    {{ form.continent }}
-                                </div>
-                                <div class="col-12">
-                                    <label class="form-label">Notes</label>
-                                    {{ form.notes }}
-                                </div>
-                            </div>
-                            <button class="btn btn-primary mt-3">Add</button>
-                        </form>
-                    </div>
-                </div>
                 <div class="card">
             <div class="card-body">
                         <h5 class="mb-3">Custom columns</h5>
