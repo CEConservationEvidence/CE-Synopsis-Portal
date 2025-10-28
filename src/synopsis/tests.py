@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +12,7 @@ from django.urls import reverse
 import shutil
 import tempfile
 from django.utils import timezone
+from django.core.management import call_command
 
 from .models import (
     AdvisoryBoardInvitation,
@@ -187,6 +188,100 @@ class ProjectAuthorUsersTests(TestCase):
     def test_returns_authors_sorted_by_username(self):
         usernames = list(self.project.author_users.values_list("username", flat=True))
         self.assertEqual(usernames, ["adam", "zoe"])
+
+
+@override_settings(DEFAULT_FROM_EMAIL="reminders@example.com")
+class SendDueRemindersTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Reminder Project")
+        self.invite_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ina",
+            email="invite@example.com",
+            invite_sent=True,
+            response_date=date(2025, 1, 10),
+        )
+        aware_now = timezone.now()
+        self.protocol_deadline = aware_now + timedelta(days=5)
+        self.protocol_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Proto",
+            email="proto@example.com",
+            invite_sent=True,
+            response="Y",
+            sent_protocol_at=aware_now,
+            feedback_on_protocol_deadline=self.protocol_deadline,
+        )
+        self.action_list_deadline = aware_now + timedelta(days=6)
+        self.action_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Al",
+            email="action@example.com",
+            invite_sent=True,
+            response="Y",
+            sent_action_list_at=aware_now,
+            feedback_on_action_list_deadline=self.action_list_deadline,
+        )
+
+    @patch("synopsis.management.commands.send_due_reminders.EmailMultiAlternatives")
+    @patch("synopsis.management.commands.send_due_reminders.minus_business_days")
+    @patch("synopsis.management.commands.send_due_reminders.timezone")
+    def test_sends_due_reminders_for_all_streams(
+        self, mock_timezone, mock_minus, mock_email
+    ):
+        today = date(2025, 1, 8)
+        real_now = timezone.now()
+        mock_timezone.localdate.return_value = today
+        mock_timezone.now.return_value = real_now
+        mock_timezone.localtime.side_effect = lambda value: value
+
+        def minus_side_effect(deadline, offset):
+            self.assertEqual(offset, 2)
+            return today
+
+        mock_minus.side_effect = minus_side_effect
+
+        email_calls = []
+
+        def build_email(*args, **kwargs):
+            instance = MagicMock()
+            email_calls.append((args, kwargs, instance))
+            return instance
+
+        mock_email.side_effect = build_email
+
+        call_command("send_due_reminders")
+
+        self.assertEqual(len(email_calls), 3)
+        for _, _, instance in email_calls:
+            instance.send.assert_called_once()
+
+        self.invite_member.refresh_from_db()
+        self.protocol_member.refresh_from_db()
+        self.action_member.refresh_from_db()
+
+        self.assertTrue(self.invite_member.reminder_sent)
+        self.assertTrue(self.protocol_member.protocol_reminder_sent)
+        self.assertTrue(self.action_member.action_list_reminder_sent)
+        self.assertIsNotNone(self.invite_member.reminder_sent_at)
+        self.assertIsNotNone(self.protocol_member.protocol_reminder_sent_at)
+        self.assertIsNotNone(self.action_member.action_list_reminder_sent_at)
+
+        subjects = [args[0] for args, _, _ in email_calls]
+        self.assertIn(
+            email_subject("invite_reminder", self.project, self.invite_member.response_date),
+            subjects,
+        )
+        self.assertIn(
+            email_subject("protocol_reminder", self.project, self.protocol_deadline),
+            subjects,
+        )
+        self.assertIn(
+            email_subject(
+                "action_list_reminder", self.project, self.action_list_deadline
+            ),
+            subjects,
+        )
 
 
 class FunderUtilityTests(TestCase):
