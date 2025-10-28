@@ -34,7 +34,7 @@ GLOBAL_ROLE_CHOICES = [
     ("manager", "Manager"),
 ]
 
-
+# TODO: #35 Currently, the ProtocolUpdateForm and ActionListUpdateForm are very similar and could potentially be refactored to reduce redundancy. Also, additional validation and error handling could be added to enhance robustness.
 class ProtocolUpdateForm(forms.ModelForm):
     document = forms.FileField(
         required=False,
