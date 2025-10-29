@@ -71,6 +71,35 @@
     .ab-status-cell {
         white-space: nowrap;
     }
+
+    .reminder-inline-form .form-control {
+        min-width: 10rem;
+    }
+
+    .reminder-inline-form .btn {
+        white-space: nowrap;
+    }
+
+    .ab-row-status-declined {
+        color: var(--bs-secondary-color, #6c757d);
+        opacity: 0.75;
+    }
+
+    .ab-row-status-declined .btn,
+    .ab-row-status-declined .btn-link,
+    .ab-row-status-declined input,
+    .ab-row-status-declined select,
+    .ab-row-status-declined form {
+        pointer-events: none;
+        cursor: default;
+    }
+
+    .ab-row-status-declined .btn,
+    .ab-row-status-declined .btn-link,
+    .ab-row-status-declined input,
+    .ab-row-status-declined select {
+        opacity: 0.85;
+    }
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
@@ -304,9 +333,11 @@
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
+                                        {% if m.response != 'N' %}
                                         <div>
                                             <a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
                                         </div>
+                                        {% endif %}
                                     </td>
                                             {% endwith %}
                                         {% else %}
@@ -319,21 +350,54 @@
                                         {% if m.invite_sent_at %}
                                         <div class="small text-muted">{{ m.invite_sent_at|date:"Y-m-d" }}</div>
                                         {% endif %}
+                                        {% elif m.response == 'N' %}
+                                        <span class="text-muted">Declined</span>
                                         {% else %}
                                         <a class="btn btn-sm btn-outline-primary" href="{% url 'synopsis:advisory_invite_create_for_member' project.id m.id %}">Compose invite</a>
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-invite">
-                                        {% if m.response_date %}{{ m.response_date|date:"Y-m-d" }}{% else %}
-                                        <span class="text-muted">—</span>
+                                        {% if m.response == 'N' %}
+                                        <span class="text-muted">Declined</span>
+                                        {% else %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_deadline' project.id m.id 'invite' %}"
+                                            class="reminder-inline-form"
+                                        >
+                                            {% csrf_token %}
+                                            <div class="input-group input-group-sm">
+                                                <input
+                                                    type="date"
+                                                    name="reminder_date"
+                                                    class="form-control"
+                                                    value="{{ m.response_date|date:'Y-m-d' }}"
+                                                    aria-label="Response deadline for {{ m.first_name|default:m.email }}"
+                                                >
+                                                <button class="btn btn-outline-primary btn-sm">Save</button>
+                                                {% if m.response_date %}
+                                                <button
+                                                    class="btn btn-outline-secondary btn-sm"
+                                                    type="submit"
+                                                    name="clear_deadline"
+                                                    value="1"
+                                                >Clear</button>
+                                                {% endif %}
+                                            </div>
+                                        </form>
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-invite">
-                                        {% if m.reminder_sent %}
-                                        <span class="badge text-bg-success">Sent</span>
+                                        {% if m.response == 'N' %}
+                                        <span class="text-muted">Declined</span>
+                                        {% elif m.reminder_sent %}
+                                        <span class="badge text-bg-success">Yes</span>
                                         {% if m.reminder_sent_at %}
                                         <div class="small text-muted">{{ m.reminder_sent_at|date:"Y-m-d" }}</div>
                                         {% endif %}
+                                        {% elif m.response_date %}
+                                        <span class="badge text-bg-warning text-dark">Set</span>
+                                        <div class="small text-muted">{{ m.response_date|date:"Y-m-d" }}</div>
                                         {% elif m.response == 'Y' %}
                                         <span class="text-muted">Not needed</span>
                                         {% else %}
@@ -356,9 +420,11 @@
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
+                                        {% if m.response != 'N' %}
                                         <div>
                                             <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
                                         </div>
+                                        {% endif %}
                                     </td>
                                             {% endwith %}
                                         {% else %}
@@ -369,6 +435,8 @@
                                         {% if m.sent_action_list_at %}
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_action_list_at|date:"Y-m-d" }}</div>
+                                        {% elif m.response == 'N' %}
+                                        <span class="text-muted">Declined</span>
                                         {% else %}
                                         <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_action_list_compose_member' project.id m.id %}">Send</a>
                                         {% endif %}
@@ -394,9 +462,11 @@
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
+                                        {% if m.response != 'N' %}
                                         <div>
                                             <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
                                         </div>
+                                        {% endif %}
                                     </td>
                                             {% endwith %}
                                         {% else %}
@@ -407,6 +477,8 @@
                                         {% if m.sent_protocol_at %}
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_protocol_at|date:"Y-m-d" }}</div>
+                                        {% elif m.response == 'N' %}
+                                        <span class="text-muted">Declined</span>
                                         {% else %}
                                         <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_protocol_compose_member' project.id m.id %}">Send</a>
                                         {% endif %}
@@ -456,9 +528,11 @@
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
+                                        {% if m.response != 'N' %}
                                         <div>
                                             <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
                                         </div>
+                                        {% endif %}
                                     </td>
                                             {% endwith %}
                                         {% else %}
