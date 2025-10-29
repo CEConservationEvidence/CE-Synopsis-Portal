@@ -27,6 +27,7 @@ from .models import (
     ProtocolRevision,
     ActionList,
     ActionListRevision,
+    ActionListFeedback,
     UserRole,
 )
 from .forms import (
@@ -282,6 +283,175 @@ class SendDueRemindersTests(TestCase):
             ),
             subjects,
         )
+
+
+class MemberReminderUpdateTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Inline Reminders")
+        self.user = User.objects.create_user(username="owner", password="pw")
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.client.force_login(self.user)
+        self.board_url = reverse("synopsis:advisory_board_list", args=[self.project.id])
+
+    def test_update_response_deadline(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Randy",
+            email="randy@example.com",
+            reminder_sent=True,
+            reminder_sent_at=timezone.now(),
+        )
+        target_date = date(2025, 2, 20)
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "invite"],
+            ),
+            {"reminder_date": target_date.strftime("%Y-%m-%d")},
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertEqual(member.response_date, target_date)
+        self.assertFalse(member.reminder_sent)
+        self.assertIsNone(member.reminder_sent_at)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project, action="Updated invite reminder"
+            ).exists()
+        )
+
+    def test_clear_response_deadline(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Clara",
+            email="clara@example.com",
+            response_date=date(2024, 12, 1),
+            reminder_sent=True,
+            reminder_sent_at=timezone.now(),
+        )
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "invite"],
+            ),
+            {"clear_deadline": "1"},
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNone(member.response_date)
+        self.assertFalse(member.reminder_sent)
+        self.assertIsNone(member.reminder_sent_at)
+
+    def test_update_protocol_deadline(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Paula",
+            email="paula@example.com",
+            response="Y",
+            sent_protocol_at=timezone.now(),
+            protocol_reminder_sent=True,
+            protocol_reminder_sent_at=timezone.now(),
+        )
+        ProtocolFeedback.objects.create(project=self.project, member=member)
+        deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=4)
+        local_deadline = timezone.localtime(deadline)
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "protocol"],
+            ),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNotNone(member.feedback_on_protocol_deadline)
+        self.assertAlmostEqual(
+            member.feedback_on_protocol_deadline.timestamp(), deadline.timestamp(), delta=1
+        )
+        self.assertFalse(member.protocol_reminder_sent)
+        self.assertIsNone(member.protocol_reminder_sent_at)
+        feedback = ProtocolFeedback.objects.get(project=self.project, member=member)
+        self.assertIsNotNone(feedback.feedback_deadline_at)
+        self.assertAlmostEqual(
+            feedback.feedback_deadline_at.timestamp(), deadline.timestamp(), delta=1
+        )
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project, action="Updated protocol reminder"
+            ).exists()
+        )
+
+    def test_update_action_list_deadline(self):
+        action_list = ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.txt", b"test"),
+        )
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Alex",
+            email="alex@example.com",
+            response="Y",
+            sent_action_list_at=timezone.now(),
+            action_list_reminder_sent=True,
+            action_list_reminder_sent_at=timezone.now(),
+        )
+        ActionListFeedback.objects.create(
+            project=self.project, member=member, action_list=action_list
+        )
+        deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=6)
+        local_deadline = timezone.localtime(deadline)
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "action-list"],
+            ),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNotNone(member.feedback_on_action_list_deadline)
+        self.assertAlmostEqual(
+            member.feedback_on_action_list_deadline.timestamp(),
+            deadline.timestamp(),
+            delta=1,
+        )
+        self.assertFalse(member.action_list_reminder_sent)
+        self.assertIsNone(member.action_list_reminder_sent_at)
+        feedback = ActionListFeedback.objects.get(project=self.project, member=member)
+        self.assertIsNotNone(feedback.feedback_deadline_at)
+        self.assertAlmostEqual(
+            feedback.feedback_deadline_at.timestamp(),
+            deadline.timestamp(),
+            delta=1,
+        )
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project, action="Updated action list reminder"
+            ).exists()
+        )
+
+    def test_declined_member_cannot_schedule_invite(self):
+        original_date = date(2024, 11, 15)
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Dana",
+            email="dana@example.com",
+            response="N",
+            response_date=original_date,
+            reminder_sent=True,
+            reminder_sent_at=timezone.now(),
+        )
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "invite"],
+            ),
+            {"reminder_date": "2025-01-01"},
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertEqual(member.response_date, original_date)
+        self.assertTrue(member.reminder_sent)
 
 
 class FunderUtilityTests(TestCase):
