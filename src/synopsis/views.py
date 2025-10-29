@@ -985,6 +985,9 @@ def _advisory_board_context(
     for member in all_members:
         section_key = _member_section_key(member)
         member.section_key = section_key
+        member.is_declined = (
+            section_key == AdvisoryBoardCustomField.SECTION_DECLINED
+        )
         section_fields = fields_by_section.get(section_key, [])
         member.custom_fields = section_fields
         member.has_custom_fields = bool(section_fields)

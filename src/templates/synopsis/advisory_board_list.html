@@ -333,7 +333,7 @@
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
-                                        {% if m.response != 'N' %}
+                                        {% if not m.is_declined %}
                                         <div>
                                             <a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
                                         </div>
@@ -350,14 +350,14 @@
                                         {% if m.invite_sent_at %}
                                         <div class="small text-muted">{{ m.invite_sent_at|date:"Y-m-d" }}</div>
                                         {% endif %}
-                                        {% elif m.response == 'N' %}
+                                        {% elif m.is_declined %}
                                         <span class="text-muted">Declined</span>
                                         {% else %}
                                         <a class="btn btn-sm btn-outline-primary" href="{% url 'synopsis:advisory_invite_create_for_member' project.id m.id %}">Compose invite</a>
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-invite">
-                                        {% if m.response == 'N' %}
+                                        {% if m.is_declined %}
                                         <span class="text-muted">Declined</span>
                                         {% else %}
                                         <form
@@ -388,25 +388,25 @@
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-invite">
-                                        {% if m.response == 'N' %}
+                                        {% if m.is_declined %}
                                         <span class="text-muted">Declined</span>
                                         {% elif m.reminder_sent %}
                                         <span class="badge text-bg-success">Yes</span>
                                         {% if m.reminder_sent_at %}
                                         <div class="small text-muted">{{ m.reminder_sent_at|date:"Y-m-d" }}</div>
                                         {% endif %}
+                                        {% elif m.response == 'Y' %}
+                                        <span class="text-muted">Not needed</span>
                                         {% elif m.response_date %}
                                         <span class="badge text-bg-warning text-dark">Set</span>
                                         <div class="small text-muted">{{ m.response_date|date:"Y-m-d" }}</div>
-                                        {% elif m.response == 'Y' %}
-                                        <span class="text-muted">Not needed</span>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-invite">
                                         {% if m.response %}
-                                        <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.response == 'N' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ m.response }}</span>
+                                        <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.is_declined %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ m.response }}</span>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
@@ -415,12 +415,14 @@
                                         {% if field.id in section.field_ids_by_group.invitation %}
                                             {% with value=m.custom_field_values|get_item:field.id %}
                                     <td class="ab-status-invite">
-                                        {% if value and value != '—' %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif value and value != '—' %}
                                         {{ value }}
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
-                                        {% if m.response != 'N' %}
+                                        {% if not m.is_declined %}
                                         <div>
                                             <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
                                         </div>
@@ -435,14 +437,16 @@
                                         {% if m.sent_action_list_at %}
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_action_list_at|date:"Y-m-d" }}</div>
-                                        {% elif m.response == 'N' %}
+                                        {% elif m.is_declined %}
                                         <span class="text-muted">Declined</span>
                                         {% else %}
                                         <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_action_list_compose_member' project.id m.id %}">Send</a>
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-action">
-                                        {% if m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.submitted_at %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.submitted_at %}
                                         <span class="badge text-bg-success">Received</span>
                                         <div class="small text-muted">{{ m.latest_action_list_feedback_obj.submitted_at|date:"Y-m-d" }}</div>
                                         {% elif m.feedback_on_action_list_deadline %}
@@ -451,18 +455,36 @@
                                         <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
-                                    <td class="ab-status-action">{% if m.wm_replied %}✅{% else %}—{% endif %}</td>
-                                    <td class="ab-status-action">{% if m.added_to_action_list_doc %}✅{% else %}—{% endif %}</td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.wm_replied %}
+                                        ✅
+                                        {% else %}
+                                        —
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.added_to_action_list_doc %}
+                                        ✅
+                                        {% else %}
+                                        —
+                                        {% endif %}
+                                    </td>
                                     {% for field in combined_fields_by_group.action %}
                                         {% if field.id in section.field_ids_by_group.action %}
                                             {% with value=m.custom_field_values|get_item:field.id %}
                                     <td class="ab-status-action">
-                                        {% if value and value != '—' %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif value and value != '—' %}
                                         {{ value }}
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
-                                        {% if m.response != 'N' %}
+                                        {% if not m.is_declined %}
                                         <div>
                                             <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
                                         </div>
@@ -477,19 +499,25 @@
                                         {% if m.sent_protocol_at %}
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_protocol_at|date:"Y-m-d" }}</div>
-                                        {% elif m.response == 'N' %}
+                                        {% elif m.is_declined %}
                                         <span class="text-muted">Declined</span>
                                         {% else %}
                                         <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_protocol_compose_member' project.id m.id %}">Send</a>
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-protocol">
-                                        {% if m.feedback_on_protocol_deadline %}{{ m.feedback_on_protocol_deadline|date:"Y-m-d H:i" }}{% else %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.feedback_on_protocol_deadline %}
+                                        {{ m.feedback_on_protocol_deadline|date:"Y-m-d H:i" }}
+                                        {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-protocol">
-                                        {% if m.protocol_reminder_sent %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.protocol_reminder_sent %}
                                         <span class="badge text-bg-success">Sent</span>
                                         {% if m.protocol_reminder_sent_at %}
                                         <div class="small text-muted">{{ m.protocol_reminder_sent_at|date:"Y-m-d" }}</div>
@@ -501,14 +529,36 @@
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-protocol">
-                                        {% if m.feedback_on_protocol_received %}{{ m.feedback_on_protocol_received|date:"Y-m-d" }}{% else %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.feedback_on_protocol_received %}
+                                        {{ m.feedback_on_protocol_received|date:"Y-m-d" }}
+                                        {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
-                                    <td class="ab-status-protocol">{% if m.added_to_protocol_doc %}✅{% else %}—{% endif %}</td>
-                                    <td class="ab-status-protocol">{% if m.feedback_on_guidance %}✅{% else %}—{% endif %}</td>
                                     <td class="ab-status-protocol">
-                                        {% if m.latest_feedback and m.latest_feedback.uploaded_document %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.added_to_protocol_doc %}
+                                        ✅
+                                        {% else %}
+                                        —
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-protocol">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.feedback_on_guidance %}
+                                        ✅
+                                        {% else %}
+                                        —
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-protocol">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_feedback and m.latest_feedback.uploaded_document %}
                                         <a href="{{ m.latest_feedback.uploaded_document.url }}">{{ m.latest_feedback.latest_document_label }}</a>
                                         {% if m.latest_feedback.submitted_at %}
                                         <div class="text-muted small">{{ m.latest_feedback.submitted_at|date:"Y-m-d H:i" }}</div>
@@ -523,12 +573,14 @@
                                         {% if field.id in section.field_ids_by_group.protocol %}
                                             {% with value=m.custom_field_values|get_item:field.id %}
                                     <td class="ab-status-protocol">
-                                        {% if value and value != '—' %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif value and value != '—' %}
                                         {{ value }}
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
-                                        {% if m.response != 'N' %}
+                                        {% if not m.is_declined %}
                                         <div>
                                             <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
                                         </div>
@@ -540,7 +592,9 @@
                                         {% endif %}
                                     {% endfor %}
                                     <td class="ab-status-synopsis">
-                                        {% if m.sent_synopsis_at %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.sent_synopsis_at %}
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_synopsis_at|date:"Y-m-d" }}</div>
                                         {% else %}
@@ -548,12 +602,18 @@
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-synopsis">
-                                        {% if m.feedback_on_synopsis_deadline %}{{ m.feedback_on_synopsis_deadline|date:"Y-m-d H:i" }}{% else %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.feedback_on_synopsis_deadline %}
+                                        {{ m.feedback_on_synopsis_deadline|date:"Y-m-d H:i" }}
+                                        {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-synopsis">
-                                        {% if m.synopsis_reminder_sent %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.synopsis_reminder_sent %}
                                         <span class="badge text-bg-success">Sent</span>
                                         {% if m.synopsis_reminder_sent_at %}
                                         <div class="small text-muted">{{ m.synopsis_reminder_sent_at|date:"Y-m-d" }}</div>
@@ -565,23 +625,39 @@
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-synopsis">
-                                        {% if m.feedback_on_synopsis_received %}{{ m.feedback_on_synopsis_received|date:"Y-m-d" }}{% else %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.feedback_on_synopsis_received %}
+                                        {{ m.feedback_on_synopsis_received|date:"Y-m-d" }}
+                                        {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
-                                    <td class="ab-status-synopsis">{% if m.added_to_synopsis_doc %}✅{% else %}—{% endif %}</td>
+                                    <td class="ab-status-synopsis">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.added_to_synopsis_doc %}
+                                        ✅
+                                        {% else %}
+                                        —
+                                        {% endif %}
+                                    </td>
                                     {% for field in combined_fields_by_group.synopsis %}
                                         {% if field.id in section.field_ids_by_group.synopsis %}
                                             {% with value=m.custom_field_values|get_item:field.id %}
                                     <td class="ab-status-synopsis">
-                                        {% if value and value != '—' %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif value and value != '—' %}
                                         {{ value }}
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
+                                        {% if not m.is_declined %}
                                         <div>
                                             <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
                                         </div>
+                                        {% endif %}
                                     </td>
                                             {% endwith %}
                                         {% else %}
@@ -592,14 +668,18 @@
                                         {% if field.id in section.field_ids_by_group.custom %}
                                             {% with value=m.custom_field_values|get_item:field.id %}
                                     <td>
-                                        {% if value and value != '—' %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif value and value != '—' %}
                                         {{ value }}
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
+                                        {% if not m.is_declined %}
                                         <div>
                                             <a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
                                         </div>
+                                        {% endif %}
                                     </td>
                                             {% endwith %}
                                         {% else %}
