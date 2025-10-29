@@ -166,6 +166,11 @@ urlpatterns = [
         name="advisory_schedule_action_list_reminders",
     ),
     path(
+        "project/<int:project_id>/advisory-board/member/<int:member_id>/reminder/<str:kind>/",
+        views.advisory_member_set_deadline,
+        name="advisory_member_set_deadline",
+    ),
+    path(
         "project/<int:project_id>/advisory-board/protocol-feedback/close/",
         views.advisory_protocol_feedback_close,
         name="advisory_protocol_feedback_close",
