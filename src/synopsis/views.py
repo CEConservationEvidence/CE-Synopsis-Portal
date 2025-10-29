@@ -1186,12 +1186,71 @@ def _advisory_board_context(
     for section in member_sections:
         section["has_fields"] = bool(section["fields"])
 
+    group_names = [
+        "personal",
+        "invitation",
+        "action",
+        "protocol",
+        "synopsis",
+        "custom",
+    ]
+    combined_fields_by_group = {name: [] for name in group_names}
+    seen_field_ids = {name: set() for name in group_names}
+
+    for section in member_sections:
+        field_ids_by_group = {}
+        for group_name in group_names:
+            group_fields = section["fields_by_group"].get(group_name, [])
+            field_ids = [field.id for field in group_fields]
+            field_ids_by_group[group_name] = field_ids
+            for field in group_fields:
+                if field.id not in seen_field_ids[group_name]:
+                    combined_fields_by_group[group_name].append(field)
+                    seen_field_ids[group_name].add(field.id)
+        section["field_ids_by_group"] = field_ids_by_group
+
+    def safe_count(members):
+        count_attr = getattr(members, "count", None)
+        if callable(count_attr):
+            try:
+                return count_attr()
+            except TypeError:
+                pass
+        return len(members)
+
+    total_member_count = (
+        safe_count(accepted_members)
+        + safe_count(pending_members)
+        + safe_count(declined_members)
+    )
+
+    status_badges = {
+        AdvisoryBoardCustomField.SECTION_ACCEPTED: {
+            "label": "Accepted",
+            "badge_class": "text-bg-success",
+            "row_class": "ab-row-status-accepted",
+        },
+        AdvisoryBoardCustomField.SECTION_PENDING: {
+            "label": "Pending",
+            "badge_class": "text-bg-warning",
+            "row_class": "ab-row-status-pending",
+        },
+        AdvisoryBoardCustomField.SECTION_DECLINED: {
+            "label": "Declined",
+            "badge_class": "text-bg-danger",
+            "row_class": "ab-row-status-declined",
+        },
+    }
+
     return {
         "project": project,
         "accepted_members": accepted_members,
         "declined_members": declined_members,
         "pending_members": pending_members,
         "member_sections": member_sections,
+        "combined_fields_by_group": combined_fields_by_group,
+        "member_status_badges": status_badges,
+        "total_member_count": total_member_count,
         "section_fields": fields_by_section,
         "custom_fields": custom_fields,
         "custom_field_form": custom_field_form,
@@ -3975,6 +4034,170 @@ def advisory_schedule_action_list_reminders(request, project_id):
     messages.success(
         request,
         f"Action list reminder scheduled for {updated} member(s). Reminder now set as required.",
+    )
+    return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
+def advisory_member_set_deadline(request, project_id, member_id, kind):
+    project = get_object_or_404(Project, pk=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
+
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    if not _user_can_edit_project(request.user, project):
+        messages.error(request, "You do not have permission to update this member.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    kind = (kind or "").lower().replace("-", "_")
+    form_map = {
+        "invite": ReminderScheduleForm,
+        "protocol": ProtocolReminderScheduleForm,
+        "action_list": ActionListReminderScheduleForm,
+    }
+    if kind not in form_map:
+        return HttpResponseBadRequest("Unknown reminder type")
+
+    clearing = request.POST.get("clear_deadline")
+    response_code = (member.response or "").upper()
+
+    if kind == "invite" and response_code == "N":
+        messages.info(
+            request,
+            "Reminders are skipped for members who declined the invitation.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if kind == "protocol":
+        if member.sent_protocol_at is None or response_code != "Y":
+            messages.error(
+                request,
+                "This member needs an accepted invitation and a sent protocol before setting a protocol deadline.",
+            )
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    if kind == "action_list":
+        if not getattr(project, "action_list", None):
+            messages.error(request, "No action list configured for this project.")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+        if member.sent_action_list_at is None or response_code != "Y":
+            messages.error(
+                request,
+                "This member needs an accepted invitation and the action list before setting an action list deadline.",
+            )
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    value = None
+    if not clearing:
+        form = form_map[kind](request.POST)
+        if not form.is_valid():
+            error_messages = ", ".join(
+                {" ".join(err_list) for err_list in form.errors.values()}
+            )
+            messages.error(
+                request,
+                f"Could not update reminder: {error_messages or 'Invalid data.'}",
+            )
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+        if kind == "invite":
+            value = form.cleaned_data["reminder_date"]
+        else:
+            value = form.cleaned_data["deadline"]
+            if timezone.is_naive(value):
+                value = timezone.make_aware(value)
+
+    human_name = " ".join(
+        part for part in (member.first_name, member.last_name) if part
+    ).strip() or member.email
+
+    if kind == "invite":
+        member.response_date = value if not clearing else None
+        member.reminder_sent = False
+        member.reminder_sent_at = None
+        member.save(update_fields=["response_date", "reminder_sent", "reminder_sent_at"])
+        detail = (
+            f"Response deadline {value} for {human_name}"
+            if not clearing
+            else f"Cleared response deadline for {human_name}"
+        )
+        _log_project_change(project, request.user, "Updated invite reminder", detail)
+        messages.success(
+            request,
+            "Response deadline updated."
+            if not clearing
+            else "Response deadline cleared.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if kind == "protocol":
+        member.feedback_on_protocol_deadline = value if not clearing else None
+        member.protocol_reminder_sent = False
+        member.protocol_reminder_sent_at = None
+        member.save(
+            update_fields=[
+                "feedback_on_protocol_deadline",
+                "protocol_reminder_sent",
+                "protocol_reminder_sent_at",
+            ]
+        )
+        ProtocolFeedback.objects.filter(project=project, member=member).update(
+            feedback_deadline_at=value if not clearing else None
+        )
+        detail_value = (
+            timezone.localtime(value).strftime("%Y-%m-%d %H:%M") if value else None
+        )
+        detail = (
+            f"Protocol deadline {detail_value} for {human_name}"
+            if not clearing
+            else f"Cleared protocol deadline for {human_name}"
+        )
+        _log_project_change(
+            project,
+            request.user,
+            "Updated protocol reminder",
+            detail,
+        )
+        messages.success(
+            request,
+            "Protocol deadline updated."
+            if not clearing
+            else "Protocol deadline cleared.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    # action list
+    member.feedback_on_action_list_deadline = value if not clearing else None
+    member.action_list_reminder_sent = False
+    member.action_list_reminder_sent_at = None
+    member.save(
+        update_fields=[
+            "feedback_on_action_list_deadline",
+            "action_list_reminder_sent",
+            "action_list_reminder_sent_at",
+        ]
+    )
+    ActionListFeedback.objects.filter(project=project, member=member).update(
+        feedback_deadline_at=value if not clearing else None
+    )
+    detail_value = (
+        timezone.localtime(value).strftime("%Y-%m-%d %H:%M") if value else None
+    )
+    detail = (
+        f"Action list deadline {detail_value} for {human_name}"
+        if not clearing
+        else f"Cleared action list deadline for {human_name}"
+    )
+    _log_project_change(
+        project,
+        request.user,
+        "Updated action list reminder",
+        detail,
+    )
+    messages.success(
+        request,
+        "Action list deadline updated."
+        if not clearing
+        else "Action list deadline cleared.",
     )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
