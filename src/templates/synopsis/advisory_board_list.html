@@ -16,6 +16,8 @@
 
     .advisory-board-table :is(th, td) {
         padding: 0.5rem 0.9rem;
+        vertical-align: middle;
+        text-align: center;
     }
 
     .advisory-board-table thead th {
@@ -70,6 +72,7 @@
 
     .ab-status-cell {
         white-space: nowrap;
+        text-align: center;
     }
 
     .reminder-inline-form .form-control {
@@ -85,20 +88,8 @@
         opacity: 0.75;
     }
 
-    .ab-row-status-declined .btn,
-    .ab-row-status-declined .btn-link,
-    .ab-row-status-declined input,
-    .ab-row-status-declined select,
-    .ab-row-status-declined form {
-        pointer-events: none;
-        cursor: default;
-    }
-
-    .ab-row-status-declined .btn,
-    .ab-row-status-declined .btn-link,
-    .ab-row-status-declined input,
-    .ab-row-status-declined select {
-        opacity: 0.85;
+    .ab-row-status-declined .decline-reason-btn {
+        opacity: 1;
     }
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3">
@@ -191,43 +182,46 @@
         {% if total_member_count %}
         <div class="table-responsive mt-4">
             <table class="table table-sm align-middle advisory-board-table">
+                
                 <thead class="table-light">
-                    <tr class="small text-uppercase text-muted">
-                        <th rowspan="2" class="ab-status-cell">Status</th>
+                    <tr class="text-uppercase text-muted small">
+                        <th rowspan="2" class="ab-status-cell" scope="col">Status</th>
+                        <th rowspan="2" class="text-muted" scope="col">
+                            <span class="visually-hidden">Edit</span>
+                        </th>
                         {% with personal_extra=combined_fields_by_group.personal|length %}
-                        <th colspan="{{ personal_extra|add:9 }}">Personal Details</th>
+                        <th class="text-start" scope="colgroup" colspan="{{ personal_extra|add:9 }}">Personal Details</th>
                         {% endwith %}
                         {% with invitation_extra=combined_fields_by_group.invitation|length %}
-                        <th colspan="{{ invitation_extra|add:4 }}">Invitation</th>
+                        <th class="text-start" scope="colgroup" colspan="{{ invitation_extra|add:4 }}">Invitation</th>
                         {% endwith %}
                         {% with action_extra=combined_fields_by_group.action|length %}
-                        <th colspan="{{ action_extra|add:4 }}">Action List</th>
+                        <th class="text-start" scope="colgroup" colspan="{{ action_extra|add:4 }}">Action List</th>
                         {% endwith %}
                         {% with protocol_extra=combined_fields_by_group.protocol|length %}
-                        <th colspan="{{ protocol_extra|add:7 }}">Protocol</th>
+                        <th class="text-start" scope="colgroup" colspan="{{ protocol_extra|add:7 }}">Protocol</th>
                         {% endwith %}
                         {% with synopsis_extra=combined_fields_by_group.synopsis|length %}
-                        <th colspan="{{ synopsis_extra|add:5 }}">Synopsis</th>
+                        <th class="text-start" scope="colgroup" colspan="{{ synopsis_extra|add:5 }}">Synopsis</th>
                         {% endwith %}
                         {% with custom_extra=combined_fields_by_group.custom|length %}
                         {% if custom_extra %}
-                        <th colspan="{{ custom_extra }}">Custom Columns</th>
+                        <th class="text-start" scope="colgroup" colspan="{{ custom_extra }}">Custom Columns</th>
                         {% endif %}
                         {% endwith %}
                     </tr>
                     <tr>
-                        <th class="text-muted"></th>
-                        <th>Title</th>
-                        <th>Name 1</th>
-                        <th>Name 2</th>
-                        <th>Name 3</th>
-                        <th>Organisation</th>
-                        <th>Email</th>
-                        <th>Location</th>
-                        <th>Continent</th>
-                        <th>Notes</th>
+                        <th class="text-start" scope="col">Title</th>
+                        <th class="text-start" scope="col">Name 1</th>
+                        <th class="text-start" scope="col">Name 2</th>
+                        <th class="text-start" scope="col">Name 3</th>
+                        <th class="text-start" scope="col">Organisation</th>
+                        <th class="text-start" scope="col">Email</th>
+                        <th class="text-start" scope="col">Location</th>
+                        <th class="text-start" scope="col">Continent</th>
+                        <th class="text-start" scope="col">Notes</th>
                         {% for field in combined_fields_by_group.personal %}
-                        <th>
+                        <th class="text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
                             {% if field.description %}
                             <small class="text-muted d-block">{{ field.description }}</small>
@@ -235,12 +229,12 @@
                             <small class="text-muted">{{ field.get_data_type_display }}</small>
                         </th>
                         {% endfor %}
-                        <th class="ab-status-invite">Invite sent</th>
-                        <th class="ab-status-invite">Response deadline</th>
-                        <th class="ab-status-invite">Reminder sent</th>
-                        <th class="ab-status-invite">Accepted</th>
+                        <th class="ab-status-invite text-start" scope="col">Invite sent</th>
+                        <th class="ab-status-invite text-start" scope="col">Response deadline</th>
+                        <th class="ab-status-invite text-start" scope="col">Reminder sent</th>
+                        <th class="ab-status-invite text-start" scope="col">Accepted</th>
                         {% for field in combined_fields_by_group.invitation %}
-                        <th class="ab-status-invite">
+                        <th class="ab-status-invite text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
                             {% if field.description %}
                             <small class="text-muted d-block">{{ field.description }}</small>
@@ -248,12 +242,12 @@
                             <small class="text-muted">{{ field.get_data_type_display }}</small>
                         </th>
                         {% endfor %}
-                        <th class="ab-status-action">Action list sent</th>
-                        <th class="ab-status-action">Feedback received</th>
-                        <th class="ab-status-action">Author replied</th>
-                        <th class="ab-status-action">Feedback added to doc</th>
+                        <th class="ab-status-action text-start" scope="col">Action list sent</th>
+                        <th class="ab-status-action text-start" scope="col">Feedback received</th>
+                        <th class="ab-status-action text-start" scope="col">Author replied</th>
+                        <th class="ab-status-action text-start" scope="col">Feedback added to doc</th>
                         {% for field in combined_fields_by_group.action %}
-                        <th class="ab-status-action">
+                        <th class="ab-status-action text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
                             {% if field.description %}
                             <small class="text-muted d-block">{{ field.description }}</small>
@@ -261,15 +255,15 @@
                             <small class="text-muted">{{ field.get_data_type_display }}</small>
                         </th>
                         {% endfor %}
-                        <th class="ab-status-protocol">Protocol sent</th>
-                        <th class="ab-status-protocol">Feedback deadline</th>
-                        <th class="ab-status-protocol">Reminder sent</th>
-                        <th class="ab-status-protocol">Feedback received</th>
-                        <th class="ab-status-protocol">Added to doc</th>
-                        <th class="ab-status-protocol">Guidance feedback</th>
-                        <th class="ab-status-protocol">Feedback document</th>
+                        <th class="ab-status-protocol text-start" scope="col">Protocol sent</th>
+                        <th class="ab-status-protocol text-start" scope="col">Feedback deadline</th>
+                        <th class="ab-status-protocol text-start" scope="col">Reminder sent</th>
+                        <th class="ab-status-protocol text-start" scope="col">Feedback received</th>
+                        <th class="ab-status-protocol text-start" scope="col">Added to doc</th>
+                        <th class="ab-status-protocol text-start" scope="col">Guidance feedback</th>
+                        <th class="ab-status-protocol text-start" scope="col">Feedback document</th>
                         {% for field in combined_fields_by_group.protocol %}
-                        <th class="ab-status-protocol">
+                        <th class="ab-status-protocol text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
                             {% if field.description %}
                             <small class="text-muted d-block">{{ field.description }}</small>
@@ -277,13 +271,13 @@
                             <small class="text-muted">{{ field.get_data_type_display }}</small>
                         </th>
                         {% endfor %}
-                        <th class="ab-status-synopsis">Synopsis sent</th>
-                        <th class="ab-status-synopsis">Feedback deadline</th>
-                        <th class="ab-status-synopsis">Reminder sent</th>
-                        <th class="ab-status-synopsis">Feedback received</th>
-                        <th class="ab-status-synopsis">Added to doc</th>
+                        <th class="ab-status-synopsis text-start" scope="col">Synopsis sent</th>
+                        <th class="ab-status-synopsis text-start" scope="col">Feedback deadline</th>
+                        <th class="ab-status-synopsis text-start" scope="col">Reminder sent</th>
+                        <th class="ab-status-synopsis text-start" scope="col">Feedback received</th>
+                        <th class="ab-status-synopsis text-start" scope="col">Added to doc</th>
                         {% for field in combined_fields_by_group.synopsis %}
-                        <th class="ab-status-synopsis">
+                        <th class="ab-status-synopsis text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
                             {% if field.description %}
                             <small class="text-muted d-block">{{ field.description }}</small>
@@ -292,7 +286,7 @@
                         </th>
                         {% endfor %}
                         {% for field in combined_fields_by_group.custom %}
-                        <th>
+                        <th class="text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
                             {% if field.description %}
                             <small class="text-muted d-block">{{ field.description }}</small>
@@ -302,6 +296,7 @@
                         {% endfor %}
                     </tr>
                 </thead>
+
                 <tbody>
                     {% for section in member_sections %}
                         {% if section.members %}
@@ -414,7 +409,20 @@
                                     </td>
                                     <td class="ab-status-invite">
                                         {% if m.response %}
-                                        <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.is_declined %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ m.response }}</span>
+                                        <div class="d-flex align-items-center justify-content-center gap-2 flex-wrap w-100">
+                                            <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.is_declined %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ m.response }}</span>
+                                            {% if m.is_declined and m.participation_statement %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#decline-reason-{{ m.id }}"
+                                                aria-label="View decline reason for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View reason
+                                            </button>
+                                            {% endif %}
+                                        </div>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
@@ -442,11 +450,11 @@
                                         {% endif %}
                                     {% endfor %}
                                     <td class="ab-status-action">
-                                        {% if m.sent_action_list_at %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.sent_action_list_at %}
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_action_list_at|date:"Y-m-d" }}</div>
-                                        {% elif m.is_declined %}
-                                        <span class="text-muted">Declined</span>
                                         {% else %}
                                         <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_action_list_compose_member' project.id m.id %}">Send</a>
                                         {% endif %}
@@ -504,11 +512,11 @@
                                         {% endif %}
                                     {% endfor %}
                                     <td class="ab-status-protocol">
-                                        {% if m.sent_protocol_at %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.sent_protocol_at %}
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_protocol_at|date:"Y-m-d" }}</div>
-                                        {% elif m.is_declined %}
-                                        <span class="text-muted">Declined</span>
                                         {% else %}
                                         <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_protocol_compose_member' project.id m.id %}">Send</a>
                                         {% endif %}
@@ -1036,8 +1044,36 @@
                                 </form>
                             </div>
                         </div>
+</div>
+</div>
+</div>
+
+{% if declined_members_with_reason %}
+    {% for declined_member in declined_members_with_reason %}
+    <div class="modal fade" id="decline-reason-{{ declined_member.id }}" tabindex="-1" aria-labelledby="decline-reason-{{ declined_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="decline-reason-{{ declined_member.id }}-label">Decline reason</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="border rounded bg-light p-3 text-start text-break">
+                        {% if declined_member.participation_statement %}
+                        <p class="mb-0" style="white-space: pre-wrap;">{{ declined_member.participation_statement }}</p>
+                        {% else %}
+                        <p class="text-muted mb-0">No reason provided.</p>
+                        {% endif %}
                     </div>
                 </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
     </div>
+    {% endfor %}
+{% endif %}
+</div>
 </div>
 {% endblock %}

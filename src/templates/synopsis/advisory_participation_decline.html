@@ -1,0 +1,23 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Decline Invitation – {{ project.title }}{% endblock %}
+{% block content %}
+<h1 class="mb-3">Decline advisory invitation</h1>
+<p class="text-muted">Your feedback is optional but appreciated. Sharing a reason helps the project team understand availability and plan accordingly.</p>
+<div class="card">
+    <div class="card-body">
+        <form method="post" class="d-flex flex-column gap-3">
+            {% csrf_token %}
+            {{ form.non_field_errors }}
+            <div>
+                {{ form.reason.label_tag }}
+                {{ form.reason }}
+                {{ form.reason.errors }}
+            </div>
+            <p class="small text-muted mb-0">Leave the field blank if you prefer not to share a reason.</p>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-danger">Submit response</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

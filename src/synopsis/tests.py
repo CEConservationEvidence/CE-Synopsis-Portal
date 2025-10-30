@@ -453,6 +453,31 @@ class MemberReminderUpdateTests(TestCase):
         self.assertEqual(member.response_date, original_date)
         self.assertTrue(member.reminder_sent)
 
+    def test_decline_captures_optional_reason(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Iggy",
+            email="iggy@example.com",
+        )
+        inv = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+        )
+        url = reverse("synopsis:advisory_invite_reply", args=[str(inv.token), "no"])
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+
+        decline_reason = "Unavailable this cycle"
+        response = self.client.post(url, data={"reason": decline_reason})
+        self.assertEqual(response.status_code, 200)
+
+        member.refresh_from_db()
+        inv.refresh_from_db()
+        self.assertEqual(member.response, "N")
+        self.assertEqual(member.participation_statement, decline_reason)
+        self.assertFalse(inv.accepted)
+
     def test_edit_member_details(self):
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
@@ -493,6 +518,32 @@ class MemberReminderUpdateTests(TestCase):
                 action="Updated advisory member",
             ).exists()
         )
+
+    def test_decline_reason_length_validation(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Lee",
+            email="lee@example.com",
+        )
+        inv = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+        )
+        url = reverse("synopsis:advisory_invite_reply", args=[str(inv.token), "no"])
+        long_reason = "x" * 201
+        response = self.client.post(url, data={"reason": long_reason})
+
+        self.assertEqual(response.status_code, 200)
+        form = response.context.get("form")
+        self.assertIsNotNone(form)
+        self.assertTrue(form.errors)
+        self.assertIn("reason", form.errors)
+
+        member.refresh_from_db()
+        inv.refresh_from_db()
+        self.assertEqual(member.participation_statement, "")
+        self.assertIsNone(inv.accepted)
 
 
 class FunderUtilityTests(TestCase):
