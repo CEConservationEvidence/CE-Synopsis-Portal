@@ -108,6 +108,14 @@
         Send action list to all
     </a>
     {% endwith %}
+    <button
+        type="button"
+        class="btn btn-outline-primary"
+        data-bs-toggle="modal"
+        data-bs-target="#manageRemindersModal"
+    >
+        Manage reminders
+    </button>
     <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addMemberModal">Add member</button>
 </div>
 
@@ -844,208 +852,220 @@
                 </div>
     </div>
     <div class="col-12 col-lg-4 d-flex flex-column gap-3">
-                <div class="card">
+        <div class="card">
             <div class="card-body">
-                        <h5 class="mb-3">Custom columns</h5>
-                        {% if custom_fields %}
-                        <ul class="list-group list-group-flush mb-3">
-                            {% for field in custom_fields %}
-                            <li class="list-group-item px-0">
-                                <div class="d-flex justify-content-between align-items-start gap-3">
-                                    <div class="flex-grow-1">
-                                        <div class="fw-semibold">{{ field.name }}</div>
-                                        <div class="d-flex flex-wrap gap-2 mb-1">
-                                            <span class="badge text-bg-light text-muted border">{{ field.get_data_type_display }}</span>
-                                            <span class="badge text-bg-light border text-muted">{{ field.get_display_group_display }}</span>
-                                            {% if field.sections %}
-                                                {% for label in field.section_labels %}
-                                            <span class="badge bg-secondary-subtle text-dark">{{ label }}</span>
-                                            {% endfor %}
-                                            {% else %}
-                                            <span class="badge text-bg-light text-muted border">All sections</span>
-                                            {% endif %}
-                                        </div>
-                                        {% if field.description %}
-                                        <div class="small text-muted mb-2">{{ field.description }}</div>
-                                        {% endif %}
-                                        <form method="post" class="d-flex align-items-center gap-2 flex-wrap">
-                                            {% csrf_token %}
-                                            <input type="hidden" name="action" value="custom_field_move">
-                                            <input type="hidden" name="field_id" value="{{ field.id }}">
-                                            <label class="form-label small mb-0" for="display-group-{{ field.id }}">Show in</label>
-                                            <select
-                                                id="display-group-{{ field.id }}"
-                                                name="display_group"
-                                                class="form-select form-select-sm w-auto"
-                                            >
-                                                {% for value, label in custom_field_group_choices %}
-                                                <option value="{{ value }}"{% if field.display_group == value %} selected{% endif %}>{{ label }}</option>
-                                                {% endfor %}
-                                            </select>
-                                            <button class="btn btn-outline-secondary btn-sm">Move</button>
-                                        </form>
-                                    </div>
-                                    <form method="post" action="" onsubmit="return confirm('Remove this custom column?');">
-                                        {% csrf_token %}
-                                        <input type="hidden" name="action" value="custom_field_delete">
-                                        <input type="hidden" name="field_id" value="{{ field.id }}">
-                                        <button class="btn btn-sm btn-outline-danger">Remove</button>
-                                    </form>
+                <h5 class="mb-3">Custom columns</h5>
+                {% if custom_fields %}
+                <ul class="list-group list-group-flush mb-3">
+                    {% for field in custom_fields %}
+                    <li class="list-group-item px-0">
+                        <div class="d-flex justify-content-between align-items-start gap-3">
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">{{ field.name }}</div>
+                                <div class="d-flex flex-wrap gap-2 mb-1">
+                                    <span class="badge text-bg-light text-muted border">{{ field.get_data_type_display }}</span>
+                                    <span class="badge text-bg-light border text-muted">{{ field.get_display_group_display }}</span>
+                                    {% if field.sections %}
+                                        {% for label in field.section_labels %}
+                                    <span class="badge bg-secondary-subtle text-dark">{{ label }}</span>
+                                    {% endfor %}
+                                    {% else %}
+                                    <span class="badge text-bg-light text-muted border">All sections</span>
+                                    {% endif %}
                                 </div>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                        {% else %}
-                        <p class="text-muted mb-2">No custom columns yet.</p>
-                        {% endif %}
-                        <form method="post">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="custom_field_add">
-                            <div class="mb-2">
-                                {{ custom_field_form.name.label_tag }}
-                                {{ custom_field_form.name }}
-                                {{ custom_field_form.name.errors }}
-                            </div>
-                            <div class="mb-2">
-                                {{ custom_field_form.data_type.label_tag }}
-                                {{ custom_field_form.data_type }}
-                                {{ custom_field_form.data_type.errors }}
-                            </div>
-                            <div class="mb-2">
-                                {{ custom_field_form.display_group.label_tag }}
-                                {{ custom_field_form.display_group }}
-                                {{ custom_field_form.display_group.errors }}
-                                {% if custom_field_form.display_group.help_text %}
-                                <div class="form-text">{{ custom_field_form.display_group.help_text }}</div>
+                                {% if field.description %}
+                                <div class="small text-muted mb-2">{{ field.description }}</div>
                                 {% endif %}
+                                <form method="post" class="d-flex align-items-center gap-2 flex-wrap">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="custom_field_move">
+                                    <input type="hidden" name="field_id" value="{{ field.id }}">
+                                    <label class="form-label small mb-0" for="display-group-{{ field.id }}">Show in</label>
+                                    <select
+                                        id="display-group-{{ field.id }}"
+                                        name="display_group"
+                                        class="form-select form-select-sm w-auto"
+                                    >
+                                        {% for value, label in custom_field_group_choices %}
+                                        <option value="{{ value }}"{% if field.display_group == value %} selected{% endif %}>{{ label }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <button class="btn btn-outline-secondary btn-sm">Move</button>
+                                </form>
                             </div>
+                            <form method="post" action="" onsubmit="return confirm('Remove this custom column?');">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="custom_field_delete">
+                                <input type="hidden" name="field_id" value="{{ field.id }}">
+                                <button class="btn btn-sm btn-outline-danger">Remove</button>
+                            </form>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted mb-2">No custom columns yet.</p>
+                {% endif %}
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="custom_field_add">
+                    <div class="mb-2">
+                        {{ custom_field_form.name.label_tag }}
+                        {{ custom_field_form.name }}
+                        {{ custom_field_form.name.errors }}
+                    </div>
+                    <div class="mb-2">
+                        {{ custom_field_form.data_type.label_tag }}
+                        {{ custom_field_form.data_type }}
+                        {{ custom_field_form.data_type.errors }}
+                    </div>
+                    <div class="mb-2">
+                        {{ custom_field_form.display_group.label_tag }}
+                        {{ custom_field_form.display_group }}
+                        {{ custom_field_form.display_group.errors }}
+                        {% if custom_field_form.display_group.help_text %}
+                        <div class="form-text">{{ custom_field_form.display_group.help_text }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-2">
+                        {{ custom_field_form.description.label_tag }}
+                        {{ custom_field_form.description }}
+                        {{ custom_field_form.description.errors }}
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm">Add column</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+<div class="modal fade" id="manageRemindersModal" tabindex="-1" aria-labelledby="manageRemindersModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="manageRemindersModalLabel">Manage reminders</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">Schedule and adjust reminder dates without leaving the advisory board table.</p>
+                <div class="d-flex flex-column gap-4">
+                    <div>
+                        <h6 class="fw-semibold mb-2">Schedule reminder</h6>
+                        <p class="text-muted small">
+                            Set a response deadline for members who have been added but not yet sent an invite. Our reminder job will email them two business days before that date.
+                        </p>
+                        <p class="small">
+                            Pending members:
+                            <strong>{{ pending_reminders }}</strong>
+                        </p>
+                        {% if initial_reminder_log %}
+                        <p class="small text-muted mb-1">
+                            First scheduled on
+                            <strong>{{ initial_reminder_log.created_at|date:"Y-m-d H:i" }}</strong>
+                            by
+                            <strong>{{ initial_reminder_log.changed_by.get_full_name|default:initial_reminder_log.changed_by.username|default:"system" }}</strong>
+                        </p>
+                        {% endif %}
+                        {% if pending_reminders and pending_reminder_dates %}
+                        <p class="small text-muted mb-2">
+                            Current reminder date:
+                            <strong>{{ pending_reminder_dates.0|date:"Y-m-d" }}</strong>
+                            {% if pending_reminder_dates|length > 1 %}
+                            ({{ pending_reminder_dates|length }} different dates scheduled)
+                            {% endif %}
+                        </p>
+                        {% endif %}
+                        <form method="post" action="{% url 'synopsis:advisory_schedule_reminders' project.id %}">
+                            {% csrf_token %}
                             <div class="mb-2">
-                                {{ custom_field_form.description.label_tag }}
-                                {{ custom_field_form.description }}
-                                {{ custom_field_form.description.errors }}
+                                {{ reminder_form.reminder_date.label_tag }}
+                                {{ reminder_form.reminder_date }}
+                                {{ reminder_form.reminder_date.errors }}
+                                <div class="form-text">Choose the date reminders should reference.</div>
                             </div>
-                            <button class="btn btn-outline-primary btn-sm">Add column</button>
+                            <button class="btn btn-outline-primary btn-sm">Set reminder date</button>
+                        </form>
+                    </div>
+                    <div class="border-top pt-3">
+                        <h6 class="fw-semibold mb-2">Protocol reminder</h6>
+                        <p class="text-muted small">
+                            Choose a protocol feedback deadline (date and time) for members who already received the protocol. We will remind them two business days before that deadline.
+                        </p>
+                        <p class="small">
+                            Members with protocol:
+                            <strong>{{ protocol_pending_count }}</strong>
+                        </p>
+                        {% if initial_protocol_reminder_log %}
+                        <p class="small text-muted mb-1">
+                            First scheduled on
+                            <strong>{{ initial_protocol_reminder_log.created_at|date:"Y-m-d H:i" }}</strong>
+                            by
+                            <strong>{{ initial_protocol_reminder_log.changed_by.get_full_name|default:initial_protocol_reminder_log.changed_by.username|default:"system" }}</strong>
+                        </p>
+                        {% endif %}
+                        {% if protocol_pending_count and protocol_pending_dates %}
+                        <p class="small text-muted mb-2">
+                            Current deadline:
+                            <strong>{{ protocol_pending_dates.0|date:"Y-m-d H:i" }}</strong>
+                            {% if protocol_pending_dates|length > 1 %}
+                            ({{ protocol_pending_dates|length }} different dates scheduled)
+                            {% endif %}
+                        </p>
+                        {% endif %}
+                        <form method="post" action="{% url 'synopsis:advisory_schedule_protocol_reminders' project.id %}">
+                            {% csrf_token %}
+                            <div class="mb-2">
+                                {{ protocol_reminder_form.deadline.label_tag }}
+                                {{ protocol_reminder_form.deadline }}
+                                {{ protocol_reminder_form.deadline.errors }}
+                                <div class="form-text">Set the feedback deadline.</div>
+                            </div>
+                            <button class="btn btn-outline-primary btn-sm">Set protocol deadline</button>
+                        </form>
+                    </div>
+                    <div class="border-top pt-3">
+                        <h6 class="fw-semibold mb-2">Action list reminder</h6>
+                        <p class="text-muted small">
+                            Choose an action list feedback deadline (date and time) for members who already received the action list. We will remind them two business days before that deadline.
+                        </p>
+                        <p class="small">
+                            Members with action list:
+                            <strong>{{ action_list_pending_count }}</strong>
+                        </p>
+                        {% if initial_action_list_reminder_log %}
+                        <p class="small text-muted mb-1">
+                            First scheduled on
+                            <strong>{{ initial_action_list_reminder_log.created_at|date:"Y-m-d H:i" }}</strong>
+                            by
+                            <strong>{{ initial_action_list_reminder_log.changed_by.get_full_name|default:initial_action_list_reminder_log.changed_by.username|default:"system" }}</strong>
+                        </p>
+                        {% endif %}
+                        {% if action_list_pending_count and action_list_pending_dates %}
+                        <p class="small text-muted mb-2">
+                            Current deadline:
+                            <strong>{{ action_list_pending_dates.0|date:"Y-m-d H:i" }}</strong>
+                            {% if action_list_pending_dates|length > 1 %}
+                            ({{ action_list_pending_dates|length }} different dates scheduled)
+                            {% endif %}
+                        </p>
+                        {% endif %}
+                        <form method="post" action="{% url 'synopsis:advisory_schedule_action_list_reminders' project.id %}">
+                            {% csrf_token %}
+                            <div class="mb-2">
+                                {{ action_list_reminder_form.deadline.label_tag }}
+                                {{ action_list_reminder_form.deadline }}
+                                {{ action_list_reminder_form.deadline.errors }}
+                                <div class="form-text">Set the feedback deadline.</div>
+                            </div>
+                            <button class="btn btn-outline-primary btn-sm">Set action list deadline</button>
                         </form>
                     </div>
                 </div>
-                <div class="card">
-                    <div class="card-body">
-                        <h5 class="mb-3">Reminders</h5>
-                        <div class="d-flex flex-column gap-4">
-                            <div>
-                                <h6 class="fw-semibold mb-2">Schedule reminder</h6>
-                                <p class="text-muted small">
-                                    Set a response deadline for members who have been added but not yet sent an invite. Our reminder job will email them two business days before that date.
-                                </p>
-                                <p class="small">
-                                    Pending members:
-                                    <strong>{{ pending_reminders }}</strong>
-                                </p>
-                                {% if initial_reminder_log %}
-                                <p class="small text-muted mb-1">
-                                    First scheduled on
-                                    <strong>{{ initial_reminder_log.created_at|date:"Y-m-d H:i" }}</strong>
-                                    by
-                                    <strong>{{ initial_reminder_log.changed_by.get_full_name|default:initial_reminder_log.changed_by.username|default:"system" }}</strong>
-                                </p>
-                                {% endif %}
-                                {% if pending_reminders and pending_reminder_dates %}
-                                <p class="small text-muted mb-2">
-                                    Current reminder date:
-                                    <strong>{{ pending_reminder_dates.0|date:"Y-m-d" }}</strong>
-                                    {% if pending_reminder_dates|length > 1 %}
-                                    ({{ pending_reminder_dates|length }} different dates scheduled)
-                                    {% endif %}
-                                </p>
-                                {% endif %}
-                                <form method="post" action="{% url 'synopsis:advisory_schedule_reminders' project.id %}">
-                                    {% csrf_token %}
-                                    <div class="mb-2">
-                                        {{ reminder_form.reminder_date.label_tag }}
-                                        {{ reminder_form.reminder_date }}
-                                        {{ reminder_form.reminder_date.errors }}
-                                        <div class="form-text">Choose the date reminders should reference.</div>
-                                    </div>
-                                    <button class="btn btn-outline-primary btn-sm">Set reminder date</button>
-                                </form>
-                            </div>
-                            <div class="border-top pt-3">
-                                <h6 class="fw-semibold mb-2">Protocol reminder</h6>
-                                <p class="text-muted small">
-                                    Choose a protocol feedback deadline (date and time) for members who already received the protocol. We will remind them two business days before that deadline.
-                                </p>
-                                <p class="small">
-                                    Members with protocol:
-                                    <strong>{{ protocol_pending_count }}</strong>
-                                </p>
-                                {% if initial_protocol_reminder_log %}
-                                <p class="small text-muted mb-1">
-                                    First scheduled on
-                                    <strong>{{ initial_protocol_reminder_log.created_at|date:"Y-m-d H:i" }}</strong>
-                                    by
-                                    <strong>{{ initial_protocol_reminder_log.changed_by.get_full_name|default:initial_protocol_reminder_log.changed_by.username|default:"system" }}</strong>
-                                </p>
-                                {% endif %}
-                                {% if protocol_pending_count and protocol_pending_dates %}
-                                <p class="small text-muted mb-2">
-                                    Current deadline:
-                                    <strong>{{ protocol_pending_dates.0|date:"Y-m-d H:i" }}</strong>
-                                    {% if protocol_pending_dates|length > 1 %}
-                                    ({{ protocol_pending_dates|length }} different dates scheduled)
-                                    {% endif %}
-                                </p>
-                                {% endif %}
-                                <form method="post" action="{% url 'synopsis:advisory_schedule_protocol_reminders' project.id %}">
-                                    {% csrf_token %}
-                                    <div class="mb-2">
-                                        {{ protocol_reminder_form.deadline.label_tag }}
-                                        {{ protocol_reminder_form.deadline }}
-                                        {{ protocol_reminder_form.deadline.errors }}
-                                        <div class="form-text">Set the feedback deadline.</div>
-                                    </div>
-                                    <button class="btn btn-outline-primary btn-sm">Set protocol deadline</button>
-                                </form>
-                            </div>
-                            <div class="border-top pt-3">
-                                <h6 class="fw-semibold mb-2">Action list reminder</h6>
-                                <p class="text-muted small">
-                                    Choose an action list feedback deadline (date and time) for members who already received the action list. We will remind them two business days before that deadline.
-                                </p>
-                                <p class="small">
-                                    Members with action list:
-                                    <strong>{{ action_list_pending_count }}</strong>
-                                </p>
-                                {% if initial_action_list_reminder_log %}
-                                <p class="small text-muted mb-1">
-                                    First scheduled on
-                                    <strong>{{ initial_action_list_reminder_log.created_at|date:"Y-m-d H:i" }}</strong>
-                                    by
-                                    <strong>{{ initial_action_list_reminder_log.changed_by.get_full_name|default:initial_action_list_reminder_log.changed_by.username|default:"system" }}</strong>
-                                </p>
-                                {% endif %}
-                                {% if action_list_pending_count and action_list_pending_dates %}
-                                <p class="small text-muted mb-2">
-                                    Current deadline:
-                                    <strong>{{ action_list_pending_dates.0|date:"Y-m-d H:i" }}</strong>
-                                    {% if action_list_pending_dates|length > 1 %}
-                                    ({{ action_list_pending_dates|length }} different dates scheduled)
-                                    {% endif %}
-                                </p>
-                                {% endif %}
-                                <form method="post" action="{% url 'synopsis:advisory_schedule_action_list_reminders' project.id %}">
-                                    {% csrf_token %}
-                                    <div class="mb-2">
-                                        {{ action_list_reminder_form.deadline.label_tag }}
-                                        {{ action_list_reminder_form.deadline }}
-                                        {{ action_list_reminder_form.deadline.errors }}
-                                        <div class="form-text">Set the feedback deadline.</div>
-                                    </div>
-                                    <button class="btn btn-outline-primary btn-sm">Set action list deadline</button>
-                                </form>
-                            </div>
-                        </div>
-</div>
-</div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 {% if declined_members_with_reason %}
