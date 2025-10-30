@@ -46,6 +46,7 @@ from .forms import (
     ProtocolReminderScheduleForm,
     ActionListReminderScheduleForm,
     ParticipationConfirmForm,
+    ParticipationDeclineForm,
     ProtocolFeedbackForm,
     ActionListFeedbackForm,
     ProtocolFeedbackCloseForm,
@@ -962,6 +963,11 @@ def _advisory_board_context(
                 member.feedback_on_actions_received = True
 
     all_members = accepted_members + pending_members + declined_members
+    declined_with_reason = [
+        member
+        for member in declined_members
+        if (member.participation_statement or "").strip()
+    ]
 
     custom_fields = list(
         AdvisoryBoardCustomField.objects.filter(project=project).order_by(
@@ -1291,6 +1297,7 @@ def _advisory_board_context(
         "action_list_feedback_close_form": action_list_feedback_close_form,
         "section_palette": section_palette,
         "custom_field_group_choices": AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
+        "declined_members_with_reason": declined_with_reason,
     }
 
 
@@ -4832,29 +4839,44 @@ def advisory_invite_reply(request, token, choice):
             },
         )
 
-    if member:
-        updates = {
-            "response",
-            "response_date",
-            "participation_confirmed",
-            "participation_confirmed_at",
-            "participation_statement",
-        }
-        member.response = "N"
-        member.response_date = timezone.localdate()
-        member.participation_confirmed = False
-        member.participation_confirmed_at = None
-        member.participation_statement = ""
-        member.save(update_fields=list(updates))
+    decline_form = ParticipationDeclineForm(request.POST or None)
 
-    inv.accepted = False
-    inv.responded_at = timezone.now()
-    inv.save(update_fields=["accepted", "responded_at"])
+    if request.method == "POST" and decline_form.is_valid():
+        reason = (decline_form.cleaned_data.get("reason") or "").strip()
+        if member:
+            updates = {
+                "response",
+                "response_date",
+                "participation_confirmed",
+                "participation_confirmed_at",
+                "participation_statement",
+            }
+            member.response = "N"
+            member.response_date = timezone.localdate()
+            member.participation_confirmed = False
+            member.participation_confirmed_at = None
+            member.participation_statement = reason
+            member.save(update_fields=list(updates))
+
+        inv.accepted = False
+        inv.responded_at = timezone.now()
+        inv.save(update_fields=["accepted", "responded_at", "member"] if member else ["accepted", "responded_at"])
+
+        return render(
+            request,
+            "synopsis/invite_thanks.html",
+            {"member": member, "project": inv.project, "accepted": inv.accepted},
+        )
 
     return render(
         request,
-        "synopsis/invite_thanks.html",
-        {"member": member, "project": inv.project, "accepted": inv.accepted},
+        "synopsis/advisory_participation_decline.html",
+        {
+            "project": inv.project,
+            "invitation": inv,
+            "member": member,
+            "form": decline_form,
+        },
     )
 
 
