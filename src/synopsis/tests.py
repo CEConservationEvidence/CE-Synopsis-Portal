@@ -531,7 +531,7 @@ class MemberReminderUpdateTests(TestCase):
             email=member.email,
         )
         url = reverse("synopsis:advisory_invite_reply", args=[str(inv.token), "no"])
-        long_reason = "x" * 301
+        long_reason = "x" * 201
         response = self.client.post(url, data={"reason": long_reason})
 
         self.assertEqual(response.status_code, 200)
