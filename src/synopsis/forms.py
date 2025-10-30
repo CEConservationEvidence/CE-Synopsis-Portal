@@ -141,6 +141,22 @@ class AdvisoryBoardMemberForm(forms.ModelForm):
             self.fields[field_name].required = True
 
 
+class ParticipationDeclineForm(forms.Form):
+    reason = forms.CharField(
+        required=False,
+        max_length=200,
+        label="Reason for declining (optional)",
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 4,
+                "placeholder": "Let us know why you’re declining. This helps us plan next steps (200 characters max).",
+                "maxlength": 200,
+            }
+        ),
+    )
+
+
 class AdvisoryInviteForm(forms.Form):
     email = forms.EmailField(widget=forms.EmailInput(attrs={"class": "form-control"}))
     due_date = forms.DateField(
