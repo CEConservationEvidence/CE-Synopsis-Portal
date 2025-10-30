@@ -3778,8 +3778,10 @@ def user_create(request):
 # TODO: #23 Implement CSV export functionality for advisory board members and their responses.
 # TODO: #24 Add email notification functionality for scheduled reminders.
 # TODO: #25 Implement role-based access control for advisory board management (or a mechanism for accessing files shared with advisory board members securely such as signed URLs, tokens, etc.).
-# TODO: #22 Visual overhaul of AB management pages to improve UX (very cluttered currently and needs color coding with base, standard columns and better grouping of actions).
-
+# TODO: #26 Add ability to edit advisory board member details after creation.
+# TODO: #40 Add ability to resend invitations to advisory board members.
+# TODO: #39 Add ability to bulk import advisory board members via CSV upload.
+# TODO: #38 Add ability to allow ab members to provide reasons for declining if they wish during invitation to participate in synopsis.
 
 @login_required
 def advisory_board_list(request, project_id):
