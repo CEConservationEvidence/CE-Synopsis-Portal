@@ -219,17 +219,17 @@
                         {% endwith %}
                     </tr>
                     <tr>
-                        <th class="text-start" scope="col">Title</th>
-                        <th class="text-start" scope="col">Name 1</th>
-                        <th class="text-start" scope="col">Name 2</th>
-                        <th class="text-start" scope="col">Name 3</th>
-                        <th class="text-start" scope="col">Organisation</th>
-                        <th class="text-start" scope="col">Email</th>
-                        <th class="text-start" scope="col">Location</th>
-                        <th class="text-start" scope="col">Continent</th>
-                        <th class="text-start" scope="col">Notes</th>
+                        <th class="text-center" scope="col">Title</th>
+                        <th class="text-center" scope="col">Name 1</th>
+                        <th class="text-center" scope="col">Name 2</th>
+                        <th class="text-center" scope="col">Name 3</th>
+                        <th class="text-center" scope="col">Organisation</th>
+                        <th class="text-center" scope="col">Email</th>
+                        <th class="text-center" scope="col">Location</th>
+                        <th class="text-center" scope="col">Continent</th>
+                        <th class="text-center" scope="col">Notes</th>
                         {% for field in combined_fields_by_group.personal %}
-                        <th class="text-start" scope="col">
+                        <th class="text-center" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
                             {% if field.description %}
                             <small class="text-muted d-block">{{ field.description }}</small>
