@@ -171,6 +171,11 @@ urlpatterns = [
         name="advisory_member_set_deadline",
     ),
     path(
+        "project/<int:project_id>/advisory-board/member/<int:member_id>/edit/",
+        views.advisory_member_edit,
+        name="advisory_member_edit",
+    ),
+    path(
         "project/<int:project_id>/advisory-board/protocol-feedback/close/",
         views.advisory_protocol_feedback_close,
         name="advisory_protocol_feedback_close",

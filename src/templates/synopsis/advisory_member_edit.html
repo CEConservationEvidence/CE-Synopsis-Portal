@@ -1,0 +1,61 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Edit Advisory Member – {{ project.title }}{% endblock %}
+{% block content %}
+<h1 class="mb-3">Edit advisory board member</h1>
+<div class="card">
+    <div class="card-body">
+        <form method="post" class="row g-3">
+            {% csrf_token %}
+            <div class="col-sm-4 col-lg-3">
+                {{ form.title.label_tag }}
+                {{ form.title }}
+                {{ form.title.errors }}
+            </div>
+            <div class="col-sm-4 col-lg-3">
+                {{ form.first_name.label_tag }}
+                {{ form.first_name }}
+                {{ form.first_name.errors }}
+            </div>
+            <div class="col-sm-4 col-lg-3">
+                {{ form.middle_name.label_tag }}
+                {{ form.middle_name }}
+                {{ form.middle_name.errors }}
+            </div>
+            <div class="col-sm-4 col-lg-3">
+                {{ form.last_name.label_tag }}
+                {{ form.last_name }}
+                {{ form.last_name.errors }}
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                {{ form.organisation.label_tag }}
+                {{ form.organisation }}
+                {{ form.organisation.errors }}
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                {{ form.email.label_tag }}
+                {{ form.email }}
+                {{ form.email.errors }}
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                {{ form.location.label_tag }}
+                {{ form.location }}
+                {{ form.location.errors }}
+            </div>
+            <div class="col-sm-6 col-lg-4">
+                {{ form.continent.label_tag }}
+                {{ form.continent }}
+                {{ form.continent.errors }}
+            </div>
+            <div class="col-12">
+                {{ form.notes.label_tag }}
+                {{ form.notes }}
+                {{ form.notes.errors }}
+            </div>
+            <div class="col-12 d-flex gap-2">
+                <button class="btn btn-primary">Save changes</button>
+                <a class="btn btn-outline-secondary" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

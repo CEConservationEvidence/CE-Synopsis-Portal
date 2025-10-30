@@ -453,6 +453,47 @@ class MemberReminderUpdateTests(TestCase):
         self.assertEqual(member.response_date, original_date)
         self.assertTrue(member.reminder_sent)
 
+    def test_edit_member_details(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            title="Dr",
+            first_name="Casey",
+            last_name="Smith",
+            email="casey@example.com",
+            organisation="Org",
+        )
+
+        payload = {
+            "title": "Prof",
+            "first_name": "Casey",
+            "middle_name": "A",
+            "last_name": "Jones",
+            "organisation": "Updated Org",
+            "email": "casey@example.com",
+            "location": "London",
+            "continent": "Europe",
+            "notes": "Updated notes",
+        }
+
+        url = reverse(
+            "synopsis:advisory_member_edit",
+            args=[self.project.id, member.id],
+        )
+        response = self.client.post(url, data=payload)
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertEqual(member.title, "Prof")
+        self.assertEqual(member.last_name, "Jones")
+        self.assertEqual(member.organisation, "Updated Org")
+        self.assertEqual(member.location, "London")
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Updated advisory member",
+            ).exists()
+        )
+
 
 class FunderUtilityTests(TestCase):
     def test_build_display_name_prefers_organisation(self):

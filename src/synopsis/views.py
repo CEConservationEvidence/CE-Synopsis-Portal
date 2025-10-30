@@ -929,6 +929,7 @@ def _combine_pages(record: dict) -> str:
 def _advisory_board_context(
     project,
     *,
+    user=None,
     member_form=None,
     reminder_form=None,
     protocol_form=None,
@@ -1227,6 +1228,8 @@ def _advisory_board_context(
         + safe_count(declined_members)
     )
 
+    can_edit_members = _user_can_edit_project(user, project) if user else False
+
     status_badges = {
         AdvisoryBoardCustomField.SECTION_ACCEPTED: {
             "label": "Accepted",
@@ -1283,6 +1286,7 @@ def _advisory_board_context(
         )
         .order_by("created_at")
         .first(),
+        "can_edit_members": can_edit_members,
         "action_list_feedback_state": action_list_feedback_state,
         "action_list_feedback_close_form": action_list_feedback_close_form,
         "section_palette": section_palette,
@@ -3791,7 +3795,10 @@ def advisory_board_list(request, project_id):
                 messages.success(request, "Custom column added to advisory board.")
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
             context = _advisory_board_context(
-                project, member_form=AdvisoryBoardMemberForm(), custom_field_form=form
+                project,
+                user=request.user,
+                member_form=AdvisoryBoardMemberForm(),
+                custom_field_form=form,
             )
             return render(request, "synopsis/advisory_board_list.html", context)
 
@@ -3824,6 +3831,7 @@ def advisory_board_list(request, project_id):
             messages.error(request, "Choose a valid section for this column.")
             context = _advisory_board_context(
                 project,
+                user=request.user,
                 member_form=AdvisoryBoardMemberForm(),
                 custom_field_form=AdvisoryCustomFieldForm(project),
             )
@@ -3837,12 +3845,12 @@ def advisory_board_list(request, project_id):
                 m.save()
                 messages.success(request, "Advisory Board member added.")
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
-            context = _advisory_board_context(project, member_form=form)
+            context = _advisory_board_context(project, user=request.user, member_form=form)
             return render(request, "synopsis/advisory_board_list.html", context)
 
         if action == "add_member_back":
             form = AdvisoryBoardMemberForm(request.POST)
-            context = _advisory_board_context(project, member_form=form)
+            context = _advisory_board_context(project, user=request.user, member_form=form)
             return render(request, "synopsis/advisory_board_list.html", context)
 
         if action == "add_member":
@@ -3858,11 +3866,11 @@ def advisory_board_list(request, project_id):
                         "cleaned_data": cleaned,
                     },
                 )
-            context = _advisory_board_context(project, member_form=form)
+            context = _advisory_board_context(project, user=request.user, member_form=form)
             return render(request, "synopsis/advisory_board_list.html", context)
 
     form = AdvisoryBoardMemberForm()
-    context = _advisory_board_context(project, member_form=form)
+    context = _advisory_board_context(project, user=request.user, member_form=form)
     return render(request, "synopsis/advisory_board_list.html", context)
 
 
@@ -3876,7 +3884,7 @@ def advisory_schedule_reminders(request, project_id):
     pending_members = project.advisory_board_members.filter(invite_sent=False)
 
     if not form.is_valid():
-        context = _advisory_board_context(project, reminder_form=form)
+        context = _advisory_board_context(project, user=request.user, reminder_form=form)
         return render(request, "synopsis/advisory_board_list.html", context)
 
     reminder_date = form.cleaned_data["reminder_date"]
@@ -3912,7 +3920,7 @@ def advisory_schedule_protocol_reminders(request, project_id):
     )
 
     if not form.is_valid():
-        context = _advisory_board_context(project, protocol_form=form)
+        context = _advisory_board_context(project, user=request.user, protocol_form=form)
         return render(request, "synopsis/advisory_board_list.html", context)
 
     deadline = form.cleaned_data["deadline"]
@@ -3985,7 +3993,7 @@ def advisory_schedule_action_list_reminders(request, project_id):
     )
 
     if not form.is_valid():
-        context = _advisory_board_context(project, action_list_form=form)
+        context = _advisory_board_context(project, user=request.user, action_list_form=form)
         return render(request, "synopsis/advisory_board_list.html", context)
 
     deadline = form.cleaned_data["deadline"]
@@ -4203,6 +4211,42 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
         else "Action list deadline cleared.",
     )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
+def advisory_member_edit(request, project_id, member_id):
+    project = get_object_or_404(Project, pk=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
+
+    if not _user_can_edit_project(request.user, project):
+        messages.error(request, "You do not have permission to update this member.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if request.method == "POST":
+        form = AdvisoryBoardMemberForm(request.POST, instance=member)
+        if form.is_valid():
+            updated_member = form.save()
+            display_name = f"{updated_member.first_name} {updated_member.last_name or ''}".strip() or updated_member.email
+            _log_project_change(
+                project,
+                request.user,
+                "Updated advisory member",
+                f"Edited details for {display_name}",
+            )
+            messages.success(request, "Member details updated.")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    else:
+        form = AdvisoryBoardMemberForm(instance=member)
+
+    return render(
+        request,
+        "synopsis/advisory_member_edit.html",
+        {
+            "project": project,
+            "member": member,
+            "form": form,
+        },
+    )
 
 
 @login_required
@@ -4462,6 +4506,7 @@ def advisory_protocol_feedback_close(request, project_id):
     if not form.is_valid():
         context = _advisory_board_context(
             project,
+            user=request.user,
             feedback_close_form=form,
         )
         return render(request, "synopsis/advisory_board_list.html", context)
@@ -4527,6 +4572,7 @@ def advisory_action_list_feedback_close(request, project_id):
     if not form.is_valid():
         context = _advisory_board_context(
             project,
+            user=request.user,
             action_list_feedback_close_form=form,
         )
         return render(request, "synopsis/advisory_board_list.html", context)

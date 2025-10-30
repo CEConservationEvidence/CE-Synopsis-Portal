@@ -216,6 +216,7 @@
                         {% endwith %}
                     </tr>
                     <tr>
+                        <th class="text-muted"></th>
                         <th>Title</th>
                         <th>Name 1</th>
                         <th>Name 2</th>
@@ -309,6 +310,13 @@
                                 {% for m in section.members %}
                                 <tr class="align-middle {{ status_meta.row_class }}">
                                     <td class="ab-status-cell"><span class="badge {{ status_meta.badge_class }}">{{ status_meta.label }}</span></td>
+                                    <td class="ab-status-cell">
+                                        {% if can_edit_members %}
+                                        <a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_edit' project.id m.id %}">Edit</a>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
                                     <td>{{ m.title|default:"—" }}</td>
                                     <td>{{ m.first_name|default:"—" }}</td>
                                     <td>{{ m.middle_name|default:"—" }}</td>
