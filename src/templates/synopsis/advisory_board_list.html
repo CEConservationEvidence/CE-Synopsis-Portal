@@ -16,6 +16,8 @@
 
     .advisory-board-table :is(th, td) {
         padding: 0.5rem 0.9rem;
+        vertical-align: middle;
+        text-align: center;
     }
 
     .advisory-board-table thead th {
@@ -70,6 +72,7 @@
 
     .ab-status-cell {
         white-space: nowrap;
+        text-align: center;
     }
 
     .reminder-inline-form .form-control {
@@ -402,7 +405,7 @@
                                     </td>
                                     <td class="ab-status-invite">
                                         {% if m.response %}
-                                        <div class="d-inline-flex align-items-center gap-2 flex-wrap">
+                                        <div class="d-flex align-items-center justify-content-center gap-2 flex-wrap w-100">
                                             <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.is_declined %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ m.response }}</span>
                                             {% if m.is_declined and m.participation_statement %}
                                             <button
@@ -442,11 +445,11 @@
                                         {% endif %}
                                     {% endfor %}
                                     <td class="ab-status-action">
-                                        {% if m.sent_action_list_at %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.sent_action_list_at %}
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_action_list_at|date:"Y-m-d" }}</div>
-                                        {% elif m.is_declined %}
-                                        <span class="text-muted">Declined</span>
                                         {% else %}
                                         <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_action_list_compose_member' project.id m.id %}">Send</a>
                                         {% endif %}
@@ -504,11 +507,11 @@
                                         {% endif %}
                                     {% endfor %}
                                     <td class="ab-status-protocol">
-                                        {% if m.sent_protocol_at %}
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.sent_protocol_at %}
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_protocol_at|date:"Y-m-d" }}</div>
-                                        {% elif m.is_declined %}
-                                        <span class="text-muted">Declined</span>
                                         {% else %}
                                         <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_protocol_compose_member' project.id m.id %}">Send</a>
                                         {% endif %}
