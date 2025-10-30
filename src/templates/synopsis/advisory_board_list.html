@@ -85,20 +85,8 @@
         opacity: 0.75;
     }
 
-    .ab-row-status-declined .btn,
-    .ab-row-status-declined .btn-link,
-    .ab-row-status-declined input,
-    .ab-row-status-declined select,
-    .ab-row-status-declined form {
-        pointer-events: none;
-        cursor: default;
-    }
-
-    .ab-row-status-declined .btn,
-    .ab-row-status-declined .btn-link,
-    .ab-row-status-declined input,
-    .ab-row-status-declined select {
-        opacity: 0.85;
+    .ab-row-status-declined .decline-reason-btn {
+        opacity: 1;
     }
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3">
@@ -414,7 +402,19 @@
                                     </td>
                                     <td class="ab-status-invite">
                                         {% if m.response %}
-                                        <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.is_declined %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ m.response }}</span>
+                                        <div class="d-inline-flex align-items-center gap-2 flex-wrap">
+                                            <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.is_declined %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ m.response }}</span>
+                                            {% if m.is_declined and m.participation_statement %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#decline-reason-{{ m.id }}"
+                                            >
+                                                View reason
+                                            </button>
+                                            {% endif %}
+                                        </div>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
@@ -1036,8 +1036,36 @@
                                 </form>
                             </div>
                         </div>
+</div>
+</div>
+</div>
+
+{% if declined_members_with_reason %}
+    {% for declined_member in declined_members_with_reason %}
+    <div class="modal fade" id="decline-reason-{{ declined_member.id }}" tabindex="-1" aria-labelledby="decline-reason-{{ declined_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="decline-reason-{{ declined_member.id }}-label">Decline reason</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="border rounded bg-light p-3 text-start text-break">
+                        {% if declined_member.participation_statement %}
+                        <p class="mb-0" style="white-space: pre-wrap;">{{ declined_member.participation_statement }}</p>
+                        {% else %}
+                        <p class="text-muted mb-0">No reason provided.</p>
+                        {% endif %}
                     </div>
                 </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
     </div>
+    {% endfor %}
+{% endif %}
+</div>
 </div>
 {% endblock %}
