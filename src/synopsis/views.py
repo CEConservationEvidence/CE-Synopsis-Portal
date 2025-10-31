@@ -2833,22 +2833,25 @@ def collaborative_edit(request, project_id, document_slug, token):
     if not document_type:
         raise Http404("Unknown document type")
 
+    document_label = _document_label(document_type)
+    detail_url = _document_detail_url(project.id, document_type)
+
     if not _onlyoffice_enabled():
         messages.error(
             request,
             "Collaborative editing is not configured. Please contact your administrator.",
         )
-        return redirect(_document_detail_url(project.id, document_type))
+        return redirect(detail_url)
 
     session = _collaborative_session_or_404(project, document_type, token)
     if session.has_expired():
         session.mark_inactive(reason="Session expired")
         messages.warning(request, "This collaborative session has expired.")
-        return redirect(_document_detail_url(project.id, document_type))
+        return redirect(detail_url)
 
     if not _user_can_edit_project(request.user, project):
         messages.error(request, "You do not have access to this collaborative session.")
-        return redirect(_document_detail_url(project.id, document_type))
+        return redirect(detail_url)
 
     document = _get_document_for_type(project, document_type)
     if not _document_requires_file(document):
@@ -2856,14 +2859,33 @@ def collaborative_edit(request, project_id, document_slug, token):
             request,
             f"No {_document_label(document_type).lower()} file is available to edit.",
         )
-        return redirect(_document_detail_url(project.id, document_type))
+        return redirect(detail_url)
+
+    if getattr(document, "feedback_closed_at", None):
+        if session.is_active:
+            session.mark_inactive(
+                ended_by=request.user if _user_can_edit_project(request.user, project) else None,
+                reason=f"{document_label} feedback window closed",
+            )
+        closure_message = document.feedback_closure_message or (
+            f"Collaborative editing is closed for this {document_label.lower()}."
+        )
+        return render(
+            request,
+            "synopsis/collaborative_editor.html",
+            {
+                "project": project,
+                "document_label": document_label,
+                "detail_url": detail_url,
+                "window_closed_message": closure_message,
+                "can_force_end": False,
+                "force_end_url": "",
+                "participant_display": "",
+            },
+            status=200,
+        )
 
     if not session.is_active:
-        if getattr(document, "feedback_closed_at", None):
-            messages.info(
-                request, "This collaborative session is no longer active."
-            )
-            return redirect(_document_detail_url(project.id, document_type))
         if _user_can_edit_project(request.user, project):
             restart_url = _ensure_collaborative_invite_link(
                 request, project, document_type
@@ -2875,7 +2897,7 @@ def collaborative_edit(request, project_id, document_slug, token):
                 )
                 return redirect(restart_url)
         messages.info(request, "This collaborative session is no longer active.")
-        return redirect(_document_detail_url(project.id, document_type))
+        return redirect(detail_url)
 
     editor_js_url = _onlyoffice_editor_js_url()
     if not editor_js_url:
@@ -2949,7 +2971,6 @@ def collaborative_edit(request, project_id, document_slug, token):
         update_fields.append("last_participant_name")
     session.save(update_fields=update_fields)
 
-    document_label = _document_label(document_type)
     force_end_url = reverse(
         "synopsis:collaborative_force_end",
         args=[project.id, _document_type_slug(document_type), session.token],
