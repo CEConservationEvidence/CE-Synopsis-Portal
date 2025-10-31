@@ -2740,6 +2740,36 @@ def collaborative_start(request, project_id, document_slug):
         )
         return redirect(_document_detail_url(project.id, document_type))
 
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL and getattr(
+        document, "feedback_closed_at", None
+    ):
+        _end_active_collaborative_session(
+            project,
+            document_type,
+            ended_by=request.user,
+            reason="Protocol feedback window closed",
+        )
+        messages.info(
+            request,
+            "Collaborative editing is disabled because the protocol feedback window is closed.",
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
+    if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST and getattr(
+        document, "feedback_closed_at", None
+    ):
+        _end_active_collaborative_session(
+            project,
+            document_type,
+            ended_by=request.user,
+            reason="Action list feedback window closed",
+        )
+        messages.info(
+            request,
+            "Collaborative editing is disabled because the action list feedback window is closed.",
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
     # TODO: #17 need to guard against race conditions by wrapping this check/create in a transaction
     # or enforcing a uniqueness constraint so concurrent POSTs cannot spawn two sessions.
     active_session = _get_active_collaborative_session(project, document_type)
@@ -2816,10 +2846,6 @@ def collaborative_edit(request, project_id, document_slug, token):
         messages.warning(request, "This collaborative session has expired.")
         return redirect(_document_detail_url(project.id, document_type))
 
-    if not session.is_active:
-        messages.info(request, "This collaborative session is no longer active.")
-        return redirect(_document_detail_url(project.id, document_type))
-
     if not _user_can_edit_project(request.user, project):
         messages.error(request, "You do not have access to this collaborative session.")
         return redirect(_document_detail_url(project.id, document_type))
@@ -2830,6 +2856,25 @@ def collaborative_edit(request, project_id, document_slug, token):
             request,
             f"No {_document_label(document_type).lower()} file is available to edit.",
         )
+        return redirect(_document_detail_url(project.id, document_type))
+
+    if not session.is_active:
+        if getattr(document, "feedback_closed_at", None):
+            messages.info(
+                request, "This collaborative session is no longer active."
+            )
+            return redirect(_document_detail_url(project.id, document_type))
+        if _user_can_edit_project(request.user, project):
+            restart_url = _ensure_collaborative_invite_link(
+                request, project, document_type
+            )
+            if restart_url and restart_url != request.build_absolute_uri():
+                messages.info(
+                    request,
+                    "The previous collaborative session ended. A fresh editor has been opened.",
+                )
+                return redirect(restart_url)
+        messages.info(request, "This collaborative session is no longer active.")
         return redirect(_document_detail_url(project.id, document_type))
 
     editor_js_url = _onlyoffice_editor_js_url()
