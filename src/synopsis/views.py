@@ -1989,6 +1989,7 @@ def protocol_detail(request, project_id):
     )
 
     collaborative_enabled = _onlyoffice_enabled()
+    protocol_closed = bool(protocol and protocol.feedback_closed_at)
     collaborative_session = None
     collaborative_resume_url = ""
     collaborative_force_end_url = ""
@@ -1997,6 +1998,12 @@ def protocol_detail(request, project_id):
         collaborative_session = _get_active_collaborative_session(
             project, CollaborativeSession.DOCUMENT_PROTOCOL
         )
+        if collaborative_session and protocol_closed:
+            collaborative_session.mark_inactive(
+                ended_by=request.user if request.user.is_authenticated else None,
+                reason="Protocol feedback window closed",
+            )
+            collaborative_session = None
         if collaborative_session:
             collaborative_resume_url = reverse(
                 "synopsis:collaborative_edit",
@@ -2011,6 +2018,12 @@ def protocol_detail(request, project_id):
             request.user, project, collaborative_session
         )
     else:
+        collaborative_can_override = False
+    if protocol_closed:
+        collaborative_enabled = False
+        collaborative_session = None
+        collaborative_resume_url = ""
+        collaborative_force_end_url = ""
         collaborative_can_override = False
 
     if request.method == "POST":
@@ -2270,6 +2283,7 @@ def action_list_detail(request, project_id):
     )
 
     collaborative_enabled = _onlyoffice_enabled()
+    action_closed = bool(action_list and action_list.feedback_closed_at)
     collaborative_session = None
     collaborative_resume_url = ""
     collaborative_force_end_url = ""
@@ -2278,6 +2292,12 @@ def action_list_detail(request, project_id):
         collaborative_session = _get_active_collaborative_session(
             project, CollaborativeSession.DOCUMENT_ACTION_LIST
         )
+        if collaborative_session and action_closed:
+            collaborative_session.mark_inactive(
+                ended_by=request.user if request.user.is_authenticated else None,
+                reason="Action list feedback window closed",
+            )
+            collaborative_session = None
         if collaborative_session:
             collaborative_resume_url = reverse(
                 "synopsis:collaborative_edit",
@@ -2292,6 +2312,12 @@ def action_list_detail(request, project_id):
             request.user, project, collaborative_session
         )
     else:
+        collaborative_can_override = False
+    if action_closed:
+        collaborative_enabled = False
+        collaborative_session = None
+        collaborative_resume_url = ""
+        collaborative_force_end_url = ""
         collaborative_can_override = False
 
     if request.method == "POST":
