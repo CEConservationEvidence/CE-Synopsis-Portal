@@ -4635,6 +4635,13 @@ def advisory_protocol_feedback_close(request, project_id):
         update_fields.append("feedback_closed_at")
     proto.save(update_fields=update_fields)
 
+    ended_session = _end_active_collaborative_session(
+        project,
+        CollaborativeSession.DOCUMENT_PROTOCOL,
+        ended_by=request.user if getattr(request.user, "is_authenticated", False) else None,
+        reason="Protocol feedback window closed",
+    )
+
     if already_closed:
         _log_project_change(
             project,
@@ -4651,6 +4658,14 @@ def advisory_protocol_feedback_close(request, project_id):
             message,
         )
         messages.success(request, "Protocol feedback links are now closed.")
+
+    if ended_session:
+        _log_project_change(
+            project,
+            request.user,
+            "Protocol collaborative session closed",
+            f"Session {ended_session.token} marked inactive.",
+        )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -4701,6 +4716,13 @@ def advisory_action_list_feedback_close(request, project_id):
         update_fields.append("feedback_closed_at")
     action_list.save(update_fields=update_fields)
 
+    ended_session = _end_active_collaborative_session(
+        project,
+        CollaborativeSession.DOCUMENT_ACTION_LIST,
+        ended_by=request.user if getattr(request.user, "is_authenticated", False) else None,
+        reason="Action list feedback window closed",
+    )
+
     if already_closed:
         _log_project_change(
             project,
@@ -4717,6 +4739,14 @@ def advisory_action_list_feedback_close(request, project_id):
             message,
         )
         messages.success(request, "Action list feedback links are now closed.")
+
+    if ended_session:
+        _log_project_change(
+            project,
+            request.user,
+            "Action list collaborative session closed",
+            f"Session {ended_session.token} marked inactive.",
+        )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -5297,7 +5327,12 @@ def advisory_send_protocol_member(request, project_id, member_id):
     )
 
     collaborative_url = ""
-    if _onlyoffice_enabled() and _document_requires_file(project.protocol):
+    protocol_closed = bool(getattr(project.protocol, "feedback_closed_at", None))
+    if (
+        _onlyoffice_enabled()
+        and _document_requires_file(project.protocol)
+        and not protocol_closed
+    ):
         collaborative_url = _ensure_collaborative_invite_link(
             request,
             project,
@@ -5352,7 +5387,12 @@ def advisory_send_protocol_compose_all(request, project_id):
     if not proto:
         messages.error(request, "No protocol configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
-    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(proto)
+    protocol_closed = bool(getattr(proto, "feedback_closed_at", None))
+    collaborative_enabled = (
+        _onlyoffice_enabled()
+        and _document_requires_file(proto)
+        and not protocol_closed
+    )
     if request.method == "POST":
         form = ProtocolSendForm(
             request.POST, collaborative_enabled=collaborative_enabled
@@ -5468,7 +5508,12 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             "This member has not accepted the invitation or has declined participation.",
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
-    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(proto)
+    protocol_closed = bool(getattr(proto, "feedback_closed_at", None))
+    collaborative_enabled = (
+        _onlyoffice_enabled()
+        and _document_requires_file(proto)
+        and not protocol_closed
+    )
     if request.method == "POST":
         form = ProtocolSendForm(
             request.POST, collaborative_enabled=collaborative_enabled
@@ -5554,8 +5599,11 @@ def advisory_send_action_list_compose_all(request, project_id):
     if not action_list:
         messages.error(request, "No action list configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
-    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(
-        action_list
+    action_closed = bool(getattr(action_list, "feedback_closed_at", None))
+    collaborative_enabled = (
+        _onlyoffice_enabled()
+        and _document_requires_file(action_list)
+        and not action_closed
     )
     if request.method == "POST":
         form = ActionListSendForm(
@@ -5675,8 +5723,11 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             "This member has not accepted the invitation or has declined participation.",
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
-    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(
-        action_list
+    action_closed = bool(getattr(action_list, "feedback_closed_at", None))
+    collaborative_enabled = (
+        _onlyoffice_enabled()
+        and _document_requires_file(action_list)
+        and not action_closed
     )
     if request.method == "POST":
         form = ActionListSendForm(
