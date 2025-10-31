@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+from urllib.parse import urlparse
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -28,6 +29,7 @@ from .models import (
     ActionList,
     ActionListRevision,
     ActionListFeedback,
+    CollaborativeSession,
     UserRole,
 )
 from .forms import (
@@ -940,6 +942,124 @@ class OnlyOfficeDownloadTests(TestCase):
         with self.assertRaisesMessage(ValueError, "Untrusted OnlyOffice download URL"):
             self.views._download_onlyoffice_file(url)
         mock_get.assert_not_called()
+
+
+class CollaborativeClosureTests(TestCase):
+    def setUp(self):
+        from . import views
+
+        self.views = views
+        self.original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "https://onlyoffice.example.com/office",
+            "callback_timeout": 5,
+        }
+        self.addCleanup(self._restore_settings)
+
+        self.factory = RequestFactory()
+        self.project = Project.objects.create(title="Collaborative Close")
+        self.manager = User.objects.create_user(username="manager", password="pw")
+        self.manager.is_staff = True
+        self.manager.save(update_fields=["is_staff"])
+        UserRole.objects.create(user=self.manager, project=self.project, role="manager")
+        self.client.force_login(self.manager)
+        self.protocol = Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile(
+                "protocol.docx",
+                b"test-protocol",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+
+    def _restore_settings(self):
+        self.views.ONLYOFFICE_SETTINGS = self.original_settings
+
+    def _build_request(self):
+        request = self.factory.get("/", HTTP_HOST="testserver")
+        request.user = self.manager
+        return request
+
+    def test_closing_protocol_disables_collaborative_session(self):
+        request = self._build_request()
+        url = self.views._ensure_collaborative_invite_link(
+            request,
+            self.project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+            None,
+        )
+        self.assertTrue(url)
+        session = CollaborativeSession.objects.get(
+            project=self.project, document_type=CollaborativeSession.DOCUMENT_PROTOCOL
+        )
+        self.assertTrue(session.is_active)
+
+        close_url = reverse(
+            "synopsis:advisory_protocol_feedback_close", args=[self.project.id]
+        )
+        response = self.client.post(close_url, {"message": "Window closed"})
+        self.assertRedirects(
+            response,
+            reverse("synopsis:advisory_board_list", args=[self.project.id]),
+        )
+
+        self.project = Project.objects.get(id=self.project.id)
+        self.protocol = self.project.protocol
+
+        session.refresh_from_db()
+        self.assertFalse(session.is_active)
+        self.assertIsNotNone(session.ended_at)
+
+        request = self._build_request()
+        disabled_url = self.views._ensure_collaborative_invite_link(
+            request,
+            self.project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+            None,
+        )
+        self.assertEqual(disabled_url, "")
+        self.assertEqual(
+            CollaborativeSession.objects.filter(
+                project=self.project,
+                document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+                is_active=True,
+            ).count(),
+            0,
+        )
+
+        start_url = reverse(
+            "synopsis:collaborative_start",
+            args=[self.project.id, "protocol"],
+        )
+        response = self.client.post(start_url)
+        self.assertRedirects(
+            response,
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
+        )
+        self.assertEqual(
+            CollaborativeSession.objects.filter(
+                project=self.project,
+                document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+                is_active=True,
+            ).count(),
+            0,
+        )
+
+        reopen_response = self.client.post(close_url, {"action": "reopen"})
+        self.assertRedirects(
+            reopen_response,
+            reverse("synopsis:advisory_board_list", args=[self.project.id]),
+        )
+        self.project.refresh_from_db()
+        self.assertIsNone(self.project.protocol.feedback_closed_at)
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 302)
+        self.assertNotEqual(response["Location"], url)
+        parsed = urlparse(response["Location"])
+        new_token = parsed.path.rstrip("/").split("/")[-1]
+        new_session = CollaborativeSession.objects.get(token=new_token)
+        self.assertTrue(new_session.is_active)
 
 
 class AdvisoryBoardCustomColumnsTests(TestCase):
