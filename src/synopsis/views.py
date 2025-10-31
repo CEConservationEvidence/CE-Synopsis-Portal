@@ -510,6 +510,19 @@ def _get_active_collaborative_session(project, document_type):
     return session
 
 
+def _end_active_collaborative_session(
+    project, document_type, *, ended_by=None, reason=""
+):
+    session = _get_active_collaborative_session(project, document_type)
+    if not session:
+        return None
+    session.mark_inactive(
+        ended_by=ended_by,
+        reason=reason or f"{_document_label(document_type)} collaborative editing closed",
+    )
+    return session
+
+
 def _ensure_collaborative_invite_link(
     request,
     project,
@@ -524,6 +537,28 @@ def _ensure_collaborative_invite_link(
 
     document = _get_document_for_type(project, document_type)
     if not _document_requires_file(document):
+        return ""
+
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL and getattr(
+        document, "feedback_closed_at", None
+    ):
+        _end_active_collaborative_session(
+            project,
+            document_type,
+            ended_by=getattr(request, "user", None),
+            reason="Protocol feedback window closed",
+        )
+        return ""
+
+    if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST and getattr(
+        document, "feedback_closed_at", None
+    ):
+        _end_active_collaborative_session(
+            project,
+            document_type,
+            ended_by=getattr(request, "user", None),
+            reason="Action list feedback window closed",
+        )
         return ""
 
     session = _get_active_collaborative_session(project, document_type)
