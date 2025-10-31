@@ -30,6 +30,11 @@
     <div class="small text-muted mt-2">You are editing as {{ participant_display }}.</div>
     {% endif %}
 </div>
+{% if window_closed_message %}
+<div class="alert alert-warning mx-3 mx-md-4 mt-3" role="alert">
+    {{ window_closed_message }}
+</div>
+{% endif %}
 <style>
   #onlyoffice-editor {
     width: 100%;
@@ -46,6 +51,7 @@
     }
   }
 </style>
+{% if editor_config %}
 <div id="onlyoffice-editor"></div>
 {{ editor_config|json_script:"onlyoffice-editor-config" }}
 <script src="{{ onlyoffice_js_url }}"></script>
@@ -115,4 +121,9 @@
         }
     })();
 </script>
+{% elif not window_closed_message %}
+<div class="p-4 text-muted">
+    Collaborative editing is currently unavailable.
+</div>
+{% endif %}
 {% endblock %}
