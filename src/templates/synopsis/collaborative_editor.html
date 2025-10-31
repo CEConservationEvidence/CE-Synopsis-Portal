@@ -2,6 +2,8 @@
 {% block title %}Collaborative Editor – {{ document_label }}{% endblock %}
 {% block page_container_class %}container-fluid p-0{% endblock %}
 {% block content %}
+// TODO: #42 It seems there is a bug when closing the window does not close the interactive collab session on onlyoffice server. Need to handle this so when closed the session is closed properly and no edits are made.
+
 <div class="collab-header py-3 px-3 px-md-4">
     <h1 class="mb-2">Collaborative editor – {{ document_label }}</h1>
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
