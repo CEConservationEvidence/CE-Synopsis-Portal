@@ -510,6 +510,19 @@ def _get_active_collaborative_session(project, document_type):
     return session
 
 
+def _end_active_collaborative_session(
+    project, document_type, *, ended_by=None, reason=""
+):
+    session = _get_active_collaborative_session(project, document_type)
+    if not session:
+        return None
+    session.mark_inactive(
+        ended_by=ended_by,
+        reason=reason or f"{_document_label(document_type)} collaborative editing closed",
+    )
+    return session
+
+
 def _ensure_collaborative_invite_link(
     request,
     project,
@@ -524,6 +537,28 @@ def _ensure_collaborative_invite_link(
 
     document = _get_document_for_type(project, document_type)
     if not _document_requires_file(document):
+        return ""
+
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL and getattr(
+        document, "feedback_closed_at", None
+    ):
+        _end_active_collaborative_session(
+            project,
+            document_type,
+            ended_by=getattr(request, "user", None),
+            reason="Protocol feedback window closed",
+        )
+        return ""
+
+    if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST and getattr(
+        document, "feedback_closed_at", None
+    ):
+        _end_active_collaborative_session(
+            project,
+            document_type,
+            ended_by=getattr(request, "user", None),
+            reason="Action list feedback window closed",
+        )
         return ""
 
     session = _get_active_collaborative_session(project, document_type)
@@ -1954,6 +1989,7 @@ def protocol_detail(request, project_id):
     )
 
     collaborative_enabled = _onlyoffice_enabled()
+    protocol_closed = bool(protocol and protocol.feedback_closed_at)
     collaborative_session = None
     collaborative_resume_url = ""
     collaborative_force_end_url = ""
@@ -1962,6 +1998,12 @@ def protocol_detail(request, project_id):
         collaborative_session = _get_active_collaborative_session(
             project, CollaborativeSession.DOCUMENT_PROTOCOL
         )
+        if collaborative_session and protocol_closed:
+            collaborative_session.mark_inactive(
+                ended_by=request.user if request.user.is_authenticated else None,
+                reason="Protocol feedback window closed",
+            )
+            collaborative_session = None
         if collaborative_session:
             collaborative_resume_url = reverse(
                 "synopsis:collaborative_edit",
@@ -1976,6 +2018,12 @@ def protocol_detail(request, project_id):
             request.user, project, collaborative_session
         )
     else:
+        collaborative_can_override = False
+    if protocol_closed:
+        collaborative_enabled = False
+        collaborative_session = None
+        collaborative_resume_url = ""
+        collaborative_force_end_url = ""
         collaborative_can_override = False
 
     if request.method == "POST":
@@ -2235,6 +2283,7 @@ def action_list_detail(request, project_id):
     )
 
     collaborative_enabled = _onlyoffice_enabled()
+    action_closed = bool(action_list and action_list.feedback_closed_at)
     collaborative_session = None
     collaborative_resume_url = ""
     collaborative_force_end_url = ""
@@ -2243,6 +2292,12 @@ def action_list_detail(request, project_id):
         collaborative_session = _get_active_collaborative_session(
             project, CollaborativeSession.DOCUMENT_ACTION_LIST
         )
+        if collaborative_session and action_closed:
+            collaborative_session.mark_inactive(
+                ended_by=request.user if request.user.is_authenticated else None,
+                reason="Action list feedback window closed",
+            )
+            collaborative_session = None
         if collaborative_session:
             collaborative_resume_url = reverse(
                 "synopsis:collaborative_edit",
@@ -2257,6 +2312,12 @@ def action_list_detail(request, project_id):
             request.user, project, collaborative_session
         )
     else:
+        collaborative_can_override = False
+    if action_closed:
+        collaborative_enabled = False
+        collaborative_session = None
+        collaborative_resume_url = ""
+        collaborative_force_end_url = ""
         collaborative_can_override = False
 
     if request.method == "POST":
@@ -2679,6 +2740,36 @@ def collaborative_start(request, project_id, document_slug):
         )
         return redirect(_document_detail_url(project.id, document_type))
 
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL and getattr(
+        document, "feedback_closed_at", None
+    ):
+        _end_active_collaborative_session(
+            project,
+            document_type,
+            ended_by=request.user,
+            reason="Protocol feedback window closed",
+        )
+        messages.info(
+            request,
+            "Collaborative editing is disabled because the protocol feedback window is closed.",
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
+    if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST and getattr(
+        document, "feedback_closed_at", None
+    ):
+        _end_active_collaborative_session(
+            project,
+            document_type,
+            ended_by=request.user,
+            reason="Action list feedback window closed",
+        )
+        messages.info(
+            request,
+            "Collaborative editing is disabled because the action list feedback window is closed.",
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
     # TODO: #17 need to guard against race conditions by wrapping this check/create in a transaction
     # or enforcing a uniqueness constraint so concurrent POSTs cannot spawn two sessions.
     active_session = _get_active_collaborative_session(project, document_type)
@@ -2742,26 +2833,25 @@ def collaborative_edit(request, project_id, document_slug, token):
     if not document_type:
         raise Http404("Unknown document type")
 
+    document_label = _document_label(document_type)
+    detail_url = _document_detail_url(project.id, document_type)
+
     if not _onlyoffice_enabled():
         messages.error(
             request,
             "Collaborative editing is not configured. Please contact your administrator.",
         )
-        return redirect(_document_detail_url(project.id, document_type))
+        return redirect(detail_url)
 
     session = _collaborative_session_or_404(project, document_type, token)
     if session.has_expired():
         session.mark_inactive(reason="Session expired")
         messages.warning(request, "This collaborative session has expired.")
-        return redirect(_document_detail_url(project.id, document_type))
-
-    if not session.is_active:
-        messages.info(request, "This collaborative session is no longer active.")
-        return redirect(_document_detail_url(project.id, document_type))
+        return redirect(detail_url)
 
     if not _user_can_edit_project(request.user, project):
         messages.error(request, "You do not have access to this collaborative session.")
-        return redirect(_document_detail_url(project.id, document_type))
+        return redirect(detail_url)
 
     document = _get_document_for_type(project, document_type)
     if not _document_requires_file(document):
@@ -2769,7 +2859,45 @@ def collaborative_edit(request, project_id, document_slug, token):
             request,
             f"No {_document_label(document_type).lower()} file is available to edit.",
         )
-        return redirect(_document_detail_url(project.id, document_type))
+        return redirect(detail_url)
+
+    if getattr(document, "feedback_closed_at", None):
+        if session.is_active:
+            session.mark_inactive(
+                ended_by=request.user if _user_can_edit_project(request.user, project) else None,
+                reason=f"{document_label} feedback window closed",
+            )
+        closure_message = document.feedback_closure_message or (
+            f"Collaborative editing is closed for this {document_label.lower()}."
+        )
+        return render(
+            request,
+            "synopsis/collaborative_editor.html",
+            {
+                "project": project,
+                "document_label": document_label,
+                "detail_url": detail_url,
+                "window_closed_message": closure_message,
+                "can_force_end": False,
+                "force_end_url": "",
+                "participant_display": "",
+            },
+            status=200,
+        )
+
+    if not session.is_active:
+        if _user_can_edit_project(request.user, project):
+            restart_url = _ensure_collaborative_invite_link(
+                request, project, document_type
+            )
+            if restart_url and restart_url != request.build_absolute_uri():
+                messages.info(
+                    request,
+                    "The previous collaborative session ended. A fresh editor has been opened.",
+                )
+                return redirect(restart_url)
+        messages.info(request, "This collaborative session is no longer active.")
+        return redirect(detail_url)
 
     editor_js_url = _onlyoffice_editor_js_url()
     if not editor_js_url:
@@ -2843,7 +2971,6 @@ def collaborative_edit(request, project_id, document_slug, token):
         update_fields.append("last_participant_name")
     session.save(update_fields=update_fields)
 
-    document_label = _document_label(document_type)
     force_end_url = reverse(
         "synopsis:collaborative_force_end",
         args=[project.id, _document_type_slug(document_type), session.token],
@@ -4529,6 +4656,13 @@ def advisory_protocol_feedback_close(request, project_id):
         update_fields.append("feedback_closed_at")
     proto.save(update_fields=update_fields)
 
+    ended_session = _end_active_collaborative_session(
+        project,
+        CollaborativeSession.DOCUMENT_PROTOCOL,
+        ended_by=request.user if getattr(request.user, "is_authenticated", False) else None,
+        reason="Protocol feedback window closed",
+    )
+
     if already_closed:
         _log_project_change(
             project,
@@ -4545,6 +4679,14 @@ def advisory_protocol_feedback_close(request, project_id):
             message,
         )
         messages.success(request, "Protocol feedback links are now closed.")
+
+    if ended_session:
+        _log_project_change(
+            project,
+            request.user,
+            "Protocol collaborative session closed",
+            f"Session {ended_session.token} marked inactive.",
+        )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -4595,6 +4737,13 @@ def advisory_action_list_feedback_close(request, project_id):
         update_fields.append("feedback_closed_at")
     action_list.save(update_fields=update_fields)
 
+    ended_session = _end_active_collaborative_session(
+        project,
+        CollaborativeSession.DOCUMENT_ACTION_LIST,
+        ended_by=request.user if getattr(request.user, "is_authenticated", False) else None,
+        reason="Action list feedback window closed",
+    )
+
     if already_closed:
         _log_project_change(
             project,
@@ -4611,6 +4760,14 @@ def advisory_action_list_feedback_close(request, project_id):
             message,
         )
         messages.success(request, "Action list feedback links are now closed.")
+
+    if ended_session:
+        _log_project_change(
+            project,
+            request.user,
+            "Action list collaborative session closed",
+            f"Session {ended_session.token} marked inactive.",
+        )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -5191,7 +5348,12 @@ def advisory_send_protocol_member(request, project_id, member_id):
     )
 
     collaborative_url = ""
-    if _onlyoffice_enabled() and _document_requires_file(project.protocol):
+    protocol_closed = bool(getattr(project.protocol, "feedback_closed_at", None))
+    if (
+        _onlyoffice_enabled()
+        and _document_requires_file(project.protocol)
+        and not protocol_closed
+    ):
         collaborative_url = _ensure_collaborative_invite_link(
             request,
             project,
@@ -5246,7 +5408,12 @@ def advisory_send_protocol_compose_all(request, project_id):
     if not proto:
         messages.error(request, "No protocol configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
-    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(proto)
+    protocol_closed = bool(getattr(proto, "feedback_closed_at", None))
+    collaborative_enabled = (
+        _onlyoffice_enabled()
+        and _document_requires_file(proto)
+        and not protocol_closed
+    )
     if request.method == "POST":
         form = ProtocolSendForm(
             request.POST, collaborative_enabled=collaborative_enabled
@@ -5362,7 +5529,12 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             "This member has not accepted the invitation or has declined participation.",
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
-    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(proto)
+    protocol_closed = bool(getattr(proto, "feedback_closed_at", None))
+    collaborative_enabled = (
+        _onlyoffice_enabled()
+        and _document_requires_file(proto)
+        and not protocol_closed
+    )
     if request.method == "POST":
         form = ProtocolSendForm(
             request.POST, collaborative_enabled=collaborative_enabled
@@ -5448,8 +5620,11 @@ def advisory_send_action_list_compose_all(request, project_id):
     if not action_list:
         messages.error(request, "No action list configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
-    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(
-        action_list
+    action_closed = bool(getattr(action_list, "feedback_closed_at", None))
+    collaborative_enabled = (
+        _onlyoffice_enabled()
+        and _document_requires_file(action_list)
+        and not action_closed
     )
     if request.method == "POST":
         form = ActionListSendForm(
@@ -5569,8 +5744,11 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             "This member has not accepted the invitation or has declined participation.",
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
-    collaborative_enabled = _onlyoffice_enabled() and _document_requires_file(
-        action_list
+    action_closed = bool(getattr(action_list, "feedback_closed_at", None))
+    collaborative_enabled = (
+        _onlyoffice_enabled()
+        and _document_requires_file(action_list)
+        and not action_closed
     )
     if request.method == "POST":
         form = ActionListSendForm(
