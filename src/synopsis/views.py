@@ -82,6 +82,7 @@ from .models import (
     ProtocolFeedback,
     ActionListFeedback,
     ReferenceSourceBatch,
+    ReferenceSourceBatchNoteHistory,
     Reference,
     ProtocolRevision,
     ActionListRevision,
@@ -4669,6 +4670,34 @@ def reference_batch_detail(request, project_id, batch_id):
         references = references.filter(screening_status=status_filter)
 
     if request.method == "POST":
+        action_type = request.POST.get("action")
+        if action_type == "update_notes":
+            if not _user_can_edit_project(request.user, project):
+                raise PermissionDenied
+            new_notes = (request.POST.get("notes") or "").strip()
+            current_notes = batch.notes or ""
+            status_filter = request.POST.get("status_filter") or status_filter or ""
+            if new_notes == current_notes:
+                messages.info(request, "Notes unchanged.")
+            else:
+                ReferenceSourceBatchNoteHistory.objects.create(
+                    batch=batch,
+                    previous_notes=current_notes,
+                    new_notes=new_notes,
+                    changed_by=request.user if request.user.is_authenticated else None,
+                )
+                batch.notes = new_notes
+                batch.save(update_fields=["notes"])
+                messages.success(request, "Batch notes updated.")
+
+            redirect_url = reverse(
+                "synopsis:reference_batch_detail",
+                kwargs={"project_id": project.id, "batch_id": batch.id},
+            )
+            if status_filter in dict(Reference.SCREENING_STATUS_CHOICES):
+                redirect_url = f"{redirect_url}?status={status_filter}"
+            return redirect(redirect_url)
+
         bulk_action = request.POST.get("bulk_action")
         if bulk_action:
             if not _user_can_edit_project(request.user, project):
@@ -4858,6 +4887,7 @@ def reference_batch_detail(request, project_id, batch_id):
             "status_choices": Reference.SCREENING_STATUS_CHOICES,
             "status_summary": status_summary,
             "summary_stats": summary_stats,
+            "note_history": batch.note_history.select_related("changed_by").all(),
         },
     )
 
