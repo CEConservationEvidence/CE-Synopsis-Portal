@@ -4533,8 +4533,6 @@ def reference_batch_list(request, project_id):
         "-created_at", "-id"
     )
     batches = list(batches_qs)
-    status_choices = dict(Reference.SCREENING_STATUS_CHOICES)
-    status_filter = request.GET.get("status")
     project_references = project.references.select_related("screened_by")
 
     status_counts = {
@@ -4554,39 +4552,11 @@ def reference_batch_list(request, project_id):
         else 0
     )
 
-    visible_references = project_references
-    if status_filter in status_choices:
-        visible_references = visible_references.filter(screening_status=status_filter)
-
-    visible_status_counts = {
-        row["screening_status"]: row["count"]
-        for row in visible_references.values("screening_status").annotate(
-            count=Count("id")
-        )
-    }
-    visible_total = visible_references.count()
-    visible_included = visible_status_counts.get("included", 0)
-    visible_excluded = visible_status_counts.get("excluded", 0)
-    visible_pending = visible_status_counts.get("pending", 0)
-    visible_screened = visible_included + visible_excluded
-    visible_completion = (
-        round((visible_screened / visible_total) * 100) if visible_total else 0
-    )
-
     latest_screening = (
         project_references.exclude(screening_decision_at__isnull=True)
         .order_by("-screening_decision_at")
         .first()
     )
-
-    status_summary = [
-        {
-            "status": value,
-            "label": label,
-            "count": status_counts.get(value, 0),
-        }
-        for value, label in Reference.SCREENING_STATUS_CHOICES
-    ]
 
     batch_stats = defaultdict(
         lambda: {"included": 0, "excluded": 0, "pending": 0, "total": 0}
@@ -4627,16 +4597,6 @@ def reference_batch_list(request, project_id):
         "excluded": excluded_count,
         "pending": pending_count,
         "completion_percent": completion_percent,
-        "visible_total": visible_total,
-        "visible_screened": visible_screened,
-        "visible_completion": visible_completion,
-        "visible_included": visible_included,
-        "visible_excluded": visible_excluded,
-        "visible_pending": visible_pending,
-        "status_filter": status_filter if status_filter in status_choices else "",
-        "status_filter_label": status_choices.get(
-            status_filter, "All references"
-        ),
         "last_screened_at": latest_screening.screening_decision_at
         if latest_screening
         else None,
@@ -4652,9 +4612,6 @@ def reference_batch_list(request, project_id):
             "project": project,
             "batches": batches,
             "summary": summary,
-            "status_summary": status_summary,
-            "status_filter": summary["status_filter"],
-            "status_choices": Reference.SCREENING_STATUS_CHOICES,
         },
     )
 
