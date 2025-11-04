@@ -4555,6 +4555,69 @@ def reference_batch_detail(request, project_id, batch_id):
         references = references.filter(screening_status=status_filter)
 
     if request.method == "POST":
+        bulk_action = request.POST.get("bulk_action")
+        if bulk_action:
+            if not _user_can_edit_project(request.user, project):
+                raise PermissionDenied
+
+            status_choices = dict(Reference.SCREENING_STATUS_CHOICES)
+            status_filter = (
+                request.POST.get("status_filter")
+                or request.GET.get("status")
+                or ""
+            )
+            selected_ids = [
+                pk
+                for pk in request.POST.getlist("selected_references")
+                if pk.isdigit()
+            ]
+
+            if not selected_ids:
+                messages.warning(
+                    request,
+                    "Select at least one reference before applying a bulk update.",
+                )
+                redirect_url = reverse(
+                    "synopsis:reference_batch_detail",
+                    kwargs={"project_id": project.id, "batch_id": batch.id},
+                )
+                if status_filter in status_choices:
+                    redirect_url = f"{redirect_url}?status={status_filter}"
+                return redirect(redirect_url)
+
+            action_map = {
+                "include": "included",
+                "exclude": "excluded",
+            }
+            new_status = action_map.get(bulk_action)
+            if not new_status:
+                messages.error(
+                    request,
+                    "Unknown bulk action requested.",
+                )
+                return redirect(
+                    "synopsis:reference_batch_detail",
+                    project_id=project.id,
+                    batch_id=batch.id,
+                )
+
+            updated = 0
+            now = timezone.now()
+            for ref in batch.references.filter(pk__in=selected_ids):
+                ref.screening_status = new_status
+                ref.screening_decision_at = now
+                if request.user.is_authenticated:
+                    ref.screened_by = request.user
+                ref.save(
+                    update_fields=[
+                        "screening_status",
+                        "screening_decision_at",
+                        "screened_by",
+                        "updated_at",
+                    ]
+                )
+                updated += 1
+
         form = ReferenceScreeningForm(request.POST)
         if form.is_valid():
             ref = get_object_or_404(
