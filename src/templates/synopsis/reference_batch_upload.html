@@ -29,7 +29,9 @@
                 {{ form.ris_file.label_tag }}
         {{ form.ris_file }}
         {{ form.ris_file.errors }}
-                <div class="form-text">Accepts .ris or .txt files exported from your reference manager.</div>
+                <div class="form-text">
+                    Accepts .ris files or plain text (.txt) where each entry begins with a citation line (authors, year, title) and any abstract text follows on the next line. Separate references with a blank line.
+                </div>
             </div>
             <div class="mb-3">
                 {{ form.notes.label_tag }}
