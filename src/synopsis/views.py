@@ -4821,7 +4821,12 @@ def reference_batch_upload(request, project_id):
                             project=project,
                             label=form.cleaned_data["label"],
                             source_type=form.cleaned_data["source_type"],
-                            search_date=form.cleaned_data.get("search_date"),
+                            search_date_start=form.cleaned_data.get(
+                                "search_date_start"
+                            ),
+                            search_date_end=form.cleaned_data.get(
+                                "search_date_end"
+                            ),
                             uploaded_by=request.user,
                             original_filename=getattr(uploaded_file, "name", ""),
                             record_count=0,
