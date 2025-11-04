@@ -4618,6 +4618,23 @@ def reference_batch_detail(request, project_id, batch_id):
                 )
                 updated += 1
 
+            if updated:
+                status_label = status_choices.get(new_status, new_status.title())
+                messages.success(
+                    request,
+                    f"Marked {updated} reference(s) as {status_label}.",
+                )
+            else:
+                messages.info(request, "No references matched the selection.")
+
+            redirect_url = reverse(
+                "synopsis:reference_batch_detail",
+                kwargs={"project_id": project.id, "batch_id": batch.id},
+            )
+            if status_filter in status_choices:
+                redirect_url = f"{redirect_url}?status={status_filter}"
+            return redirect(redirect_url)
+
         form = ReferenceScreeningForm(request.POST)
         if form.is_valid():
             ref = get_object_or_404(

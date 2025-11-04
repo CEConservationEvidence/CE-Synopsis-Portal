@@ -1946,3 +1946,49 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertTrue(
             Reference.objects.filter(project=self.project, screening_status="pending").exists()
         )
+
+    def test_bulk_reset_to_pending(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Bulk reset batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        references = list(batch.references.order_by("id"))
+        include_ids = [str(ref.id) for ref in references[:2]]
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+
+        self.client.post(
+            detail_url,
+            {
+                "bulk_action": "include",
+                "selected_references": include_ids,
+            },
+        )
+        response = self.client.post(
+            detail_url,
+            {
+                "bulk_action": "pending",
+                "selected_references": include_ids,
+            },
+        )
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+        )
+        for ref in Reference.objects.filter(pk__in=include_ids):
+            self.assertEqual(ref.screening_status, "pending")
