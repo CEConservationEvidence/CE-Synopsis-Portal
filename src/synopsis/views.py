@@ -1073,11 +1073,14 @@ def _parse_plaintext_references(payload: str) -> list[dict]:
                 "abstract": abstract,
                 "authors": authors_tokens or [authors_part],
                 "year": year,
+                "publication_year": year,
                 "journal_name": journal,
                 "secondary_title": journal,
                 "volume": volume,
                 "issue": issue,
                 "pages": pages,
+                "doi": doi,
+                "url": url,
             }
         )
 
