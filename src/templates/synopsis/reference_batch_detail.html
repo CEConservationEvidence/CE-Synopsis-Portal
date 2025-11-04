@@ -25,8 +25,18 @@
                 {% endif %}
             </div>
             <div class="col-sm-3">
-                <strong>Search date:</strong>
-                {{ batch.search_date|date:"Y-m-d"|default:"—" }}
+                <strong>Date range:</strong>
+                {% if batch.search_date_start or batch.search_date_end %}
+                    {% if batch.search_date_start and batch.search_date_end %}
+                        {{ batch.search_date_start|date:"Y-m-d" }} – {{ batch.search_date_end|date:"Y-m-d" }}
+                    {% elif batch.search_date_start %}
+                        From {{ batch.search_date_start|date:"Y-m-d" }}
+                    {% else %}
+                        Until {{ batch.search_date_end|date:"Y-m-d" }}
+                    {% endif %}
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
             </div>
             <div class="col-sm-12">
                 <strong>Notes:</strong>

@@ -21,11 +21,19 @@
         {{ form.source_type.errors }}
                 <div class="form-text">Select the search type that produced this file.</div>
             </div>
-            <div class="mb-3">
-                {{ form.search_date.label_tag }}
-        {{ form.search_date }}
-        {{ form.search_date.errors }}
-                <div class="form-text">Use the date the search was run or handed to the team (optional).</div>
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    {{ form.search_date_start.label_tag }}
+        {{ form.search_date_start }}
+        {{ form.search_date_start.errors }}
+                    <div class="form-text">Earliest date covered by this reference batch.</div>
+                </div>
+                <div class="col-md-6">
+                    {{ form.search_date_end.label_tag }}
+        {{ form.search_date_end }}
+        {{ form.search_date_end.errors }}
+                    <div class="form-text">Latest date covered by this reference batch.</div>
+                </div>
             </div>
             <div class="mb-3">
                 {{ form.ris_file.label_tag }}

@@ -33,7 +33,7 @@
                     <tr>
                         <th>Label</th>
                         <th>Type</th>
-                        <th>Searched on</th>
+                        <th>Date range</th>
                         <th>Imported</th>
                         <th>Uploaded by</th>
                         <th>Uploaded at</th>
@@ -47,7 +47,19 @@
                             <a href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}">{{ batch.label }}</a>
                         </td>
                         <td>{{ batch.get_source_type_display }}</td>
-                        <td>{{ batch.search_date|date:"Y-m-d" }}</td>
+                        <td>
+                            {% if batch.search_date_start or batch.search_date_end %}
+                                {% if batch.search_date_start and batch.search_date_end %}
+                                    {{ batch.search_date_start|date:"Y-m-d" }} – {{ batch.search_date_end|date:"Y-m-d" }}
+                                {% elif batch.search_date_start %}
+                                    From {{ batch.search_date_start|date:"Y-m-d" }}
+                                {% else %}
+                                    Until {{ batch.search_date_end|date:"Y-m-d" }}
+                                {% endif %}
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
                         <td>{{ batch.record_count }}</td>
                         <td>
                             {% if batch.uploaded_by %}{{ batch.uploaded_by.get_full_name|default:batch.uploaded_by.username }}{% else %}
