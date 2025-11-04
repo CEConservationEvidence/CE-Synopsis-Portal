@@ -659,6 +659,7 @@ class ReferenceBatchUploadForm(forms.Form):
         help_text="Date the search was run (optional). This means the actual date the search was run or received by Kate, not the dates interval for the search.",
     )
     ris_file = forms.FileField(
+        label="RIS/TXT file",
         widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
         validators=[FileExtensionValidator(["ris", "txt"])],
     )

@@ -13,30 +13,33 @@
                 {{ form.label.label_tag }}
         {{ form.label }}
         {{ form.label.errors }}
-                <div class="form-text">Give this batch a short, descriptive name.</div>
+                <div class="form-text">Give this batch a short, descriptive name (e.g. “Scopus Jan 2025”).</div>
             </div>
             <div class="mb-3">
                 {{ form.source_type.label_tag }}
         {{ form.source_type }}
         {{ form.source_type.errors }}
+                <div class="form-text">Select the search type that produced this file.</div>
             </div>
             <div class="mb-3">
                 {{ form.search_date.label_tag }}
         {{ form.search_date }}
         {{ form.search_date.errors }}
+                <div class="form-text">Use the date the search was run or handed to the team (optional).</div>
             </div>
             <div class="mb-3">
                 {{ form.ris_file.label_tag }}
         {{ form.ris_file }}
         {{ form.ris_file.errors }}
                 <div class="form-text">
-                    Accepts .ris files or plain text (.txt) where each entry begins with a citation line (authors, year, title) and any abstract text follows on the next line. Separate references with a blank line.
+                    Upload a `.ris` file or plain text (`.txt`). Plain text should list each reference separated by a blank line, starting with the citation line followed by the abstract if available.
                 </div>
             </div>
             <div class="mb-3">
                 {{ form.notes.label_tag }}
         {{ form.notes }}
         {{ form.notes.errors }}
+                <div class="form-text">Upload Notes (optional)</div>
             </div>
             <button class="btn btn-primary">Upload and import</button>
         </form>
