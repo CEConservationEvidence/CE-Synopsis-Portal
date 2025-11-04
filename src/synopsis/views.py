@@ -4663,6 +4663,13 @@ def reference_delete(request, project_id, reference_id):
     if status_filter in status_choices:
         redirect_url = f"{redirect_url}?status={status_filter}"
 
+    parsed_redirect = urlparse(redirect_url)
+    if parsed_redirect.scheme or parsed_redirect.netloc:
+        redirect_url = reverse(
+            "synopsis:reference_batch_detail",
+            kwargs={"project_id": project.id, "batch_id": batch.id},
+        )
+
     return redirect(redirect_url)
 
 
