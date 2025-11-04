@@ -1011,7 +1011,8 @@ class ReferenceSourceBatch(models.Model):
         help_text="Short identifier shown to authors (e.g. 'Scopus Jan 2023').",
     )
     source_type = models.CharField(max_length=40, choices=SOURCE_TYPE_CHOICES)
-    search_date = models.DateField(null=True, blank=True)
+    search_date_start = models.DateField(null=True, blank=True)
+    search_date_end = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     uploaded_by = models.ForeignKey(
         User,
