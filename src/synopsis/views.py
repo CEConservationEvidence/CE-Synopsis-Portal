@@ -4626,7 +4626,9 @@ def reference_batch_detail(request, project_id, batch_id):
 def reference_delete(request, project_id, reference_id):
     project = get_object_or_404(Project, pk=project_id)
     reference = get_object_or_404(
-        Reference, pk=reference_id, project=project
+        Reference.objects.select_related("batch"),
+        pk=reference_id,
+        project=project,
     )
 
     if request.method != "POST":
