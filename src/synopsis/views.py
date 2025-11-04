@@ -4634,6 +4634,9 @@ def reference_delete(request, project_id, reference_id):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
 
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
     batch = reference.batch
     status_choices = dict(Reference.SCREENING_STATUS_CHOICES)
     status_filter = (
@@ -4670,6 +4673,9 @@ def reference_batch_delete(request, project_id, batch_id):
 
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
+
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
 
     label_fragment = batch.label[:80]
     batch.delete()

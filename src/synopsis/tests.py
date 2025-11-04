@@ -1636,6 +1636,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
     def setUp(self):
         self.project = Project.objects.create(title="Reference Upload Project")
         self.user = User.objects.create_user(username="uploader", password="pw")
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
         self.client.force_login(self.user)
         self.url = reverse(
             "synopsis:reference_batch_upload", args=[self.project.id]
