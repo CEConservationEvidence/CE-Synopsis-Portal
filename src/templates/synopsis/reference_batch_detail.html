@@ -42,6 +42,17 @@
                 <strong>Notes:</strong>
                 {{ batch.notes|default:"—" }}
             </div>
+            <div class="col-sm-6">
+                <strong>Last screened:</strong>
+                {% if summary_stats.last_screened_at %}
+                    {{ summary_stats.last_screened_at|date:"Y-m-d H:i" }}
+                    {% if summary_stats.last_screened_by %}
+                        by {{ summary_stats.last_screened_by.get_full_name|default:summary_stats.last_screened_by.username }}
+                    {% endif %}
+                {% else %}
+                <span class="text-muted">—</span>
+                {% endif %}
+            </div>
         </div>
     </div>
 </div>
