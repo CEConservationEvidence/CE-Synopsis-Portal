@@ -37,6 +37,7 @@
                         <th>Imported</th>
                         <th>Uploaded by</th>
                         <th>Uploaded at</th>
+                        <th style="width: 120px;">Delete</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -54,6 +55,18 @@
                             {% endif %}
                         </td>
                         <td>{{ batch.created_at|date:"Y-m-d H:i" }}</td>
+                        <td>
+                            <form method="post" action="{% url 'synopsis:reference_batch_delete' project.id batch.id %}">
+                                {% csrf_token %}
+                                <button
+                                    type="submit"
+                                    class="btn btn-outline-danger btn-sm w-100"
+                                    onclick="return confirm('Delete this batch and all imported references?');"
+                                >
+                                    Delete
+                                </button>
+                            </form>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
