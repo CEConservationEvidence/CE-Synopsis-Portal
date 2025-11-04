@@ -4630,45 +4630,29 @@ def reference_batch_upload(request, project_id):
                 form.add_error("ris_file", "The uploaded file appears to be empty.")
             else:
                 sha1 = hashlib.sha1(raw_bytes).hexdigest()
+                text_payload = raw_bytes.decode("utf-8", errors="ignore")
+                records = []
+                ris_error = None
                 try:
-                    records = rispy.loads(raw_bytes.decode("utf-8", errors="ignore"))
+                    records = rispy.loads(text_payload)
                 except Exception as exc:  # pragma: no cover - parser errors
-                    form.add_error("ris_file", f"Could not parse RIS content ({exc}).")
-                else:
-                    if not records:
+                    ris_error = exc
+
+                if not records:
+                    plaintext_records = _parse_plaintext_references(text_payload)
+                    if plaintext_records:
+                        records = plaintext_records
+                    elif ris_error:
                         form.add_error(
                             "ris_file",
-                            "No RIS records were detected. Please ensure the file uses RIS tags (e.g. 'TY  -', 'TI  -').",
+                            f"Could not parse RIS content ({ris_error}).",
                         )
                     else:
-                        with transaction.atomic():
-                            batch = ReferenceSourceBatch.objects.create(
-                                project=project,
-                                label=form.cleaned_data["label"],
-                                source_type=form.cleaned_data["source_type"],
-                                search_date=form.cleaned_data.get("search_date"),
-                                uploaded_by=request.user,
-                                original_filename=getattr(uploaded_file, "name", ""),
-                                record_count=0,
-                                ris_sha1=sha1,
-                                notes=form.cleaned_data.get("notes", ""),
-                            )
-                            imported = 0
-                            duplicates = 0
-                            for record in records:
-                                title = (
-                                    _extract_reference_field(record, "primary_title")
-                                    or _extract_reference_field(record, "title")
-                                    or _extract_reference_field(
-                                        record, "secondary_title"
-                                    )
-                                )
-                                if not title:
-                                    duplicates += 1
-                                    continue
+                        form.add_error(
+                            "ris_file",
+                            "No references were detected. Upload a RIS file or a plain text file where each entry is separated by a blank line.",
+                        )
 
-                                authors_list = (
-                                    record.get("authors") or record.get("author") or []
                                 )
                                 if isinstance(authors_list, str):
                                     authors_list = [authors_list]
