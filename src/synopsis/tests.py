@@ -12,6 +12,7 @@ from django.urls import reverse
 
 import shutil
 import tempfile
+import textwrap
 from django.utils import timezone
 from django.core.management import call_command
 
@@ -31,6 +32,8 @@ from .models import (
     ActionListFeedback,
     CollaborativeSession,
     UserRole,
+    ReferenceSourceBatch,
+    Reference,
 )
 from .forms import (
     AdvisoryMemberCustomDataForm,
@@ -57,6 +60,7 @@ from .views import (
     _user_can_edit_project,
     protocol_delete_revision,
     action_list_delete_revision,
+    _parse_plaintext_references,
 )
 
 # TODO: #25 Clean up tests.py and see if some tests can be split into separate files.
@@ -1579,3 +1583,284 @@ class CreateProtocolFeedbackTests(TestCase):
         self.assertEqual(feedback.feedback_deadline_at.hour, 23)
         self.assertEqual(feedback.feedback_deadline_at.minute, 59)
         self.assertEqual(feedback.protocol_stage_snapshot, self.protocol.stage)
+
+
+class PlainTextReferenceParserTests(TestCase):
+    def test_parses_references_and_extracts_metadata(self):
+        payload = textwrap.dedent(
+            """
+            Angel, D. L.; et al. (2002). "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture." Hydrobiologia 469(1): 1-10.
+            Net pen fish farms generally enrich the surrounding waters and the underlying sediments with nutrients and organic matter.
+
+            This entry is invalid and should be skipped.
+
+            Sample, S. and Example, E. (2018). Another example of parsing. Ecology Letters 11: 9-12.
+            Full abstract text including doi:10.5678/example and https://example.com/article for reference.
+            """
+        ).strip()
+
+        parsed = _parse_plaintext_references(payload)
+
+        self.assertEqual(len(parsed), 2)
+
+        first = parsed[0]
+        self.assertEqual(
+            first["title"],
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+        )
+        self.assertEqual(first["journal_name"], "Hydrobiologia")
+        self.assertEqual(first["volume"], "469")
+        self.assertEqual(first["issue"], "1")
+        self.assertEqual(first["pages"], "1-10")
+        self.assertEqual(first["year"], "2002")
+        self.assertEqual(first["publication_year"], "2002")
+        self.assertEqual(first["authors"], ["Angel, D. L", "et al"])
+        self.assertTrue(first["abstract"].startswith("Net pen fish farms"))
+
+        second = parsed[1]
+        self.assertEqual(second["title"], "Another example of parsing")
+        self.assertEqual(second["journal_name"], "Ecology Letters")
+        self.assertEqual(second["volume"], "11")
+        self.assertFalse(second["issue"])
+        self.assertEqual(second["pages"], "9-12")
+        self.assertEqual(second["authors"], ["Sample, S", "Example, E"])
+        self.assertEqual(second["doi"], "10.5678/example")
+        self.assertEqual(second["url"], "https://example.com/article")
+
+    def test_returns_empty_list_for_blank_payload(self):
+        self.assertEqual(_parse_plaintext_references(""), [])
+        self.assertEqual(_parse_plaintext_references("   "), [])
+
+
+class ReferenceBatchUploadParsingTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Reference Upload Project")
+        self.user = User.objects.create_user(username="uploader", password="pw")
+        self.client.force_login(self.user)
+        self.url = reverse(
+            "synopsis:reference_batch_upload", args=[self.project.id]
+        )
+
+    def _plaintext_payload(self):
+        return textwrap.dedent(
+            """
+            Angel, D. L.; et al. (2002). "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture." Hydrobiologia 469(1): 1-10.
+            Net pen fish farms generally enrich the surrounding waters and the underlying sediments with nutrients and organic matter.
+
+            Sample, S. and Example, E. (2018). Another example of parsing. Ecology Letters 11: 9-12.
+            Full abstract text including doi:10.5678/example and https://example.com/article for reference.
+            """
+        ).strip()
+
+    def test_imports_plaintext_file(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "label": "Plain text batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:reference_batch_list", args=[self.project.id]),
+        )
+
+        self.assertEqual(Reference.objects.filter(project=self.project).count(), 2)
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        self.assertEqual(batch.record_count, 2)
+        titles = set(
+            Reference.objects.filter(project=self.project).values_list(
+                "title", flat=True
+            )
+        )
+        self.assertIn(
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            titles,
+        )
+        self.assertIn("Another example of parsing", titles)
+
+    def test_rejects_unparseable_plaintext(self):
+        upload = SimpleUploadedFile(
+            "bad.txt",
+            b"not a valid ris record and no parsable citation",
+            content_type="text/plain",
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "label": "Invalid batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        form = response.context["form"]
+        self.assertIn("ris_file", form.errors)
+        self.assertIn("No references were detected", form.errors["ris_file"][0])
+        self.assertEqual(Reference.objects.count(), 0)
+
+    def test_imports_ris_file(self):
+        ris_payload = textwrap.dedent(
+            """
+            TY  - JOUR
+            TI  - Example Title
+            AU  - Doe, Jane
+            PY  - 2021
+            JO  - Marine Science Quarterly
+            VL  - 12
+            IS  - 3
+            SP  - 101
+            EP  - 110
+            DO  - 10.1000/example
+            ER  -
+            """
+        ).strip()
+        upload = SimpleUploadedFile(
+            "references.ris",
+            ris_payload.encode("utf-8"),
+            content_type="application/x-research-info-systems",
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "label": "RIS batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:reference_batch_list", args=[self.project.id]),
+        )
+
+        refs = Reference.objects.filter(project=self.project)
+        self.assertEqual(refs.count(), 1)
+        ref = refs.first()
+        self.assertEqual(ref.title, "Example Title")
+        self.assertEqual(ref.publication_year, 2021)
+        self.assertEqual(ref.journal, "Marine Science Quarterly")
+        self.assertEqual(ref.pages, "101-110")
+        self.assertEqual(ref.doi, "10.1000/example")
+
+    def test_skips_duplicates_within_project(self):
+        first_upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Initial batch",
+                "source_type": "journal_search",
+                "ris_file": first_upload,
+            },
+        )
+        self.assertEqual(Reference.objects.filter(project=self.project).count(), 2)
+
+        duplicate_upload = SimpleUploadedFile(
+            "references_again.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        response = self.client.post(
+            self.url,
+            {
+                "label": "Duplicate batch",
+                "source_type": "journal_search",
+                "ris_file": duplicate_upload,
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:reference_batch_list", args=[self.project.id]),
+        )
+        self.assertEqual(Reference.objects.filter(project=self.project).count(), 2)
+        latest_batch = (
+            ReferenceSourceBatch.objects.filter(project=self.project)
+            .order_by("-id")
+            .first()
+        )
+        self.assertIsNotNone(latest_batch)
+        self.assertEqual(latest_batch.record_count, 0)
+
+    def test_can_delete_reference_from_batch(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Delete test batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        self.assertEqual(batch.references.count(), 2)
+        ref_to_delete = batch.references.order_by("id").first()
+
+        delete_url = reverse(
+            "synopsis:reference_delete",
+            args=[self.project.id, ref_to_delete.id],
+        )
+        response = self.client.post(delete_url, follow=False)
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+        )
+
+        self.assertFalse(
+            Reference.objects.filter(pk=ref_to_delete.id).exists()
+        )
+        batch.refresh_from_db()
+        self.assertEqual(batch.record_count, batch.references.count())
+
+    def test_can_delete_batch(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Batch to delete",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        self.assertEqual(batch.references.count(), 2)
+        delete_url = reverse(
+            "synopsis:reference_batch_delete",
+            args=[self.project.id, batch.id],
+        )
+
+        response = self.client.post(delete_url, follow=False)
+        self.assertRedirects(
+            response,
+            reverse("synopsis:reference_batch_list", args=[self.project.id]),
+        )
+        self.assertFalse(
+            ReferenceSourceBatch.objects.filter(pk=batch.id).exists()
+        )
+        self.assertEqual(Reference.objects.filter(project=self.project).count(), 0)
