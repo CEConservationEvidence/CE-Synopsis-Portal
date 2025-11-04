@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import uuid
 from decimal import Decimal
 from urllib.parse import urlparse, urlencode
@@ -961,6 +962,18 @@ def _combine_pages(record: dict) -> str:
         return f"{start}-{end}".strip("-")
     return start or end or ""
 
+
+PLAIN_REFERENCE_SPLIT_RE = re.compile(r"\n\s*\n+")
+PLAIN_REFERENCE_CITATION_RE = re.compile(
+    r"""^(?P<authors>.+?)\s*\((?P<year>\d{4})\)\.\s*(?P<body>.+)$""",
+    re.UNICODE,
+)
+PLAIN_REFERENCE_JOURNAL_RE = re.compile(
+    r"^(?P<journal>[^\d:]+?)\s+(?P<volume>\d+)(?:\((?P<issue>[^)]+)\))?\s*:?\s*(?P<pages>[\d\-–]+)?\.?(?:\s|$)",
+    re.UNICODE,
+)
+PLAIN_REFERENCE_DOI_RE = re.compile(r"doi[:\s]+(?P<doi>\S+)", re.IGNORECASE)
+PLAIN_REFERENCE_URL_RE = re.compile(r"(https?://\S+)", re.IGNORECASE)
 
 def _advisory_board_context(
     project,
