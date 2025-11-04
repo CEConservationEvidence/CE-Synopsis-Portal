@@ -4653,72 +4653,97 @@ def reference_batch_upload(request, project_id):
                             "No references were detected. Upload a RIS file or a plain text file where each entry is separated by a blank line.",
                         )
 
+                if records:
+                    with transaction.atomic():
+                        batch = ReferenceSourceBatch.objects.create(
+                            project=project,
+                            label=form.cleaned_data["label"],
+                            source_type=form.cleaned_data["source_type"],
+                            search_date=form.cleaned_data.get("search_date"),
+                            uploaded_by=request.user,
+                            original_filename=getattr(uploaded_file, "name", ""),
+                            record_count=0,
+                            ris_sha1=sha1,
+                            notes=form.cleaned_data.get("notes", ""),
+                        )
+                        imported = 0
+                        duplicates = 0
+                        for record in records:
+                            title = (
+                                _extract_reference_field(record, "primary_title")
+                                or _extract_reference_field(record, "title")
+                                or _extract_reference_field(
+                                    record, "secondary_title"
                                 )
-                                if isinstance(authors_list, str):
-                                    authors_list = [authors_list]
-                                authors = "; ".join(str(a) for a in authors_list if a)
+                            )
+                            if not title:
+                                duplicates += 1
+                                continue
 
-                                year = _extract_reference_field(
-                                    record, "year"
-                                ) or _extract_reference_field(
-                                    record, "publication_year"
+                            authors_list = (
+                                record.get("authors") or record.get("author") or []
+                            )
+                            if isinstance(authors_list, str):
+                                authors_list = [authors_list]
+                            authors = "; ".join(str(a) for a in authors_list if a)
+
+                            year = _extract_reference_field(
+                                record, "year"
+                            ) or _extract_reference_field(
+                                record, "publication_year"
+                            )
+                            doi = _extract_reference_field(record, "doi")
+                            hash_key = reference_hash(title, year, doi)
+
+                            if Reference.objects.filter(
+                                project=project, hash_key=hash_key
+                            ).exists():
+                                duplicates += 1
+                                continue
+
+                            Reference.objects.create(
+                                project=project,
+                                batch=batch,
+                                hash_key=hash_key,
+                                source_identifier=_extract_reference_field(
+                                    record, "accession_number"
                                 )
-                                doi = _extract_reference_field(record, "doi")
-                                hash_key = reference_hash(title, year, doi)
-
-                                if Reference.objects.filter(
-                                    project=project, hash_key=hash_key
-                                ).exists():
-                                    duplicates += 1
-                                    continue
-
-                                Reference.objects.create(
-                                    project=project,
-                                    batch=batch,
-                                    hash_key=hash_key,
-                                    source_identifier=_extract_reference_field(
-                                        record, "accession_number"
-                                    )
-                                    or _extract_reference_field(record, "id"),
-                                    title=title,
-                                    abstract=_extract_reference_field(
-                                        record, "abstract"
-                                    ),
-                                    authors=authors,
-                                    publication_year=_coerce_year(year),
-                                    journal=_extract_reference_field(
-                                        record, "journal_name"
-                                    )
-                                    or _extract_reference_field(
-                                        record, "secondary_title"
-                                    ),
-                                    volume=_extract_reference_field(record, "volume"),
-                                    issue=_extract_reference_field(record, "issue"),
-                                    pages=_combine_pages(record),
-                                    doi=doi,
-                                    url=_extract_reference_field(record, "url"),
-                                    language=_extract_reference_field(
-                                        record, "language"
-                                    ),
-                                    raw_ris=record,
+                                or _extract_reference_field(record, "id"),
+                                title=title,
+                                abstract=_extract_reference_field(record, "abstract"),
+                                authors=authors,
+                                publication_year=_coerce_year(year),
+                                journal=_extract_reference_field(
+                                    record, "journal_name"
                                 )
-                                imported += 1
+                                or _extract_reference_field(
+                                    record, "secondary_title"
+                                ),
+                                volume=_extract_reference_field(record, "volume"),
+                                issue=_extract_reference_field(record, "issue"),
+                                pages=_combine_pages(record),
+                                doi=doi,
+                                url=_extract_reference_field(record, "url"),
+                                language=_extract_reference_field(
+                                    record, "language"
+                                ),
+                                raw_ris=record,
+                            )
+                            imported += 1
 
                             batch.record_count = imported
                             batch.save(update_fields=["record_count", "notes"])
 
                         messages.success(
+                    )
+                    if duplicates:
+                        messages.info(
                             request,
-                            f"Imported {imported} reference(s) into '{batch.label}'.",
+                            f"Skipped {duplicates} record(s) already present in this project.",
                         )
-                        if duplicates:
-                            messages.info(
-                                request,
-                                f"Skipped {duplicates} record(s) already present in this project.",
-                            )
-                        return redirect(
-                            "synopsis:reference_batch_list", project_id=project.id
-                        )
+                    return redirect(
+                        "synopsis:reference_batch_list", project_id=project.id
+                    )
     else:
         form = ReferenceBatchUploadForm()
 
