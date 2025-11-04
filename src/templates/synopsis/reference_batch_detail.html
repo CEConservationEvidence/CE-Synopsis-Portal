@@ -50,12 +50,44 @@
         </div>
     </div>
 </div>
+<form method="post" id="bulk-screening-form" class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    {% csrf_token %}
+    {% if status_filter %}
+    <input type="hidden" name="status_filter" value="{{ status_filter }}">
+    {% endif %}
+    <span class="fw-semibold small text-uppercase text-muted me-2">Bulk actions</span>
+    <button
+        class="btn btn-success btn-sm"
+        type="submit"
+        name="bulk_action"
+        value="include"
+    >
+        Mark as Include
+    </button>
+    <button
+        class="btn btn-outline-danger btn-sm"
+        type="submit"
+        name="bulk_action"
+        value="exclude"
+    >
+        Mark as Exclude
+    </button>
+    <span class="small text-muted">Select references below to apply.</span>
+</form>
 <div class="card">
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-sm align-middle">
                 <thead class="table-light">
                     <tr>
+                        <th class="text-center" style="width: 40px;">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                id="select-all-references"
+                                aria-label="Select all references"
+                            >
+                        </th>
                         <th style="width: 40%">Title</th>
                         <th>Authors</th>
                         <th>Year</th>
@@ -67,6 +99,16 @@
                 <tbody>
                     {% for ref in references %}
                     <tr>
+                        <td class="text-center">
+                            <input
+                                class="form-check-input bulk-reference-checkbox"
+                                type="checkbox"
+                                name="selected_references"
+                                value="{{ ref.id }}"
+                                form="bulk-screening-form"
+                                aria-label="Select {{ ref.title }}"
+                            >
+                        </td>
                         <td>
                             <strong>{{ ref.title }}</strong>
                             {% if ref.abstract %}
@@ -84,7 +126,7 @@
                         <td class="small">{{ ref.publication_year|default:"—" }}</td>
                         <td class="small">{{ ref.journal|default:"—" }}</td>
                         <td>
-                            <span class="badge text-bg-secondary">{{ ref.get_screening_status_display }}</span>
+                            <span class="badge {% if ref.screening_status == 'included' %}text-bg-success{% elif ref.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ ref.get_screening_status_display }}</span>
                             {% if ref.screened_by %}
                             <div class="small text-muted">{{ ref.screened_by.get_full_name|default:ref.screened_by.username }} · {{ ref.screening_decision_at|date:"Y-m-d H:i" }}</div>
                             {% endif %}
@@ -135,7 +177,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="6" class="text-center text-muted">No references in this batch.</td>
+                        <td colspan="7" class="text-center text-muted">No references in this batch.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -143,4 +185,18 @@
         </div>
     </div>
 </div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const selectAll = document.getElementById("select-all-references");
+    if (!selectAll) {
+        return;
+    }
+    const checkboxes = document.querySelectorAll(".bulk-reference-checkbox");
+    selectAll.addEventListener("change", function () {
+        checkboxes.forEach((checkbox) => {
+            checkbox.checked = selectAll.checked;
+        });
+    });
+});
+</script>
 {% endblock %}
