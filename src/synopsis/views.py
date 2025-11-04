@@ -21,7 +21,9 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives, send_mail
 from django.db import connection, transaction
-from django.db.models import Count
+from collections import defaultdict
+
+from django.db.models import Count, Max
 from django.http import (
     HttpResponseBadRequest,
     Http404,
@@ -4526,13 +4528,122 @@ def advisory_member_edit(request, project_id, member_id):
 @login_required
 def reference_batch_list(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
-    batches = project.reference_batches.select_related("uploaded_by").order_by(
+    batches_qs = project.reference_batches.select_related("uploaded_by").order_by(
         "-created_at", "-id"
     )
-    summary = {
-        "total_references": project.references.count(),
-        "pending": project.references.filter(screening_status="pending").count(),
+    batches = list(batches_qs)
+    status_choices = dict(Reference.SCREENING_STATUS_CHOICES)
+    status_filter = request.GET.get("status")
+    project_references = project.references.select_related("screened_by")
+
+    status_counts = {
+        row["screening_status"]: row["count"]
+        for row in project_references.values("screening_status").annotate(
+            count=Count("id")
+        )
     }
+    included_count = status_counts.get("included", 0)
+    excluded_count = status_counts.get("excluded", 0)
+    pending_count = status_counts.get("pending", 0)
+    total_references = project_references.count()
+    screened_count = included_count + excluded_count
+    completion_percent = (
+        round((screened_count / total_references) * 100)
+        if total_references
+        else 0
+    )
+
+    visible_references = project_references
+    if status_filter in status_choices:
+        visible_references = visible_references.filter(screening_status=status_filter)
+
+    visible_status_counts = {
+        row["screening_status"]: row["count"]
+        for row in visible_references.values("screening_status").annotate(
+            count=Count("id")
+        )
+    }
+    visible_total = visible_references.count()
+    visible_included = visible_status_counts.get("included", 0)
+    visible_excluded = visible_status_counts.get("excluded", 0)
+    visible_pending = visible_status_counts.get("pending", 0)
+    visible_screened = visible_included + visible_excluded
+    visible_completion = (
+        round((visible_screened / visible_total) * 100) if visible_total else 0
+    )
+
+    latest_screening = (
+        project_references.exclude(screening_decision_at__isnull=True)
+        .order_by("-screening_decision_at")
+        .first()
+    )
+
+    status_summary = [
+        {
+            "status": value,
+            "label": label,
+            "count": status_counts.get(value, 0),
+        }
+        for value, label in Reference.SCREENING_STATUS_CHOICES
+    ]
+
+    batch_stats = defaultdict(
+        lambda: {"included": 0, "excluded": 0, "pending": 0, "total": 0}
+    )
+    for row in project_references.values("batch_id", "screening_status").annotate(
+        count=Count("id")
+    ):
+        batch_id = row["batch_id"]
+        if batch_id is None:
+            continue
+        stats = batch_stats[batch_id]
+        stats["total"] += row["count"]
+        status = row["screening_status"]
+        if status == "included":
+            stats["included"] += row["count"]
+        elif status == "excluded":
+            stats["excluded"] += row["count"]
+        else:
+            stats["pending"] += row["count"]
+
+    for batch in batches:
+        stats = batch_stats.get(batch.id, {"included": 0, "excluded": 0, "pending": 0, "total": 0})
+        screened = stats["included"] + stats["excluded"]
+        total = stats["total"]
+        batch.screened_count = screened
+        batch.total_references = total
+        batch.pending_count = stats["pending"]
+        batch.included_count = stats["included"]
+        batch.excluded_count = stats["excluded"]
+        batch.progress_percent = (
+            round((screened / total) * 100) if total else 0
+        )
+
+    summary = {
+        "total": total_references,
+        "screened": screened_count,
+        "included": included_count,
+        "excluded": excluded_count,
+        "pending": pending_count,
+        "completion_percent": completion_percent,
+        "visible_total": visible_total,
+        "visible_screened": visible_screened,
+        "visible_completion": visible_completion,
+        "visible_included": visible_included,
+        "visible_excluded": visible_excluded,
+        "visible_pending": visible_pending,
+        "status_filter": status_filter if status_filter in status_choices else "",
+        "status_filter_label": status_choices.get(
+            status_filter, "All references"
+        ),
+        "last_screened_at": latest_screening.screening_decision_at
+        if latest_screening
+        else None,
+        "last_screened_by": latest_screening.screened_by
+        if latest_screening
+        else None,
+    }
+
     return render(
         request,
         "synopsis/reference_batch_list.html",
@@ -4540,6 +4651,9 @@ def reference_batch_list(request, project_id):
             "project": project,
             "batches": batches,
             "summary": summary,
+            "status_summary": status_summary,
+            "status_filter": summary["status_filter"],
+            "status_choices": Reference.SCREENING_STATUS_CHOICES,
         },
     )
 
@@ -4688,6 +4802,50 @@ def reference_batch_detail(request, project_id, batch_id):
         }
         for value, label in Reference.SCREENING_STATUS_CHOICES
     ]
+    included_count = status_counts.get("included", 0)
+    excluded_count = status_counts.get("excluded", 0)
+    pending_count = status_counts.get("pending", 0)
+    screened_count = included_count + excluded_count
+    total_references = batch.references.count()
+    completion_percent = (
+        round((screened_count / total_references) * 100) if total_references else 0
+    )
+
+    visible_total = references.count()
+    visible_screened = (
+        references.filter(screening_status__in=["included", "excluded"]).count()
+        if visible_total
+        else 0
+    )
+    visible_completion = (
+        round((visible_screened / visible_total) * 100) if visible_total else 0
+    )
+
+    latest_screening = (
+        batch.references.exclude(screening_decision_at__isnull=True)
+        .select_related("screened_by")
+        .order_by("-screening_decision_at")
+        .first()
+    )
+
+    summary_stats = {
+        "included": included_count,
+        "excluded": excluded_count,
+        "pending": pending_count,
+        "screened": screened_count,
+        "total": total_references,
+        "completion_percent": completion_percent,
+        "visible_total": visible_total,
+        "visible_screened": visible_screened,
+        "visible_completion": visible_completion,
+        "has_filter": bool(status_filter),
+        "last_screened_at": latest_screening.screening_decision_at
+        if latest_screening
+        else None,
+        "last_screened_by": latest_screening.screened_by
+        if latest_screening
+        else None,
+    }
 
     return render(
         request,
@@ -4699,6 +4857,7 @@ def reference_batch_detail(request, project_id, batch_id):
             "status_filter": status_filter,
             "status_choices": Reference.SCREENING_STATUS_CHOICES,
             "status_summary": status_summary,
+            "summary_stats": summary_stats,
         },
     )
 
