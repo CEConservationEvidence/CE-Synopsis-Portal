@@ -1865,3 +1865,84 @@ class ReferenceBatchUploadParsingTests(TestCase):
             ReferenceSourceBatch.objects.filter(pk=batch.id).exists()
         )
         self.assertEqual(Reference.objects.filter(project=self.project).count(), 0)
+
+    def test_bulk_include_selected_references(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Bulk batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        references = list(batch.references.order_by("id"))
+        include_ids = [str(ref.id) for ref in references[:2]]
+
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+        response = self.client.post(
+            detail_url,
+            {
+                "bulk_action": "include",
+                "selected_references": include_ids,
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+        )
+
+        refreshed = Reference.objects.filter(pk__in=include_ids)
+        self.assertTrue(refreshed.exists())
+        for ref in refreshed:
+            self.assertEqual(ref.screening_status, "included")
+            self.assertEqual(ref.screened_by, self.user)
+            self.assertIsNotNone(ref.screening_decision_at)
+
+    def test_bulk_action_requires_selection(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Bulk batch empty",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+
+        response = self.client.post(
+            detail_url,
+            {
+                "bulk_action": "exclude",
+            },
+            follow=True,
+        )
+
+        self.assertContains(
+            response,
+            "Select at least one reference before applying a bulk update.",
+        )
+        self.assertTrue(
+            Reference.objects.filter(project=self.project, screening_status="pending").exists()
+        )
