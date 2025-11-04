@@ -975,6 +975,97 @@ PLAIN_REFERENCE_JOURNAL_RE = re.compile(
 PLAIN_REFERENCE_DOI_RE = re.compile(r"doi[:\s]+(?P<doi>\S+)", re.IGNORECASE)
 PLAIN_REFERENCE_URL_RE = re.compile(r"(https?://\S+)", re.IGNORECASE)
 
+
+def _parse_plaintext_references(payload: str) -> list[dict]:
+    if not payload or not payload.strip():
+        return []
+
+    entries = [
+        block.strip()
+        for block in PLAIN_REFERENCE_SPLIT_RE.split(payload.strip())
+        if block.strip()
+    ]
+    parsed: list[dict] = []
+
+    for chunk in entries:
+        lines = [line.strip() for line in chunk.splitlines() if line.strip()]
+        if not lines:
+            continue
+
+        citation = lines[0]
+        abstract = " ".join(lines[1:]).strip()
+
+        match = PLAIN_REFERENCE_CITATION_RE.match(citation)
+        if not match:
+            # If parsing fails we skip this chunk rather than guess.
+            continue
+
+        authors_part = match.group("authors").strip()
+        year = (match.group("year") or "").strip()
+        body = (match.group("body") or "").strip()
+
+        title = ""
+        remainder = ""
+
+        if body.startswith('"'):
+            closing_quote = body.find('"', 1)
+            if closing_quote != -1:
+                title = body[1:closing_quote].strip()
+                remainder = body[closing_quote + 1 :].lstrip(" .")
+            else:
+                title = body.strip('" ')
+        else:
+            if ". " in body:
+                title_part, remainder_part = body.split(". ", 1)
+                title = title_part.strip()
+                remainder = remainder_part.strip()
+            else:
+                dot_index = body.find(".")
+                if dot_index != -1:
+                    title = body[:dot_index].strip()
+                    remainder = body[dot_index + 1 :].lstrip(" .")
+                else:
+                    title = body.strip()
+
+        if not title:
+            title = citation.strip()
+        remainder = remainder.lstrip(" .")
+
+        journal = volume = issue = pages = doi = url = ""
+
+        if remainder:
+            journal_match = PLAIN_REFERENCE_JOURNAL_RE.match(remainder)
+            if journal_match:
+                journal = (journal_match.group("journal") or "").strip(" .,;")
+                volume = (journal_match.group("volume") or "").strip()
+                issue = (journal_match.group("issue") or "").strip()
+                pages = (journal_match.group("pages") or "").strip()
+
+            doi_match = PLAIN_REFERENCE_DOI_RE.search(remainder)
+            if doi_match:
+                doi = doi_match.group("doi").rstrip(".,")
+
+            url_match = PLAIN_REFERENCE_URL_RE.search(remainder)
+            if url_match:
+                url = url_match.group(1).rstrip(".,)")
+
+        # If DOI or URL appear in the abstract/content include them.
+        if not doi:
+            doi_match = PLAIN_REFERENCE_DOI_RE.search(abstract)
+            if doi_match:
+                doi = doi_match.group("doi").rstrip(".,")
+        if not url:
+            url_match = PLAIN_REFERENCE_URL_RE.search(abstract)
+            if url_match:
+                url = url_match.group(1).rstrip(".,)")
+
+        # Authors may be separated by semicolons or " and ".
+        authors_tokens = []
+        for token in re.split(r";|\band\b", authors_part, flags=re.IGNORECASE):
+            cleaned = token.strip().strip(".;")
+            if cleaned:
+                authors_tokens.append(cleaned)
+
 def _advisory_board_context(
     project,
     *,
