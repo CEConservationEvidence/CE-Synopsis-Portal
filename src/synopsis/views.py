@@ -22,7 +22,12 @@ from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives, send_mail
 from django.db import connection, transaction
 from django.db.models import Count
-from django.http import HttpResponseBadRequest, Http404, JsonResponse
+from django.http import (
+    HttpResponseBadRequest,
+    Http404,
+    JsonResponse,
+    HttpResponseNotAllowed,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -4614,6 +4619,67 @@ def reference_batch_detail(request, project_id, batch_id):
             "status_choices": Reference.SCREENING_STATUS_CHOICES,
             "status_summary": status_summary,
         },
+    )
+
+
+@login_required
+def reference_delete(request, project_id, reference_id):
+    project = get_object_or_404(Project, pk=project_id)
+    reference = get_object_or_404(
+        Reference, pk=reference_id, project=project
+    )
+
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    batch = reference.batch
+    status_choices = dict(Reference.SCREENING_STATUS_CHOICES)
+    status_filter = (
+        request.POST.get("status_filter")
+        or request.GET.get("status")
+        or ""
+    )
+
+    title_fragment = reference.title[:80]
+    reference.delete()
+
+    batch.record_count = batch.references.count()
+    batch.save(update_fields=["record_count"])
+
+    messages.success(
+        request,
+        f"Removed '{title_fragment}' from '{batch.label}'.",
+    )
+
+    redirect_url = reverse(
+        "synopsis:reference_batch_detail",
+        kwargs={"project_id": project.id, "batch_id": batch.id},
+    )
+    if status_filter in status_choices:
+        redirect_url = f"{redirect_url}?status={status_filter}"
+
+    return redirect(redirect_url)
+
+
+@login_required
+def reference_batch_delete(request, project_id, batch_id):
+    project = get_object_or_404(Project, pk=project_id)
+    batch = get_object_or_404(ReferenceSourceBatch, pk=batch_id, project=project)
+
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    label_fragment = batch.label[:80]
+    batch.delete()
+
+    messages.success(
+        request,
+        f"Deleted '{label_fragment}' and its imported references.",
+    )
+
+    return redirect(
+        "synopsis:reference_batch_list",
+        project_id=project.id,
     )
 
 
