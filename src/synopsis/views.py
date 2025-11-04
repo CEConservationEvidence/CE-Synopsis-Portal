@@ -1066,6 +1066,24 @@ def _parse_plaintext_references(payload: str) -> list[dict]:
             if cleaned:
                 authors_tokens.append(cleaned)
 
+        parsed.append(
+            {
+                "primary_title": title,
+                "title": title,
+                "abstract": abstract,
+                "authors": authors_tokens or [authors_part],
+                "year": year,
+                "journal_name": journal,
+                "secondary_title": journal,
+                "volume": volume,
+                "issue": issue,
+                "pages": pages,
+            }
+        )
+
+    return parsed
+
+
 def _advisory_board_context(
     project,
     *,
