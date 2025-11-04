@@ -977,6 +977,14 @@ PLAIN_REFERENCE_URL_RE = re.compile(r"(https?://\S+)", re.IGNORECASE)
 
 
 def _parse_plaintext_references(payload: str) -> list[dict]:
+    """
+    Parse a plain-text reference list.
+
+    Each reference is expected to be separated by at least one blank line.
+    The first non-empty line should contain the citation in the form:
+        Authors (Year). "Title." Journal Volume(Issue): pages.
+    """
+
     if not payload or not payload.strip():
         return []
 
