@@ -1042,13 +1042,10 @@ class Reference(models.Model):
     """A single bibliographic record imported from a batch."""
 
     SCREENING_STATUS_CHOICES = [
-        ("pending", "Pending triage"),
-        ("title_included", "Title/abstract included"),
-        ("title_excluded", "Title/abstract excluded"),
-        ("needs_full_text", "Needs full text"),
-        ("fulltext_included", "Full text included"),
-        ("fulltext_excluded", "Full text excluded"),
-    ]  # probably just needs to be simplified to included/excluded.
+        ("pending", "Pending"),
+        ("included", "Include"),
+        ("excluded", "Exclude"),
+    ]
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="references"
