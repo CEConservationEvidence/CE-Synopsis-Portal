@@ -3,7 +3,7 @@
 {% block content %}
 <h1 class="mb-1">{{ batch.label }}</h1>
 <p class="text-muted mb-3">Project: {{ project.title }}</p>
-<div class="d-flex flex-wrap gap-2 mb-3">
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_list' project.id %}">Back to reference imports</a>
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload another RIS</a>
 </div>
@@ -93,7 +93,8 @@
                             {% endif %}
                         </td>
                         <td>
-                            <form method="post" class="d-grid gap-2">
+                            <div class="d-grid gap-2">
+                                <form method="post">
                                 {% csrf_token %}
                                 <input type="hidden" name="reference_id" value="{{ ref.id }}">
                                 <select name="screening_status" class="form-select form-select-sm">
@@ -112,7 +113,24 @@
                                     placeholder="Notes (optional)"
                                 >{{ ref.screening_notes }}</textarea>
                                 <button class="btn btn-primary btn-sm">Save</button>
-                            </form>
+                                </form>
+                                <form
+                                    method="post"
+                                    action="{% url 'synopsis:reference_delete' project.id ref.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
+                                >
+                                {% csrf_token %}
+                                {% if status_filter %}
+                                <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                                {% endif %}
+                                <button
+                                    class="btn btn-outline-danger btn-sm w-100"
+                                    type="submit"
+                                    onclick="return confirm('Remove this reference from the batch?');"
+                                >
+                                    Delete
+                                </button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                     {% empty %}
