@@ -4588,6 +4588,7 @@ def reference_batch_detail(request, project_id, batch_id):
             action_map = {
                 "include": "included",
                 "exclude": "excluded",
+                "pending": "pending",
             }
             new_status = action_map.get(bulk_action)
             if not new_status:
