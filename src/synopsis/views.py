@@ -4731,10 +4731,12 @@ def reference_batch_upload(request, project_id):
                             )
                             imported += 1
 
-                            batch.record_count = imported
-                            batch.save(update_fields=["record_count", "notes"])
+                        batch.record_count = imported
+                        batch.save(update_fields=["record_count", "notes"])
 
-                        messages.success(
+                    messages.success(
+                        request,
+                        f"Imported {imported} reference(s) into '{batch.label}'.",
                     )
                     if duplicates:
                         messages.info(
