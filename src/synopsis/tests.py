@@ -33,6 +33,7 @@ from .models import (
     CollaborativeSession,
     UserRole,
     ReferenceSourceBatch,
+    ReferenceSourceBatchNoteHistory,
     Reference,
 )
 from .forms import (
@@ -1992,3 +1993,70 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         for ref in Reference.objects.filter(pk__in=include_ids):
             self.assertEqual(ref.screening_status, "pending")
+
+    def test_update_notes_creates_history(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Notes batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+
+        response = self.client.post(
+            detail_url,
+            {
+                "action": "update_notes",
+                "notes": "Initial notes",
+            },
+        )
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+        )
+        batch.refresh_from_db()
+        self.assertEqual(batch.notes, "Initial notes")
+        history = ReferenceSourceBatchNoteHistory.objects.filter(batch=batch)
+        self.assertEqual(history.count(), 1)
+        first_entry = history.first()
+        self.assertEqual(first_entry.previous_notes, "")
+        self.assertEqual(first_entry.new_notes, "Initial notes")
+        self.assertEqual(first_entry.changed_by, self.user)
+
+        response = self.client.post(
+            detail_url,
+            {
+                "action": "update_notes",
+                "notes": "Updated notes",
+            },
+        )
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+        )
+        batch.refresh_from_db()
+        self.assertEqual(batch.notes, "Updated notes")
+        history = ReferenceSourceBatchNoteHistory.objects.filter(batch=batch).order_by(
+            "-changed_at"
+        )
+        self.assertEqual(history.count(), 2)
+        latest = history.first()
+        self.assertEqual(latest.previous_notes, "Initial notes")
+        self.assertEqual(latest.new_notes, "Updated notes")
