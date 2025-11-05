@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import uuid
 from decimal import Decimal
 from urllib.parse import urlparse, urlencode
@@ -20,8 +21,15 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives, send_mail
 from django.db import connection, transaction
-from django.db.models import Count
-from django.http import HttpResponseBadRequest, Http404, JsonResponse
+from collections import defaultdict
+
+from django.db.models import Count, Max
+from django.http import (
+    HttpResponseBadRequest,
+    Http404,
+    JsonResponse,
+    HttpResponseNotAllowed,
+)
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -74,6 +82,7 @@ from .models import (
     ProtocolFeedback,
     ActionListFeedback,
     ReferenceSourceBatch,
+    ReferenceSourceBatchNoteHistory,
     Reference,
     ProtocolRevision,
     ActionListRevision,
@@ -960,6 +969,139 @@ def _combine_pages(record: dict) -> str:
     if start and end:
         return f"{start}-{end}".strip("-")
     return start or end or ""
+
+
+PLAIN_REFERENCE_SPLIT_RE = re.compile(r"\n\s*\n+")
+PLAIN_REFERENCE_CITATION_RE = re.compile(
+    r"""^(?P<authors>.+?)\s*\((?P<year>\d{4})\)\.\s*(?P<body>.+)$""",
+    re.UNICODE,
+)
+PLAIN_REFERENCE_JOURNAL_RE = re.compile(
+    r"^(?P<journal>[^\d:]+?)\s+(?P<volume>\d+)(?:\((?P<issue>[^)]+)\))?\s*:?\s*(?P<pages>[\d\-–]+)?\.?(?:\s|$)",
+    re.UNICODE,
+)
+PLAIN_REFERENCE_DOI_RE = re.compile(r"doi[:\s]+(?P<doi>\S+)", re.IGNORECASE)
+PLAIN_REFERENCE_URL_RE = re.compile(r"(https?://\S+)", re.IGNORECASE)
+
+
+def _parse_plaintext_references(payload: str) -> list[dict]:
+    """
+    Parse a plain-text reference list.
+
+    Each reference is expected to be separated by at least one blank line.
+    The first non-empty line should contain the citation in the form:
+        Authors (Year). "Title." Journal Volume(Issue): pages.
+    Any subsequent non-empty lines are treated as the abstract.
+    """
+
+    if not payload or not payload.strip():
+        return []
+
+    entries = [
+        block.strip()
+        for block in PLAIN_REFERENCE_SPLIT_RE.split(payload.strip())
+        if block.strip()
+    ]
+    parsed: list[dict] = []
+
+    for chunk in entries:
+        lines = [line.strip() for line in chunk.splitlines() if line.strip()]
+        if not lines:
+            continue
+
+        citation = lines[0]
+        abstract = " ".join(lines[1:]).strip()
+
+        match = PLAIN_REFERENCE_CITATION_RE.match(citation)
+        if not match:
+            # If parsing fails we skip this chunk rather than guess.
+            continue
+
+        authors_part = match.group("authors").strip()
+        year = (match.group("year") or "").strip()
+        body = (match.group("body") or "").strip()
+
+        title = ""
+        remainder = ""
+
+        if body.startswith('"'):
+            closing_quote = body.find('"', 1)
+            if closing_quote != -1:
+                title = body[1:closing_quote].strip()
+                remainder = body[closing_quote + 1 :].lstrip(" .")
+            else:
+                title = body.strip('" ')
+        else:
+            if ". " in body:
+                title_part, remainder_part = body.split(". ", 1)
+                title = title_part.strip()
+                remainder = remainder_part.strip()
+            else:
+                dot_index = body.find(".")
+                if dot_index != -1:
+                    title = body[:dot_index].strip()
+                    remainder = body[dot_index + 1 :].lstrip(" .")
+                else:
+                    title = body.strip()
+
+        if not title:
+            title = citation.strip()
+        remainder = remainder.lstrip(" .")
+
+        journal = volume = issue = pages = doi = url = ""
+
+        if remainder:
+            journal_match = PLAIN_REFERENCE_JOURNAL_RE.match(remainder)
+            if journal_match:
+                journal = (journal_match.group("journal") or "").strip(" .,;")
+                volume = (journal_match.group("volume") or "").strip()
+                issue = (journal_match.group("issue") or "").strip()
+                pages = (journal_match.group("pages") or "").strip()
+
+            doi_match = PLAIN_REFERENCE_DOI_RE.search(remainder)
+            if doi_match:
+                doi = doi_match.group("doi").rstrip(".,")
+
+            url_match = PLAIN_REFERENCE_URL_RE.search(remainder)
+            if url_match:
+                url = url_match.group(1).rstrip(".,)")
+
+        # If DOI or URL appear in the abstract/content include them.
+        if not doi:
+            doi_match = PLAIN_REFERENCE_DOI_RE.search(abstract)
+            if doi_match:
+                doi = doi_match.group("doi").rstrip(".,")
+        if not url:
+            url_match = PLAIN_REFERENCE_URL_RE.search(abstract)
+            if url_match:
+                url = url_match.group(1).rstrip(".,)")
+
+        # Authors may be separated by semicolons or " and ".
+        authors_tokens = []
+        for token in re.split(r";|\band\b", authors_part, flags=re.IGNORECASE):
+            cleaned = token.strip().strip(".;")
+            if cleaned:
+                authors_tokens.append(cleaned)
+
+        parsed.append(
+            {
+                "primary_title": title,
+                "title": title,
+                "abstract": abstract,
+                "authors": authors_tokens or [authors_part],
+                "year": year,
+                "publication_year": year,
+                "journal_name": journal,
+                "secondary_title": journal,
+                "volume": volume,
+                "issue": issue,
+                "pages": pages,
+                "doi": doi,
+                "url": url,
+            }
+        )
+
+    return parsed
 
 
 def _advisory_board_context(
@@ -4387,13 +4529,82 @@ def advisory_member_edit(request, project_id, member_id):
 @login_required
 def reference_batch_list(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
-    batches = project.reference_batches.select_related("uploaded_by").order_by(
+    batches_qs = project.reference_batches.select_related("uploaded_by").order_by(
         "-created_at", "-id"
     )
-    summary = {
-        "total_references": project.references.count(),
-        "pending": project.references.filter(screening_status="pending").count(),
+    batches = list(batches_qs)
+    project_references = project.references.select_related("screened_by")
+
+    status_counts = {
+        row["screening_status"]: row["count"]
+        for row in project_references.values("screening_status").annotate(
+            count=Count("id")
+        )
     }
+    included_count = status_counts.get("included", 0)
+    excluded_count = status_counts.get("excluded", 0)
+    pending_count = status_counts.get("pending", 0)
+    total_references = project_references.count()
+    screened_count = included_count + excluded_count
+    completion_percent = (
+        round((screened_count / total_references) * 100)
+        if total_references
+        else 0
+    )
+
+    latest_screening = (
+        project_references.exclude(screening_decision_at__isnull=True)
+        .order_by("-screening_decision_at")
+        .first()
+    )
+
+    batch_stats = defaultdict(
+        lambda: {"included": 0, "excluded": 0, "pending": 0, "total": 0}
+    )
+    for row in project_references.values("batch_id", "screening_status").annotate(
+        count=Count("id")
+    ):
+        batch_id = row["batch_id"]
+        if batch_id is None:
+            continue
+        stats = batch_stats[batch_id]
+        stats["total"] += row["count"]
+        status = row["screening_status"]
+        if status == "included":
+            stats["included"] += row["count"]
+        elif status == "excluded":
+            stats["excluded"] += row["count"]
+        else:
+            stats["pending"] += row["count"]
+
+    for batch in batches:
+        stats = batch_stats.get(batch.id, {"included": 0, "excluded": 0, "pending": 0, "total": 0})
+        screened = stats["included"] + stats["excluded"]
+        total = stats["total"]
+        batch.screened_count = screened
+        batch.total_references = total
+        batch.pending_count = stats["pending"]
+        batch.included_count = stats["included"]
+        batch.excluded_count = stats["excluded"]
+        batch.progress_percent = (
+            round((screened / total) * 100) if total else 0
+        )
+
+    summary = {
+        "total": total_references,
+        "screened": screened_count,
+        "included": included_count,
+        "excluded": excluded_count,
+        "pending": pending_count,
+        "completion_percent": completion_percent,
+        "last_screened_at": latest_screening.screening_decision_at
+        if latest_screening
+        else None,
+        "last_screened_by": latest_screening.screened_by
+        if latest_screening
+        else None,
+    }
+
     return render(
         request,
         "synopsis/reference_batch_list.html",
@@ -4416,6 +4627,115 @@ def reference_batch_detail(request, project_id, batch_id):
         references = references.filter(screening_status=status_filter)
 
     if request.method == "POST":
+        action_type = request.POST.get("action")
+        if action_type == "update_notes":
+            if not _user_can_edit_project(request.user, project):
+                raise PermissionDenied
+            new_notes = (request.POST.get("notes") or "").strip()
+            current_notes = batch.notes or ""
+            status_filter = request.POST.get("status_filter") or status_filter or ""
+            if new_notes == current_notes:
+                messages.info(request, "Notes unchanged.")
+            else:
+                ReferenceSourceBatchNoteHistory.objects.create(
+                    batch=batch,
+                    previous_notes=current_notes,
+                    new_notes=new_notes,
+                    changed_by=request.user if request.user.is_authenticated else None,
+                )
+                batch.notes = new_notes
+                batch.save(update_fields=["notes"])
+                messages.success(request, "Batch notes updated.")
+
+            redirect_url = reverse(
+                "synopsis:reference_batch_detail",
+                kwargs={"project_id": project.id, "batch_id": batch.id},
+            )
+            if status_filter in dict(Reference.SCREENING_STATUS_CHOICES):
+                redirect_url = f"{redirect_url}?status={status_filter}"
+            return redirect(redirect_url)
+
+        bulk_action = request.POST.get("bulk_action")
+        if bulk_action:
+            if not _user_can_edit_project(request.user, project):
+                raise PermissionDenied
+
+            status_choices = dict(Reference.SCREENING_STATUS_CHOICES)
+            status_filter = (
+                request.POST.get("status_filter")
+                or request.GET.get("status")
+                or ""
+            )
+            selected_ids = [
+                pk
+                for pk in request.POST.getlist("selected_references")
+                if pk.isdigit()
+            ]
+
+            if not selected_ids:
+                messages.warning(
+                    request,
+                    "Select at least one reference before applying a bulk update.",
+                )
+                redirect_url = reverse(
+                    "synopsis:reference_batch_detail",
+                    kwargs={"project_id": project.id, "batch_id": batch.id},
+                )
+                if status_filter in status_choices:
+                    redirect_url = f"{redirect_url}?status={status_filter}"
+                return redirect(redirect_url)
+
+            action_map = {
+                "include": "included",
+                "exclude": "excluded",
+                "pending": "pending",
+            }
+            new_status = action_map.get(bulk_action)
+            if not new_status:
+                messages.error(
+                    request,
+                    "Unknown bulk action requested.",
+                )
+                return redirect(
+                    "synopsis:reference_batch_detail",
+                    project_id=project.id,
+                    batch_id=batch.id,
+                )
+
+            updated = 0
+            now = timezone.now()
+            for ref in batch.references.filter(pk__in=selected_ids):
+                ref.screening_status = new_status
+                ref.screening_decision_at = now
+                if request.user.is_authenticated:
+                    ref.screened_by = request.user
+                ref.save(
+                    update_fields=[
+                        "screening_status",
+                        "screening_decision_at",
+                        "screened_by",
+                        "updated_at",
+                    ]
+                )
+                updated += 1
+
+            if updated:
+                status_label = status_choices.get(new_status, new_status.title())
+                messages.success(
+                    request,
+                    f"Marked {updated} reference(s) as {status_label}.",
+                )
+            else:
+                messages.info(request, "No references matched the selection.")
+
+            redirect_url = reverse(
+                "synopsis:reference_batch_detail",
+                kwargs={"project_id": project.id, "batch_id": batch.id},
+            )
+            if status_filter in status_choices:
+                redirect_url = f"{redirect_url}?status={status_filter}"
+            return redirect(redirect_url)
+
         form = ReferenceScreeningForm(request.POST)
         if form.is_valid():
             ref = get_object_or_404(
@@ -4468,6 +4788,50 @@ def reference_batch_detail(request, project_id, batch_id):
         }
         for value, label in Reference.SCREENING_STATUS_CHOICES
     ]
+    included_count = status_counts.get("included", 0)
+    excluded_count = status_counts.get("excluded", 0)
+    pending_count = status_counts.get("pending", 0)
+    screened_count = included_count + excluded_count
+    total_references = batch.references.count()
+    completion_percent = (
+        round((screened_count / total_references) * 100) if total_references else 0
+    )
+
+    visible_total = references.count()
+    visible_screened = (
+        references.filter(screening_status__in=["included", "excluded"]).count()
+        if visible_total
+        else 0
+    )
+    visible_completion = (
+        round((visible_screened / visible_total) * 100) if visible_total else 0
+    )
+
+    latest_screening = (
+        batch.references.exclude(screening_decision_at__isnull=True)
+        .select_related("screened_by")
+        .order_by("-screening_decision_at")
+        .first()
+    )
+
+    summary_stats = {
+        "included": included_count,
+        "excluded": excluded_count,
+        "pending": pending_count,
+        "screened": screened_count,
+        "total": total_references,
+        "completion_percent": completion_percent,
+        "visible_total": visible_total,
+        "visible_screened": visible_screened,
+        "visible_completion": visible_completion,
+        "has_filter": bool(status_filter),
+        "last_screened_at": latest_screening.screening_decision_at
+        if latest_screening
+        else None,
+        "last_screened_by": latest_screening.screened_by
+        if latest_screening
+        else None,
+    }
 
     return render(
         request,
@@ -4479,7 +4843,85 @@ def reference_batch_detail(request, project_id, batch_id):
             "status_filter": status_filter,
             "status_choices": Reference.SCREENING_STATUS_CHOICES,
             "status_summary": status_summary,
+            "summary_stats": summary_stats,
+            "note_history": batch.note_history.select_related("changed_by").all(),
         },
+    )
+
+
+@login_required
+def reference_delete(request, project_id, reference_id):
+    project = get_object_or_404(Project, pk=project_id)
+    reference = get_object_or_404(
+        Reference.objects.select_related("batch"),
+        pk=reference_id,
+        project=project,
+    )
+
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    batch = reference.batch
+    status_choices = dict(Reference.SCREENING_STATUS_CHOICES)
+    status_filter = (
+        request.POST.get("status_filter")
+        or request.GET.get("status")
+        or ""
+    )
+
+    title_fragment = reference.title[:80]
+    reference.delete()
+
+    batch.record_count = batch.references.count()
+    batch.save(update_fields=["record_count"])
+
+    messages.success(
+        request,
+        f"Removed '{title_fragment}' from '{batch.label}'.",
+    )
+
+    redirect_url = reverse(
+        "synopsis:reference_batch_detail",
+        kwargs={"project_id": project.id, "batch_id": batch.id},
+    )
+    if status_filter in status_choices:
+        redirect_url = f"{redirect_url}?status={status_filter}"
+
+    parsed_redirect = urlparse(redirect_url)
+    if parsed_redirect.scheme or parsed_redirect.netloc:
+        redirect_url = reverse(
+            "synopsis:reference_batch_detail",
+            kwargs={"project_id": project.id, "batch_id": batch.id},
+        )
+
+    return redirect(redirect_url)
+
+
+@login_required
+def reference_batch_delete(request, project_id, batch_id):
+    project = get_object_or_404(Project, pk=project_id)
+    batch = get_object_or_404(ReferenceSourceBatch, pk=batch_id, project=project)
+
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    label_fragment = batch.label[:80]
+    batch.delete()
+
+    messages.success(
+        request,
+        f"Deleted '{label_fragment}' and its imported references.",
+    )
+
+    return redirect(
+        "synopsis:reference_batch_list",
+        project_id=project.id,
     )
 
 
@@ -4496,111 +4938,127 @@ def reference_batch_upload(request, project_id):
                 form.add_error("ris_file", "The uploaded file appears to be empty.")
             else:
                 sha1 = hashlib.sha1(raw_bytes).hexdigest()
+                text_payload = raw_bytes.decode("utf-8", errors="ignore")
+                records = []
+                ris_error = None
                 try:
-                    records = rispy.loads(raw_bytes.decode("utf-8", errors="ignore"))
+                    records = rispy.loads(text_payload)
                 except Exception as exc:  # pragma: no cover - parser errors
-                    form.add_error("ris_file", f"Could not parse RIS content ({exc}).")
-                else:
-                    if not records:
+                    ris_error = exc
+
+                if not records:
+                    plaintext_records = _parse_plaintext_references(text_payload)
+                    if plaintext_records:
+                        records = plaintext_records
+                    elif ris_error:
                         form.add_error(
                             "ris_file",
-                            "No RIS records were detected. Please ensure the file uses RIS tags (e.g. 'TY  -', 'TI  -').",
+                            f"Could not parse RIS content ({ris_error}).",
                         )
                     else:
-                        with transaction.atomic():
-                            batch = ReferenceSourceBatch.objects.create(
+                        form.add_error(
+                            "ris_file",
+                            "No references were detected. Upload a RIS file or a plain text file where each entry is separated by a blank line.",
+                        )
+
+                if records:
+                    with transaction.atomic():
+                        batch = ReferenceSourceBatch.objects.create(
+                            project=project,
+                            label=form.cleaned_data["label"],
+                            source_type=form.cleaned_data["source_type"],
+                            search_date_start=form.cleaned_data.get(
+                                "search_date_start"
+                            ),
+                            search_date_end=form.cleaned_data.get(
+                                "search_date_end"
+                            ),
+                            uploaded_by=request.user,
+                            original_filename=getattr(uploaded_file, "name", ""),
+                            record_count=0,
+                            ris_sha1=sha1,
+                            notes=form.cleaned_data.get("notes", ""),
+                        )
+                        imported = 0
+                        duplicates = 0
+                        for record in records:
+                            title = (
+                                _extract_reference_field(record, "primary_title")
+                                or _extract_reference_field(record, "title")
+                                or _extract_reference_field(
+                                    record, "secondary_title"
+                                )
+                            )
+                            if not title:
+                                duplicates += 1
+                                continue
+
+                            authors_list = (
+                                record.get("authors") or record.get("author") or []
+                            )
+                            if isinstance(authors_list, str):
+                                authors_list = [authors_list]
+                            authors = "; ".join(str(a) for a in authors_list if a)
+
+                            year = _extract_reference_field(
+                                record, "year"
+                            ) or _extract_reference_field(
+                                record, "publication_year"
+                            )
+                            doi = _extract_reference_field(record, "doi")
+                            hash_key = reference_hash(title, year, doi)
+
+                            if Reference.objects.filter(
+                                project=project, hash_key=hash_key
+                            ).exists():
+                                duplicates += 1
+                                continue
+
+                            Reference.objects.create(
                                 project=project,
-                                label=form.cleaned_data["label"],
-                                source_type=form.cleaned_data["source_type"],
-                                search_date=form.cleaned_data.get("search_date"),
-                                uploaded_by=request.user,
-                                original_filename=getattr(uploaded_file, "name", ""),
-                                record_count=0,
-                                ris_sha1=sha1,
-                                notes=form.cleaned_data.get("notes", ""),
+                                batch=batch,
+                                hash_key=hash_key,
+                                source_identifier=_extract_reference_field(
+                                    record, "accession_number"
+                                )
+                                or _extract_reference_field(record, "id"),
+                                title=title,
+                                abstract=_extract_reference_field(record, "abstract"),
+                                authors=authors,
+                                publication_year=_coerce_year(year),
+                                journal=_extract_reference_field(
+                                    record, "journal_name"
+                                )
+                                or _extract_reference_field(
+                                    record, "secondary_title"
+                                ),
+                                volume=_extract_reference_field(record, "volume"),
+                                issue=_extract_reference_field(record, "issue"),
+                                pages=_combine_pages(record),
+                                doi=doi,
+                                url=_extract_reference_field(record, "url"),
+                                language=_extract_reference_field(
+                                    record, "language"
+                                ),
+                                raw_ris=record,
                             )
-                            imported = 0
-                            duplicates = 0
-                            for record in records:
-                                title = (
-                                    _extract_reference_field(record, "primary_title")
-                                    or _extract_reference_field(record, "title")
-                                    or _extract_reference_field(
-                                        record, "secondary_title"
-                                    )
-                                )
-                                if not title:
-                                    duplicates += 1
-                                    continue
+                            imported += 1
 
-                                authors_list = (
-                                    record.get("authors") or record.get("author") or []
-                                )
-                                if isinstance(authors_list, str):
-                                    authors_list = [authors_list]
-                                authors = "; ".join(str(a) for a in authors_list if a)
+                        batch.record_count = imported
+                        batch.save(update_fields=["record_count", "notes"])
 
-                                year = _extract_reference_field(
-                                    record, "year"
-                                ) or _extract_reference_field(
-                                    record, "publication_year"
-                                )
-                                doi = _extract_reference_field(record, "doi")
-                                hash_key = reference_hash(title, year, doi)
-
-                                if Reference.objects.filter(
-                                    project=project, hash_key=hash_key
-                                ).exists():
-                                    duplicates += 1
-                                    continue
-
-                                Reference.objects.create(
-                                    project=project,
-                                    batch=batch,
-                                    hash_key=hash_key,
-                                    source_identifier=_extract_reference_field(
-                                        record, "accession_number"
-                                    )
-                                    or _extract_reference_field(record, "id"),
-                                    title=title,
-                                    abstract=_extract_reference_field(
-                                        record, "abstract"
-                                    ),
-                                    authors=authors,
-                                    publication_year=_coerce_year(year),
-                                    journal=_extract_reference_field(
-                                        record, "journal_name"
-                                    )
-                                    or _extract_reference_field(
-                                        record, "secondary_title"
-                                    ),
-                                    volume=_extract_reference_field(record, "volume"),
-                                    issue=_extract_reference_field(record, "issue"),
-                                    pages=_combine_pages(record),
-                                    doi=doi,
-                                    url=_extract_reference_field(record, "url"),
-                                    language=_extract_reference_field(
-                                        record, "language"
-                                    ),
-                                    raw_ris=record,
-                                )
-                                imported += 1
-
-                            batch.record_count = imported
-                            batch.save(update_fields=["record_count", "notes"])
-
-                        messages.success(
+                    messages.success(
+                        request,
+                        f"Imported {imported} reference(s) into '{batch.label}'.",
+                    )
+                    if duplicates:
+                        messages.info(
                             request,
-                            f"Imported {imported} reference(s) into '{batch.label}'.",
+                            f"Skipped {duplicates} record(s) already present in this project.",
                         )
-                        if duplicates:
-                            messages.info(
-                                request,
-                                f"Skipped {duplicates} record(s) already present in this project.",
-                            )
-                        return redirect(
-                            "synopsis:reference_batch_list", project_id=project.id
-                        )
+                    return redirect(
+                        "synopsis:reference_batch_list", project_id=project.id
+                    )
     else:
         form = ReferenceBatchUploadForm()
 

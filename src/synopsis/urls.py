@@ -196,6 +196,16 @@ urlpatterns = [
         name="reference_batch_detail",
     ),
     path(
+        "project/<int:project_id>/references/<int:reference_id>/delete/",
+        views.reference_delete,
+        name="reference_delete",
+    ),
+    path(
+        "project/<int:project_id>/references/batch/<int:batch_id>/delete/",
+        views.reference_batch_delete,
+        name="reference_batch_delete",
+    ),
+    path(
         "project/<int:project_id>/references/upload/",
         views.reference_batch_upload,
         name="reference_batch_upload",

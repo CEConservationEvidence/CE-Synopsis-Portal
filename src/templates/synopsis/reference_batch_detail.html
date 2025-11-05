@@ -2,35 +2,116 @@
 {% block title %}Reference Batch – {{ batch.label }}{% endblock %}
 {% block content %}
 <h1 class="mb-1">{{ batch.label }}</h1>
-<p class="text-muted mb-3">Project: {{ project.title }}</p>
-<div class="d-flex flex-wrap gap-2 mb-3">
+<p class="text-muted mb-3">
+    Project: {{ project.title }}
+    {% if summary_stats.last_screened_at %}
+        · Last screened: {{ summary_stats.last_screened_at|date:"Y-m-d H:i" }}
+        {% if summary_stats.last_screened_by %}
+            by {{ summary_stats.last_screened_by.get_full_name|default:summary_stats.last_screened_by.username }}
+        {% endif %}
+    {% endif %}
+</p>
+<style>
+details.abstract-details {
+    display: inline;
+}
+details.abstract-details summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    cursor: pointer;
+    list-style: none;
+}
+details.abstract-details summary::-webkit-details-marker {
+    display: none;
+}
+details.abstract-details .abstract-ellipsis {
+    display: inline;
+}
+details.abstract-details .abstract-hide {
+    display: none;
+}
+details.abstract-details .abstract-full {
+    display: none;
+}
+details.abstract-details[open] .abstract-preview,
+details.abstract-details[open] .abstract-ellipsis {
+    display: none;
+}
+details.abstract-details[open] .abstract-hide {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+details.abstract-details[open] .abstract-full {
+    display: block;
+    margin-top: 0.5rem;
+}
+</style>
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_list' project.id %}">Back to reference imports</a>
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload another RIS</a>
 </div>
 <div class="card mb-3">
     <div class="card-body">
         <div class="row g-3 small">
-            <div class="col-sm-3">
-                <strong>Records imported:</strong>
-                {{ batch.record_count }}
-            </div>
-            <div class="col-sm-3">
-                <strong>Uploaded:</strong>
-                {{ batch.created_at|date:"Y-m-d H:i" }}
-            </div>
-            <div class="col-sm-3">
-                <strong>Uploaded by:</strong>
-                {% if batch.uploaded_by %}{{ batch.uploaded_by.get_full_name|default:batch.uploaded_by.username }}{% else %}
-                <span class="text-muted">—</span>
-                {% endif %}
-            </div>
-            <div class="col-sm-3">
-                <strong>Search date:</strong>
-                {{ batch.search_date|date:"Y-m-d"|default:"—" }}
-            </div>
             <div class="col-sm-12">
-                <strong>Notes:</strong>
-                {{ batch.notes|default:"—" }}
+                <div class="mt-2">
+                    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#notes-editor" aria-expanded="false" aria-controls="notes-editor">
+                        Manage notes
+                    </button>
+                    {% with latest_note=note_history|first %}
+                        {% if latest_note %}
+                        <div class="small text-muted mt-1">
+                            Notes last updated {{ latest_note.changed_at|date:"Y-m-d H:i" }}{% if latest_note.changed_by %} by {{ latest_note.changed_by.get_full_name|default:latest_note.changed_by.username }}{% endif %}
+                        </div>
+                        {% else %}
+                        <div class="small text-muted mt-1">Notes have not been updated yet.</div>
+                        {% endif %}
+                    {% endwith %}
+                    <div class="collapse" id="notes-editor">
+                        <form method="post" class="mt-2">
+                            {% csrf_token %}
+                            {% if status_filter %}
+                            <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                            {% endif %}
+                            <input type="hidden" name="action" value="update_notes">
+                            <label class="form-label fw-semibold" for="batch-notes">Notes</label>
+                            <textarea id="batch-notes" name="notes" class="form-control" rows="3" placeholder="Add internal notes about this batch"></textarea>
+                            <button class="btn btn-primary btn-sm mt-2" type="submit">Save notes</button>
+                        </form>
+                        {% if note_history %}
+                        <div class="mt-3">
+                            <button class="btn btn-link btn-sm px-0" type="button" data-bs-toggle="collapse" data-bs-target="#note-history" aria-expanded="false" aria-controls="note-history">
+                                View note history
+                            </button>
+                            <div class="collapse" id="note-history">
+                                <div class="list-group list-group-flush">
+                                    {% for entry in note_history|slice:":5" %}
+                                    <div class="list-group-item px-0">
+                                        <div class="small text-muted">
+                                            {{ entry.changed_at|date:"Y-m-d H:i" }}{% if entry.changed_by %} · {{ entry.changed_by.get_full_name|default:entry.changed_by.username }}{% endif %}
+                                        </div>
+                                        <div class="mt-1">
+                                            <strong class="d-block small text-muted">Updated notes:</strong>
+                                            <div class="border rounded bg-light p-2 small" style="white-space: pre-wrap;">{{ entry.new_notes|default:"—" }}</div>
+                                            {% if entry.previous_notes != entry.new_notes %}
+                                            <details class="small mt-1">
+                                                <summary class="text-muted">View previous version</summary>
+                                                <div class="border rounded bg-light p-2 mt-1" style="white-space: pre-wrap;">{{ entry.previous_notes|default:"—" }}</div>
+                                            </details>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -50,12 +131,52 @@
         </div>
     </div>
 </div>
+<form method="post" id="bulk-screening-form" class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    {% csrf_token %}
+    {% if status_filter %}
+    <input type="hidden" name="status_filter" value="{{ status_filter }}">
+    {% endif %}
+    <span class="fw-semibold small text-uppercase text-muted me-2">Bulk actions</span>
+    <button
+        class="btn btn-success btn-sm"
+        type="submit"
+        name="bulk_action"
+        value="include"
+    >
+        Mark as Include
+    </button>
+    <button
+        class="btn btn-outline-danger btn-sm"
+        type="submit"
+        name="bulk_action"
+        value="exclude"
+    >
+        Mark as Exclude
+    </button>
+    <button
+        class="btn btn-outline-secondary btn-sm"
+        type="submit"
+        name="bulk_action"
+        value="pending"
+    >
+        Reset to Pending
+    </button>
+    <span class="small text-muted">Select references below to apply.</span>
+</form>
 <div class="card">
     <div class="card-body">
         <div class="table-responsive">
             <table class="table table-sm align-middle">
                 <thead class="table-light">
                     <tr>
+                        <th class="text-center" style="width: 40px;">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                id="select-all-references"
+                                aria-label="Select all references"
+                            >
+                        </th>
                         <th style="width: 40%">Title</th>
                         <th>Authors</th>
                         <th>Year</th>
@@ -67,10 +188,44 @@
                 <tbody>
                     {% for ref in references %}
                     <tr>
+                        <td class="text-center">
+                            <input
+                                class="form-check-input bulk-reference-checkbox"
+                                type="checkbox"
+                                name="selected_references"
+                                value="{{ ref.id }}"
+                                form="bulk-screening-form"
+                                aria-label="Select {{ ref.title }}"
+                            >
+                        </td>
                         <td>
                             <strong>{{ ref.title }}</strong>
                             {% if ref.abstract %}
-                            <div class="text-muted small mt-1">{{ ref.abstract|truncatewords:40 }}</div>
+                            {% with preview=ref.abstract|slice:":250" remainder=ref.abstract|slice:"250:" %}
+                            <div class="text-muted small mt-1">
+                                {% if remainder %}
+                                    {% if preview|last == ' ' %}
+                                        {% with preview_trimmed=preview|slice:":-1" %}
+                                    <details class="abstract-details">
+                                        <summary class="abstract-summary">
+                                            <span class="abstract-preview">{{ preview_trimmed }}</span><span class="abstract-ellipsis">…</span><span class="abstract-hide text-muted">Hide full abstract</span>
+                                        </summary>
+                                        <div class="abstract-full text-muted" style="white-space: pre-wrap;">{{ ref.abstract }}</div>
+                                    </details>
+                                        {% endwith %}
+                                    {% else %}
+                                    <details class="abstract-details">
+                                        <summary class="abstract-summary">
+                                            <span class="abstract-preview">{{ preview }}</span><span class="abstract-ellipsis">…</span><span class="abstract-hide text-muted">Hide full abstract</span>
+                                        </summary>
+                                        <div class="abstract-full text-muted" style="white-space: pre-wrap;">{{ ref.abstract }}</div>
+                                    </details>
+                                    {% endif %}
+                                {% else %}
+                                    {{ preview }}
+                                {% endif %}
+                            </div>
+                            {% endwith %}
                             {% endif %}
                             <div class="small text-muted mt-1">
                                 {% if ref.doi %}DOI: {{ ref.doi }}{% endif %}
@@ -84,7 +239,7 @@
                         <td class="small">{{ ref.publication_year|default:"—" }}</td>
                         <td class="small">{{ ref.journal|default:"—" }}</td>
                         <td>
-                            <span class="badge text-bg-secondary">{{ ref.get_screening_status_display }}</span>
+                            <span class="badge {% if ref.screening_status == 'included' %}text-bg-success{% elif ref.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ ref.get_screening_status_display }}</span>
                             {% if ref.screened_by %}
                             <div class="small text-muted">{{ ref.screened_by.get_full_name|default:ref.screened_by.username }} · {{ ref.screening_decision_at|date:"Y-m-d H:i" }}</div>
                             {% endif %}
@@ -93,7 +248,8 @@
                             {% endif %}
                         </td>
                         <td>
-                            <form method="post" class="d-grid gap-2">
+                            <div class="d-grid gap-2">
+                                <form method="post">
                                 {% csrf_token %}
                                 <input type="hidden" name="reference_id" value="{{ ref.id }}">
                                 <select name="screening_status" class="form-select form-select-sm">
@@ -112,12 +268,29 @@
                                     placeholder="Notes (optional)"
                                 >{{ ref.screening_notes }}</textarea>
                                 <button class="btn btn-primary btn-sm">Save</button>
-                            </form>
+                                </form>
+                                <form
+                                    method="post"
+                                    action="{% url 'synopsis:reference_delete' project.id ref.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
+                                >
+                                {% csrf_token %}
+                                {% if status_filter %}
+                                <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                                {% endif %}
+                                <button
+                                    class="btn btn-outline-danger btn-sm w-100"
+                                    type="submit"
+                                    onclick="return confirm('Remove this reference from the batch?');"
+                                >
+                                    Delete
+                                </button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="6" class="text-center text-muted">No references in this batch.</td>
+                        <td colspan="7" class="text-center text-muted">No references in this batch.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -125,4 +298,18 @@
         </div>
     </div>
 </div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const selectAll = document.getElementById("select-all-references");
+    if (!selectAll) {
+        return;
+    }
+    const checkboxes = document.querySelectorAll(".bulk-reference-checkbox");
+    selectAll.addEventListener("change", function () {
+        checkboxes.forEach((checkbox) => {
+            checkbox.checked = selectAll.checked;
+        });
+    });
+});
+</script>
 {% endblock %}

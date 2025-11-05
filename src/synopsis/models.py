@@ -1011,7 +1011,8 @@ class ReferenceSourceBatch(models.Model):
         help_text="Short identifier shown to authors (e.g. 'Scopus Jan 2023').",
     )
     source_type = models.CharField(max_length=40, choices=SOURCE_TYPE_CHOICES)
-    search_date = models.DateField(null=True, blank=True)
+    search_date_start = models.DateField(null=True, blank=True)
+    search_date_end = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     uploaded_by = models.ForeignKey(
         User,
@@ -1038,17 +1039,38 @@ class ReferenceSourceBatch(models.Model):
         return f"{self.label} ({self.project.title})"
 
 
+class ReferenceSourceBatchNoteHistory(models.Model):
+    batch = models.ForeignKey(
+        ReferenceSourceBatch,
+        on_delete=models.CASCADE,
+        related_name="note_history",
+    )
+    previous_notes = models.TextField(blank=True)
+    new_notes = models.TextField(blank=True)
+    changed_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reference_batch_note_changes",
+    )
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-changed_at", "-id"]
+
+    def __str__(self):
+        return f"Notes update for {self.batch} at {self.changed_at:%Y-%m-%d %H:%M}"
+
+
 class Reference(models.Model):
     """A single bibliographic record imported from a batch."""
 
     SCREENING_STATUS_CHOICES = [
-        ("pending", "Pending triage"),
-        ("title_included", "Title/abstract included"),
-        ("title_excluded", "Title/abstract excluded"),
-        ("needs_full_text", "Needs full text"),
-        ("fulltext_included", "Full text included"),
-        ("fulltext_excluded", "Full text excluded"),
-    ]  # probably just needs to be simplified to included/excluded.
+        ("pending", "Pending"),
+        ("included", "Include"),
+        ("excluded", "Exclude"),
+    ]
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="references"

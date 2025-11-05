@@ -653,12 +653,18 @@ class ReferenceBatchUploadForm(forms.Form):
         widget=forms.Select(attrs={"class": "form-select"}),
         help_text="What kind of search produced this file?",
     )
-    search_date = forms.DateField(
+    search_date_start = forms.DateField(
         required=False,
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text="Date the search was run (optional). This means the actual date the search was run or received by Kate, not the dates interval for the search.",
+        help_text="Start date for the reference collection window (optional).",
+    )
+    search_date_end = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
+        help_text="End date for the reference collection window (optional).",
     )
     ris_file = forms.FileField(
+        label="RIS/TXT file",
         widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
         validators=[FileExtensionValidator(["ris", "txt"])],
     )
@@ -667,6 +673,17 @@ class ReferenceBatchUploadForm(forms.Form):
         widget=forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         help_text="Internal notes about this batch (optional).",
     )
+
+    def clean(self):
+        cleaned = super().clean()
+        start = cleaned.get("search_date_start")
+        end = cleaned.get("search_date_end")
+        if start and end and end < start:
+            self.add_error(
+                "search_date_end",
+                "End date cannot be earlier than the start date.",
+            )
+        return cleaned
 
 
 class ReferenceScreeningForm(forms.Form):

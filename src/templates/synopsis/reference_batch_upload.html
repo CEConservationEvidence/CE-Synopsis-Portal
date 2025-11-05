@@ -13,28 +13,41 @@
                 {{ form.label.label_tag }}
         {{ form.label }}
         {{ form.label.errors }}
-                <div class="form-text">Give this batch a short, descriptive name.</div>
+                <div class="form-text">Give this batch a short, descriptive name (e.g. “Scopus Jan 2025”).</div>
             </div>
             <div class="mb-3">
                 {{ form.source_type.label_tag }}
         {{ form.source_type }}
         {{ form.source_type.errors }}
+                <div class="form-text">Select the search type that produced this file.</div>
             </div>
-            <div class="mb-3">
-                {{ form.search_date.label_tag }}
-        {{ form.search_date }}
-        {{ form.search_date.errors }}
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    {{ form.search_date_start.label_tag }}
+        {{ form.search_date_start }}
+        {{ form.search_date_start.errors }}
+                    <div class="form-text">Earliest date covered by this reference batch.</div>
+                </div>
+                <div class="col-md-6">
+                    {{ form.search_date_end.label_tag }}
+        {{ form.search_date_end }}
+        {{ form.search_date_end.errors }}
+                    <div class="form-text">Latest date covered by this reference batch.</div>
+                </div>
             </div>
             <div class="mb-3">
                 {{ form.ris_file.label_tag }}
         {{ form.ris_file }}
         {{ form.ris_file.errors }}
-                <div class="form-text">Accepts .ris or .txt files exported from your reference manager.</div>
+                <div class="form-text">
+                    Upload a `.ris` file or plain text (`.txt`). Plain text should list each reference separated by a blank line, starting with the citation line followed by the abstract if available.
+                </div>
             </div>
             <div class="mb-3">
                 {{ form.notes.label_tag }}
         {{ form.notes }}
         {{ form.notes.errors }}
+                <div class="form-text">Upload Notes (optional)</div>
             </div>
             <button class="btn btn-primary">Upload and import</button>
         </form>

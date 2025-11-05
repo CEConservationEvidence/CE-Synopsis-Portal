@@ -9,13 +9,25 @@ class ReferenceSourceBatchAdmin(admin.ModelAdmin):
         "label",
         "project",
         "source_type",
-        "search_date",
+        "display_date_range",
         "record_count",
         "uploaded_by",
         "created_at",
     )
     list_filter = ("source_type", "project")
     search_fields = ("label", "project__title", "original_filename")
+
+    @admin.display(description="Date range")
+    def display_date_range(self, obj):
+        start = obj.search_date_start
+        end = obj.search_date_end
+        if start and end:
+            return f"{start} – {end}"
+        if start:
+            return f"From {start}"
+        if end:
+            return f"Until {end}"
+        return "—"
 
 
 @admin.register(Reference)
