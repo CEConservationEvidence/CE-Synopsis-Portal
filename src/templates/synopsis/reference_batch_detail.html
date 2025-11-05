@@ -11,6 +11,45 @@
         {% endif %}
     {% endif %}
 </p>
+<style>
+details.abstract-details {
+    display: inline;
+}
+details.abstract-details summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    cursor: pointer;
+    list-style: none;
+}
+details.abstract-details summary::-webkit-details-marker {
+    display: none;
+}
+details.abstract-details .abstract-ellipsis {
+    display: inline;
+}
+details.abstract-details .abstract-hide {
+    display: none;
+}
+details.abstract-details .abstract-full {
+    display: none;
+}
+details.abstract-details[open] .abstract-preview,
+details.abstract-details[open] .abstract-ellipsis {
+    display: none;
+}
+details.abstract-details[open] .abstract-hide {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+details.abstract-details[open] .abstract-full {
+    display: block;
+    margin-top: 0.5rem;
+}
+</style>
 <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_list' project.id %}">Back to reference imports</a>
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload another RIS</a>
@@ -162,7 +201,31 @@
                         <td>
                             <strong>{{ ref.title }}</strong>
                             {% if ref.abstract %}
-                            <div class="text-muted small mt-1">{{ ref.abstract|truncatewords:40 }}</div>
+                            {% with preview=ref.abstract|slice:":250" remainder=ref.abstract|slice:"250:" %}
+                            <div class="text-muted small mt-1">
+                                {% if remainder %}
+                                    {% if preview|last == ' ' %}
+                                        {% with preview_trimmed=preview|slice:":-1" %}
+                                    <details class="abstract-details">
+                                        <summary class="abstract-summary">
+                                            <span class="abstract-preview">{{ preview_trimmed }}</span><span class="abstract-ellipsis">…</span><span class="abstract-hide text-muted">Hide full abstract</span>
+                                        </summary>
+                                        <div class="abstract-full text-muted" style="white-space: pre-wrap;">{{ ref.abstract }}</div>
+                                    </details>
+                                        {% endwith %}
+                                    {% else %}
+                                    <details class="abstract-details">
+                                        <summary class="abstract-summary">
+                                            <span class="abstract-preview">{{ preview }}</span><span class="abstract-ellipsis">…</span><span class="abstract-hide text-muted">Hide full abstract</span>
+                                        </summary>
+                                        <div class="abstract-full text-muted" style="white-space: pre-wrap;">{{ ref.abstract }}</div>
+                                    </details>
+                                    {% endif %}
+                                {% else %}
+                                    {{ preview }}
+                                {% endif %}
+                            </div>
+                            {% endwith %}
                             {% endif %}
                             <div class="small text-muted mt-1">
                                 {% if ref.doi %}DOI: {{ ref.doi }}{% endif %}
