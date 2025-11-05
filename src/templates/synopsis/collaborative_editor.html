@@ -6,6 +6,9 @@
 // TODO: #46 need to consider adding a notice about autosave and how often changes are saved.
 // TODO: #44 need to consider adding a warning when the user attempts to close the tab/window while editing.
 // TODO: #48 Need to remove ability for ab members to end the session via the button via collab link. (only authors can end session in app)
+// NOTE: At present this view is only reachable by authenticated project staff because the route sits behind
+// the standard dashboard login. Advisory board members still collaborate via the email instructions that lead
+// them through the main project area while they are signed in as staff; a public token-only endpoint is not yet implemented.
 <div class="collab-header py-3 px-3 px-md-4">
     <h1 class="mb-2">Collaborative editor – {{ document_label }}</h1>
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
