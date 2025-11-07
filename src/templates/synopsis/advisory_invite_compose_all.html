@@ -2,36 +2,56 @@
 {% block title %}Compose Invitations – {{ project.title }}{% endblock %}
 {% block content %}
 <h1 class="mb-3">Compose invitations – {{ project.title }}</h1>
-<div class="card">
-    <div class="card-body">
-        <form method="post">
-            {% csrf_token %}
-            <div class="row g-3">
-                <div class="col-md-3">
-                    <label class="form-label">Response due date</label>
-                    {{ form.due_date }}
-                </div>
-                <div class="col-md-9">
-                    <label class="form-label">Message</label>
-                    {{ form.message }}
-                </div>
-            </div>
-            <hr>
-            <div class="row g-3">
-                <div class="col-md-3">
-                    <div class="form-check mt-2">
-                        {{ form.include_protocol }}
-                        <label class="form-check-label">Include protocol</label>
+<form method="post" novalidate>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Schedule &amp; message</h5>
+                    <p class="text-muted small mb-3">Apply a deadline and optional note that will be reused for every member.</p>
+                    <div class="mb-3">
+                        <label class="form-label" for="{{ form.due_date.id_for_label }}">Response due date</label>
+                        {{ form.due_date }}
+                        <div class="form-text">{{ form.due_date.help_text }}</div>
+                        {% if form.due_date.errors %}
+                        <div class="invalid-feedback d-block">{{ form.due_date.errors|join:", " }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-0">
+                        <label class="form-label" for="{{ form.message.id_for_label }}">Additional message</label>
+                        {{ form.message }}
+                        <div class="form-text">{{ form.message.help_text }}</div>
+                        {% if form.message.errors %}
+                        <div class="invalid-feedback d-block">{{ form.message.errors|join:", " }}</div>
+                        {% endif %}
                     </div>
                 </div>
-                <div class="col-md-3">
-                    <label class="form-label">Protocol content</label>
-                    {{ form.protocol_content }}
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Include with each email</h5>
+                    <p class="text-muted small mb-3">These resources are added for every member who receives the invitation. Disabled options become available once the document or editor is ready.</p>
+                    <div class="form-check mb-3">
+                        {{ form.include_action_list }}
+                        <label class="form-check-label{% if form.include_action_list.field.disabled %} text-muted{% endif %}" for="{{ form.include_action_list.id_for_label }}">Attach action list document</label>
+                        <div class="form-text">{{ form.include_action_list.help_text }}</div>
+                    </div>
+                    <div class="form-check">
+                        {{ form.include_collaborative_link }}
+                        <label class="form-check-label{% if form.include_collaborative_link.field.disabled %} text-muted{% endif %}" for="{{ form.include_collaborative_link.id_for_label }}">Include collaborative editor link</label>
+                        <div class="form-text">{{ form.include_collaborative_link.help_text }}</div>
+                    </div>
                 </div>
             </div>
-            <button class="btn btn-primary mt-3">Send invitations</button>
-            <a class="btn btn-link" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>
-        </form>
+        </div>
     </div>
-</div>
+    <div class="mt-4 d-flex gap-2">
+        <button class="btn btn-primary" type="submit">Send invitations</button>
+        <a class="btn btn-outline-secondary" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>
+    </div>
+</form>
 {% endblock %}
