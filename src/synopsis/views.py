@@ -5261,9 +5261,7 @@ def advisory_invite_create(request, project_id, member_id=None):
         form = AdvisoryInviteForm(request.POST)
     else:
         form = AdvisoryInviteForm(initial=initial)
-
-    # Adjust optional resources availability before validation so disabled fields
-    # behave consistently for both GET and POST.
+        
     if not action_document_available:
         form.fields["include_action_list"].disabled = True
         form.fields["include_action_list"].help_text = "Upload an action list document to include it here."
@@ -5376,9 +5374,6 @@ def advisory_invite_create(request, project_id, member_id=None):
 
             messages.success(request, f"Invitation sent to {email}.")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
-    else:
-        pass
-
     return render(
         request,
         "synopsis/advisory_invite_form.html",

@@ -191,7 +191,7 @@ class AdvisoryInviteForm(forms.Form):
         initial=False,
         label="Include collaborative editor link",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Shares the live OnlyOffice editor for collaborative feedback.",
+        help_text="Shares the live OnlyOffice editor for the action list.",
     )
 
 
