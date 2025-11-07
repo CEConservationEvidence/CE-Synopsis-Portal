@@ -1229,6 +1229,7 @@ def _advisory_board_context(
         custom_field_form = AdvisoryCustomFieldForm(project)
 
     protocol_obj = getattr(project, "protocol", None)
+    protocol_document_ready = bool(protocol_obj and getattr(protocol_obj, "document", None))
     if feedback_close_form is None:
         initial_close = {}
         if protocol_obj and protocol_obj.feedback_closure_message:
@@ -1240,9 +1241,13 @@ def _advisory_board_context(
         "closed_at": getattr(protocol_obj, "feedback_closed_at", None),
         "closure_message": getattr(protocol_obj, "feedback_closure_message", ""),
         "deadline": protocol_pending_dates[0] if protocol_pending_dates else None,
+        "document_ready": protocol_document_ready,
     }
 
     action_list_obj = getattr(project, "action_list", None)
+    action_list_document_ready = bool(
+        action_list_obj and getattr(action_list_obj, "document", None)
+    )
     action_list_members = project.advisory_board_members.filter(
         sent_action_list_at__isnull=False,
         response="Y",
@@ -1278,6 +1283,7 @@ def _advisory_board_context(
         "closed_at": getattr(action_list_obj, "feedback_closed_at", None),
         "closure_message": getattr(action_list_obj, "feedback_closure_message", ""),
         "deadline": action_list_pending_dates[0] if action_list_pending_dates else None,
+        "document_ready": action_list_document_ready,
     }
 
     section_palette = {
@@ -2121,9 +2127,8 @@ def protocol_detail(request, project_id):
         except ValueError:
             current_revision_download_url = ""
 
-    existing_file_name = (
-        protocol.document.name if protocol and protocol.document else ""
-    )
+    protocol_document_ready = bool(protocol and getattr(protocol, "document", None))
+    existing_file_name = protocol.document.name if protocol_document_ready else ""
     has_existing_file = bool(existing_file_name or revision_entries)
     first_upload_pending = not has_existing_file
     final_stage_locked = bool(
@@ -2339,6 +2344,7 @@ def protocol_detail(request, project_id):
             ),
             "collaborative_resume_url": collaborative_resume_url,
             "collaborative_force_end_url": collaborative_force_end_url,
+            "collaborative_document_ready": protocol_document_ready,
             "collaborative_can_override": collaborative_can_override,
         },
     )
@@ -2415,9 +2421,8 @@ def action_list_detail(request, project_id):
         except ValueError:
             current_revision_download_url = ""
 
-    existing_file_name = (
-        action_list.document.name if action_list and action_list.document else ""
-    )
+    action_document_ready = bool(action_list and getattr(action_list, "document", None))
+    existing_file_name = action_list.document.name if action_document_ready else ""
     has_existing_file = bool(existing_file_name or revision_entries)
     first_upload_pending = not has_existing_file
     final_stage_locked = bool(
@@ -2638,6 +2643,7 @@ def action_list_detail(request, project_id):
             "collaborative_resume_url": collaborative_resume_url,
             "collaborative_force_end_url": collaborative_force_end_url,
             "collaborative_can_override": collaborative_can_override,
+            "collaborative_document_ready": action_document_ready,
         },
     )
 
@@ -5240,15 +5246,37 @@ def advisory_invite_create(request, project_id, member_id=None):
     initial = {}
     member = None
 
+    action_list = getattr(project, "action_list", None)
+    action_document_available = bool(action_list and getattr(action_list, "document", None))
+    collaborative_available = bool(_onlyoffice_enabled() and action_document_available)
+
     if member_id:
         member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
         initial["email"] = member.email
         if member.response_date:
             initial["due_date"] = member.response_date
 
+    form = None
     if request.method == "POST":
         form = AdvisoryInviteForm(request.POST)
-        if form.is_valid():
+    else:
+        form = AdvisoryInviteForm(initial=initial)
+        
+    if not action_document_available:
+        form.fields["include_action_list"].disabled = True
+        form.fields["include_action_list"].help_text = "Upload an action list document to include it here."
+        form.fields["include_action_list"].initial = False
+    else:
+        form.fields["include_action_list"].help_text = "Adds a link to the latest action list file."
+
+    if not collaborative_available:
+        form.fields["include_collaborative_link"].disabled = True
+        form.fields["include_collaborative_link"].help_text = "Enable the collaborative editor or upload the action list to share this link."
+        form.fields["include_collaborative_link"].initial = False
+    else:
+        form.fields["include_collaborative_link"].help_text = "Shares the live collaborative editor for the action list."
+
+    if request.method == "POST" and form.is_valid():
             email = form.cleaned_data["email"].strip()
             due_date = form.cleaned_data.get("due_date")
             message_body = form.cleaned_data.get("message") or ""
@@ -5290,16 +5318,37 @@ def advisory_invite_create(request, project_id, member_id=None):
                 f"<p>{message_body}</p>"
             )
 
-            include_protocol = form.cleaned_data.get("include_protocol")
-            protocol_content = form.cleaned_data.get("protocol_content")
-            proto = getattr(project, "protocol", None)
-            if include_protocol and proto:
-                if protocol_content == "file" and getattr(proto, "document", None):
-                    proto_url = request.build_absolute_uri(proto.document.url)
-                    text += f"\nProtocol: {proto_url}\n"
-                    html += f"<p><strong>Protocol:</strong> <a href='{proto_url}'>View document</a></p>"
-                elif protocol_content == "text" and (proto.text_version or "").strip():
-                    html += "<hr>" + proto.text_version
+            # Collect optional attachments/links
+            attachment_lines = []
+
+            include_action_list = (
+                action_document_available
+                and form.cleaned_data.get("include_action_list")
+                and action_list
+                and getattr(action_list, "document", None)
+            )
+            if include_action_list:
+                action_url = request.build_absolute_uri(action_list.document.url)
+                attachment_lines.append(("Action list", action_url))
+
+            include_collaborative_link = (
+                collaborative_available
+                and form.cleaned_data.get("include_collaborative_link")
+            )
+            if include_collaborative_link:
+                collab_url = _ensure_collaborative_invite_link(
+                    request,
+                    project,
+                    CollaborativeSession.DOCUMENT_ACTION_LIST,
+                    member=member,
+                )
+                if collab_url:
+                    attachment_lines.append(("Collaborative editor", collab_url))
+
+            if attachment_lines:
+                text += "\n" + "\n".join(f"{label}: {url}" for label, url in attachment_lines) + "\n"
+                for label, url in attachment_lines:
+                    html += f"<p><strong>{label}:</strong> <a href='{url}'>{url}</a></p>"
 
             msg = EmailMultiAlternatives(
                 subject,
@@ -5313,17 +5362,28 @@ def advisory_invite_create(request, project_id, member_id=None):
             if member:
                 member.invite_sent = True
                 member.invite_sent_at = timezone.now()
-                member.save(update_fields=["invite_sent", "invite_sent_at"])
+                update_fields = {"invite_sent", "invite_sent_at"}
+                if due_date and member.response_date != due_date:
+                    member.response_date = due_date
+                    member.reminder_sent = False
+                    member.reminder_sent_at = None
+                    update_fields.update(
+                        {"response_date", "reminder_sent", "reminder_sent_at"}
+                    )
+                member.save(update_fields=list(update_fields))
 
             messages.success(request, f"Invitation sent to {email}.")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
-    else:
-        form = AdvisoryInviteForm(initial=initial)
-
     return render(
         request,
         "synopsis/advisory_invite_form.html",
-        {"project": project, "form": form, "member": member},
+        {
+            "project": project,
+            "form": form,
+            "member": member,
+            "action_list_available": action_document_available,
+            "collaborative_available": collaborative_available,
+        },
     )
 
 
@@ -5573,104 +5633,153 @@ def send_advisory_invites(request, project_id):
 def advisory_send_invites_bulk(request, project_id):
     """Compose and send invitations to all members with an email."""
     project = get_object_or_404(Project, id=project_id)
+
+    action_list = getattr(project, "action_list", None)
+    action_document_available = bool(action_list and getattr(action_list, "document", None))
+    collaborative_available = bool(_onlyoffice_enabled() and action_document_available)
+
     if request.method == "POST":
         form = AdvisoryBulkInviteForm(request.POST)
-        if form.is_valid():
-            members = (
-                AdvisoryBoardMember.objects.filter(project=project)
-                .exclude(email__isnull=True)
-                .exclude(email__exact="")
-            )
-            include_protocol = form.cleaned_data.get("include_protocol")
-            protocol_content = form.cleaned_data.get("protocol_content")
-            message_body = form.cleaned_data.get("message") or ""
-            sent = 0
-            for m in members:
-                inv = AdvisoryBoardInvitation.objects.create(
-                    project=project,
-                    member=m,
-                    email=m.email,
-                    invited_by=request.user,
-                    due_date=form.cleaned_data.get("due_date") or m.response_date,
-                )
-                yes_url = request.build_absolute_uri(
-                    reverse("synopsis:advisory_invite_reply", args=[inv.token, "yes"])
-                )
-                no_url = request.build_absolute_uri(
-                    reverse("synopsis:advisory_invite_reply", args=[inv.token, "no"])
-                )
-                deadline_txt = (
-                    (form.cleaned_data.get("due_date") or m.response_date).strftime(
-                        "%d %b %Y"
-                    )
-                    if (form.cleaned_data.get("due_date") or m.response_date)
-                    else "—"
-                )
-
-                subject = email_subject(
-                    "invite",
-                    project,
-                    (form.cleaned_data.get("due_date") or m.response_date),
-                )
-                text = (
-                    f"Dear {m.first_name or 'colleague'},\n\n"
-                    f"You are invited to advise on '{project.title}'.\n"
-                    f"Please reply by: {deadline_txt}\n\n"
-                    f"Yes: {yes_url}\nNo:  {no_url}\n\n"
-                    "After clicking Yes you'll be asked to confirm you can actively participate and provide valuable input.\n\n"
-                    f"{message_body}\n"
-                )
-                html = (
-                    f"<p>Dear {m.first_name or 'colleague'},</p>"
-                    f"<p>You are invited to advise on '<strong>{project.title}</strong>'.</p>"
-                    f"<p><strong>Please reply by: {deadline_txt}</strong></p>"
-                    f"<p>"
-                    f"<a href='{yes_url}' style='padding:8px 12px;border:1px solid #0a0;text-decoration:none;'>Yes</a> "
-                    f"<a href='{no_url}' style='padding:8px 12px;border:1px solid #a00;text-decoration:none;margin-left:8px;'>No</a>"
-                    f"</p>"
-                    f"<p>{message_body}</p>"
-                    "<p><em>After clicking Yes you'll confirm that you will actively participate and provide valuable input.</em></p>"
-                )
-
-                proto = getattr(project, "protocol", None)
-                if include_protocol and proto:
-                    if protocol_content == "file" and getattr(proto, "document", None):
-                        proto_url = request.build_absolute_uri(proto.document.url)
-                        text += f"\nProtocol: {proto_url}\n"
-                        html += f"<p><strong>Protocol:</strong> <a href='{proto_url}'>View document</a></p>"
-                    elif (
-                        protocol_content == "text"
-                        and (proto.text_version or "").strip()
-                    ):
-                        html += "<hr>" + proto.text_version
-
-                msg = EmailMultiAlternatives(
-                    subject,
-                    text,
-                    to=[m.email],
-                    reply_to=reply_to_list(getattr(request.user, "email", None)),
-                )
-                msg.attach_alternative(html, "text/html")
-                inviter_email = getattr(request.user, "email", None)
-                if inviter_email:
-                    msg.extra_headers = msg.extra_headers or {}
-                    msg.extra_headers["List-Unsubscribe"] = f"<mailto:{inviter_email}>"
-                msg.send()
-
-                m.invite_sent = True
-                m.invite_sent_at = timezone.now()
-                m.save(update_fields=["invite_sent", "invite_sent_at"])
-                sent += 1
-
-            messages.success(request, f"Sent {sent} invite(s).")
-            return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         form = AdvisoryBulkInviteForm()
+
+    if not action_document_available:
+        form.fields["include_action_list"].disabled = True
+        form.fields["include_action_list"].help_text = "Upload an action list document to include it here."
+        form.fields["include_action_list"].initial = False
+    else:
+        form.fields["include_action_list"].help_text = "Adds a link to the latest action list file."
+
+    if not collaborative_available:
+        form.fields["include_collaborative_link"].disabled = True
+        form.fields["include_collaborative_link"].help_text = "Enable the collaborative editor and upload the action list to share this link."
+        form.fields["include_collaborative_link"].initial = False
+    else:
+        form.fields["include_collaborative_link"].help_text = "Shares the live collaborative editor for the action list."
+
+    if request.method == "POST" and form.is_valid():
+        members = (
+            AdvisoryBoardMember.objects.filter(project=project, invite_sent=False)
+            .exclude(email__isnull=True)
+            .exclude(email__exact="")
+        )
+        if not members:
+            messages.info(
+                request,
+                "All current members have already received an invitation. Add new members before using this bulk send.",
+            )
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+        message_body = form.cleaned_data.get("message") or ""
+        bulk_due_date = form.cleaned_data.get("due_date")
+
+        include_action_list = action_document_available and form.cleaned_data.get("include_action_list")
+        include_collaborative_link = (
+            collaborative_available and form.cleaned_data.get("include_collaborative_link")
+        )
+
+        action_url = (
+            request.build_absolute_uri(action_list.document.url)
+            if include_action_list and action_list and getattr(action_list, "document", None)
+            else ""
+        )
+
+        sent = 0
+        for member in members:
+            due_date = bulk_due_date or member.response_date
+            inv = AdvisoryBoardInvitation.objects.create(
+                project=project,
+                member=member,
+                email=member.email,
+                invited_by=request.user,
+                due_date=due_date,
+            )
+
+            yes_url = request.build_absolute_uri(
+                reverse("synopsis:advisory_invite_reply", args=[inv.token, "yes"])
+            )
+            no_url = request.build_absolute_uri(
+                reverse("synopsis:advisory_invite_reply", args=[inv.token, "no"])
+            )
+            deadline_txt = due_date.strftime("%d %b %Y") if due_date else "—"
+
+            subject = email_subject("invite", project, due_date)
+            text = (
+                f"Dear {member.first_name or 'colleague'},\n\n"
+                f"You are invited to advise on '{project.title}'.\n"
+                f"Please reply by: {deadline_txt}\n\n"
+                f"Yes: {yes_url}\nNo:  {no_url}\n\n"
+                "After clicking Yes you'll be asked to confirm you can actively participate and provide valuable input.\n\n"
+                f"{message_body}\n"
+            )
+            html = (
+                f"<p>Dear {member.first_name or 'colleague'},</p>"
+                f"<p>You are invited to advise on '<strong>{project.title}</strong>'.</p>"
+                f"<p><strong>Please reply by: {deadline_txt}</strong></p>"
+                f"<p>"
+                f"<a href='{yes_url}' style='padding:8px 12px;border:1px solid #0a0;text-decoration:none;'>Yes</a> "
+                f"<a href='{no_url}' style='padding:8px 12px;border:1px solid #a00;text-decoration:none;margin-left:8px;'>No</a>"
+                f"</p>"
+                f"<p>{message_body}</p>"
+                "<p><em>After clicking Yes you'll confirm that you will actively participate and provide valuable input.</em></p>"
+            )
+
+            attachment_lines = []
+            if action_url:
+                attachment_lines.append(("Action list", action_url))
+
+            collab_url = ""
+            if include_collaborative_link:
+                collab_url = _ensure_collaborative_invite_link(
+                    request,
+                    project,
+                    CollaborativeSession.DOCUMENT_ACTION_LIST,
+                    member=member,
+                )
+                if collab_url:
+                    attachment_lines.append(("Collaborative editor", collab_url))
+
+            if attachment_lines:
+                text += "\n" + "\n".join(f"{label}: {url}" for label, url in attachment_lines) + "\n"
+                for label, url in attachment_lines:
+                    html += f"<p><strong>{label}:</strong> <a href='{url}'>{url}</a></p>"
+
+            msg = EmailMultiAlternatives(
+                subject,
+                text,
+                to=[member.email],
+                reply_to=reply_to_list(getattr(request.user, "email", None)),
+            )
+            msg.attach_alternative(html, "text/html")
+            inviter_email = getattr(request.user, "email", None)
+            if inviter_email:
+                msg.extra_headers = msg.extra_headers or {}
+                msg.extra_headers["List-Unsubscribe"] = f"<mailto:{inviter_email}>"
+            msg.send()
+
+            member.invite_sent = True
+            member.invite_sent_at = timezone.now()
+            update_fields = {"invite_sent", "invite_sent_at"}
+            if due_date and member.response_date != due_date:
+                member.response_date = due_date
+                member.reminder_sent = False
+                member.reminder_sent_at = None
+                update_fields.update({"response_date", "reminder_sent", "reminder_sent_at"})
+            member.save(update_fields=list(update_fields))
+            sent += 1
+
+        messages.success(request, f"Sent {sent} invite(s).")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
 
     return render(
         request,
         "synopsis/advisory_invite_compose_all.html",
-        {"project": project, "form": form},
+        {
+            "project": project,
+            "form": form,
+            "action_list_available": action_document_available,
+            "collaborative_available": collaborative_available,
+        },
     )
 
 

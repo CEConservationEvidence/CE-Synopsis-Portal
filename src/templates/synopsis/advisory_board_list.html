@@ -94,11 +94,22 @@
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
+    {% if total_member_count %}
     <a class="btn btn-outline-primary" href="{% url 'synopsis:advisory_invite_compose_all' project.id %}">Send invitations to all</a>
-    <a class="btn btn-outline-primary" href="{% url 'synopsis:advisory_send_protocol_compose_all' project.id %}">
+    {% else %}
+    <button type="button" class="btn btn-outline-primary" disabled title="Add at least one member to send invitations.">Send invitations to all</button>
+    {% endif %}
+    {% with has_protocol=protocol_feedback_state.document_ready %}
+    <a
+        class="btn btn-outline-primary{% if not has_protocol %} disabled{% endif %}"
+        href="{% url 'synopsis:advisory_send_protocol_compose_all' project.id %}"
+        tabindex="{% if not has_protocol %}-1{% else %}0{% endif %}"
+        aria-disabled="{% if not has_protocol %}true{% else %}false{% endif %}"
+    >
         Send protocol to all
     </a>
-    {% with has_action_list=action_list_feedback_state.action_list %}
+    {% endwith %}
+    {% with has_action_list=action_list_feedback_state.document_ready %}
     <a
         class="btn btn-outline-primary{% if not has_action_list %} disabled{% endif %}"
         href="{% url 'synopsis:advisory_send_action_list_compose_all' project.id %}"
