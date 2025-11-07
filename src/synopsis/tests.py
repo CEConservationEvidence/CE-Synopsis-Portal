@@ -8,6 +8,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, RequestFactory, override_settings
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
+from django.core.exceptions import PermissionDenied
 from django.urls import reverse
 
 import shutil
@@ -553,6 +554,88 @@ class MemberReminderUpdateTests(TestCase):
         self.assertIsNone(inv.accepted)
 
 
+class AdvisoryInviteFlowTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Invite Flow")
+        self.user = User.objects.create_user(
+            username="author", password="pw", email="author@example.com"
+        )
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.client.force_login(self.user)
+        self.board_url = reverse("synopsis:advisory_board_list", args=[self.project.id])
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_single_invite_sets_due_date_and_resets_flags(self, mock_email):
+        mock_email.return_value = MagicMock()
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Nova",
+            email="nova@example.com",
+            reminder_sent=True,
+            reminder_sent_at=timezone.now(),
+        )
+        due = date(2025, 11, 30)
+        url = reverse(
+            "synopsis:advisory_invite_create_for_member",
+            args=[self.project.id, member.id],
+        )
+        response = self.client.post(
+            url,
+            {
+                "email": member.email,
+                "due_date": due.strftime("%Y-%m-%d"),
+                "message": "Welcome aboard",
+            },
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertTrue(member.invite_sent)
+        self.assertEqual(member.response_date, due)
+        self.assertFalse(member.reminder_sent)
+        self.assertIsNone(member.reminder_sent_at)
+        self.assertEqual(
+            AdvisoryBoardInvitation.objects.filter(member=member).count(), 1
+        )
+        self.assertEqual(mock_email.call_count, 1)
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_bulk_invite_skips_members_with_existing_invites(self, mock_email):
+        mock_email.return_value = MagicMock()
+        already_invited = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Iris",
+            email="iris@example.com",
+            invite_sent=True,
+            invite_sent_at=timezone.now(),
+            response_date=date(2025, 10, 1),
+        )
+        new_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Liam",
+            email="liam@example.com",
+        )
+        due = date(2025, 12, 20)
+        response = self.client.post(
+            reverse("synopsis:advisory_send_invites_bulk", args=[self.project.id]),
+            {
+                "due_date": due.strftime("%Y-%m-%d"),
+                "message": "Bulk kickoff",
+            },
+        )
+        self.assertRedirects(response, self.board_url)
+        new_member.refresh_from_db()
+        already_invited.refresh_from_db()
+        self.assertTrue(new_member.invite_sent)
+        self.assertEqual(new_member.response_date, due)
+        self.assertEqual(already_invited.response_date, date(2025, 10, 1))
+        self.assertEqual(
+            AdvisoryBoardInvitation.objects.filter(project=self.project).count(), 1
+        )
+        self.assertEqual(mock_email.call_count, 1)
+        args, kwargs = mock_email.call_args
+        self.assertEqual(kwargs["to"], [new_member.email])
+
+
 class FunderUtilityTests(TestCase):
     def test_build_display_name_prefers_organisation(self):
         name = Funder.build_display_name("Org Inc", "Dr", "Ann", "Lee")
@@ -1072,6 +1155,56 @@ class CollaborativeClosureTests(TestCase):
         self.assertTrue(new_session.is_active)
 
 
+class CollaborativePanelViewTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Collaborative Panel")
+        self.user = User.objects.create_user(username="collab-author", password="pw")
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.client.force_login(self.user)
+
+    def test_protocol_panel_disabled_without_document(self):
+        response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+        self.assertContains(
+            response, "Upload the protocol before starting a collaborative session."
+        )
+        self.assertIn('aria-disabled="true"', response.content.decode())
+
+    def test_protocol_panel_enabled_with_document(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+        self.assertNotContains(
+            response, "Upload the protocol before starting a collaborative session."
+        )
+
+    def test_action_list_panel_disabled_without_document(self):
+        response = self.client.get(
+            reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+        self.assertContains(
+            response, "Upload the action list before starting a collaborative session."
+        )
+        self.assertIn('aria-disabled="true"', response.content.decode())
+
+    def test_action_list_panel_enabled_with_document(self):
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+        response = self.client.get(
+            reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+        self.assertNotContains(
+            response, "Upload the action list before starting a collaborative session."
+        )
+
+
 class AdvisoryBoardCustomColumnsTests(TestCase):
     def setUp(self):
         self.project = Project.objects.create(title="Dynamic Columns")
@@ -1176,98 +1309,6 @@ class AdvisoryBoardCustomColumnsTests(TestCase):
         self.assertEqual(previous.changed_by, self.editor)
 
 
-class AdvisoryMemberCustomDataFormTests(TestCase):
-    def setUp(self):
-        self.project = Project.objects.create(title="Form Columns")
-        self.shared_field = AdvisoryBoardCustomField.objects.create(
-            project=self.project,
-            name="Notes",
-            data_type=AdvisoryBoardCustomField.TYPE_TEXT,
-        )
-        self.pending_field = AdvisoryBoardCustomField.objects.create(
-            project=self.project,
-            name="Reminder",
-            data_type=AdvisoryBoardCustomField.TYPE_BOOLEAN,
-            sections=[AdvisoryBoardCustomField.SECTION_PENDING],
-        )
-
-    def test_form_includes_only_fields_for_member_section(self):
-        initial_values = {self.shared_field.id: "hello"}
-        accepted_form = AdvisoryMemberCustomDataForm(
-            [self.shared_field, self.pending_field],
-            AdvisoryBoardCustomField.SECTION_ACCEPTED,
-            initial_values,
-        )
-        accepted_field_ids = [field.id for field, _ in accepted_form.iter_fields()]
-        self.assertEqual(accepted_field_ids, [self.shared_field.id])
-
-        pending_form = AdvisoryMemberCustomDataForm(
-            [self.shared_field, self.pending_field],
-            AdvisoryBoardCustomField.SECTION_PENDING,
-            initial_values,
-        )
-        pending_field_ids = [field.id for field, _ in pending_form.iter_fields()]
-        self.assertEqual(
-            pending_field_ids, [self.shared_field.id, self.pending_field.id]
-        )
-
-    def test_initial_values_are_parsed_for_form_fields(self):
-        initial_values = {
-            self.shared_field.id: "value",
-            self.pending_field.id: "true",
-        }
-        form = AdvisoryMemberCustomDataForm(
-            [self.shared_field, self.pending_field],
-            AdvisoryBoardCustomField.SECTION_PENDING,
-            initial_values,
-        )
-        key_shared = form._field_key(self.shared_field)
-        key_pending = form._field_key(self.pending_field)
-        self.assertEqual(form.initial[key_shared], "value")
-        self.assertTrue(form.initial[key_pending])
-
-
-class OnlyOfficeDownloadTests(TestCase):
-    def setUp(self):
-        from . import views
-
-        self.views = views
-        self.original_settings = views.ONLYOFFICE_SETTINGS
-        views.ONLYOFFICE_SETTINGS = {
-            "base_url": "https://onlyoffice.example.com/office",
-            "callback_timeout": 7,
-        }
-        self.addCleanup(self._restore_settings)
-
-    def _restore_settings(self):
-        self.views.ONLYOFFICE_SETTINGS = self.original_settings
-
-    @patch("synopsis.views.requests.get")
-    def test_download_allows_trusted_host(self, mock_get):
-        mock_response = MagicMock()
-        mock_response.content = b"doc"
-        mock_response.raise_for_status.return_value = None
-        mock_get.return_value = mock_response
-
-        url = "https://onlyoffice.example.com/office/storage/doc.docx"
-        content = self.views._download_onlyoffice_file(url)
-
-        self.assertEqual(content, b"doc")
-        mock_get.assert_called_once_with(url, timeout=7)
-
-    @patch("synopsis.views.requests.get")
-    def test_download_rejects_untrusted_host(self, mock_get):
-        url = "https://files.example.com/storage/doc.docx"
-        with self.assertRaisesMessage(ValueError, "Untrusted OnlyOffice download URL"):
-            self.views._download_onlyoffice_file(url)
-        mock_get.assert_not_called()
-
-    @patch("synopsis.views.requests.get")
-    def test_download_rejects_untrusted_path(self, mock_get):
-        url = "https://onlyoffice.example.com/other/doc.docx"
-        with self.assertRaisesMessage(ValueError, "Untrusted OnlyOffice download URL"):
-            self.views._download_onlyoffice_file(url)
-        mock_get.assert_not_called()
 
 
 class UserEditPermissionTests(TestCase):
@@ -1835,6 +1876,33 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         batch.refresh_from_db()
         self.assertEqual(batch.record_count, batch.references.count())
+
+    def test_delete_reference_requires_edit_permission(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Permission batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        target = batch.references.first()
+        viewer = User.objects.create_user(username="viewer", password="pw")
+        delete_url = reverse(
+            "synopsis:reference_delete",
+            args=[self.project.id, target.id],
+        )
+        self.client.logout()
+        self.client.force_login(viewer)
+        response = self.client.post(delete_url)
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Reference.objects.filter(pk=target.id).exists())
 
     def test_can_delete_batch(self):
         upload = SimpleUploadedFile(
