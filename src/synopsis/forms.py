@@ -158,26 +158,40 @@ class ParticipationDeclineForm(forms.Form):
 
 
 class AdvisoryInviteForm(forms.Form):
-    email = forms.EmailField(widget=forms.EmailInput(attrs={"class": "form-control"}))
+    email = forms.EmailField(
+        label="Recipient email",
+        widget=forms.EmailInput(attrs={"class": "form-control"}),
+    )
     due_date = forms.DateField(
         required=False,
+        label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text="Optional response deadline to show in the email.",
+        help_text=(
+            "This date is shown in the invitation and on the advisory board dashboard. "
+            "Leave blank if you do not want to set a deadline."
+        ),
     )
     message = forms.CharField(
         required=False,
-        widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-        help_text="Optional personal note to include.",
+        label="Additional message",
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
+        ),
+        help_text="Included after the default invitation copy.",
     )
-    include_protocol = forms.BooleanField(
+    include_action_list = forms.BooleanField(
         required=False,
         initial=False,
-        help_text="Include the current protocol in this email.",
+        label="Attach action list document",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        help_text="Adds a link to the latest action list file.",
     )
-    protocol_content = forms.ChoiceField(
+    include_collaborative_link = forms.BooleanField(
         required=False,
-        choices=[("file", "Attach link to file"), ("text", "Embed rich text version")],
-        widget=forms.Select(attrs={"class": "form-select"}),
+        initial=False,
+        label="Include collaborative editor link",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        help_text="Shares the live OnlyOffice editor for collaborative feedback.",
     )
 
 
@@ -469,23 +483,33 @@ class ProjectSettingsForm(forms.ModelForm):
 class AdvisoryBulkInviteForm(forms.Form):
     due_date = forms.DateField(
         required=False,
+        label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text="Optional response deadline to show in the email.",
+        help_text=(
+            "Optional – overrides each member's existing deadline. Leave blank to keep their current dates."
+        ),
     )
     message = forms.CharField(
         required=False,
-        widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-        help_text="Optional personal note to include.",
+        label="Additional message",
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
+        ),
+        help_text="Included after the default invitation copy.",
     )
-    include_protocol = forms.BooleanField(
+    include_action_list = forms.BooleanField(
         required=False,
         initial=False,
-        help_text="Include the current protocol in this email.",
+        label="Attach action list document",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        help_text="Adds a link to the latest action list file.",
     )
-    protocol_content = forms.ChoiceField(
+    include_collaborative_link = forms.BooleanField(
         required=False,
-        choices=[("file", "Attach link to file"), ("text", "Embed rich text version")],
-        widget=forms.Select(attrs={"class": "form-select"}),
+        initial=False,
+        label="Include collaborative editor link",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        help_text="Shares the live OnlyOffice editor for the action list.",
     )
 
 
