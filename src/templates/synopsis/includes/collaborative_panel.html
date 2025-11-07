@@ -1,4 +1,5 @@
 {% if collaborative_enabled %}
+{% with doc_ready=collaborative_document_ready %}
 <div class="border rounded bg-light p-3 mt-3">
     {% if collaborative_session %}
     <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
@@ -49,8 +50,18 @@
             {% if can_edit_documents %}
             <form method="post" action="{{ collaborative_start_url }}" class="d-inline">
                 {% csrf_token %}
-                <button type="submit" class="btn btn-outline-primary btn-sm" formtarget="_blank">Start collaborative edit</button>
+                <button
+                    type="submit"
+                    class="btn btn-outline-primary btn-sm{% if not doc_ready %} disabled{% endif %}"
+                    formtarget="_blank"
+                    {% if not doc_ready %}disabled tabindex="-1" aria-disabled="true"{% endif %}
+                >
+                    Start collaborative edit
+                </button>
             </form>
+            {% if not doc_ready %}
+            <small class="text-muted">Upload the {{ document_label|lower }} before starting a collaborative session.</small>
+            {% endif %}
             {% else %}
             <span class="small text-muted">You need edit access to start a collaborative session.</span>
             {% endif %}
@@ -58,4 +69,5 @@
     </div>
     {% endif %}
 </div>
+{% endwith %}
 {% endif %}
