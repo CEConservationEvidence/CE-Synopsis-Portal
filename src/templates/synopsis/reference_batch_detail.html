@@ -34,7 +34,6 @@ details.abstract-details .abstract-hide {
 details.abstract-details .abstract-full {
     display: none;
 }
-details.abstract-details[open] .abstract-preview,
 details.abstract-details[open] .abstract-ellipsis {
     display: none;
 }
@@ -205,21 +204,23 @@ details.abstract-details[open] .abstract-full {
                             <div class="text-muted small mt-1">
                                 {% if remainder %}
                                     {% if preview|last == ' ' %}
-                                        {% with preview_trimmed=preview|slice:":-1" %}
+                                        {% with preview_trimmed=preview|slice:":-1" remainder_clean=remainder|slice:"1:" %}
                                     <details class="abstract-details">
                                         <summary class="abstract-summary">
                                             <span class="abstract-preview">{{ preview_trimmed }}</span><span class="abstract-ellipsis">…</span><span class="abstract-hide text-muted">Hide full abstract</span>
                                         </summary>
-                                        <div class="abstract-full text-muted" style="white-space: pre-wrap;">{{ ref.abstract }}</div>
+                                        <div class="abstract-full text-muted" style="white-space: pre-wrap;">{{ remainder_clean }}</div>
                                     </details>
                                         {% endwith %}
                                     {% else %}
+                                        {% with remainder_clean=remainder %}
                                     <details class="abstract-details">
                                         <summary class="abstract-summary">
                                             <span class="abstract-preview">{{ preview }}</span><span class="abstract-ellipsis">…</span><span class="abstract-hide text-muted">Hide full abstract</span>
                                         </summary>
-                                        <div class="abstract-full text-muted" style="white-space: pre-wrap;">{{ ref.abstract }}</div>
+                                        <div class="abstract-full text-muted" style="white-space: pre-wrap;">{{ remainder_clean }}</div>
                                     </details>
+                                        {% endwith %}
                                     {% endif %}
                                 {% else %}
                                     {{ preview }}
