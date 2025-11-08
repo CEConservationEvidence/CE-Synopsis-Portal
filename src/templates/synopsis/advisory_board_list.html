@@ -91,6 +91,12 @@
     .ab-row-status-declined .decline-reason-btn {
         opacity: 1;
     }
+
+    .ab-group-header {
+        font-size: 0.95rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+    }
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
@@ -203,42 +209,42 @@
             <table class="table table-sm align-middle advisory-board-table">
                 
                 <thead class="table-light">
-                    <tr class="text-uppercase text-muted small">
+                    <tr class="text-uppercase">
                         <th rowspan="2" class="ab-status-cell" scope="col">Status</th>
                         <th rowspan="2" class="text-muted" scope="col">
                             <span class="visually-hidden">Edit</span>
                         </th>
                         {% with personal_extra=combined_fields_by_group.personal|length %}
-                        <th class="text-start" scope="colgroup" colspan="{{ personal_extra|add:9 }}">Personal Details</th>
+                        <th class="ab-group-header text-start" scope="colgroup" colspan="{{ personal_extra|add:9 }}">PERSONAL DETAILS</th>
                         {% endwith %}
                         {% with invitation_extra=combined_fields_by_group.invitation|length %}
-                        <th class="text-start" scope="colgroup" colspan="{{ invitation_extra|add:4 }}">Invitation</th>
+                        <th class="ab-group-header text-start ab-status-invite" scope="colgroup" colspan="{{ invitation_extra|add:4 }}">INVITATION</th>
                         {% endwith %}
                         {% with action_extra=combined_fields_by_group.action|length %}
-                        <th class="text-start" scope="colgroup" colspan="{{ action_extra|add:4 }}">Action List</th>
+                        <th class="ab-group-header text-start ab-status-action" scope="colgroup" colspan="{{ action_extra|add:4 }}">ACTION LIST</th>
                         {% endwith %}
                         {% with protocol_extra=combined_fields_by_group.protocol|length %}
-                        <th class="text-start" scope="colgroup" colspan="{{ protocol_extra|add:7 }}">Protocol</th>
+                        <th class="ab-group-header text-start ab-status-protocol" scope="colgroup" colspan="{{ protocol_extra|add:7 }}">PROTOCOL</th>
                         {% endwith %}
                         {% with synopsis_extra=combined_fields_by_group.synopsis|length %}
-                        <th class="text-start" scope="colgroup" colspan="{{ synopsis_extra|add:5 }}">Synopsis</th>
+                        <th class="ab-group-header text-start ab-status-synopsis" scope="colgroup" colspan="{{ synopsis_extra|add:5 }}">SYNOPSIS</th>
                         {% endwith %}
                         {% with custom_extra=combined_fields_by_group.custom|length %}
                         {% if custom_extra %}
-                        <th class="text-start" scope="colgroup" colspan="{{ custom_extra }}">Custom Columns</th>
+                        <th class="ab-group-header text-start" scope="colgroup" colspan="{{ custom_extra }}">CUSTOM COLUMNS</th>
                         {% endif %}
                         {% endwith %}
                     </tr>
                     <tr>
-                        <th class="text-center" scope="col">Title</th>
-                        <th class="text-center" scope="col">Name 1</th>
-                        <th class="text-center" scope="col">Name 2</th>
-                        <th class="text-center" scope="col">Name 3</th>
-                        <th class="text-center" scope="col">Organisation</th>
-                        <th class="text-center" scope="col">Email</th>
-                        <th class="text-center" scope="col">Location</th>
-                        <th class="text-center" scope="col">Continent</th>
-                        <th class="text-center" scope="col">Notes</th>
+                        <th class="text-center" scope="col">TITLE</th>
+                        <th class="text-center" scope="col">NAME 1</th>
+                        <th class="text-center" scope="col">NAME 2</th>
+                        <th class="text-center" scope="col">NAME 3</th>
+                        <th class="text-center" scope="col">ORGANISATION</th>
+                        <th class="text-center" scope="col">EMAIL</th>
+                        <th class="text-center" scope="col">LOCATION</th>
+                        <th class="text-center" scope="col">CONTINENT</th>
+                        <th class="text-center" scope="col">NOTES</th>
                         {% for field in combined_fields_by_group.personal %}
                         <th class="text-center" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
@@ -248,10 +254,10 @@
                             <small class="text-muted">{{ field.get_data_type_display }}</small>
                         </th>
                         {% endfor %}
-                        <th class="ab-status-invite text-start" scope="col">Invite sent</th>
-                        <th class="ab-status-invite text-start" scope="col">Response deadline</th>
-                        <th class="ab-status-invite text-start" scope="col">Reminder sent</th>
-                        <th class="ab-status-invite text-start" scope="col">Accepted?</th>
+                        <th class="ab-status-invite text-start" scope="col">INVITE SENT</th>
+                        <th class="ab-status-invite text-start" scope="col">RESPONSE DEADLINE</th>
+                        <th class="ab-status-invite text-start" scope="col">REMINDER SENT</th>
+                        <th class="ab-status-invite text-start" scope="col">ACCEPTED?</th>
                         {% for field in combined_fields_by_group.invitation %}
                         <th class="ab-status-invite text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
@@ -261,10 +267,10 @@
                             <small class="text-muted">{{ field.get_data_type_display }}</small>
                         </th>
                         {% endfor %}
-                        <th class="ab-status-action text-start" scope="col">Action list sent</th>
-                        <th class="ab-status-action text-start" scope="col">Feedback received</th>
-                        <th class="ab-status-action text-start" scope="col">Author replied</th>
-                        <th class="ab-status-action text-start" scope="col">Feedback added to doc</th>
+                        <th class="ab-status-action text-start" scope="col">ACTION LIST SENT</th>
+                        <th class="ab-status-action text-start" scope="col">FEEDBACK RECEIVED</th>
+                        <th class="ab-status-action text-start" scope="col">AUTHOR REPLIED</th>
+                        <th class="ab-status-action text-start" scope="col">FEEDBACK ADDED TO DOC</th>
                         {% for field in combined_fields_by_group.action %}
                         <th class="ab-status-action text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
@@ -274,13 +280,13 @@
                             <small class="text-muted">{{ field.get_data_type_display }}</small>
                         </th>
                         {% endfor %}
-                        <th class="ab-status-protocol text-start" scope="col">Protocol sent</th>
-                        <th class="ab-status-protocol text-start" scope="col">Feedback deadline</th>
-                        <th class="ab-status-protocol text-start" scope="col">Reminder sent</th>
-                        <th class="ab-status-protocol text-start" scope="col">Feedback received</th>
-                        <th class="ab-status-protocol text-start" scope="col">Added to doc</th>
-                        <th class="ab-status-protocol text-start" scope="col">Guidance feedback</th>
-                        <th class="ab-status-protocol text-start" scope="col">Feedback document</th>
+                        <th class="ab-status-protocol text-start" scope="col">PROTOCOL SENT</th>
+                        <th class="ab-status-protocol text-start" scope="col">FEEDBACK DEADLINE</th>
+                        <th class="ab-status-protocol text-start" scope="col">REMINDER SENT</th>
+                        <th class="ab-status-protocol text-start" scope="col">FEEDBACK RECEIVED</th>
+                        <th class="ab-status-protocol text-start" scope="col">ADDED TO DOC</th>
+                        <th class="ab-status-protocol text-start" scope="col">GUIDANCE FEEDBACK</th>
+                        <th class="ab-status-protocol text-start" scope="col">FEEDBACK DOCUMENT</th>
                         {% for field in combined_fields_by_group.protocol %}
                         <th class="ab-status-protocol text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
@@ -290,11 +296,11 @@
                             <small class="text-muted">{{ field.get_data_type_display }}</small>
                         </th>
                         {% endfor %}
-                        <th class="ab-status-synopsis text-start" scope="col">Synopsis sent</th>
-                        <th class="ab-status-synopsis text-start" scope="col">Feedback deadline</th>
-                        <th class="ab-status-synopsis text-start" scope="col">Reminder sent</th>
-                        <th class="ab-status-synopsis text-start" scope="col">Feedback received</th>
-                        <th class="ab-status-synopsis text-start" scope="col">Added to doc</th>
+                        <th class="ab-status-synopsis text-start" scope="col">SYNOPSIS SENT</th>
+                        <th class="ab-status-synopsis text-start" scope="col">FEEDBACK DEADLINE</th>
+                        <th class="ab-status-synopsis text-start" scope="col">REMINDER SENT</th>
+                        <th class="ab-status-synopsis text-start" scope="col">FEEDBACK RECEIVED</th>
+                        <th class="ab-status-synopsis text-start" scope="col">ADDED TO DOC</th>
                         {% for field in combined_fields_by_group.synopsis %}
                         <th class="ab-status-synopsis text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
