@@ -485,6 +485,8 @@ class MemberReminderUpdateTests(TestCase):
         self.assertEqual(member.response, "N")
         self.assertEqual(member.participation_statement, decline_reason)
         self.assertFalse(inv.accepted)
+        self.assertIsNotNone(inv.responded_at)
+        self.assertFalse(inv.accepted)
 
     def test_edit_member_details(self):
         member = AdvisoryBoardMember.objects.create(
