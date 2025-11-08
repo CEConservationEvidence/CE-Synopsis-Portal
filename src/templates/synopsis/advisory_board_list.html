@@ -427,6 +427,16 @@
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-invite">
+                                        {% if m.is_declined %}
+                                        <div class="small text-muted">
+                                            Declined
+                                            {% if m.declined_at %}
+                                                {{ m.declined_at|date:"Y-m-d H:i" }}
+                                            {% elif m.response_date %}
+                                                {{ m.response_date|date:"Y-m-d" }}
+                                            {% endif %}
+                                        </div>
+                                        {% endif %}
                                         {% if m.response %}
                                         <div class="d-flex align-items-center justify-content-center gap-2 flex-wrap w-100">
                                             <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.is_declined %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ m.response }}</span>
