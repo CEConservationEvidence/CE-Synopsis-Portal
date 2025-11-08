@@ -1141,6 +1141,30 @@ def _advisory_board_context(
 
             invites = list(member.invitations.all())
 
+            def _latest_timestamp(inv_list, accepted_value):
+                filtered = [
+                    inv
+                    for inv in inv_list
+                    if inv.accepted is accepted_value
+                    and (inv.responded_at or inv.created_at)
+                ]
+                if not filtered:
+                    return None
+                filtered.sort(
+                    key=lambda inv: inv.responded_at or inv.created_at, reverse=True
+                )
+                return filtered[0].responded_at or filtered[0].created_at
+
+            member.declined_at = None
+            member.accepted_at = None
+            response_code = (member.response or "").upper()
+            if response_code == "N":
+                member.declined_at = _latest_timestamp(invites, False)
+            elif response_code == "Y":
+                member.accepted_at = _latest_timestamp(invites, True)
+                if member.accepted_at is None and member.participation_confirmed_at:
+                    member.accepted_at = member.participation_confirmed_at
+
     all_members = accepted_members + pending_members + declined_members
     declined_with_reason = [
         member
