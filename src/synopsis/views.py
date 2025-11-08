@@ -1117,7 +1117,7 @@ def _advisory_board_context(
     custom_field_form=None,
 ):
     members_qs = project.advisory_board_members.prefetch_related(
-        "protocol_feedback"
+        "protocol_feedback", "invitations"
     ).order_by("last_name", "first_name")
     accepted_members = list(members_qs.filter(response="Y"))
     declined_members = list(members_qs.filter(response="N"))
@@ -1138,6 +1138,8 @@ def _advisory_board_context(
                 )
             ):
                 member.feedback_on_actions_received = True
+
+            invites = list(member.invitations.all())
 
     all_members = accepted_members + pending_members + declined_members
     declined_with_reason = [
