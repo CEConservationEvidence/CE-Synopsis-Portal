@@ -498,7 +498,20 @@
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_action_list_at|date:"Y-m-d" }}</div>
                                         {% else %}
-                                        <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_action_list_compose_member' project.id m.id %}">Send</a>
+                                        {% if action_list_feedback_state.document_ready %}
+                                        <a
+                                            class="btn btn-sm btn-outline-secondary"
+                                            href="{% url 'synopsis:advisory_send_action_list_compose_member' project.id m.id %}"
+                                            title="Send the latest action list to this member"
+                                        >Send</a>
+                                        {% else %}
+                                        <button
+                                            class="btn btn-sm btn-outline-secondary disabled"
+                                            type="button"
+                                            title="Upload the action list file to enable sending"
+                                            disabled
+                                        >Send</button>
+                                        {% endif %}
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-action">
@@ -560,7 +573,20 @@
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_protocol_at|date:"Y-m-d" }}</div>
                                         {% else %}
-                                        <a class="btn btn-sm btn-outline-secondary" href="{% url 'synopsis:advisory_send_protocol_compose_member' project.id m.id %}">Send</a>
+                                        {% if protocol_feedback_state.document_ready %}
+                                        <a
+                                            class="btn btn-sm btn-outline-secondary"
+                                            href="{% url 'synopsis:advisory_send_protocol_compose_member' project.id m.id %}"
+                                            title="Send the latest protocol to this member"
+                                        >Send</a>
+                                        {% else %}
+                                        <button
+                                            class="btn btn-sm btn-outline-secondary disabled"
+                                            type="button"
+                                            title="Upload the protocol file to enable sending"
+                                            disabled
+                                        >Send</button>
+                                        {% endif %}
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-protocol">
