@@ -429,9 +429,16 @@
                                     <td class="ab-status-invite">
                                         {% if m.is_declined %}
                                         <div class="small text-muted">
-                                            Declined
                                             {% if m.declined_at %}
                                                 {{ m.declined_at|date:"Y-m-d H:i" }}
+                                            {% elif m.response_date %}
+                                                {{ m.response_date|date:"Y-m-d" }}
+                                            {% endif %}
+                                        </div>
+                                        {% elif m.response == 'Y' %}
+                                        <div class="small text-muted">
+                                            {% if m.accepted_at %}
+                                                {{ m.accepted_at|date:"Y-m-d H:i" }}
                                             {% elif m.response_date %}
                                                 {{ m.response_date|date:"Y-m-d" }}
                                             {% endif %}
