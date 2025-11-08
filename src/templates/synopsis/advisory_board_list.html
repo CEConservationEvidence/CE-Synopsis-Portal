@@ -101,39 +101,77 @@
 <div class="d-flex flex-wrap gap-2 mb-3">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
     {% if total_member_count %}
-    <a class="btn btn-outline-primary" href="{% url 'synopsis:advisory_invite_compose_all' project.id %}">Send invitations to all</a>
+    <a class="btn btn-outline-primary" href="{% url 'synopsis:advisory_invite_compose_all' project.id %}" title="Compose invites for every listed member">Send invitations to all</a>
     {% else %}
-    <button type="button" class="btn btn-outline-primary" disabled title="Add at least one member to send invitations.">Send invitations to all</button>
+    <div class="d-flex flex-column">
+        <button type="button" class="btn btn-outline-primary" disabled tabindex="-1" aria-disabled="true">Send invitations to all</button>
+        <small class="text-muted">Add at least one member to enable bulk invitations.</small>
+    </div>
     {% endif %}
     {% with has_protocol=protocol_feedback_state.document_ready %}
+    {% if has_protocol %}
     <a
-        class="btn btn-outline-primary{% if not has_protocol %} disabled{% endif %}"
+        class="btn btn-outline-primary"
         href="{% url 'synopsis:advisory_send_protocol_compose_all' project.id %}"
-        tabindex="{% if not has_protocol %}-1{% else %}0{% endif %}"
-        aria-disabled="{% if not has_protocol %}true{% else %}false{% endif %}"
+        title="Send the latest protocol to all eligible members"
     >
         Send protocol to all
     </a>
+    {% else %}
+    <div class="d-flex flex-column">
+        <button
+            type="button"
+            class="btn btn-outline-primary disabled"
+            tabindex="-1"
+            aria-disabled="true"
+        >
+            Send protocol to all
+        </button>
+        <small class="text-muted">Upload the protocol file to enable bulk sending.</small>
+    </div>
+    {% endif %}
     {% endwith %}
     {% with has_action_list=action_list_feedback_state.document_ready %}
+    {% if has_action_list %}
     <a
-        class="btn btn-outline-primary{% if not has_action_list %} disabled{% endif %}"
+        class="btn btn-outline-primary"
         href="{% url 'synopsis:advisory_send_action_list_compose_all' project.id %}"
-        tabindex="{% if not has_action_list %}-1{% else %}0{% endif %}"
-        aria-disabled="{% if not has_action_list %}true{% else %}false{% endif %}"
+        title="Send the latest action list to all eligible members"
     >
         Send action list to all
     </a>
+    {% else %}
+    <div class="d-flex flex-column">
+        <button
+            type="button"
+            class="btn btn-outline-primary disabled"
+            tabindex="-1"
+            aria-disabled="true"
+        >
+            Send action list to all
+        </button>
+        <small class="text-muted">Upload the action list file to enable bulk sending.</small>
+    </div>
+    {% endif %}
     {% endwith %}
     <button
         type="button"
         class="btn btn-outline-primary"
         data-bs-toggle="modal"
         data-bs-target="#manageRemindersModal"
+        title="View and update reminder schedules"
     >
         Manage reminders
     </button>
-    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addMemberModal">Add member</button>
+    <button
+        type="button"
+        class="btn btn-primary"
+        data-bs-toggle="modal"
+        data-bs-target="#addMemberModal"
+        title="Add a new advisory board member"
+    >
+        Add member
+    </button>
 </div>
 
 <div class="modal fade" id="addMemberModal" tabindex="-1" aria-labelledby="addMemberModalLabel" aria-hidden="true">
@@ -505,12 +543,16 @@
                                             title="Send the latest action list to this member"
                                         >Send</a>
                                         {% else %}
-                                        <button
-                                            class="btn btn-sm btn-outline-secondary disabled"
-                                            type="button"
-                                            title="Upload the action list file to enable sending"
-                                            disabled
-                                        >Send</button>
+                                        <div class="d-inline-flex flex-column align-items-center gap-1">
+                                            <button
+                                                class="btn btn-sm btn-outline-secondary disabled"
+                                                type="button"
+                                                tabindex="-1"
+                                                aria-disabled="true"
+                                                disabled
+                                            >Send</button>
+                                            <small class="text-muted text-nowrap">Upload action list first.</small>
+                                        </div>
                                         {% endif %}
                                         {% endif %}
                                     </td>
@@ -580,12 +622,16 @@
                                             title="Send the latest protocol to this member"
                                         >Send</a>
                                         {% else %}
-                                        <button
-                                            class="btn btn-sm btn-outline-secondary disabled"
-                                            type="button"
-                                            title="Upload the protocol file to enable sending"
-                                            disabled
-                                        >Send</button>
+                                        <div class="d-inline-flex flex-column align-items-center gap-1">
+                                            <button
+                                                class="btn btn-sm btn-outline-secondary disabled"
+                                                type="button"
+                                                tabindex="-1"
+                                                aria-disabled="true"
+                                                disabled
+                                            >Send</button>
+                                            <small class="text-muted text-nowrap">Upload protocol first.</small>
+                                        </div>
                                         {% endif %}
                                         {% endif %}
                                     </td>
