@@ -1,7 +1,11 @@
+import re
+from typing import List, Optional
+
 from django import forms
 from django.contrib.auth.models import Group, User
 from django.core.validators import FileExtensionValidator
 from django.utils.text import slugify
+from wagtail.admin.rich_text import DraftailRichTextArea
 
 from .models import (
     ActionList,
@@ -11,9 +15,13 @@ from .models import (
     Project,
     Protocol,
     Reference,
+    ReferenceSummary,
     ReferenceSourceBatch,
+    ReferenceActionSummary,
+    SynopsisOutlineChapter,
     UserRole,
 )
+from synopsis.services.front_matter_editor import FrontMatterFieldSpec
 
 FUNDER_TITLE_CHOICES = [
     ("", "Title"),
@@ -332,6 +340,158 @@ class AdvisoryMemberCustomDataForm(forms.Form):
             if bound.errors and "is-invalid" not in widget.attrs.get("class", ""):
                 widget.attrs["class"] = f"{widget.attrs['class']} is-invalid".strip()
 
+
+class SynopsisChapterForm(forms.Form):
+    title = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "e.g. Habitat restoration"}),
+        label="Chapter title",
+    )
+    summary = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "Optional short overview that helps other authors understand this chapter.",
+            }
+        ),
+        label="Intro summary",
+    )
+    section_number = forms.CharField(
+        max_length=20,
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "e.g. 1, 2.1, Appendix 1",
+            }
+        ),
+        label="Number / label",
+    )
+    section_type = forms.ChoiceField(
+        choices=SynopsisOutlineChapter._meta.get_field("section_type").choices,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        initial=SynopsisOutlineChapter._meta.get_field("section_type").default,
+        label="Section type",
+    )
+
+    def clean_title(self):
+        return (self.cleaned_data.get("title") or "").strip()
+
+    def clean_summary(self):
+        return (self.cleaned_data.get("summary") or "").strip()
+
+    def clean_section_number(self):
+        return (self.cleaned_data.get("section_number") or "").strip()
+
+
+class SynopsisBlockHeadingForm(forms.Form):
+    heading = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Type the heading text"}
+        ),
+        label="Heading",
+    )
+
+
+class SynopsisBlockParagraphForm(forms.Form):
+    text = forms.CharField(
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 4,
+                "placeholder": "Write the paragraph content",
+            }
+        ),
+        label="Paragraph",
+    )
+
+
+class SynopsisBlockSummaryForm(forms.Form):
+    summary = forms.ModelChoiceField(
+        queryset=ReferenceSummary.objects.none(),
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Reference summary",
+    )
+
+    def __init__(self, *args, project=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        qs = ReferenceSummary.objects.none()
+        if project:
+            qs = project.reference_summaries.select_related("reference").order_by(
+                "reference__title"
+            )
+        self.fields["summary"].queryset = qs
+
+
+class ReferenceActionSummaryForm(forms.ModelForm):
+    class Meta:
+        model = ReferenceActionSummary
+        fields = ["action_name", "summary_text"]
+        widgets = {
+            "action_name": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "e.g. Create or restore wetlands",
+                }
+            ),
+            "summary_text": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 4,
+                    "placeholder": "Write the ~200 word action-specific summary here.",
+                }
+            ),
+        }
+
+
+class SynopsisSectionForm(forms.Form):
+    title = forms.CharField(
+        max_length=255,
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "e.g. Annual crops, Front matter section title",
+            }
+        ),
+        label="Section title",
+    )
+    number_label = forms.CharField(
+        max_length=20,
+        required=False,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "e.g. 3.1, Appendix 2"}
+        ),
+        label="Number / label",
+    )
+
+
+class FrontMatterTemplateForm(forms.Form):
+    """
+    Dynamic form for editing the pre-defined front matter templates.
+    """
+
+    def __init__(self, *args, field_specs: Optional[List[FrontMatterFieldSpec]] = None, **kwargs):
+        self.field_specs = list(field_specs or [])
+        super().__init__(*args, **kwargs)
+        for spec in self.field_specs:
+            rows = getattr(spec, "rows", 6) or 6
+            attrs = {
+                "class": "form-control form-control-sm",
+                "rows": rows,
+            }
+            placeholder = getattr(spec, "placeholder", "")
+            if placeholder:
+                attrs["placeholder"] = placeholder
+            self.fields[spec.key] = forms.CharField(
+                required=False,
+                label=spec.label,
+                help_text=spec.help_text,
+                widget=forms.Textarea(attrs=attrs),
+            )
 
 class AssignAuthorsForm(forms.Form):
     authors = forms.ModelMultipleChoiceField(
@@ -760,4 +920,131 @@ class CollaborativeUpdateForm(forms.Form):
             }
         ),
         label="Change summary",
+    )
+
+
+class ReferenceSummaryAssignmentForm(forms.Form):
+    assigned_to = forms.ModelChoiceField(
+        queryset=User.objects.none(),
+        required=False,
+        label="Assignee",
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
+    needs_help = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Needs help",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+
+    def __init__(self, *args, project=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if project:
+            author_ids = project.author_users.values_list("id", flat=True)
+            self.fields["assigned_to"].queryset = User.objects.filter(
+                id__in=author_ids
+            ).order_by("first_name", "last_name")
+        else:
+            self.fields["assigned_to"].queryset = User.objects.none()
+
+
+class ReferenceSummaryUpdateForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        instance = getattr(self, "instance", None)
+        if instance and instance.pk:
+            for field in [
+                "action_tags",
+                "threat_tags",
+                "taxon_tags",
+                "habitat_tags",
+                "location_tags",
+            ]:
+                value = getattr(instance, field) or []
+                if isinstance(value, list):
+                    self.fields[field].initial = ", ".join(value)
+
+    class Meta:
+        model = ReferenceSummary
+        fields = [
+            "status",
+            "summary_text",
+            "key_findings",
+            "synopsis_draft",
+            "action_tags",
+            "threat_tags",
+            "taxon_tags",
+            "habitat_tags",
+            "location_tags",
+            "research_design",
+            "citation",
+        ]
+        widgets = {
+            "status": forms.Select(attrs={"class": "form-select"}),
+            "summary_text": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
+            "key_findings": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "synopsis_draft": DraftailRichTextArea(features=["h2", "h3", "bold", "italic", "ol", "ul", "link", "hr"]),
+            "action_tags": forms.TextInput(attrs={"class": "form-control"}),
+            "threat_tags": forms.TextInput(attrs={"class": "form-control"}),
+            "taxon_tags": forms.TextInput(attrs={"class": "form-control"}),
+            "habitat_tags": forms.TextInput(attrs={"class": "form-control"}),
+            "location_tags": forms.TextInput(attrs={"class": "form-control"}),
+            "research_design": forms.TextInput(attrs={"class": "form-control"}),
+            "citation": forms.TextInput(attrs={"class": "form-control"}),
+        }
+
+    def _split_tags(self, field_name):
+        value = self.cleaned_data.get(field_name)
+        if isinstance(value, list):
+            return value
+        if not value:
+            return []
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        return []
+
+    def clean_action_tags(self):
+        return self._split_tags("action_tags")
+
+    def clean_threat_tags(self):
+        return self._split_tags("threat_tags")
+
+    def clean_taxon_tags(self):
+        return self._split_tags("taxon_tags")
+
+    def clean_habitat_tags(self):
+        return self._split_tags("habitat_tags")
+
+    def clean_location_tags(self):
+        return self._split_tags("location_tags")
+
+    def clean_summary_text(self):
+        text = (self.cleaned_data.get("summary_text") or "").strip()
+        if not text:
+            return text
+        word_count = len(re.findall(r"\b\w+\b", text))
+        if word_count < 150 or word_count > 300:
+            raise forms.ValidationError(
+                f"Summary text must be between 150 and 300 words (currently {word_count})."
+            )
+        return text
+
+
+class ReferenceSummaryCommentForm(forms.Form):
+    body = forms.CharField(
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "Add a comment",
+            }
+        ),
+        label="",
+    )
+
+
+class ReferenceDocumentForm(forms.Form):
+    document = forms.FileField(
+        label="Upload PDF",
+        widget=forms.ClearableFileInput(attrs={"class": "form-control", "accept": "application/pdf"}),
     )
