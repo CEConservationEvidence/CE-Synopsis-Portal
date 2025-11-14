@@ -1,0 +1,40 @@
+{% extends "synopsis/base.html" %}
+{% load wagtailcore_tags %}
+
+{% block title %}Synopsis workspace{% endblock %}
+
+{% block content %}
+<div class="bg-white p-4 rounded shadow-sm mb-4">
+    <div class="d-flex justify-content-between align-items-center">
+        <div>
+            <p class="text-uppercase text-muted small mb-1">Workspace</p>
+            <h1 class="h3 mb-0">{{ page.title }}</h1>
+        </div>
+        <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:dashboard' %}">Back to dashboard</a>
+    </div>
+</div>
+
+{% if page.get_children.exists %}
+    <div class="row g-3">
+        {% for child in page.get_children.specific %}
+        <div class="col-12 col-md-6 col-xl-4">
+            <div class="card h-100">
+                <div class="card-body d-flex flex-column">
+                    <h2 class="h5">{{ child.title }}</h2>
+                    <p class="text-muted small mb-4">{{ child.project.title }}</p>
+                    <div class="mt-auto">
+                        <a class="btn btn-primary btn-sm" href="{{ child.url }}">Open project</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% empty %}
+        <div class="col-12">
+            <div class="alert alert-info mb-0">No synopsis projects have been created yet.</div>
+        </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="alert alert-secondary">No synopsis projects have been created yet.</div>
+{% endif %}
+{% endblock %}
