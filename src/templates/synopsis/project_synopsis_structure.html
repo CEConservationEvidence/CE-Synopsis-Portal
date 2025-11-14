@@ -1,0 +1,228 @@
+{% extends "synopsis/base.html" %}
+
+{% block title %}{{ project.title }} — Synopsis structure{% endblock %}
+
+{% block content %}
+<div class="bg-white p-4 rounded shadow-sm mb-4">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
+        <div>
+            <p class="text-uppercase text-muted small mb-1">Synopsis structure</p>
+            <h1 class="h3 mb-0">{{ project.title }}</h1>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_summary_board' project.id %}">Summaries board</a>
+            <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_synopsis_writer' project.id %}" target="_blank" rel="noopener">Open Wagtail writer</a>
+            {% if project_page and project_page.url %}
+            <a class="btn btn-primary btn-sm" href="{{ project_page.url }}" target="_blank" rel="noopener">View live project</a>
+            {% endif %}
+        </div>
+    </div>
+    <p class="text-muted small mb-0">
+        Fill out the templates below to keep the synopsis structure aligned with the published contents page. Publish whenever you want to refresh the draft in Wagtail.
+    </p>
+</div>
+
+{% if front_matter_chapters or chapters %}
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h6 text-uppercase text-muted mb-3">Contents preview</h2>
+        <ul class="list-unstyled mb-0">
+            {% for chapter in front_matter_chapters %}
+            <li class="mb-2">
+                <div class="fw-semibold">
+                    {% if chapter.section_number %}{{ chapter.section_number }} {% endif %}{{ chapter.title }}
+                </div>
+                {% if chapter.sorted_sections %}
+                <ul class="text-muted small ps-3 mb-1">
+                    {% for section in chapter.sorted_sections %}
+                    <li>
+                        {% if section.number_label %}{{ section.number_label }} {% endif %}{{ section.title|default:"(Untitled section)" }}
+                        {% if section.blocks_list %}
+                        <ul class="mb-1">
+                            {% for block in section.blocks_list %}
+                                {% if block.block_type == 'reference_summary' and block.reference_summary %}
+                                    <li>{{ block.reference_summary.reference.title }}</li>
+                                {% elif block.block_type == 'heading' %}
+                                    <li>{{ block.text|truncatechars:80 }}</li>
+                                {% endif %}
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </li>
+            {% endfor %}
+            {% for chapter in chapters %}
+            <li class="mb-2">
+                <div class="fw-semibold">
+                    {% if chapter.section_number %}{{ chapter.section_number }} {% endif %}{{ chapter.title }}
+                </div>
+                {% if chapter.sorted_sections %}
+                <ul class="text-muted small ps-3 mb-1">
+                    {% for section in chapter.sorted_sections %}
+                    <li>
+                        {% if section.number_label %}{{ section.number_label }} {% endif %}{{ section.title|default:"(Untitled section)" }}
+                        {% if section.blocks_list %}
+                        <ul class="mb-1">
+                            {% for block in section.blocks_list %}
+                                {% if block.block_type == 'reference_summary' and block.reference_summary %}
+                                    <li>{{ block.reference_summary.reference.title }}</li>
+                                {% elif block.block_type == 'heading' %}
+                                    <li>{{ block.text|truncatechars:80 }}</li>
+                                {% endif %}
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card h-100">
+            <div class="card-body">
+                {% if front_matter_forms %}
+                <div class="mb-4">
+                    <h2 class="h5 mb-1">Front matter templates</h2>
+                    <p class="text-muted small mb-3">Use these focused forms to keep the advisory board, author bios, acknowledgements, and “About this book” sections tidy. Blank lines create new paragraphs.</p>
+                    {% for entry in front_matter_forms %}
+                    <div class="border rounded p-3 mb-3">
+                        <div class="d-flex flex-column flex-md-row justify-content-between gap-2">
+                            <div>
+                                <h3 class="h6 mb-1">{{ entry.chapter.title }}</h3>
+                                <p class="text-muted small mb-0">{{ entry.config.description }}</p>
+                            </div>
+                            {% if entry.chapter.section_number %}
+                            <span class="badge text-bg-light align-self-start">{{ entry.chapter.section_number }}</span>
+                            {% endif %}
+                        </div>
+                        <form method="post" class="mt-3" novalidate>
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="save-front-matter">
+                            <input type="hidden" name="chapter_id" value="{{ entry.chapter.id }}">
+                            <input type="hidden" name="template_key" value="{{ entry.config.key }}">
+                            {% if entry.form.non_field_errors %}
+                            <div class="alert alert-danger py-2">{{ entry.form.non_field_errors }}</div>
+                            {% endif %}
+                            {% for field in entry.form %}
+                            <div class="mb-3">
+                                {{ field.label_tag }}
+                                {{ field }}
+                                {% if field.errors %}
+                                <div class="invalid-feedback d-block">{{ field.errors|join:", " }}</div>
+                                {% elif field.help_text %}
+                                <div class="form-text">{{ field.help_text }}</div>
+                                {% endif %}
+                            </div>
+                            {% endfor %}
+                            <div class="d-flex flex-wrap gap-2 justify-content-between">
+                                <button type="submit" class="btn btn-primary btn-sm">Save {{ entry.chapter.title }}</button>
+                            </div>
+                        </form>
+                        <div class="d-flex justify-content-end mt-2">
+                            <form method="post" class="m-0">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="sync-chapter">
+                                <input type="hidden" name="chapter_id" value="{{ entry.chapter.id }}">
+                                <button class="btn btn-outline-success btn-sm">Publish to Wagtail</button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if front_matter_generic_chapters %}
+                <div class="mb-4">
+                    <h2 class="h6 mb-1">Additional front matter</h2>
+                    <p class="text-muted small mb-3">These sections still use the legacy block editor.</p>
+                    {% for chapter in front_matter_generic_chapters %}
+                        {% include "synopsis/_outline_chapter_card.html" with chapter=chapter reference_summaries=reference_summaries section_type_choices=section_type_choices disable_move=True disable_delete=True manage_sections=False allow_reference_blocks=False is_first=False is_last=False %}
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if front_matter_forms or front_matter_generic_chapters %}
+                <hr class="my-4">
+                {% endif %}
+                <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-start align-items-md-center mb-3">
+                    <div>
+                        <h2 class="h5 mb-1">Chapters</h2>
+                        <p class="text-muted small mb-0">{{ chapters|length }} chapter{% if chapters|length != 1 %}s{% endif %}</p>
+                    </div>
+                    {% if chapters %}
+                    <form method="post" class="ms-md-auto">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="sync-all">
+                        <button type="submit" class="btn btn-success btn-sm">Publish all to Wagtail</button>
+                    </form>
+                    {% endif %}
+                </div>
+                {% if chapters %}
+                    {% for chapter in chapters %}
+                        {% include "synopsis/_outline_chapter_card.html" with chapter=chapter reference_summaries=reference_summaries section_type_choices=section_type_choices disable_move=False disable_delete=False manage_sections=True allow_reference_blocks=True is_first=forloop.first is_last=forloop.last %}
+                    {% endfor %}
+                {% else %}
+                <div class="alert alert-secondary mb-0">
+                    No chapters have been created yet. Use the form on the right to add your first chapter.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h2 class="h6 mb-3">Add a chapter</h2>
+                <form method="post" novalidate>
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="create-chapter">
+                    {% if chapter_form.non_field_errors %}
+                    <div class="alert alert-danger py-2">{{ chapter_form.non_field_errors }}</div>
+                    {% endif %}
+                    <div class="mb-3">
+                        {{ chapter_form.title.label_tag }}
+                        {{ chapter_form.title }}
+                        {% if chapter_form.title.errors %}
+                        <div class="invalid-feedback d-block">{{ chapter_form.title.errors|join:", " }}</div>
+                        {% elif chapter_form.title.help_text %}
+                        <div class="form-text">{{ chapter_form.title.help_text }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        {{ chapter_form.summary.label_tag }}
+                        {{ chapter_form.summary }}
+                        {% if chapter_form.summary.errors %}
+                        <div class="invalid-feedback d-block">{{ chapter_form.summary.errors|join:", " }}</div>
+                        {% elif chapter_form.summary.help_text %}
+                        <div class="form-text">{{ chapter_form.summary.help_text }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-4">
+                            {{ chapter_form.section_number.label_tag }}
+                            {{ chapter_form.section_number }}
+                        </div>
+                        <div class="col-md-8">
+                            {{ chapter_form.section_type.label_tag }}
+                            {{ chapter_form.section_type }}
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Create chapter</button>
+                </form>
+                <hr>
+                <p class="small text-muted mb-0">
+                    Chapters remain editable here. Use “Publish chapter” when you want the Wagtail draft to reflect the latest outline.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
