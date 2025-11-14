@@ -6299,6 +6299,7 @@ def advisory_send_action_list_compose_all(request, project_id):
     if not action_list:
         messages.error(request, "No action list configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
+    action_document_available = bool(getattr(action_list, "document", None))
     action_closed = bool(getattr(action_list, "feedback_closed_at", None))
     collaborative_enabled = (
         _onlyoffice_enabled()
@@ -6307,7 +6308,9 @@ def advisory_send_action_list_compose_all(request, project_id):
     )
     if request.method == "POST":
         form = ActionListSendForm(
-            request.POST, collaborative_enabled=collaborative_enabled
+            request.POST,
+            collaborative_enabled=collaborative_enabled,
+            document_available=action_document_available,
         )
         if form.is_valid():
             members = (
@@ -6325,29 +6328,60 @@ def advisory_send_action_list_compose_all(request, project_id):
                     "No eligible members found. Only members who accepted and confirmed participation can receive the action list.",
                 )
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
-            content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
+            include_document = action_document_available and form.cleaned_data.get(
+                "include_action_list_document"
+            )
             include_collab = collaborative_enabled and form.cleaned_data.get(
                 "include_collaborative_link"
             )
+            due_date = form.cleaned_data.get("due_date")
+            deadline_dt = None
+            if due_date:
+                combined = dt.datetime.combine(due_date, dt.time(23, 59))
+                deadline_dt = (
+                    timezone.make_aware(combined)
+                    if timezone.is_naive(combined)
+                    else combined
+                )
+            doc_url = (
+                request.build_absolute_uri(action_list.document.url)
+                if include_document and action_document_available
+                else ""
+            )
+            text_version = (action_list.text_version or "").strip()
             sent = 0
             for m in members:
+                member_deadline = m.feedback_on_action_list_deadline
+                deadline_changed = False
+                if deadline_dt:
+                    member_deadline = deadline_dt
+                    m.feedback_on_action_list_deadline = deadline_dt
+                    m.action_list_reminder_sent = False
+                    m.action_list_reminder_sent_at = None
+                    deadline_changed = True
                 fb = _create_action_list_feedback(project, member=m, email=m.email)
                 feedback_url = request.build_absolute_uri(
                     reverse("synopsis:action_list_feedback", args=[str(fb.token)])
                 )
                 subject = email_subject("action_list_review", project)
-                text = f"Dear {m.first_name or 'colleague'},\n\n{message_body}\n\n"
-                html = (
-                    f"<p>Dear {m.first_name or 'colleague'},</p>"
-                    f"<p>{message_body}</p>"
-                )
-                if content == "file" and getattr(action_list, "document", None):
-                    doc_url = request.build_absolute_uri(action_list.document.url)
+                text = f"Dear {m.first_name or 'colleague'},\n\n"
+                html = f"<p>Dear {m.first_name or 'colleague'},</p>"
+                if message_body:
+                    text += f"{message_body}\n\n"
+                    html += f"<p>{message_body}</p>"
+                if doc_url:
                     text += f"Please review the action list: {doc_url}\n\n"
-                    html += f"<p>Please review the action list: <a href='{doc_url}'>View document</a></p>"
-                elif content == "text" and (action_list.text_version or "").strip():
-                    html += "<hr>" + action_list.text_version
+                    html += (
+                        "<p>Please review the action list: "
+                        f"<a href='{doc_url}'>View document</a></p>"
+                    )
+                elif text_version:
+                    html += "<hr>" + text_version
+                deadline_text = _format_deadline(member_deadline)
+                if deadline_text:
+                    text += f"Deadline for action list feedback: {deadline_text}\n"
+                    html += f"<p>Deadline for action list feedback: {deadline_text}</p>"
                 text += f"Provide feedback: {feedback_url}\n"
                 html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
                 if include_collab:
@@ -6381,28 +6415,32 @@ def advisory_send_action_list_compose_all(request, project_id):
                 m.sent_action_list_at = timezone.now()
                 m.action_list_reminder_sent = False
                 m.action_list_reminder_sent_at = None
-                m.save(
-                    update_fields=[
-                        "sent_action_list_at",
-                        "action_list_reminder_sent",
-                        "action_list_reminder_sent_at",
-                    ]
-                )
+                update_fields = [
+                    "sent_action_list_at",
+                    "action_list_reminder_sent",
+                    "action_list_reminder_sent_at",
+                ]
+                if deadline_changed:
+                    update_fields.append("feedback_on_action_list_deadline")
+                m.save(update_fields=update_fields)
                 sent += 1
             messages.success(request, f"Sent action list to {sent} member(s).")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         form = ActionListSendForm(
-            initial={
-                "content": "file",
-                "include_collaborative_link": collaborative_enabled,
-            },
             collaborative_enabled=collaborative_enabled,
+            document_available=action_document_available,
         )
     return render(
         request,
         "synopsis/action_list_send_compose.html",
-        {"project": project, "form": form, "scope": "all"},
+        {
+            "project": project,
+            "form": form,
+            "scope": "all",
+            "member": None,
+            "collaborative_available": collaborative_enabled,
+        },
     )
 
 
@@ -6413,6 +6451,7 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
     if not action_list:
         messages.error(request, "No action list configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
+    action_document_available = bool(getattr(action_list, "document", None))
     member = get_object_or_404(AdvisoryBoardMember, id=member_id, project=project)
     if not member.email:
         messages.error(request, "This member has no email.")
@@ -6431,11 +6470,35 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
     )
     if request.method == "POST":
         form = ActionListSendForm(
-            request.POST, collaborative_enabled=collaborative_enabled
+            request.POST,
+            collaborative_enabled=collaborative_enabled,
+            document_available=action_document_available,
         )
         if form.is_valid():
-            content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
+            include_document = action_document_available and form.cleaned_data.get(
+                "include_action_list_document"
+            )
+            include_collab = collaborative_enabled and form.cleaned_data.get(
+                "include_collaborative_link"
+            )
+            due_date = form.cleaned_data.get("due_date")
+            deadline_dt = None
+            if due_date:
+                combined = dt.datetime.combine(due_date, dt.time(23, 59))
+                deadline_dt = (
+                    timezone.make_aware(combined)
+                    if timezone.is_naive(combined)
+                    else combined
+                )
+            member_deadline = member.feedback_on_action_list_deadline
+            deadline_changed = False
+            if deadline_dt:
+                member_deadline = deadline_dt
+                member.feedback_on_action_list_deadline = deadline_dt
+                member.action_list_reminder_sent = False
+                member.action_list_reminder_sent_at = None
+                deadline_changed = True
             fb = _create_action_list_feedback(
                 project, member=member, email=member.email
             )
@@ -6443,22 +6506,34 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
                 reverse("synopsis:action_list_feedback", args=[str(fb.token)])
             )
             subject = email_subject("action_list_review", project)
-            text = f"Dear {member.first_name or 'colleague'},\n\n{message_body}\n\n"
+            text = f"Dear {member.first_name or 'colleague'},\n\n"
             html = (
                 f"<p>Dear {member.first_name or 'colleague'},</p>"
-                f"<p>{message_body}</p>"
             )
-            if content == "file" and getattr(action_list, "document", None):
-                doc_url = request.build_absolute_uri(action_list.document.url)
+            if message_body:
+                text += f"{message_body}\n\n"
+                html += f"<p>{message_body}</p>"
+            doc_url = (
+                request.build_absolute_uri(action_list.document.url)
+                if include_document and action_document_available
+                else ""
+            )
+            text_version = (action_list.text_version or "").strip()
+            if doc_url:
                 text += f"Please review the action list: {doc_url}\n\n"
-                html += f"<p>Please review the action list: <a href='{doc_url}'>View document</a></p>"
-            elif content == "text" and (action_list.text_version or "").strip():
-                html += "<hr>" + action_list.text_version
+                html += (
+                    "<p>Please review the action list: "
+                    f"<a href='{doc_url}'>View document</a></p>"
+                )
+            elif text_version:
+                html += "<hr>" + text_version
+            deadline_text = _format_deadline(member_deadline)
+            if deadline_text:
+                text += f"Deadline for action list feedback: {deadline_text}\n"
+                html += f"<p>Deadline for action list feedback: {deadline_text}</p>"
             text += f"Provide feedback: {feedback_url}\n"
             html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
-            if collaborative_enabled and form.cleaned_data.get(
-                "include_collaborative_link"
-            ):
+            if include_collab:
                 collaborative_url = _ensure_collaborative_invite_link(
                     request,
                     project,
@@ -6486,22 +6561,27 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             member.sent_action_list_at = timezone.now()
             member.action_list_reminder_sent = False
             member.action_list_reminder_sent_at = None
-            member.save(
-                update_fields=[
-                    "sent_action_list_at",
-                    "action_list_reminder_sent",
-                    "action_list_reminder_sent_at",
-                ]
-            )
+            update_fields = [
+                "sent_action_list_at",
+                "action_list_reminder_sent",
+                "action_list_reminder_sent_at",
+            ]
+            if deadline_changed:
+                update_fields.append("feedback_on_action_list_deadline")
+            member.save(update_fields=update_fields)
             messages.success(request, f"Sent action list to {member.email}.")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
+        deadline_initial = None
+        if member.feedback_on_action_list_deadline:
+            local_deadline = timezone.localtime(member.feedback_on_action_list_deadline)
+            deadline_initial = local_deadline.date()
         form = ActionListSendForm(
             initial={
-                "content": "file",
-                "include_collaborative_link": collaborative_enabled,
+                "due_date": deadline_initial,
             },
             collaborative_enabled=collaborative_enabled,
+            document_available=action_document_available,
         )
     return render(
         request,
@@ -6511,6 +6591,7 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             "form": form,
             "scope": "member",
             "member": member,
+            "collaborative_available": collaborative_enabled,
         },
     )
 
