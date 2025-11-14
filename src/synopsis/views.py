@@ -6001,6 +6001,8 @@ def advisory_send_protocol_compose_all(request, project_id):
     if not proto:
         messages.error(request, "No protocol configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
+    proto_doc = getattr(proto, "document", None)
+    protocol_document_available = bool(proto_doc)
     protocol_closed = bool(getattr(proto, "feedback_closed_at", None))
     collaborative_enabled = (
         _onlyoffice_enabled()
@@ -6009,7 +6011,9 @@ def advisory_send_protocol_compose_all(request, project_id):
     )
     if request.method == "POST":
         form = ProtocolSendForm(
-            request.POST, collaborative_enabled=collaborative_enabled
+            request.POST,
+            collaborative_enabled=collaborative_enabled,
+            document_available=protocol_document_available,
         )
         if form.is_valid():
             members = (
@@ -6027,29 +6031,61 @@ def advisory_send_protocol_compose_all(request, project_id):
                     "No eligible members found. Only members who accepted and confirmed participation can receive the protocol.",
                 )
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
-            content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
             include_collab = collaborative_enabled and form.cleaned_data.get(
                 "include_collaborative_link"
             )
+            include_document = protocol_document_available and form.cleaned_data.get(
+                "include_protocol_document"
+            )
+            due_date = form.cleaned_data.get("due_date")
+            deadline_dt = None
+            if due_date:
+                combined = dt.datetime.combine(due_date, dt.time(23, 59))
+                deadline_dt = (
+                    timezone.make_aware(combined)
+                    if timezone.is_naive(combined)
+                    else combined
+                )
+            proto_url = (
+                request.build_absolute_uri(proto_doc.url)
+                if include_document and proto_doc
+                else ""
+            )
+            proto_text = (proto.text_version or "").strip()
             sent = 0
             for m in members:
+                member_deadline = m.feedback_on_protocol_deadline
+                deadline_changed = False
+                if deadline_dt:
+                    member_deadline = deadline_dt
+                    m.feedback_on_protocol_deadline = deadline_dt
+                    m.protocol_reminder_sent = False
+                    m.protocol_reminder_sent_at = None
+                    deadline_changed = True
+
                 fb = _create_protocol_feedback(project, member=m, email=m.email)
                 feedback_url = request.build_absolute_uri(
                     reverse("synopsis:protocol_feedback", args=[str(fb.token)])
                 )
                 subject = email_subject("protocol_review", project)
-                text = f"Dear {m.first_name or 'colleague'},\n\n{message_body}\n\n"
-                html = (
-                    f"<p>Dear {m.first_name or 'colleague'},</p>"
-                    f"<p>{message_body}</p>"
-                )
-                if content == "file" and getattr(proto, "document", None):
-                    proto_url = request.build_absolute_uri(proto.document.url)
+                text = f"Dear {m.first_name or 'colleague'},\n\n"
+                html = f"<p>Dear {m.first_name or 'colleague'},</p>"
+                if message_body:
+                    text += f"{message_body}\n\n"
+                    html += f"<p>{message_body}</p>"
+                if proto_url:
                     text += f"Please review the protocol: {proto_url}\n\n"
-                    html += f"<p>Please review the protocol: <a href='{proto_url}'>View document</a></p>"
-                elif content == "text" and (proto.text_version or "").strip():
-                    html += "<hr>" + proto.text_version
+                    html += (
+                        "<p>Please review the protocol: "
+                        f"<a href='{proto_url}'>View document</a></p>"
+                    )
+                elif proto_text:
+                    html += "<hr>" + proto_text
+                deadline_text = _format_deadline(member_deadline)
+                if deadline_text:
+                    text += f"Deadline for protocol feedback: {deadline_text}\n"
+                    html += f"<p>Deadline for protocol feedback: {deadline_text}</p>"
                 text += f"Provide feedback: {feedback_url}\n"
                 html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
                 if include_collab:
@@ -6083,28 +6119,31 @@ def advisory_send_protocol_compose_all(request, project_id):
                 m.sent_protocol_at = timezone.now()
                 m.protocol_reminder_sent = False
                 m.protocol_reminder_sent_at = None
-                m.save(
-                    update_fields=[
-                        "sent_protocol_at",
-                        "protocol_reminder_sent",
-                        "protocol_reminder_sent_at",
-                    ]
-                )
+                update_fields = [
+                    "sent_protocol_at",
+                    "protocol_reminder_sent",
+                    "protocol_reminder_sent_at",
+                ]
+                if deadline_changed:
+                    update_fields.append("feedback_on_protocol_deadline")
+                m.save(update_fields=update_fields)
                 sent += 1
             messages.success(request, f"Sent protocol to {sent} member(s).")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         form = ProtocolSendForm(
-            initial={
-                "content": "file",
-                "include_collaborative_link": collaborative_enabled,
-            },
             collaborative_enabled=collaborative_enabled,
+            document_available=protocol_document_available,
         )
     return render(
         request,
         "synopsis/protocol_send_compose.html",
-        {"project": project, "form": form, "scope": "all"},
+        {
+            "project": project,
+            "form": form,
+            "scope": "all",
+            "collaborative_available": collaborative_enabled,
+        },
     )
 
 
@@ -6115,6 +6154,8 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
     if not proto:
         messages.error(request, "No protocol configured for this project.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
+    proto_doc = getattr(proto, "document", None)
+    protocol_document_available = bool(proto_doc)
     m = get_object_or_404(AdvisoryBoardMember, id=member_id, project=project)
     if m.response != "Y" or not m.participation_confirmed:
         messages.error(
@@ -6130,26 +6171,60 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
     )
     if request.method == "POST":
         form = ProtocolSendForm(
-            request.POST, collaborative_enabled=collaborative_enabled
+            request.POST,
+            collaborative_enabled=collaborative_enabled,
+            document_available=protocol_document_available,
         )
         if form.is_valid():
-            content = form.cleaned_data["content"]
             message_body = form.cleaned_data.get("message") or ""
+            include_document = protocol_document_available and form.cleaned_data.get(
+                "include_protocol_document"
+            )
+            due_date = form.cleaned_data.get("due_date")
+            deadline_dt = None
+            if due_date:
+                combined = dt.datetime.combine(due_date, dt.time(23, 59))
+                deadline_dt = (
+                    timezone.make_aware(combined)
+                    if timezone.is_naive(combined)
+                    else combined
+                )
+            member_deadline = m.feedback_on_protocol_deadline
+            deadline_changed = False
+            if deadline_dt:
+                member_deadline = deadline_dt
+                m.feedback_on_protocol_deadline = deadline_dt
+                m.protocol_reminder_sent = False
+                m.protocol_reminder_sent_at = None
+                deadline_changed = True
             fb = _create_protocol_feedback(project, member=m, email=m.email)
             feedback_url = request.build_absolute_uri(
                 reverse("synopsis:protocol_feedback", args=[str(fb.token)])
             )
             subject = email_subject("protocol_review", project)
-            text = f"Dear {m.first_name or 'colleague'},\n\n{message_body}\n\n"
-            html = (
-                f"<p>Dear {m.first_name or 'colleague'},</p>" f"<p>{message_body}</p>"
+            text = f"Dear {m.first_name or 'colleague'},\n\n"
+            html = f"<p>Dear {m.first_name or 'colleague'},</p>"
+            if message_body:
+                text += f"{message_body}\n\n"
+                html += f"<p>{message_body}</p>"
+            proto_url = (
+                request.build_absolute_uri(proto_doc.url)
+                if include_document and proto_doc
+                else ""
             )
-            if content == "file" and getattr(proto, "document", None):
-                proto_url = request.build_absolute_uri(proto.document.url)
+            proto_text = (proto.text_version or "").strip()
+            if proto_url:
                 text += f"Please review the protocol: {proto_url}\n\n"
-                html += f"<p>Please review the protocol: <a href='{proto_url}'>View document</a></p>"
-            elif content == "text" and (proto.text_version or "").strip():
-                html += "<hr>" + proto.text_version
+                html += (
+                    "<p>Please review the protocol: "
+                    f"<a href='{proto_url}'>View document</a></p>"
+                )
+            elif proto_text:
+                html += "<hr>" + proto_text
+            deadline_text = _format_deadline(member_deadline)
+            if deadline_text:
+                text += f"Deadline for protocol feedback: {deadline_text}\n"
+                html += f"<p>Deadline for protocol feedback: {deadline_text}</p>"
             text += f"Provide feedback: {feedback_url}\n"
             html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
             if collaborative_enabled and form.cleaned_data.get(
@@ -6182,27 +6257,38 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             m.sent_protocol_at = timezone.now()
             m.protocol_reminder_sent = False
             m.protocol_reminder_sent_at = None
-            m.save(
-                update_fields=[
-                    "sent_protocol_at",
-                    "protocol_reminder_sent",
-                    "protocol_reminder_sent_at",
-                ]
-            )
+            update_fields = [
+                "sent_protocol_at",
+                "protocol_reminder_sent",
+                "protocol_reminder_sent_at",
+            ]
+            if deadline_changed:
+                update_fields.append("feedback_on_protocol_deadline")
+            m.save(update_fields=update_fields)
             messages.success(request, f"Sent protocol to {m.email}.")
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
+        deadline_initial = None
+        if m.feedback_on_protocol_deadline:
+            local_deadline = timezone.localtime(m.feedback_on_protocol_deadline)
+            deadline_initial = local_deadline.date()
         form = ProtocolSendForm(
             initial={
-                "content": "file",
-                "include_collaborative_link": collaborative_enabled,
+                "due_date": deadline_initial,
             },
             collaborative_enabled=collaborative_enabled,
+            document_available=protocol_document_available,
         )
     return render(
         request,
         "synopsis/protocol_send_compose.html",
-        {"project": project, "form": form, "scope": "member", "member": m},
+        {
+            "project": project,
+            "form": form,
+            "scope": "member",
+            "member": m,
+            "collaborative_available": collaborative_enabled,
+        },
     )
 
 

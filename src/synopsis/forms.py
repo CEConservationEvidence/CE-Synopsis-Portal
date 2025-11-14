@@ -514,28 +514,77 @@ class AdvisoryBulkInviteForm(forms.Form):
 
 
 class ProtocolSendForm(forms.Form):
-    content = forms.ChoiceField(
-        choices=[("file", "Send file link"), ("text", "Send embedded rich text")],
-        widget=forms.Select(attrs={"class": "form-select"}),
+    due_date = forms.DateField(
+        required=False,
+        label="Response due date",
+        widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
+        help_text=(
+            "Optional – overrides each member's existing deadline. Leave blank to keep their current dates."
+        ),
     )
     message = forms.CharField(
         required=False,
-        widget=forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-        help_text="Optional personal note to include.",
+        label="Additional message",
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
+        ),
+        help_text="Included after the default invitation copy.",
+    )
+    include_protocol_document = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Attach protocol document",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        help_text="Adds a link to the latest protocol document.",
     )
     include_collaborative_link = forms.BooleanField(
         required=False,
         initial=False,
-        help_text="Include a live OnlyOffice collaborative editor link.",
+        label="Include collaborative editor link",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        help_text="Shares the live collaborative editor for the action list.",
     )
 
-    def __init__(self, *args, collaborative_enabled=False, **kwargs):
+    def __init__(
+        self, *args, collaborative_enabled=False, document_available=False, **kwargs
+    ):
         super().__init__(*args, **kwargs)
-        if collaborative_enabled:
-            self.fields["include_collaborative_link"].initial = True
+        self.document_available = document_available
+        self.collaborative_available = collaborative_enabled
+        doc_field = self.fields["include_protocol_document"]
+        if document_available:
+            doc_field.disabled = False
+            doc_field.help_text = "Adds a link to the latest protocol document."
         else:
-            self.fields["include_collaborative_link"].initial = False
-            self.fields["include_collaborative_link"].disabled = True
+            doc_field.initial = False
+            doc_field.disabled = True
+            doc_field.help_text = "Upload a protocol document to include it here."
+
+        collab_field = self.fields["include_collaborative_link"]
+        if collaborative_enabled:
+            collab_field.disabled = False
+            collab_field.help_text = "Shares the live collaborative editor for the protocol."
+        else:
+            collab_field.initial = False
+            collab_field.disabled = True
+            collab_field.help_text = (
+                "Enable the collaborative editor and upload the protocol document to share this link."
+            )
+
+    def clean(self):
+        cleaned = super().clean()
+        include_doc = cleaned.get("include_protocol_document")
+        include_collab = cleaned.get("include_collaborative_link")
+        if self.document_available or self.collaborative_available:
+            if not include_doc and not include_collab:
+                raise forms.ValidationError(
+                    "Select at least one resource (protocol document or collaborative editor link) before sending."
+                )
+        else:
+            raise forms.ValidationError(
+                "Upload the protocol or enable the collaborative editor before sending."
+            )
+        return cleaned
 
 
 class ActionListSendForm(forms.Form):
