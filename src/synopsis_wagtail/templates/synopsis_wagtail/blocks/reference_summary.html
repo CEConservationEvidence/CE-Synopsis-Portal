@@ -1,0 +1,62 @@
+<div class="reference-summary-block border rounded p-3 mb-3">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-2">
+        <div>
+            <div class="fw-semibold">{{ value.summary.reference.title }}</div>
+            <div class="small text-muted">
+                {% if value.summary.reference.authors %}{{ value.summary.reference.authors }}{% else %}Unknown authors{% endif %}
+                {% if value.summary.reference.publication_year %} · {{ value.summary.reference.publication_year }}{% endif %}
+            </div>
+        </div>
+        <span class="badge text-bg-secondary">{{ value.summary.get_status_display }}</span>
+    </div>
+    {% if value.summary.summary_text %}
+        <p class="mb-2">{{ value.summary.summary_text|linebreaksbr }}</p>
+    {% else %}
+        <p class="text-muted mb-2">No summary text added yet.</p>
+    {% endif %}
+    {% with actions=value.summary.action_summaries.all %}
+        {% if actions %}
+            <div class="bg-light border rounded p-3 mb-2">
+                <div class="fw-semibold small text-uppercase">Action summaries</div>
+                {% for action in actions %}
+                    <div class="border-start ps-3 mb-2">
+                        <div class="fw-semibold small">{{ action.action_name }}</div>
+                        <p class="mb-0">{{ action.summary_text|linebreaksbr }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+    {% if value.summary.key_findings %}
+        <div class="mb-2">
+            <div class="fw-semibold small text-uppercase">Key findings</div>
+            <p class="mb-0">{{ value.summary.key_findings|linebreaksbr }}</p>
+        </div>
+    {% endif %}
+    <div class="mb-2 small">
+        {% if value.summary.action_tags %}
+            <span class="text-muted">Actions:</span>
+            {% for tag in value.summary.action_tags %}
+                <span class="badge text-bg-light">{{ tag }}</span>
+            {% endfor %}
+        {% endif %}
+        {% if value.summary.threat_tags %}
+            <span class="text-muted ms-2">Threats:</span>
+            {% for tag in value.summary.threat_tags %}
+                <span class="badge text-bg-light">{{ tag }}</span>
+            {% endfor %}
+        {% endif %}
+        {% if value.summary.habitat_tags %}
+            <span class="text-muted ms-2">Habitats:</span>
+            {% for tag in value.summary.habitat_tags %}
+                <span class="badge text-bg-light">{{ tag }}</span>
+            {% endfor %}
+        {% endif %}
+    </div>
+    {% if value.summary.research_design %}
+        <div class="small text-muted mb-1">Research design: {{ value.summary.research_design }}</div>
+    {% endif %}
+    <div class="small text-muted">
+        Citation: {{ value.summary.citation|default:value.summary.reference.title }}
+    </div>
+</div>
