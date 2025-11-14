@@ -328,6 +328,7 @@ class ProtocolRevision(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
     original_name = models.CharField(max_length=255, blank=True)
     file_size = models.BigIntegerField(default=0)
+    version_label = models.CharField(max_length=120, blank=True)
 
     class Meta:
         ordering = ["-uploaded_at", "-id"]
@@ -395,6 +396,7 @@ class ActionListRevision(models.Model):
     uploaded_at = models.DateTimeField(auto_now_add=True)
     original_name = models.CharField(max_length=255, blank=True)
     file_size = models.BigIntegerField(default=0)
+    version_label = models.CharField(max_length=120, blank=True)
 
     class Meta:
         ordering = ["-uploaded_at", "-id"]

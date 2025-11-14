@@ -394,6 +394,15 @@ def _format_value(value):
     return str(value)
 
 
+def _current_revision_label(document):
+    if not document:
+        return ""
+    revision = getattr(document, "current_revision", None)
+    if not revision:
+        return ""
+    return revision.version_label or ""
+
+
 def _user_display(user: User) -> str:
     full = user.get_full_name()
     return full or user.username
@@ -2140,6 +2149,7 @@ def protocol_detail(request, project_id):
                         protocol.stage != "final"
                         or protocol.current_revision_id != revision.id
                     ),
+                    "version_label": revision.version_label or "",
                 }
             )
 
@@ -2205,10 +2215,16 @@ def protocol_detail(request, project_id):
             new_stage = form.cleaned_data.get("stage")
             uploaded_file = form.cleaned_data.get("document")
             reason = form.cleaned_data.get("change_reason", "")
+            version_label = form.cleaned_data.get("version_label", "")
 
             is_new_protocol = protocol is None
             stage_changed = bool(protocol) and protocol.stage != new_stage
             replacing_file = bool(uploaded_file)
+            previous_label = (
+                (protocol.current_revision.version_label or "")
+                if protocol and protocol.current_revision
+                else ""
+            )
 
             if final_stage_locked and new_stage == "final" and replacing_file:
                 form.add_error(
@@ -2289,17 +2305,22 @@ def protocol_detail(request, project_id):
                         revision_instance.file_size = int(file_size or 0)
                     except (TypeError, ValueError):
                         revision_instance.file_size = 0
+                    revision_instance.version_label = version_label
                     revision_instance.file.save(
                         revision_filename, revision_content, save=True
                     )
                     obj.current_revision = revision_instance
                     obj.save(update_fields=["current_revision"])
-                elif stage_changed and obj.current_revision:
+                elif obj.current_revision:
                     update_fields = []
-                    if obj.current_revision.stage != obj.stage:
+                    if stage_changed and obj.current_revision.stage != obj.stage:
                         obj.current_revision.stage = obj.stage
                         update_fields.append("stage")
-                    if reason:
+                    current_label = obj.current_revision.version_label or ""
+                    if current_label != version_label:
+                        obj.current_revision.version_label = version_label
+                        update_fields.append("version_label")
+                    if reason and (stage_changed or current_label != version_label):
                         obj.current_revision.change_reason = reason
                         update_fields.append("change_reason")
                     if update_fields:
@@ -2312,6 +2333,16 @@ def protocol_detail(request, project_id):
                     if obj.current_revision.stage != "final":
                         obj.current_revision.stage = "final"
                         obj.current_revision.save(update_fields=["stage"])
+
+                new_label = (
+                    (obj.current_revision.version_label or "")
+                    if obj.current_revision
+                    else ""
+                )
+                if previous_label != new_label:
+                    changes.append(
+                        f"Version label: {_format_value(previous_label)} → {_format_value(new_label)}"
+                    )
 
                 detail_parts = []
                 if changes:
@@ -2338,6 +2369,13 @@ def protocol_detail(request, project_id):
                 return redirect("synopsis:protocol_detail", project_id=project.id)
     else:
         form = ProtocolUpdateForm(instance=protocol)
+
+    if (
+        protocol
+        and getattr(protocol, "current_revision", None)
+        and request.method != "POST"
+    ):
+        form.fields["version_label"].initial = protocol.current_revision.version_label
 
     if first_upload_pending:
         form.fields["change_reason"].help_text = (
@@ -2434,6 +2472,7 @@ def action_list_detail(request, project_id):
                         action_list.stage != "final"
                         or action_list.current_revision_id != revision.id
                     ),
+                    "version_label": revision.version_label or "",
                 }
             )
 
@@ -2587,17 +2626,22 @@ def action_list_detail(request, project_id):
                         revision_instance.file_size = int(file_size or 0)
                     except (TypeError, ValueError):
                         revision_instance.file_size = 0
+                    revision_instance.version_label = version_label
                     revision_instance.file.save(
                         revision_filename, revision_content, save=True
                     )
                     obj.current_revision = revision_instance
                     obj.save(update_fields=["current_revision"])
-                elif stage_changed and obj.current_revision:
+                elif obj.current_revision:
                     update_fields = []
-                    if obj.current_revision.stage != obj.stage:
+                    if stage_changed and obj.current_revision.stage != obj.stage:
                         obj.current_revision.stage = obj.stage
                         update_fields.append("stage")
-                    if reason:
+                    current_label = obj.current_revision.version_label or ""
+                    if current_label != version_label:
+                        obj.current_revision.version_label = version_label
+                        update_fields.append("version_label")
+                    if reason and (stage_changed or current_label != version_label):
                         obj.current_revision.change_reason = reason
                         update_fields.append("change_reason")
                     if update_fields:
@@ -2610,6 +2654,16 @@ def action_list_detail(request, project_id):
                     if obj.current_revision.stage != "final":
                         obj.current_revision.stage = "final"
                         obj.current_revision.save(update_fields=["stage"])
+
+                new_label = (
+                    (obj.current_revision.version_label or "")
+                    if obj.current_revision
+                    else ""
+                )
+                if previous_label != new_label:
+                    changes.append(
+                        f"Version label: {_format_value(previous_label)} → {_format_value(new_label)}"
+                    )
 
                 detail_parts = []
                 if changes:
@@ -2636,6 +2690,13 @@ def action_list_detail(request, project_id):
                 return redirect("synopsis:action_list_detail", project_id=project.id)
     else:
         form = ActionListUpdateForm(instance=action_list)
+
+    if (
+        action_list
+        and getattr(action_list, "current_revision", None)
+        and request.method != "POST"
+    ):
+        form.fields["version_label"].initial = action_list.current_revision.version_label
 
     if first_upload_pending:
         form.fields["change_reason"].help_text = (
@@ -5820,11 +5881,13 @@ def send_protocol(request, project_id):
     members = AdvisoryBoardMember.objects.filter(project=project, id__in=ids)
 
     proto_url = request.build_absolute_uri(project.protocol.document.url)
+    proto_label = _current_revision_label(project.protocol)
+    label_snippet = f" ({proto_label})" if proto_label else ""
     subject = email_subject("protocol_review", project)
     for m in members:
         text = (
             f"Dear {m.first_name or 'colleague'},\n\n"
-            f"Please review the protocol for '{project.title}':\n{proto_url}\n\n"
+            f"Please review the protocol{label_snippet} for '{project.title}':\n{proto_url}\n\n"
             f"Deadline for protocol feedback: "
             f"{_format_deadline(m.feedback_on_protocol_deadline)}\n"
         )
@@ -5874,13 +5937,15 @@ def advisory_send_protocol_bulk(request, project_id):
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
     proto_url = request.build_absolute_uri(project.protocol.document.url)
+    proto_label = _current_revision_label(project.protocol)
+    label_snippet = f" ({proto_label})" if proto_label else ""
     subject = email_subject("protocol_review", project)
 
     sent = 0
     for m in members:
         text = (
             f"Dear {m.first_name or 'colleague'},\n\n"
-            f"Please review the protocol for '{project.title}':\n{proto_url}\n\n"
+            f"Please review the protocol{label_snippet} for '{project.title}':\n{proto_url}\n\n"
             f"Deadline for protocol feedback: "
             f"{_format_deadline(m.feedback_on_protocol_deadline)}\n"
         )
@@ -5926,6 +5991,8 @@ def advisory_send_protocol_member(request, project_id, member_id):
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
     proto_url = request.build_absolute_uri(project.protocol.document.url)
+    proto_label = _current_revision_label(project.protocol)
+    label_snippet = f" ({proto_label})" if proto_label else ""
     subject = email_subject("protocol_review", project)
     deadline_text = _format_deadline(m.feedback_on_protocol_deadline)
     fb = _create_protocol_feedback(project, member=m, email=m.email)
@@ -5935,7 +6002,7 @@ def advisory_send_protocol_member(request, project_id, member_id):
 
     text = (
         f"Dear {m.first_name or 'colleague'},\n\n"
-        f"Please review the protocol for '{project.title}':\n{proto_url}\n\n"
+        f"Please review the protocol{label_snippet} for '{project.title}':\n{proto_url}\n\n"
         f"Deadline for protocol feedback: {deadline_text}\n"
         f"Provide feedback: {feedback_url}\n"
     )
@@ -5966,7 +6033,7 @@ def advisory_send_protocol_member(request, project_id, member_id):
     )
     html = (
         f"<p>Dear {m.first_name or 'colleague'},</p>"
-        f"<p>Please review the protocol for '<strong>{project.title}</strong>': "
+        f"<p>Please review the protocol{label_snippet} for '<strong>{project.title}</strong>': "
         f"<a href='{proto_url}'>View document</a></p>"
         f"<p>Deadline for protocol feedback: {deadline_text}</p>"
         f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
@@ -6053,6 +6120,8 @@ def advisory_send_protocol_compose_all(request, project_id):
                 else ""
             )
             proto_text = (proto.text_version or "").strip()
+            proto_label = _current_revision_label(proto)
+            label_snippet = f" ({proto_label})" if proto_label else ""
             sent = 0
             for m in members:
                 member_deadline = m.feedback_on_protocol_deadline
@@ -6075,10 +6144,10 @@ def advisory_send_protocol_compose_all(request, project_id):
                     text += f"{message_body}\n\n"
                     html += f"<p>{message_body}</p>"
                 if proto_url:
-                    text += f"Please review the protocol: {proto_url}\n\n"
+                    text += f"Please review the protocol{label_snippet}: {proto_url}\n\n"
                     html += (
-                        "<p>Please review the protocol: "
-                        f"<a href='{proto_url}'>View document</a></p>"
+                        "<p>Please review the protocol"
+                        f"{label_snippet}: <a href='{proto_url}'>View document</a></p>"
                     )
                 elif proto_text:
                     html += "<hr>" + proto_text
@@ -6213,11 +6282,13 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
                 else ""
             )
             proto_text = (proto.text_version or "").strip()
+            proto_label = _current_revision_label(proto)
+            label_snippet = f" ({proto_label})" if proto_label else ""
             if proto_url:
-                text += f"Please review the protocol: {proto_url}\n\n"
+                text += f"Please review the protocol{label_snippet}: {proto_url}\n\n"
                 html += (
-                    "<p>Please review the protocol: "
-                    f"<a href='{proto_url}'>View document</a></p>"
+                    "<p>Please review the protocol"
+                    f"{label_snippet}: <a href='{proto_url}'>View document</a></p>"
                 )
             elif proto_text:
                 html += "<hr>" + proto_text
@@ -6350,6 +6421,8 @@ def advisory_send_action_list_compose_all(request, project_id):
                 else ""
             )
             text_version = (action_list.text_version or "").strip()
+            action_label = _current_revision_label(action_list)
+            label_snippet = f" ({action_label})" if action_label else ""
             sent = 0
             for m in members:
                 member_deadline = m.feedback_on_action_list_deadline
@@ -6371,10 +6444,10 @@ def advisory_send_action_list_compose_all(request, project_id):
                     text += f"{message_body}\n\n"
                     html += f"<p>{message_body}</p>"
                 if doc_url:
-                    text += f"Please review the action list: {doc_url}\n\n"
+                    text += f"Please review the action list{label_snippet}: {doc_url}\n\n"
                     html += (
-                        "<p>Please review the action list: "
-                        f"<a href='{doc_url}'>View document</a></p>"
+                        "<p>Please review the action list"
+                        f"{label_snippet}: <a href='{doc_url}'>View document</a></p>"
                     )
                 elif text_version:
                     html += "<hr>" + text_version
@@ -6519,11 +6592,13 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
                 else ""
             )
             text_version = (action_list.text_version or "").strip()
+            action_label = _current_revision_label(action_list)
+            label_snippet = f" ({action_label})" if action_label else ""
             if doc_url:
-                text += f"Please review the action list: {doc_url}\n\n"
+                text += f"Please review the action list{label_snippet}: {doc_url}\n\n"
                 html += (
-                    "<p>Please review the action list: "
-                    f"<a href='{doc_url}'>View document</a></p>"
+                    "<p>Please review the action list"
+                    f"{label_snippet}: <a href='{doc_url}'>View document</a></p>"
                 )
             elif text_version:
                 html += "<hr>" + text_version

@@ -47,6 +47,14 @@ class ProtocolUpdateForm(forms.ModelForm):
         widget=forms.Textarea(attrs={"rows": 3, "class": "form-control"}),
         help_text="Explain what changed in this revision so other authors can stay aligned.",
     )
+    version_label = forms.CharField(
+        required=False,
+        max_length=120,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "e.g., v1.2 – Methods update"}
+        ),
+        help_text="Optional short tag that will appear next to the document in emails and revision history.",
+    )
 
     class Meta:
         model = Protocol
@@ -58,6 +66,10 @@ class ProtocolUpdateForm(forms.ModelForm):
     def clean_change_reason(self):
         reason = self.cleaned_data.get("change_reason", "")
         return reason.strip()
+
+    def clean_version_label(self):
+        label = self.cleaned_data.get("version_label", "")
+        return label.strip()
 
 
 class ActionListUpdateForm(forms.ModelForm):
@@ -72,6 +84,14 @@ class ActionListUpdateForm(forms.ModelForm):
         widget=forms.Textarea(attrs={"rows": 3, "class": "form-control"}),
         help_text="Explain what changed so advisory members can follow revisions.",
     )
+    version_label = forms.CharField(
+        required=False,
+        max_length=120,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "e.g., Tasks v3 – May review"}
+        ),
+        help_text="Optional short tag that will appear in emails and the revision log.",
+    )
 
     class Meta:
         model = ActionList
@@ -83,6 +103,10 @@ class ActionListUpdateForm(forms.ModelForm):
     def clean_change_reason(self):
         reason = self.cleaned_data.get("change_reason", "")
         return reason.strip()
+
+    def clean_version_label(self):
+        label = self.cleaned_data.get("version_label", "")
+        return label.strip()
 
 
 class CreateUserForm(forms.Form):

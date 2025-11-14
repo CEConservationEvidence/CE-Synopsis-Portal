@@ -68,6 +68,14 @@
                     {% endfor %}
                 </div>
                 <div class="mb-3">
+                    <label class="form-label" for="{{ form.version_label.id_for_label }}">Version label (optional)</label>
+                    {{ form.version_label }}
+                    <div class="form-text">{{ form.version_label.help_text }}</div>
+                    {% for error in form.version_label.errors %}
+                    <div class="text-danger small">{{ error }}</div>
+                    {% endfor %}
+                </div>
+                <div class="mb-3">
                     <label class="form-label" for="{{ form.change_reason.id_for_label }}">
                         Change reason
                         {% if first_upload_pending %}
@@ -185,6 +193,9 @@
                     {% if current_revision_entry.file_size and current_revision_entry.file_size != '—' %}
                     <span class="text-muted small">({{ current_revision_entry.file_size }})</span>
                     {% endif %}
+                    {% if current_revision_entry.version_label %}
+                    <span class="badge text-bg-info-subtle text-dark ms-2">{{ current_revision_entry.version_label }}</span>
+                    {% endif %}
                 </div>
                 <div class="mt-2 d-flex flex-wrap gap-2">
                     {% if current_revision_download_url %}
@@ -263,6 +274,9 @@
                             <div>
                                 <div class="d-flex align-items-center gap-2 flex-wrap">
                                     <span class="fw-semibold">{{ entry.file_name }}</span>
+                                    {% if entry.version_label %}
+                                    <span class="badge text-bg-info-subtle text-dark">{{ entry.version_label }}</span>
+                                    {% endif %}
                                     <span class="badge text-bg-{% if entry.revision.stage == 'final' %}success{% else %}warning text-dark{% endif %}">{{ entry.revision.get_stage_display }}</span>
                                     {% if entry.is_current %}
                                     <span class="badge text-bg-primary">Current</span>
