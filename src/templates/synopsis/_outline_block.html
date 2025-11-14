@@ -1,0 +1,101 @@
+<div class="border rounded p-3 mb-3">
+    <div class="d-flex justify-content-between align-items-start gap-3">
+        <div class="flex-grow-1">
+            {% if block.block_type == 'reference_summary' and block.reference_summary %}
+                <div class="fw-semibold">{{ block.reference_summary.reference.title }}</div>
+                <div class="text-muted small">
+                    {{ block.reference_summary.reference.authors|default:"Unknown authors" }}
+                    {% if block.reference_summary.reference.publication_year %}
+                        · {{ block.reference_summary.reference.publication_year }}
+                    {% endif %}
+                </div>
+                <p class="mt-2 mb-2">
+                    {{ block.reference_summary.summary_text|default:"No summary text added yet."|linebreaksbr }}
+                </p>
+                {% if block.reference_summary.action_summaries.all %}
+                    <div class="bg-white border rounded p-2 mb-2">
+                        <div class="small text-uppercase text-muted mb-1">Action summaries</div>
+                        {% for action in block.reference_summary.action_summaries.all %}
+                            <div class="border-start ps-3 mb-2">
+                                <div class="fw-semibold small">{{ action.action_name }}</div>
+                                <p class="mb-1">{{ action.summary_text|linebreaksbr }}</p>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                {% if block.reference_summary.key_findings %}
+                    <div class="mb-2">
+                        <div class="fw-semibold small text-uppercase">Key findings</div>
+                        <p class="mb-0">{{ block.reference_summary.key_findings|linebreaksbr }}</p>
+                    </div>
+                {% endif %}
+            {% elif block.block_type == 'heading' %}
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="update-heading">
+                    <input type="hidden" name="block_id" value="{{ block.id }}">
+                    <label class="form-label small text-muted">Heading text</label>
+                    <input type="text" name="heading" class="form-control form-control-sm" value="{{ block.text }}">
+                    <button class="btn btn-outline-primary btn-sm mt-2">Save heading</button>
+                </form>
+            {% elif block.block_type == 'paragraph' %}
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="update-paragraph">
+                    <input type="hidden" name="block_id" value="{{ block.id }}">
+                    <label class="form-label small text-muted">Paragraph</label>
+                    <textarea name="text" class="form-control form-control-sm" rows="3">{{ block.text }}</textarea>
+                    <button class="btn btn-outline-primary btn-sm mt-2">Save paragraph</button>
+                </form>
+            {% elif block.block_type == 'key_message' %}
+                <p class="mb-0">{{ block.text|linebreaksbr }}</p>
+            {% endif %}
+        </div>
+        <div class="d-flex flex-column gap-2">
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="move-block">
+                <input type="hidden" name="block_id" value="{{ block.id }}">
+                <input type="hidden" name="direction" value="up">
+                <button class="btn btn-outline-secondary btn-sm" {% if forloop.first %}disabled{% endif %}>↑</button>
+            </form>
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="move-block">
+                <input type="hidden" name="block_id" value="{{ block.id }}">
+                <input type="hidden" name="direction" value="down">
+                <button class="btn btn-outline-secondary btn-sm" {% if forloop.last %}disabled{% endif %}>↓</button>
+            </form>
+            <form method="post" onsubmit="return confirm('Delete this block?');">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="delete-block">
+                <input type="hidden" name="block_id" value="{{ block.id }}">
+                <button class="btn btn-outline-danger btn-sm">✕</button>
+            </form>
+        </div>
+    </div>
+    <div class="d-flex flex-wrap gap-3 align-items-center mt-3">
+        <div class="small text-muted">
+            Section:
+            {% if block.section %}
+                {{ block.section.number_label|default:"" }} {{ block.section.title|default:"(Untitled)" }}
+            {% else %}
+                Ungrouped
+            {% endif %}
+        </div>
+        <form method="post" class="d-flex gap-2 align-items-center">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="set-block-section">
+            <input type="hidden" name="block_id" value="{{ block.id }}">
+            <select name="section_id" class="form-select form-select-sm">
+                <option value="">Ungrouped</option>
+                {% for section in chapter.sorted_sections %}
+                    <option value="{{ section.id }}" {% if block.section_id == section.id %}selected{% endif %}>
+                        {{ section.number_label|default:section.title|default:"Section" }}
+                    </option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-outline-secondary btn-sm">Apply</button>
+        </form>
+    </div>
+</div>
