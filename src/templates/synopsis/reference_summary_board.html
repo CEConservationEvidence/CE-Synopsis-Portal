@@ -1,0 +1,107 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Reference summaries – {{ project.title }}{% endblock %}
+{% block content %}
+<h1 class="mb-3">Reference summaries – {{ project.title }}</h1>
+<div class="d-flex flex-wrap gap-2 mb-4">
+    <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
+    <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_list' project.id %}">Screening overview</a>
+    <a class="btn btn-outline-success" href="{% url 'synopsis:project_synopsis_structure' project.id %}">Manage synopsis structure</a>
+    <a class="btn btn-primary" href="{% url 'synopsis:project_synopsis_writer' project.id %}">Open synopsis writer</a>
+</div>
+{% if reference_count %}
+<div class="card mb-4">
+    <div class="card-body d-flex flex-column flex-md-row justify-content-between gap-3 align-items-start align-items-md-center">
+        <div>
+            <h5 class="mb-1">Progress</h5>
+            <div class="display-6">{{ completed }} / {{ total_included }}</div>
+            <div class="small text-muted">Summaries marked as “Synopsised”</div>
+        </div>
+        <div class="flex-grow-1">
+            <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ progress }}">
+                <div class="progress-bar{% if progress == 100 %} bg-success{% endif %}" style="width: {{ progress }}%;"></div>
+            </div>
+            <div class="small text-muted text-end mt-1">{{ progress }}%</div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="alert alert-info">No references have been included yet. Complete screening to start summarising.</div>
+{% endif %}
+<div class="row row-cols-1 row-cols-lg-4 g-3">
+    {% for column in columns %}
+    <div class="col">
+        <div class="card h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>{{ column.label }}</span>
+                <span class="badge text-bg-secondary">{{ column.items|length }}</span>
+            </div>
+            <div class="card-body">
+                {% if column.items %}
+                    {% for summary in column.items %}
+                    <div class="border rounded p-3 mb-3">
+                        <div class="fw-semibold">{{ summary.reference.title }}</div>
+                        <div class="small text-muted">
+                            {% if summary.reference.authors %}{{ summary.reference.authors }}{% else %}Unknown authors{% endif %}
+                            {% if summary.reference.publication_year %} · {{ summary.reference.publication_year }}{% endif %}
+                        </div>
+                        <div class="small mt-2">
+                            Assigned to:
+                            {% if summary.assigned_to %}
+                                {{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}
+                            {% else %}
+                                <span class="text-muted">Unassigned</span>
+                            {% endif %}
+                            {% if summary.needs_help %}
+                                <span class="badge text-bg-warning text-dark ms-2">Needs help</span>
+                            {% endif %}
+                        </div>
+                        <form method="post" class="mt-2">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="assign">
+                            <input type="hidden" name="summary_id" value="{{ summary.id }}">
+                            <div class="mb-2">
+                                <select name="assigned_to" class="form-select form-select-sm">
+                                    <option value="">Unassigned</option>
+                                    {% for author in author_options %}
+                                        <option value="{{ author.id }}" {% if summary.assigned_to_id == author.id %}selected{% endif %}>{{ author.get_full_name|default:author.username }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="d-flex align-items-center justify-content-between">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="1" name="needs_help" id="needs-{{ summary.id }}" {% if summary.needs_help %}checked{% endif %}>
+                                    <label class="form-check-label small" for="needs-{{ summary.id }}">Needs help</label>
+                                </div>
+                                <button class="btn btn-outline-primary btn-sm">Update</button>
+                            </div>
+                        </form>
+                        <form method="post" class="mt-3">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="status">
+                            <input type="hidden" name="summary_id" value="{{ summary.id }}">
+                            <div class="input-group input-group-sm">
+                                <select name="status" class="form-select form-select-sm">
+                                    {% for code, label in status_choices %}
+                                    <option value="{{ code }}" {% if summary.status == code %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button class="btn btn-outline-secondary" type="submit">Move</button>
+                            </div>
+                        </form>
+                        <div class="mt-3 d-flex flex-wrap gap-2 align-items-center">
+                            <a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:reference_summary_detail' project.id summary.id %}">Open summary</a>
+                            {% if summary.reference.batch %}
+                            <span class="text-muted small">Batch: {{ summary.reference.batch.label }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <p class="text-muted mb-0">No references in this column yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}
