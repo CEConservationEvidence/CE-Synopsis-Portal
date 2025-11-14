@@ -3,8 +3,11 @@ import uuid
 
 from django.contrib.auth.models import User
 from django.contrib.postgres.fields import ArrayField
+from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.utils import timezone
+from wagtail.fields import RichTextField
+from wagtail.snippets.models import register_snippet
 
 """
 TODO: #16 Cleanup models.py by modularising models into separate files for organization and maintainability. Also add docstring comments (AI generated but reviewed) to explain purpose and usage.
@@ -1108,6 +1111,14 @@ class Reference(models.Model):
         blank=True,
         help_text="Original RIS key/value pairs for full fidelity storage.",
     )
+    reference_document = models.FileField(
+        upload_to="reference_documents/%Y/%m/%d",
+        blank=True,
+        null=True,
+        validators=[FileExtensionValidator(["pdf"])],
+        help_text="Optional uploaded PDF of the reference.",
+    )
+    reference_document_uploaded_at = models.DateTimeField(null=True, blank=True)
     screening_status = models.CharField(
         max_length=40,
         choices=SCREENING_STATUS_CHOICES,
@@ -1150,3 +1161,189 @@ class Reference(models.Model):
                 "updated_at",
             ]
         )
+
+
+@register_snippet
+class ReferenceSummary(models.Model):
+    STATUS_TODO = "todo"
+    STATUS_DRAFT = "draft"
+    STATUS_REVIEW = "review"
+    STATUS_DONE = "done"
+    STATUS_CHOICES = [
+        (STATUS_TODO, "To summarise"),
+        (STATUS_DRAFT, "In progress"),
+        (STATUS_REVIEW, "Ready for review"),
+        (STATUS_DONE, "Synopsised"),
+    ]
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="reference_summaries"
+    )
+    reference = models.OneToOneField(
+        Reference, on_delete=models.CASCADE, related_name="summary"
+    )
+    assigned_to = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_summaries"
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_TODO)
+    needs_help = models.BooleanField(default=False)
+    summary_text = models.TextField(blank=True)
+    key_findings = models.TextField(blank=True)
+    synopsis_draft = RichTextField(blank=True)
+    ai_summary = models.TextField(blank=True)
+    ai_summary_model = models.CharField(max_length=255, blank=True)
+    ai_summary_generated_at = models.DateTimeField(null=True, blank=True)
+    action_tags = models.JSONField(default=list, blank=True)
+    threat_tags = models.JSONField(default=list, blank=True)
+    taxon_tags = models.JSONField(default=list, blank=True)
+    habitat_tags = models.JSONField(default=list, blank=True)
+    location_tags = models.JSONField(default=list, blank=True)
+    research_design = models.CharField(max_length=255, blank=True)
+    citation = models.CharField(max_length=512, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["reference__title"]
+
+    def __str__(self):
+        return f"Summary for {self.reference.title[:50]}"
+
+
+class ReferenceSummaryComment(models.Model):
+    summary = models.ForeignKey(
+        ReferenceSummary, on_delete=models.CASCADE, related_name="comments"
+    )
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"Comment by {self.author} on {self.summary}"
+
+
+class ReferenceActionSummary(models.Model):
+    reference_summary = models.ForeignKey(
+        ReferenceSummary,
+        on_delete=models.CASCADE,
+        related_name="action_summaries",
+    )
+    action_name = models.CharField(max_length=255)
+    summary_text = models.TextField()
+    order = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"{self.reference_summary.reference.title[:40]} – {self.action_name}"
+
+
+class SynopsisOutlineChapter(models.Model):
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="outline_chapters"
+    )
+    wagtail_page = models.OneToOneField(
+        "synopsis_wagtail.SynopsisChapterPage",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="outline_chapter",
+    )
+    title = models.CharField(max_length=255)
+    summary = models.TextField(blank=True)
+    position = models.PositiveIntegerField(default=0)
+    section_number = models.CharField(max_length=20, blank=True)
+    section_type = models.CharField(
+        max_length=20,
+        choices=[
+            ("front_matter", "Front matter"),
+            ("threat", "Threat"),
+            ("action", "Action group"),
+            ("appendix", "Appendix"),
+        ],
+        default="action",
+    )
+    template_key = models.CharField(max_length=50, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"{self.project.title}: {self.title}"
+
+
+class SynopsisOutlineSection(models.Model):
+    chapter = models.ForeignKey(
+        SynopsisOutlineChapter, on_delete=models.CASCADE, related_name="sections"
+    )
+    title = models.CharField(max_length=255, blank=True)
+    position = models.PositiveIntegerField(default=0)
+    number_label = models.CharField(max_length=20, blank=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        base = self.title or "Section"
+        return f"{self.chapter.title} – {base}"
+
+
+class SynopsisOutlineBlock(models.Model):
+    TYPE_HEADING = "heading"
+    TYPE_PARAGRAPH = "paragraph"
+    TYPE_KEY_MESSAGE = "key_message"
+    TYPE_REFERENCE_SUMMARY = "reference_summary"
+    BLOCK_TYPE_CHOICES = [
+        (TYPE_HEADING, "Heading"),
+        (TYPE_PARAGRAPH, "Paragraph"),
+        (TYPE_KEY_MESSAGE, "Key message"),
+        (TYPE_REFERENCE_SUMMARY, "Reference summary"),
+    ]
+
+    chapter = models.ForeignKey(
+        SynopsisOutlineChapter, on_delete=models.CASCADE, related_name="blocks"
+    )
+    section = models.ForeignKey(
+        SynopsisOutlineSection,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="blocks",
+    )
+    block_type = models.CharField(max_length=32, choices=BLOCK_TYPE_CHOICES)
+    text = models.TextField(blank=True)
+    reference_summary = models.ForeignKey(
+        ReferenceSummary,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="outline_blocks",
+    )
+    reference_action_summary = models.ForeignKey(
+        ReferenceActionSummary,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="outline_blocks",
+    )
+    position = models.PositiveIntegerField(default=0)
+    metadata = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"{self.get_block_type_display()} ({self.chapter.title})"
