@@ -294,60 +294,148 @@
                                 {% if entry.revision.change_reason %}
                                 <div class="mt-1 small">{{ entry.revision.change_reason }}</div>
                                 {% endif %}
-                            </div>
-                            <div class="text-end ms-auto">
+                    </div>
+                    <div class="text-end ms-auto">
+                        <div class="dropdown">
+                            <button
+                                class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                                type="button"
+                                data-bs-toggle="dropdown"
+                                aria-expanded="false"
+                            >
+                                Actions
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end">
                                 {% if entry.download_url %}
-                                <a class="btn btn-outline-secondary btn-sm mb-1" href="{{ entry.download_url }}" download>Download</a>
+                                <li>
+                                    <a class="dropdown-item" href="{{ entry.download_url }}" download>
+                                        Download
+                                    </a>
+                                </li>
                                 {% endif %}
-                                {% if not entry.is_current %}
-                                <form
-                                    method="post"
-                                    action="{% url 'synopsis:protocol_restore_revision' project.id entry.revision.id %}"
-                                    class="d-inline"
-                                    onsubmit="return confirm('Restore this revision as the active protocol?');"
-                                >
-                                    {% csrf_token %}
-                                    <button class="btn btn-outline-primary btn-sm">Restore</button>
-                                </form>
+                                {% if entry.is_current %}
+                                <li>
+                                    <span class="dropdown-item-text text-muted">Current revision</span>
+                                </li>
                                 {% else %}
-                                <span class="badge text-bg-secondary align-self-center">Active</span>
+                                <li>
+                                    <button
+                                        class="dropdown-item"
+                                        type="button"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#protocolRestoreModal-{{ entry.revision.id }}"
+                                    >
+                                        Restore
+                                    </button>
+                                </li>
                                 {% endif %}
                                 {% if entry.can_mark_final %}
-                                <form
-                                    method="post"
-                                    action="{% url 'synopsis:protocol_set_stage' project.id %}"
-                                    class="d-inline-flex align-items-center gap-2 mt-2 mt-sm-0"
-                                    onsubmit="return confirm('Set this revision as the final protocol?');"
-                                >
-                                    {% csrf_token %}
-                                    <input type="hidden" name="stage" value="final">
-                                    <input type="hidden" name="revision_id" value="{{ entry.revision.id }}">
-                                    <input
-                                        type="text"
-                                        name="reason"
-                                        class="form-control form-control-sm"
-                                        placeholder="Reason"
-                                        required
+                                <li>
+                                    <button
+                                        class="dropdown-item"
+                                        type="button"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#protocolSetFinalModal-{{ entry.revision.id }}"
                                     >
-                                    <button class="btn btn-success btn-sm">Set as Final</button>
-                                </form>
+                                        Set as Final
+                                    </button>
+                                </li>
                                 {% endif %}
                                 {% if can_edit_documents %}
-                                <form
-                                    method="post"
-                                    action="{% url 'synopsis:protocol_delete_revision' project.id entry.revision.id %}"
-                                    class="d-inline mt-2"
-                                    onsubmit="return confirm('Delete this protocol revision? This cannot be undone.');"
-                                >
-                                    {% csrf_token %}
-                                    <button class="btn btn-outline-danger btn-sm">Delete</button>
-                                </form>
+                                <li>
+                                    <button
+                                        class="dropdown-item text-danger"
+                                        type="button"
+                                        data-bs-toggle="modal"
+                                        data-bs-target="#protocolDeleteModal-{{ entry.revision.id }}"
+                                    >
+                                        Delete
+                                    </button>
+                                </li>
                                 {% endif %}
-                            </div>
+                            </ul>
                         </div>
                     </div>
-                    {% endfor %}
                 </div>
+            </div>
+            {% if not entry.is_current %}
+            <div class="modal fade" id="protocolRestoreModal-{{ entry.revision.id }}" tabindex="-1" aria-labelledby="protocolRestoreModalLabel-{{ entry.revision.id }}" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="protocolRestoreModalLabel-{{ entry.revision.id }}">Restore revision</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            Restore <strong>{{ entry.file_name }}</strong> as the active protocol?
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <form method="post" action="{% url 'synopsis:protocol_restore_revision' project.id entry.revision.id %}">
+                                {% csrf_token %}
+                                <button class="btn btn-primary">Restore</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% if entry.can_mark_final %}
+            <div class="modal fade" id="protocolSetFinalModal-{{ entry.revision.id }}" tabindex="-1" aria-labelledby="protocolSetFinalModalLabel-{{ entry.revision.id }}" aria-hidden="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="protocolSetFinalModalLabel-{{ entry.revision.id }}">Set revision as final</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <form method="post" action="{% url 'synopsis:protocol_set_stage' project.id %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="stage" value="final">
+                            <input type="hidden" name="revision_id" value="{{ entry.revision.id }}">
+                            <div class="modal-body">
+                                <label class="form-label" for="protocol-final-reason-{{ entry.revision.id }}">Reason</label>
+                                <input
+                                    type="text"
+                                    class="form-control"
+                                    id="protocol-final-reason-{{ entry.revision.id }}"
+                                    name="reason"
+                                    placeholder="e.g., Consensus reached with authors"
+                                    required
+                                >
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button class="btn btn-success">Set as Final</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% if can_edit_documents %}
+            <div class="modal fade" id="protocolDeleteModal-{{ entry.revision.id }}" tabindex="-1" aria-labelledby="protocolDeleteModalLabel-{{ entry.revision.id }}" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="protocolDeleteModalLabel-{{ entry.revision.id }}">Delete revision</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            Delete <strong>{{ entry.file_name }}</strong>? This cannot be undone.
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <form method="post" action="{% url 'synopsis:protocol_delete_revision' project.id entry.revision.id %}">
+                                {% csrf_token %}
+                                <button class="btn btn-danger">Delete</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
                 {% else %}
                 <p class="text-muted mb-0">Upload a protocol to start building a revision timeline.</p>
                 {% endif %}

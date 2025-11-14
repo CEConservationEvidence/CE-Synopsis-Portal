@@ -278,56 +278,142 @@
                                 {% endif %}
                             </div>
                             <div class="text-end ms-auto">
-                                {% if entry.download_url %}
-                                <a class="btn btn-outline-secondary btn-sm mb-1" href="{{ entry.download_url }}" download>Download</a>
-                                {% endif %}
-                                {% if not entry.is_current %}
-                                <form
-                                    method="post"
-                                    action="{% url 'synopsis:action_list_restore_revision' project.id entry.revision.id %}"
-                                    class="d-inline"
-                                    onsubmit="return confirm('Restore this revision as the active action list?');"
-                                >
-                                    {% csrf_token %}
-                                    <button class="btn btn-outline-primary btn-sm">Restore</button>
-                                </form>
-                                {% else %}
-                                <span class="badge text-bg-secondary align-self-center">Active</span>
-                                {% endif %}
-                                {% if entry.can_mark_final %}
-                                <form
-                                    method="post"
-                                    action="{% url 'synopsis:action_list_set_stage' project.id %}"
-                                    class="d-inline-flex align-items-center gap-2 mt-2 mt-sm-0"
-                                    onsubmit="return confirm('Set this revision as the final action list?');"
-                                >
-                                    {% csrf_token %}
-                                    <input type="hidden" name="stage" value="final">
-                                    <input type="hidden" name="revision_id" value="{{ entry.revision.id }}">
-                                    <input
-                                        type="text"
-                                        name="reason"
-                                        class="form-control form-control-sm"
-                                        placeholder="Reason"
-                                        required
+                                <div class="dropdown">
+                                    <button
+                                        class="btn btn-outline-secondary btn-sm dropdown-toggle"
+                                        type="button"
+                                        data-bs-toggle="dropdown"
+                                        aria-expanded="false"
                                     >
-                                    <button class="btn btn-success btn-sm">Set as Final</button>
-                                </form>
-                                {% endif %}
-                                {% if can_edit_documents %}
-                                <form
-                                    method="post"
-                                    action="{% url 'synopsis:action_list_delete_revision' project.id entry.revision.id %}"
-                                    class="d-inline mt-2"
-                                    onsubmit="return confirm('Delete this action list revision? This cannot be undone.');"
-                                >
-                                    {% csrf_token %}
-                                    <button class="btn btn-outline-danger btn-sm">Delete</button>
-                                </form>
-                                {% endif %}
+                                        Actions
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-end">
+                                        {% if entry.download_url %}
+                                        <li>
+                                            <a class="dropdown-item" href="{{ entry.download_url }}" download>
+                                                Download
+                                            </a>
+                                        </li>
+                                        {% endif %}
+                                        {% if entry.is_current %}
+                                        <li><span class="dropdown-item-text text-muted">Current revision</span></li>
+                                        {% else %}
+                                        <li>
+                                            <button
+                                                class="dropdown-item"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#actionListRestoreModal-{{ entry.revision.id }}"
+                                            >
+                                                Restore
+                                            </button>
+                                        </li>
+                                        {% endif %}
+                                        {% if entry.can_mark_final %}
+                                        <li>
+                                            <button
+                                                class="dropdown-item"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#actionListSetFinalModal-{{ entry.revision.id }}"
+                                            >
+                                                Set as Final
+                                            </button>
+                                        </li>
+                                        {% endif %}
+                                        {% if can_edit_documents %}
+                                        <li>
+                                            <button
+                                                class="dropdown-item text-danger"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#actionListDeleteModal-{{ entry.revision.id }}"
+                                            >
+                                                Delete
+                                            </button>
+                                        </li>
+                                        {% endif %}
+                                    </ul>
+                                </div>
                             </div>
                         </div>
                     </div>
+                    {% if not entry.is_current %}
+                    <div class="modal fade" id="actionListRestoreModal-{{ entry.revision.id }}" tabindex="-1" aria-labelledby="actionListRestoreModalLabel-{{ entry.revision.id }}" aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="actionListRestoreModalLabel-{{ entry.revision.id }}">Restore revision</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    Restore <strong>{{ entry.file_name }}</strong> as the active action list?
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <form method="post" action="{% url 'synopsis:action_list_restore_revision' project.id entry.revision.id %}">
+                                        {% csrf_token %}
+                                        <button class="btn btn-primary">Restore</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if entry.can_mark_final %}
+                    <div class="modal fade" id="actionListSetFinalModal-{{ entry.revision.id }}" tabindex="-1" aria-labelledby="actionListSetFinalModalLabel-{{ entry.revision.id }}" aria-hidden="true">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="actionListSetFinalModalLabel-{{ entry.revision.id }}">Set revision as final</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <form method="post" action="{% url 'synopsis:action_list_set_stage' project.id %}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="stage" value="final">
+                                    <input type="hidden" name="revision_id" value="{{ entry.revision.id }}">
+                                    <div class="modal-body">
+                                        <label class="form-label" for="actionlist-final-reason-{{ entry.revision.id }}">Reason</label>
+                                        <input
+                                            type="text"
+                                            class="form-control"
+                                            id="actionlist-final-reason-{{ entry.revision.id }}"
+                                            name="reason"
+                                            placeholder="e.g., Approved by authors"
+                                            required
+                                        >
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                        <button class="btn btn-success">Set as Final</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if can_edit_documents %}
+                    <div class="modal fade" id="actionListDeleteModal-{{ entry.revision.id }}" tabindex="-1" aria-labelledby="actionListDeleteModalLabel-{{ entry.revision.id }}" aria-hidden="true">
+                        <div class="modal-dialog modal-dialog-centered">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="actionListDeleteModalLabel-{{ entry.revision.id }}">Delete revision</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    Delete <strong>{{ entry.file_name }}</strong>? This cannot be undone.
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <form method="post" action="{% url 'synopsis:action_list_delete_revision' project.id entry.revision.id %}">
+                                        {% csrf_token %}
+                                        <button class="btn btn-danger">Delete</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
                     {% endfor %}
                 </div>
                 {% else %}
