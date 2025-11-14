@@ -23,7 +23,7 @@ from django.core.mail import EmailMultiAlternatives, send_mail
 from django.db import connection, transaction
 from collections import defaultdict
 
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Prefetch
 from django.http import (
     HttpResponseBadRequest,
     Http404,
@@ -33,9 +33,14 @@ from django.http import (
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.html import linebreaks
+from wagtail.rich_text import RichText
 from django.utils.safestring import mark_safe
+from django.utils.text import slugify
 from django import forms
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.clickjacking import xframe_options_exempt
+from django.http import FileResponse
 
 from .forms import (
     ProtocolUpdateForm,
@@ -65,6 +70,17 @@ from .forms import (
     AdvisoryCustomFieldForm,
     AdvisoryCustomFieldPlacementForm,
     AdvisoryMemberCustomDataForm,
+    ReferenceSummaryAssignmentForm,
+    ReferenceSummaryUpdateForm,
+    ReferenceSummaryCommentForm,
+    ReferenceDocumentForm,
+    SynopsisBlockHeadingForm,
+    SynopsisBlockParagraphForm,
+    SynopsisBlockSummaryForm,
+    SynopsisChapterForm,
+    ReferenceActionSummaryForm,
+    SynopsisSectionForm,
+    FrontMatterTemplateForm,
 )
 from .models import (
     Project,
@@ -84,10 +100,28 @@ from .models import (
     ReferenceSourceBatch,
     ReferenceSourceBatchNoteHistory,
     Reference,
+    ReferenceSummary,
+    ReferenceSummaryComment,
+    ReferenceActionSummary,
     ProtocolRevision,
     ActionListRevision,
     CollaborativeSession,
+    SynopsisOutlineChapter,
+    SynopsisOutlineBlock,
+    SynopsisOutlineSection,
 )
+from synopsis_wagtail.models import (
+    SynopsisProjectPage,
+    SynopsisIndexPage,
+    SynopsisChapterPage,
+)
+from synopsis.services.front_matter_editor import (
+    get_front_matter_config,
+    get_front_matter_initial_values,
+    save_front_matter_content,
+)
+from synopsis.services.outline_templates import FRONT_MATTER_TEMPLATE
+from wagtail.blocks import StreamValue
 from .utils import ensure_global_groups, email_subject, reply_to_list, reference_hash
 
 
@@ -4644,6 +4678,1039 @@ def reference_batch_list(request, project_id):
             "project": project,
             "batches": batches,
             "summary": summary,
+        },
+    )
+
+
+def _reference_summary_citation(reference):
+    parts = []
+    authors = (reference.authors or "").strip()
+    if authors:
+        parts.append(authors)
+    year = reference.publication_year
+    if year:
+        parts.append(f"({year})")
+    title = (reference.title or "").strip()
+    if title:
+        parts.append(title)
+    citation = " ".join(parts).strip()
+    if len(citation) > 500:
+        citation = citation[:497].rstrip() + "..."
+    return citation
+
+
+def _ensure_reference_summaries(project, references):
+    ref_ids = [ref.id for ref in references]
+    existing = {
+        summary.reference_id: summary
+        for summary in ReferenceSummary.objects.filter(reference_id__in=ref_ids)
+    }
+    for ref in references:
+        if ref.id not in existing:
+            existing[ref.id] = ReferenceSummary.objects.create(
+                project=project,
+                reference=ref,
+                citation=_reference_summary_citation(ref),
+            )
+    return existing
+
+
+def _get_synopsis_index_page():
+    try:
+        return SynopsisIndexPage.objects.first()
+    except SynopsisIndexPage.DoesNotExist:  # pragma: no cover - defensive
+        return None
+
+
+def _generate_unique_slug(parent_page, slug_source, fallback="page"):
+    base = slugify(slug_source or "") or slugify(fallback or "") or "page"
+    candidate = base
+    suffix = 2
+    siblings = parent_page.get_children()
+    while siblings.filter(slug=candidate).exists():
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _ensure_synopsis_project_page(project):
+    index_page = _get_synopsis_index_page()
+    if not index_page:
+        return None
+
+    current_children = index_page.get_children().count()
+    if index_page.numchild != current_children:
+        index_page.numchild = current_children
+        index_page.save(update_fields=["numchild"])
+
+    page = getattr(project, "synopsis_page", None)
+    if page:
+        page = page.specific
+    else:
+        slug_source = f"project-{project.id}-synopsis"
+        slug = _generate_unique_slug(index_page, slug_source, fallback=slug_source)
+        page = SynopsisProjectPage(
+            title=f"{project.title} synopsis",
+            slug=slug,
+            project=project,
+        )
+        index_page.add_child(instance=page)
+        page.save_revision().publish()
+
+    _seed_front_matter(project)
+    return page
+
+
+def _seed_front_matter(project):
+    for template in FRONT_MATTER_TEMPLATE:
+        chapter = SynopsisOutlineChapter.objects.filter(
+            project=project, template_key=template.key
+        ).first()
+        if not chapter:
+            chapter = SynopsisOutlineChapter.objects.filter(
+                project=project,
+                title=template.title,
+                section_type="front_matter",
+            ).first()
+        if not chapter:
+            chapter = SynopsisOutlineChapter.objects.create(
+                project=project,
+                title=template.title,
+                summary=template.summary,
+                position=_next_chapter_position(project),
+                section_number=template.section_number or "",
+                section_type=template.section_type,
+                template_key=template.key,
+            )
+        else:
+            updates = []
+            if chapter.template_key != template.key:
+                chapter.template_key = template.key
+                updates.append("template_key")
+            if template.section_number and not chapter.section_number:
+                chapter.section_number = template.section_number
+                updates.append("section_number")
+            if updates:
+                chapter.save(update_fields=updates)
+        if template.sections and not chapter.sections.exists():
+            for section in template.sections:
+                SynopsisOutlineSection.objects.create(
+                    chapter=chapter,
+                    title=section.title,
+                    number_label=section.number or "",
+                    position=_next_section_position(chapter),
+                )
+
+
+def _next_chapter_position(project):
+    max_pos = (
+        SynopsisOutlineChapter.objects.filter(project=project).aggregate(
+            Max("position")
+        )["position__max"]
+        or 0
+    )
+    return max_pos + 1
+
+
+def _resequence_chapter_positions(project):
+    for idx, chapter in enumerate(
+        SynopsisOutlineChapter.objects.filter(project=project).order_by("position", "id"),
+        start=1,
+    ):
+        if chapter.position != idx:
+            chapter.position = idx
+            chapter.save(update_fields=["position"])
+
+
+def _next_block_position(chapter):
+    max_pos = (
+        chapter.blocks.aggregate(Max("position"))["position__max"]
+        or 0
+    )
+    return max_pos + 1
+
+
+def _resequence_block_positions(chapter):
+    for idx, block in enumerate(
+        chapter.blocks.order_by("position", "id"), start=1
+    ):
+        if block.position != idx:
+            block.position = idx
+            block.save(update_fields=["position"])
+
+
+def _next_section_position(chapter):
+    return (
+        chapter.sections.aggregate(Max("position"))["position__max"]
+        or 0
+    ) + 1
+
+
+def _resequence_section_positions(chapter):
+    for idx, section in enumerate(
+        chapter.sections.order_by("position", "id"), start=1
+    ):
+        if section.position != idx:
+            section.position = idx
+            section.save(update_fields=["position"])
+
+
+def _next_action_summary_order(reference_summary):
+    max_pos = (
+        reference_summary.action_summaries.aggregate(Max("order"))["order__max"]
+        or 0
+    )
+    return max_pos + 1
+
+
+def _resequence_action_summaries(reference_summary):
+    for idx, action_summary in enumerate(
+        reference_summary.action_summaries.order_by("order", "id"),
+        start=1,
+    ):
+        if action_summary.order != idx:
+            action_summary.order = idx
+            action_summary.save(update_fields=["order"])
+
+
+def _resolve_section(chapter, section_id):
+    if not section_id:
+        return None
+    try:
+        section_id = int(section_id)
+    except (TypeError, ValueError):
+        return None
+    try:
+        return chapter.sections.get(pk=section_id)
+    except SynopsisOutlineSection.DoesNotExist:
+        return None
+
+
+def _sync_outline_chapter(project, outline_chapter):
+    project_page = _ensure_synopsis_project_page(project)
+    if not project_page:
+        return None
+
+    chapter_page = None
+    if outline_chapter.wagtail_page_id:
+        chapter_page = outline_chapter.wagtail_page.specific
+
+    if not chapter_page:
+        slug = _generate_unique_slug(project_page, outline_chapter.title, fallback="chapter")
+        chapter_page = SynopsisChapterPage(
+            title=outline_chapter.title,
+            slug=slug,
+            summary=outline_chapter.summary,
+        )
+        project_page.add_child(instance=chapter_page)
+    else:
+        chapter_page.title = outline_chapter.title
+        chapter_page.summary = outline_chapter.summary
+
+    stream_block = chapter_page.body.stream_block
+    stream_data = []
+
+    all_blocks = list(outline_chapter.blocks.order_by("position", "id"))
+    sections = list(outline_chapter.sections.order_by("position", "id"))
+    section_block_map = {
+        section.id: [block for block in all_blocks if block.section_id == section.id]
+        for section in sections
+    }
+    loose_blocks = [block for block in all_blocks if not block.section_id]
+
+    def _append_block(b):
+        if b.block_type == SynopsisOutlineBlock.TYPE_HEADING:
+            stream_data.append(("heading", b.text))
+        elif b.block_type == SynopsisOutlineBlock.TYPE_PARAGRAPH:
+            paragraph_html = linebreaks(b.text or "", autoescape=False)
+            stream_data.append(("paragraph", RichText(paragraph_html)))
+        elif b.block_type == SynopsisOutlineBlock.TYPE_KEY_MESSAGE:
+            stream_data.append(("quote", b.text))
+        elif b.block_type == SynopsisOutlineBlock.TYPE_REFERENCE_SUMMARY and b.reference_summary:
+            stream_data.append(
+                (
+                    "reference_summary",
+                    {"summary": b.reference_summary},
+                )
+            )
+
+    for block in loose_blocks:
+        _append_block(block)
+
+    for section in sections:
+        heading_parts = [section.number_label.strip()] if section.number_label else []
+        if section.title:
+            heading_parts.append(section.title.strip())
+        heading_text = " ".join(part for part in heading_parts if part).strip()
+        if heading_text:
+            stream_data.append(("heading", heading_text))
+        for block in section_block_map.get(section.id, []):
+            _append_block(block)
+
+    stream_value = StreamValue(stream_block, stream_data)
+    chapter_page.body = stream_value
+    revision = chapter_page.save_revision()
+    revision.publish()
+
+    if outline_chapter.wagtail_page_id != chapter_page.id:
+        outline_chapter.wagtail_page = chapter_page
+        outline_chapter.save(update_fields=["wagtail_page", "updated_at"])
+
+    return chapter_page
+
+
+@login_required
+def reference_summary_board(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    included_references = list(
+        project.references.filter(screening_status="included")
+        .select_related("batch")
+        .order_by("title")
+    )
+
+    _ensure_reference_summaries(project, included_references)
+
+    if request.method == "POST":
+        summary = get_object_or_404(
+            ReferenceSummary, pk=request.POST.get("summary_id"), project=project
+        )
+        action = request.POST.get("action")
+        if action == "assign":
+            form = ReferenceSummaryAssignmentForm(request.POST, project=project)
+            if form.is_valid():
+                summary.assigned_to = form.cleaned_data["assigned_to"]
+                summary.needs_help = form.cleaned_data["needs_help"]
+                summary.save(update_fields=["assigned_to", "needs_help", "updated_at"])
+                messages.success(request, "Assignment updated.")
+            else:
+                messages.error(request, "Could not update assignment.")
+        elif action == "status":
+            status = request.POST.get("status")
+            valid_statuses = {choice[0] for choice in ReferenceSummary.STATUS_CHOICES}
+            if status in valid_statuses:
+                summary.status = status
+                summary.save(update_fields=["status", "updated_at"])
+                messages.success(request, "Summary status updated.")
+            else:
+                messages.error(request, "Invalid summary status selected.")
+        return redirect("synopsis:reference_summary_board", project_id=project.id)
+
+    summaries = ReferenceSummary.objects.filter(
+        project=project,
+        reference__screening_status="included",
+    ).select_related("reference", "assigned_to")
+
+    status_map = {
+        code: {"label": label, "items": []}
+        for code, label in ReferenceSummary.STATUS_CHOICES
+    }
+    for summary in summaries:
+        status_map.setdefault(summary.status, {"label": summary.status, "items": []})
+        status_map[summary.status]["items"].append(summary)
+
+    columns = [
+        {
+            "code": code,
+            "label": label,
+            "items": status_map.get(code, {}).get("items", []),
+        }
+        for code, label in ReferenceSummary.STATUS_CHOICES
+    ]
+
+    total_included = len(included_references)
+    completed = len(status_map.get(ReferenceSummary.STATUS_DONE, {}).get("items", []))
+    progress = int((completed / total_included) * 100) if total_included else 0
+
+    author_options = project.author_users.order_by("first_name", "last_name")
+
+    return render(
+        request,
+        "synopsis/reference_summary_board.html",
+        {
+            "project": project,
+            "columns": columns,
+            "total_included": total_included,
+            "completed": completed,
+            "progress": progress,
+            "author_options": author_options,
+            "status_choices": ReferenceSummary.STATUS_CHOICES,
+            "reference_count": total_included,
+        },
+    )
+
+
+@login_required
+def reference_summary_detail(request, project_id, summary_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    summary = get_object_or_404(
+        ReferenceSummary.objects.select_related("reference", "assigned_to"),
+        pk=summary_id,
+        project=project,
+    )
+
+    summary_form = ReferenceSummaryUpdateForm(request.POST or None, instance=summary)
+    assignment_initial = {
+        "assigned_to": summary.assigned_to_id,
+        "needs_help": summary.needs_help,
+    }
+    assignment_form = ReferenceSummaryAssignmentForm(
+        request.POST if request.POST.get("action") == "assign" else None,
+        project=project,
+        initial=assignment_initial,
+    )
+    comment_form = ReferenceSummaryCommentForm()
+    document_form = ReferenceDocumentForm()
+    action_summary_form = ReferenceActionSummaryForm()
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "save-summary" and summary_form.is_valid():
+            summary_form.save()
+            messages.success(request, "Summary updated.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=summary.id,
+            )
+        if action == "assign" and assignment_form.is_valid():
+            summary.assigned_to = assignment_form.cleaned_data["assigned_to"]
+            summary.needs_help = assignment_form.cleaned_data["needs_help"]
+            summary.save(update_fields=["assigned_to", "needs_help", "updated_at"])
+            messages.success(request, "Assignment updated.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=summary.id,
+            )
+        if action == "comment":
+            comment_form = ReferenceSummaryCommentForm(request.POST)
+            if comment_form.is_valid():
+                ReferenceSummaryComment.objects.create(
+                    summary=summary,
+                    author=request.user,
+                    body=comment_form.cleaned_data["body"],
+                )
+                messages.success(request, "Comment added.")
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            else:
+                messages.error(request, "Could not add comment.")
+        if action == "upload-document":
+            document_form = ReferenceDocumentForm(request.POST, request.FILES)
+            if document_form.is_valid():
+                uploaded = document_form.cleaned_data["document"]
+                summary.reference.reference_document = uploaded
+                summary.reference.reference_document_uploaded_at = timezone.now()
+                summary.reference.save(update_fields=["reference_document", "reference_document_uploaded_at"])
+                messages.success(request, "PDF uploaded.")
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            else:
+                messages.error(request, "Upload failed. Ensure you selected a PDF file.")
+
+        if action == "add-action-summary":
+            action_summary_form = ReferenceActionSummaryForm(request.POST)
+            if action_summary_form.is_valid():
+                action_entry = action_summary_form.save(commit=False)
+                action_entry.reference_summary = summary
+                action_entry.order = _next_action_summary_order(summary)
+                if request.user.is_authenticated:
+                    action_entry.created_by = request.user
+                action_entry.save()
+                messages.success(request, "Action summary added.")
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            else:
+                messages.error(request, "Please fix the action summary details.")
+        if action == "edit-action-summary":
+            target = get_object_or_404(
+                ReferenceActionSummary,
+                pk=request.POST.get("action_summary_id"),
+                reference_summary=summary,
+            )
+            action_summary_form = ReferenceActionSummaryForm(
+                request.POST, instance=target
+            )
+            if action_summary_form.is_valid():
+                action_summary_form.save()
+                messages.success(request, "Action summary updated.")
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            else:
+                messages.error(request, "Could not update that action summary.")
+        if action == "delete-action-summary":
+            target = get_object_or_404(
+                ReferenceActionSummary,
+                pk=request.POST.get("action_summary_id"),
+                reference_summary=summary,
+            )
+            target.delete()
+            _resequence_action_summaries(summary)
+            messages.success(request, "Action summary removed.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=summary.id,
+            )
+
+    comments = summary.comments.select_related("author")
+    action_summaries = summary.action_summaries.order_by("order", "id")
+
+    return render(
+        request,
+        "synopsis/reference_summary_detail.html",
+        {
+            "project": project,
+            "summary": summary,
+            "reference": summary.reference,
+            "summary_form": summary_form,
+            "assignment_form": assignment_form,
+            "comment_form": comment_form,
+            "comments": comments,
+            "document_form": document_form,
+            "action_summary_form": action_summary_form,
+            "action_summaries": action_summaries,
+        },
+    )
+
+
+@login_required
+@xframe_options_exempt
+def reference_document_inline(request, project_id, reference_id):
+    project = get_object_or_404(Project, pk=project_id)
+    reference = get_object_or_404(
+        Reference, pk=reference_id, project=project, screening_status="included"
+    )
+    if not reference.reference_document:
+        raise Http404("No document available.")
+
+    file_handle = reference.reference_document.open("rb")
+    filename = reference.reference_document.name.rsplit("/", 1)[-1]
+    response = FileResponse(file_handle)
+    response["Content-Type"] = "application/pdf"
+    response["Content-Disposition"] = f'inline; filename="{filename}"'
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@login_required
+def project_synopsis_writer(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    project_page = _ensure_synopsis_project_page(project)
+    if not project_page:
+        messages.error(request, "Synopsis workspace is not configured yet. Contact an administrator.")
+        return redirect("synopsis:reference_summary_board", project_id=project.id)
+
+    wagtail_edit_url = reverse("wagtailadmin_pages:edit", args=[project_page.id])
+    return redirect(wagtail_edit_url)
+
+
+@login_required
+def project_synopsis_structure(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    project_page = _ensure_synopsis_project_page(project)
+    chapter_form = SynopsisChapterForm(
+        initial={
+            "section_type": SynopsisOutlineChapter._meta.get_field(
+                "section_type"
+            ).default
+        }
+    )
+    section_form = SynopsisSectionForm()
+    redirect_url = reverse(
+        "synopsis:project_synopsis_structure", kwargs={"project_id": project.id}
+    )
+
+    section_prefetch = Prefetch(
+        "sections", queryset=SynopsisOutlineSection.objects.order_by("position", "id")
+    )
+    block_prefetch = Prefetch(
+        "blocks",
+        queryset=SynopsisOutlineBlock.objects.select_related(
+            "section", "reference_summary__reference"
+        ).prefetch_related(
+            "reference_summary__action_summaries"
+        ).order_by(
+            "position", "id"
+        ),
+    )
+
+    outline_qs = (
+        SynopsisOutlineChapter.objects.filter(project=project)
+        .select_related("wagtail_page")
+        .prefetch_related(section_prefetch, block_prefetch)
+        .order_by("position", "id")
+    )
+    front_matter_bound_state = None
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+
+        def _chapter_from_post():
+            chapter_id = request.POST.get("chapter_id")
+            return get_object_or_404(outline_qs, pk=chapter_id)
+
+        if action == "create-chapter":
+            chapter_form = SynopsisChapterForm(request.POST)
+            if chapter_form.is_valid():
+                title = chapter_form.cleaned_data["title"] or "Untitled chapter"
+                summary = chapter_form.cleaned_data["summary"]
+                SynopsisOutlineChapter.objects.create(
+                    project=project,
+                    title=title,
+                    summary=summary,
+                    position=_next_chapter_position(project),
+                    section_number=chapter_form.cleaned_data["section_number"],
+                    section_type=chapter_form.cleaned_data["section_type"],
+                )
+                messages.success(request, f"Added chapter “{title}”.")
+                return redirect(redirect_url)
+            messages.error(request, "Please fix the problems below.")
+        elif action == "delete-chapter":
+            chapter = _chapter_from_post()
+            wagtail_page = chapter.wagtail_page
+            chapter.delete()
+            if wagtail_page:
+                wagtail_page.delete()
+            _resequence_chapter_positions(project)
+            messages.success(request, f"Removed chapter “{chapter.title}”.")
+            return redirect(redirect_url)
+        elif action == "update-chapter":
+            chapter = _chapter_from_post()
+            form = SynopsisChapterForm(request.POST)
+            if form.is_valid():
+                chapter.title = form.cleaned_data["title"] or chapter.title
+                chapter.summary = form.cleaned_data["summary"]
+                chapter.section_number = form.cleaned_data["section_number"]
+                chapter.section_type = form.cleaned_data["section_type"]
+                chapter.save(
+                    update_fields=[
+                        "title",
+                        "summary",
+                        "section_number",
+                        "section_type",
+                        "updated_at",
+                    ]
+                )
+                messages.success(request, "Chapter details updated.")
+                return redirect(redirect_url)
+            messages.error(request, "Could not update the chapter.")
+        elif action == "move-chapter":
+            chapter = _chapter_from_post()
+            direction = request.POST.get("direction")
+            if direction not in {"up", "down"}:
+                messages.error(request, "Unknown move direction.")
+            else:
+                if direction == "up":
+                    swap = (
+                        outline_qs.filter(position__lt=chapter.position)
+                        .order_by("-position")
+                        .first()
+                    )
+                else:
+                    swap = (
+                        outline_qs.filter(position__gt=chapter.position)
+                        .order_by("position")
+                        .first()
+                    )
+                if swap:
+                    chapter.position, swap.position = swap.position, chapter.position
+                    chapter.save(update_fields=["position"])
+                    swap.save(update_fields=["position"])
+                    messages.success(
+                        request,
+                        f"Moved “{chapter.title}” {'up' if direction == 'up' else 'down'}.",
+                    )
+                else:
+                    messages.info(request, "Chapter is already at the edge.")
+            return redirect(redirect_url)
+        elif action in {"add-heading", "add-paragraph"}:
+            chapter = _chapter_from_post()
+            if action == "add-heading":
+                form = SynopsisBlockHeadingForm(request.POST)
+                if form.is_valid():
+                    block = SynopsisOutlineBlock.objects.create(
+                        chapter=chapter,
+                        block_type=SynopsisOutlineBlock.TYPE_HEADING,
+                        text=form.cleaned_data["heading"],
+                        position=_next_block_position(chapter),
+                    )
+                    block.section = _resolve_section(chapter, request.POST.get("section_id"))
+                    if block.section_id:
+                        block.save(update_fields=["section"])
+                    messages.success(request, "Heading added.")
+                    return redirect(redirect_url)
+            else:
+                form = SynopsisBlockParagraphForm(request.POST)
+                if form.is_valid():
+                    block = SynopsisOutlineBlock.objects.create(
+                        chapter=chapter,
+                        block_type=SynopsisOutlineBlock.TYPE_PARAGRAPH,
+                        text=form.cleaned_data["text"],
+                        position=_next_block_position(chapter),
+                    )
+                    block.section = _resolve_section(chapter, request.POST.get("section_id"))
+                    if block.section_id:
+                        block.save(update_fields=["section"])
+                    messages.success(request, "Paragraph added.")
+                    return redirect(redirect_url)
+            messages.error(request, "Could not add the block. Check the input.")
+        elif action == "add-summary":
+            chapter = _chapter_from_post()
+            form = SynopsisBlockSummaryForm(request.POST, project=project)
+            if form.is_valid():
+                block = SynopsisOutlineBlock.objects.create(
+                    chapter=chapter,
+                    block_type=SynopsisOutlineBlock.TYPE_REFERENCE_SUMMARY,
+                    reference_summary=form.cleaned_data["summary"],
+                    position=_next_block_position(chapter),
+                )
+                block.section = _resolve_section(chapter, request.POST.get("section_id"))
+                if block.section_id:
+                    block.save(update_fields=["section"])
+                messages.success(request, "Reference summary added.")
+                return redirect(redirect_url)
+            messages.error(request, "Select a summary to add.")
+        elif action in {"update-heading", "update-paragraph"}:
+            block = get_object_or_404(
+                SynopsisOutlineBlock,
+                pk=request.POST.get("block_id"),
+                chapter__project=project,
+            )
+            if action == "update-heading" and block.block_type == SynopsisOutlineBlock.TYPE_HEADING:
+                form = SynopsisBlockHeadingForm(request.POST)
+                if form.is_valid():
+                    block.text = form.cleaned_data["heading"]
+                    block.section = _resolve_section(block.chapter, request.POST.get("section_id"))
+                    block.save(update_fields=["text", "section", "updated_at"])
+                    messages.success(request, "Heading updated.")
+                    return redirect(redirect_url)
+            elif (
+                action == "update-paragraph"
+                and block.block_type == SynopsisOutlineBlock.TYPE_PARAGRAPH
+            ):
+                form = SynopsisBlockParagraphForm(request.POST)
+                if form.is_valid():
+                    block.text = form.cleaned_data["text"]
+                    block.section = _resolve_section(block.chapter, request.POST.get("section_id"))
+                    block.save(update_fields=["text", "section", "updated_at"])
+                    messages.success(request, "Paragraph updated.")
+                    return redirect(redirect_url)
+            messages.error(request, "Could not update that block.")
+        elif action == "set-block-section":
+            block = get_object_or_404(
+                SynopsisOutlineBlock,
+                pk=request.POST.get("block_id"),
+                chapter__project=project,
+            )
+            section = _resolve_section(block.chapter, request.POST.get("section_id"))
+            block.section = section
+            block.save(update_fields=["section", "updated_at"])
+            messages.success(request, "Block section updated.")
+            return redirect(redirect_url)
+        elif action == "delete-block":
+            block = get_object_or_404(
+                SynopsisOutlineBlock,
+                pk=request.POST.get("block_id"),
+                chapter__project=project,
+            )
+            block.delete()
+            _resequence_block_positions(block.chapter)
+            messages.success(request, "Block removed.")
+            return redirect(redirect_url)
+        elif action == "move-block":
+            block = get_object_or_404(
+                SynopsisOutlineBlock,
+                pk=request.POST.get("block_id"),
+                chapter__project=project,
+            )
+            direction = request.POST.get("direction")
+            if direction not in {"up", "down"}:
+                messages.error(request, "Unknown move direction.")
+                return redirect(redirect_url)
+            chapter_blocks = block.chapter.blocks.order_by("position", "id")
+            if direction == "up":
+                swap = (
+                    chapter_blocks.filter(position__lt=block.position)
+                    .order_by("-position")
+                    .first()
+                )
+            else:
+                swap = (
+                    chapter_blocks.filter(position__gt=block.position)
+                    .order_by("position")
+                    .first()
+                )
+            if swap:
+                block.position, swap.position = swap.position, block.position
+                block.save(update_fields=["position"])
+                swap.save(update_fields=["position"])
+                messages.success(request, "Block reordered.")
+            else:
+                messages.info(request, "Block is already at the edge.")
+            return redirect(redirect_url)
+        elif action == "add-section":
+            chapter = _chapter_from_post()
+            section_form = SynopsisSectionForm(request.POST)
+            if section_form.is_valid():
+                SynopsisOutlineSection.objects.create(
+                    chapter=chapter,
+                    title=section_form.cleaned_data["title"],
+                    number_label=section_form.cleaned_data["number_label"],
+                    position=_next_section_position(chapter),
+                )
+                messages.success(request, "Section added.")
+                return redirect(redirect_url)
+            messages.error(request, "Please provide valid section details.")
+        elif action == "update-section":
+            chapter = _chapter_from_post()
+            section_id = request.POST.get("section_id")
+            section = get_object_or_404(
+                SynopsisOutlineSection, pk=section_id, chapter=chapter
+            )
+            title = (request.POST.get("title") or "").strip()
+            number_label = (request.POST.get("number_label") or "").strip()
+            section.title = title
+            section.number_label = number_label
+            section.save(update_fields=["title", "number_label"])
+            messages.success(request, "Section updated.")
+            return redirect(redirect_url)
+        elif action == "delete-section":
+            chapter = _chapter_from_post()
+            section = get_object_or_404(
+                SynopsisOutlineSection,
+                pk=request.POST.get("section_id"),
+                chapter=chapter,
+            )
+            section.blocks.update(section=None)
+            section.delete()
+            _resequence_section_positions(chapter)
+            messages.success(request, "Section removed.")
+            return redirect(redirect_url)
+        elif action == "move-section":
+            chapter = _chapter_from_post()
+            section = get_object_or_404(
+                SynopsisOutlineSection,
+                pk=request.POST.get("section_id"),
+                chapter=chapter,
+            )
+            direction = request.POST.get("direction")
+            if direction == "up":
+                swap = (
+                    chapter.sections.filter(position__lt=section.position)
+                    .order_by("-position")
+                    .first()
+                )
+            elif direction == "down":
+                swap = (
+                    chapter.sections.filter(position__gt=section.position)
+                    .order_by("position")
+                    .first()
+                )
+            else:
+                swap = None
+            if swap:
+                section.position, swap.position = swap.position, section.position
+                section.save(update_fields=["position"])
+                swap.save(update_fields=["position"])
+                messages.success(request, "Section reordered.")
+            else:
+                messages.info(request, "Section already at the edge.")
+            return redirect(redirect_url)
+        elif action == "save-front-matter":
+            chapter = _chapter_from_post()
+            template_key = request.POST.get("template_key") or chapter.template_key
+            config = get_front_matter_config(template_key)
+            if not config:
+                messages.error(request, "Unknown front matter template.")
+            else:
+                form = FrontMatterTemplateForm(
+                    request.POST,
+                    prefix=template_key,
+                    field_specs=config.field_specs,
+                )
+                if form.is_valid():
+                    save_front_matter_content(chapter, config, form.cleaned_data)
+                    try:
+                        page = _sync_outline_chapter(project, chapter)
+                        if page:
+                            messages.success(
+                                request,
+                                f"Updated and published “{chapter.title}”.",
+                            )
+                        else:
+                            messages.warning(
+                                request,
+                                f"Updated “{chapter.title}”, but publishing failed. "
+                                "Please use “Publish to Wagtail”.",
+                            )
+                    except Exception as exc:  # pragma: no cover - defensive
+                        logger.exception(
+                            "Failed to sync front matter chapter %s: %s", chapter.id, exc
+                        )
+                        messages.warning(
+                            request,
+                            f"Saved “{chapter.title}”, but could not publish it. "
+                            "Use “Publish to Wagtail” when ready.",
+                        )
+                    return redirect(redirect_url)
+                messages.error(request, "Please fix the problems below.")
+                front_matter_bound_state = {
+                    "chapter_id": chapter.id,
+                    "template_key": template_key,
+                    "data": request.POST,
+                }
+        elif action == "sync-chapter":
+            chapter = _chapter_from_post()
+            try:
+                page = _sync_outline_chapter(project, chapter)
+                if page:
+                    messages.success(
+                        request, f"Published “{chapter.title}” to Wagtail."
+                    )
+                else:
+                    messages.error(
+                        request, "Workspace is not configured. Contact an administrator."
+                    )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.exception("Failed to sync chapter %s: %s", chapter.id, exc)
+                messages.error(request, "Could not publish that chapter.")
+            return redirect(redirect_url)
+        elif action == "sync-all":
+            synced = 0
+            for chapter in outline_qs:
+                page = _sync_outline_chapter(project, chapter)
+                if page:
+                    synced += 1
+            if synced:
+                messages.success(
+                    request, f"Published {synced} chapter{'s' if synced != 1 else ''}."
+                )
+            else:
+                messages.info(
+                    request,
+                    "No chapters were published. Ensure the workspace is configured.",
+                )
+            return redirect(redirect_url)
+
+        outline_qs = (
+            SynopsisOutlineChapter.objects.filter(project=project)
+            .select_related("wagtail_page")
+            .prefetch_related(section_prefetch, block_prefetch)
+            .order_by("position", "id")
+        )
+
+    chapters = list(outline_qs)
+    for chapter in chapters:
+        sections = list(chapter.sections.all())
+        blocks = list(chapter.blocks.all())
+        chapter.sorted_sections = sections
+        chapter.unsectioned_blocks = [block for block in blocks if not block.section_id]
+        section_map = {}
+        for section in sections:
+            section_map[section.id] = [
+                block for block in blocks if block.section_id == section.id
+            ]
+        for section in sections:
+            section.blocks_list = section_map.get(section.id, [])
+    front_matter_chapters = []
+    consumed_ids = set()
+    for template in FRONT_MATTER_TEMPLATE:
+        chapter = next(
+            (c for c in chapters if c.template_key == template.key), None
+        )
+        if not chapter:
+            chapter = next(
+                (
+                    c
+                    for c in chapters
+                    if c.section_type == "front_matter" and c.title == template.title
+                ),
+                None,
+            )
+        if chapter:
+            front_matter_chapters.append(chapter)
+            consumed_ids.add(chapter.id)
+
+    for chapter in chapters:
+        if chapter.section_type == "front_matter" and chapter.id not in consumed_ids:
+            front_matter_chapters.append(chapter)
+            consumed_ids.add(chapter.id)
+
+    chapters = [chapter for chapter in chapters if chapter.id not in consumed_ids]
+
+    front_matter_form_entries = []
+    fallback_front_matter = []
+    for chapter in front_matter_chapters:
+        config = get_front_matter_config(chapter.template_key)
+        if not config:
+            fallback_front_matter.append(chapter)
+            continue
+        initial_values = get_front_matter_initial_values(chapter, config)
+        bound_data = None
+        if (
+            front_matter_bound_state
+            and front_matter_bound_state.get("chapter_id") == chapter.id
+        ):
+            bound_data = front_matter_bound_state.get("data")
+        form = FrontMatterTemplateForm(
+            bound_data,
+            initial=initial_values,
+            prefix=chapter.template_key or str(chapter.id),
+            field_specs=config.field_specs,
+        )
+        front_matter_form_entries.append(
+            {
+                "chapter": chapter,
+                "form": form,
+                "config": config,
+            }
+        )
+
+    reference_summaries = (
+        project.reference_summaries.select_related("reference")
+        .order_by("reference__title")
+        .all()
+    )
+    return render(
+        request,
+        "synopsis/project_synopsis_structure.html",
+        {
+            "project": project,
+            "project_page": project_page,
+            "front_matter_chapters": front_matter_chapters,
+            "front_matter_forms": front_matter_form_entries,
+            "front_matter_generic_chapters": fallback_front_matter,
+            "chapters": chapters,
+            "chapter_form": chapter_form,
+            "reference_summaries": reference_summaries,
+            "section_type_choices": SynopsisOutlineChapter._meta.get_field(
+                "section_type"
+            ).choices,
         },
     )
 
