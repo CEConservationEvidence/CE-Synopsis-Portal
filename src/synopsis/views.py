@@ -4732,6 +4732,31 @@ def reference_batch_detail(request, project_id, batch_id):
     if status_filter in dict(Reference.SCREENING_STATUS_CHOICES):
         references = references.filter(screening_status=status_filter)
 
+    ordered_ids = list(references.values_list("id", flat=True))
+    focus_mode = (request.GET.get("focus") or "").strip() == "1"
+    focused_reference = None
+    focus_prev_id = None
+    focus_next_id = None
+    focus_index = None
+    if focus_mode and ordered_ids:
+        focus_id_param = (
+            (request.GET.get("ref") or "").strip()
+            or (request.POST.get("focus_ref") or "").strip()
+            or (request.POST.get("reference_id") or "").strip()
+        )
+        try:
+            focus_id = int(focus_id_param) if focus_id_param else ordered_ids[0]
+        except (TypeError, ValueError):
+            focus_id = ordered_ids[0]
+        if focus_id not in ordered_ids:
+            focus_id = ordered_ids[0]
+        focus_index = ordered_ids.index(focus_id)
+        focused_reference = references.filter(pk=focus_id).select_related("screened_by").first()
+        if focus_index > 0:
+            focus_prev_id = ordered_ids[focus_index - 1]
+        if focus_index < len(ordered_ids) - 1:
+            focus_next_id = ordered_ids[focus_index + 1]
+
     if request.method == "POST":
         action_type = request.POST.get("action")
         if action_type == "update_notes":
@@ -4844,9 +4869,15 @@ def reference_batch_detail(request, project_id, batch_id):
 
         form = ReferenceScreeningForm(request.POST)
         if form.is_valid():
+            is_focus_post = (request.POST.get("focus") or "").strip() == "1"
+            ref_id = form.cleaned_data["reference_id"]
+            if is_focus_post:
+                focus_ref_override = (request.POST.get("focus_ref") or "").strip()
+                if focus_ref_override.isdigit():
+                    ref_id = int(focus_ref_override)
             ref = get_object_or_404(
                 Reference,
-                pk=form.cleaned_data["reference_id"],
+                pk=ref_id,
                 batch=batch,
                 project=project,
             )
@@ -4868,12 +4899,19 @@ def reference_batch_detail(request, project_id, batch_id):
             messages.success(
                 request, f"Updated screening status for '{ref.title[:80]}'."
             )
+            redirect_params = []
+            if status_filter:
+                redirect_params.append(("status", status_filter))
+            if (request.POST.get("focus") or "").strip() == "1":
+                redirect_params.append(("focus", "1"))
+                next_ref_id = request.POST.get("next_ref_id") or ref.id
+                redirect_params.append(("ref", next_ref_id))
             redirect_url = reverse(
                 "synopsis:reference_batch_detail",
                 kwargs={"project_id": project.id, "batch_id": batch.id},
             )
-            if status_filter:
-                redirect_url = f"{redirect_url}?status={status_filter}"
+            if redirect_params:
+                redirect_url = f"{redirect_url}?{urlencode(redirect_params)}"
             return redirect(redirect_url)
         else:
             messages.error(
@@ -4946,6 +4984,12 @@ def reference_batch_detail(request, project_id, batch_id):
             "project": project,
             "batch": batch,
             "references": references,
+            "focus_mode": focus_mode,
+            "focused_reference": focused_reference,
+            "focus_prev_id": focus_prev_id,
+            "focus_next_id": focus_next_id,
+            "focus_index": focus_index,
+            "focus_total": len(ordered_ids),
             "status_filter": status_filter,
             "status_choices": Reference.SCREENING_STATUS_CHOICES,
             "status_summary": status_summary,
