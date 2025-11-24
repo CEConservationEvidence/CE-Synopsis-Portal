@@ -2221,6 +2221,11 @@ def protocol_detail(request, project_id):
             stage_changed = bool(protocol) and protocol.stage != new_stage
             replacing_file = bool(uploaded_file)
             previous_label = (
+                (action_list.current_revision.version_label or "")
+                if action_list and action_list.current_revision
+                else ""
+            )
+            previous_label = (
                 (protocol.current_revision.version_label or "")
                 if protocol and protocol.current_revision
                 else ""
@@ -2400,6 +2405,8 @@ def protocol_detail(request, project_id):
             "final_stage_locked": final_stage_locked,
             "first_upload_pending": first_upload_pending,
             "can_manage_project": can_manage,
+            "can_toggle_stage": can_edit_documents,
+            "can_toggle_stage": can_edit_documents,
             "can_edit_documents": can_edit_documents,
             "collaborative_enabled": collaborative_enabled,
             "collaborative_session": collaborative_session,
@@ -2538,10 +2545,16 @@ def action_list_detail(request, project_id):
             new_stage = form.cleaned_data.get("stage")
             uploaded_file = form.cleaned_data.get("document")
             reason = form.cleaned_data.get("change_reason", "")
+            version_label = form.cleaned_data.get("version_label", "")
 
             is_new_action_list = action_list is None
             stage_changed = bool(action_list) and action_list.stage != new_stage
             replacing_file = bool(uploaded_file)
+            previous_label = (
+                (action_list.current_revision.version_label or "")
+                if action_list and action_list.current_revision
+                else ""
+            )
 
             if final_stage_locked and new_stage == "final" and replacing_file:
                 form.add_error(
@@ -3331,7 +3344,7 @@ def action_list_set_stage(request, project_id):
         return HttpResponseBadRequest("Invalid request method.")
 
     project = get_object_or_404(Project, pk=project_id)
-    if not _user_is_manager(request.user):
+    if not _user_can_edit_project(request.user, project):
         messages.error(
             request, "You do not have permission to update the action list stage."
         )
@@ -3624,7 +3637,7 @@ def protocol_set_stage(request, project_id):
         return HttpResponseBadRequest("Invalid request method.")
 
     project = get_object_or_404(Project, pk=project_id)
-    if not _user_is_manager(request.user):
+    if not _user_can_edit_project(request.user, project):
         messages.error(
             request, "You do not have permission to update the protocol stage."
         )

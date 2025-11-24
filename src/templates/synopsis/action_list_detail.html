@@ -86,23 +86,66 @@
                     <a class="btn btn-light" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
                 </div>
             </form>
-            {% if action_list and action_list.stage == 'final' and can_manage_project %}
-            <form class="mt-3" method="post" action="{% url 'synopsis:action_list_set_stage' project.id %}">
+        </div>
+    </div>
+</div>
+{% endif %}
+{% if can_toggle_stage and current_revision_entry %}
+<div class="modal fade" id="actionListSetFinalCurrentModal" tabindex="-1" aria-labelledby="actionListSetFinalCurrentModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="actionListSetFinalCurrentModalLabel">Set current revision as final</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{% url 'synopsis:action_list_set_stage' project.id %}">
                 {% csrf_token %}
-                <input type="hidden" name="stage" value="draft">
-                <label class="form-label" for="id_return_draft">Reason for returning to draft (optional)</label>
-                <div class="input-group">
+                <input type="hidden" name="stage" value="final">
+                <input type="hidden" name="revision_id" value="{{ current_revision_entry.revision.id }}">
+                <div class="modal-body">
+                    <label class="form-label" for="actionlist-final-current-reason">Reason</label>
                     <input
                         type="text"
                         class="form-control"
-                        id="id_return_draft"
+                        id="actionlist-final-current-reason"
+                        name="reason"
+                        placeholder="e.g., Approved by authors"
+                        required
+                    >
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-success">Set as Final</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<div class="modal fade" id="actionListReturnDraftModal" tabindex="-1" aria-labelledby="actionListReturnDraftModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="actionListReturnDraftModalLabel">Return to draft</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form method="post" action="{% url 'synopsis:action_list_set_stage' project.id %}">
+                {% csrf_token %}
+                <input type="hidden" name="stage" value="draft">
+                <div class="modal-body">
+                    <label class="form-label" for="actionlist-draft-reason">Reason (optional)</label>
+                    <input
+                        type="text"
+                        class="form-control"
+                        id="actionlist-draft-reason"
                         name="reason"
                         placeholder="e.g., Additional edits required"
                     >
-                    <button class="btn btn-outline-secondary" type="submit">Switch to Draft</button>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-warning">Return to Draft</button>
                 </div>
             </form>
-            {% endif %}
         </div>
     </div>
 </div>
@@ -158,12 +201,35 @@
                         {% endif %}
                     </div>
                     {% if action_list %}
-                    <div class="d-flex align-items-center gap-2">
-                        <span class="fw-semibold">Stage:</span>
+                    <div class="d-flex align-items-center flex-wrap gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="fw-semibold">Stage:</span>
+                            {% if action_list.stage == 'final' %}
+                            <span class="badge text-bg-success">Final</span>
+                            {% else %}
+                            <span class="badge text-bg-warning text-dark">Draft</span>
+                            {% endif %}
+                        </div>
+                        {% if can_toggle_stage and current_revision_entry %}
                         {% if action_list.stage == 'final' %}
-                        <span class="badge text-bg-success">Final</span>
+                        <button
+                            class="btn btn-outline-warning btn-sm"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#actionListReturnDraftModal"
+                        >
+                            Return to draft
+                        </button>
                         {% else %}
-                        <span class="badge text-bg-warning text-dark">Draft</span>
+                        <button
+                            class="btn btn-outline-success btn-sm"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#actionListSetFinalCurrentModal"
+                        >
+                            Set current revision as final
+                        </button>
+                        {% endif %}
                         {% endif %}
                     </div>
                     {% endif %}
@@ -207,30 +273,6 @@
                     by {{ current_revision_entry.revision.uploaded_by.get_full_name|default:current_revision_entry.revision.uploaded_by.username }}
                     {% endif %}
                 </div>
-                {% if action_list.stage != 'final' and current_revision_entry and can_manage_project %}
-                <div class="mt-3">
-                    <form class="row gy-2 gx-2 align-items-end" method="post" action="{% url 'synopsis:action_list_set_stage' project.id %}">
-                        {% csrf_token %}
-                        <input type="hidden" name="stage" value="final">
-                        <input type="hidden" name="revision_id" value="{{ current_revision_entry.revision.id }}">
-                        <div class="col-md-8 col-lg-6">
-                            <label class="form-label" for="id_final_reason">Reason for marking final</label>
-                            <input
-                                type="text"
-                                class="form-control"
-                                id="id_final_reason"
-                                name="reason"
-                                placeholder="e.g., Approved by authors"
-                                required
-                            >
-                        </div>
-                        <div class="col-md-4 col-lg-3">
-                            <button class="btn btn-success w-100" type="submit">Mark as Final</button>
-                        </div>
-                    </form>
-                    <div class="form-text">Once final, switch back to Draft before uploading a revision.</div>
-                </div>
-                {% endif %}
                 {% elif action_list and action_list.document %}
                 <p class="mt-2 text-muted">Action list record exists but no revision metadata is available.</p>
                 {% else %}
