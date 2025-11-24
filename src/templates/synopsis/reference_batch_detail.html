@@ -251,40 +251,29 @@ details.abstract-details[open] .abstract-full {
                         <td>
                             <div class="d-grid gap-2">
                                 <form method="post">
-                                {% csrf_token %}
-                                <input type="hidden" name="reference_id" value="{{ ref.id }}">
-                                <select name="screening_status" class="form-select form-select-sm">
-                                    {% for value,label in status_choices %}
-                    {% if ref.screening_status == value %}
-                                    <option value="{{ value }}" selected>{{ label }}</option>
-                                    {% else %}
-                                    <option value="{{ value }}">{{ label }}</option>
-                                    {% endif %}
-                  {% endfor %}
-                                </select>
-                                <textarea
-                                    name="screening_notes"
-                                    class="form-control form-control-sm"
-                                    rows="2"
-                                    placeholder="Notes (optional)"
-                                >{{ ref.screening_notes }}</textarea>
-                                <button class="btn btn-primary btn-sm">Save</button>
+                                    {% csrf_token %}
+                                    <input type="hidden" name="reference_id" value="{{ ref.id }}">
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button class="btn btn-success btn-sm" type="submit" name="screening_status" value="included">Include</button>
+                                        <button class="btn btn-outline-danger btn-sm" type="submit" name="screening_status" value="excluded">Exclude</button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="pending">Pending</button>
+                                    </div>
                                 </form>
                                 <form
                                     method="post"
                                     action="{% url 'synopsis:reference_delete' project.id ref.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
                                 >
-                                {% csrf_token %}
-                                {% if status_filter %}
-                                <input type="hidden" name="status_filter" value="{{ status_filter }}">
-                                {% endif %}
-                                <button
-                                    class="btn btn-outline-danger btn-sm w-100"
-                                    type="submit"
-                                    onclick="return confirm('Remove this reference from the batch?');"
-                                >
-                                    Delete
-                                </button>
+                                    {% csrf_token %}
+                                    {% if status_filter %}
+                                    <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                                    {% endif %}
+                                    <button
+                                        class="btn btn-outline-danger btn-sm w-100"
+                                        type="submit"
+                                        onclick="return confirm('Remove this reference from the batch?');"
+                                    >
+                                        Delete
+                                    </button>
                                 </form>
                             </div>
                         </td>
