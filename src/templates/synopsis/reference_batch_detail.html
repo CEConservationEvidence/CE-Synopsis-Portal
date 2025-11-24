@@ -48,11 +48,32 @@ details.abstract-details[open] .abstract-full {
     display: block;
     margin-top: 0.5rem;
 }
+.focus-overlay {
+    position: fixed;
+    inset: 0;
+    background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.45));
+    z-index: 1050;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 2.5rem 1rem;
+    overflow-y: auto;
+    backdrop-filter: blur(4px);
+}
+.focus-panel {
+    max-width: 1400px;
+    width: 100%;
+}
+.focus-card {
+    box-shadow: 0 0.9rem 2rem rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.08);
+}
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_list' project.id %}">Back to reference imports</a>
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload another RIS</a>
 </div>
+{% if not focus_mode %}
 <div class="card mb-3">
     <div class="card-body">
         <div class="row g-3 small">
@@ -130,6 +151,15 @@ details.abstract-details[open] .abstract-full {
         </div>
     </div>
 </div>
+{% endif %}
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+    {% if focus_mode %}
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}">Exit focused mode</a>
+    {% else %}
+    <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}?focus=1{% if status_filter %}&status={{ status_filter }}{% endif %}">Enter focused mode</a>
+    {% endif %}
+</div>
+{% if not focus_mode %}
 <form method="post" id="bulk-screening-form" class="d-flex flex-wrap gap-2 align-items-center mb-3">
     {% csrf_token %}
     {% if status_filter %}
@@ -162,6 +192,75 @@ details.abstract-details[open] .abstract-full {
     </button>
     <span class="small text-muted">Select references below to apply.</span>
 </form>
+{% endif %}
+{% if focus_mode and focused_reference %}
+<div class="focus-overlay">
+    <div class="focus-panel">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="badge bg-secondary">{{ focus_index|add:1 }} / {{ focus_total }}</span>
+                        {% if focus_prev_id %}
+                        <a class="btn btn-sm btn-outline-light" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}?focus=1&ref={{ focus_prev_id }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Previous</a>
+                        {% endif %}
+                        {% if focus_next_id %}
+                        <a class="btn btn-sm btn-outline-light" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}?focus=1&ref={{ focus_next_id }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Next</a>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="text-light small">Focused screening</span>
+                        <a class="btn btn-sm btn-light" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}">Close</a>
+                    </div>
+                </div>
+                <div class="card focus-card">
+            <div class="card-body">
+                <h5 class="card-title mb-1">{{ focused_reference.title }}</h5>
+                <div class="small text-muted mb-2">
+                    {{ focused_reference.authors|default:"—" }}{% if focused_reference.publication_year %} · {{ focused_reference.publication_year }}{% endif %}{% if focused_reference.journal %} · {{ focused_reference.journal }}{% endif %}
+                </div>
+                {% if focused_reference.abstract %}
+                <div class="mb-3 small text-muted" style="white-space: pre-wrap;">{{ focused_reference.abstract }}</div>
+                {% endif %}
+                <div class="mb-3 small text-muted">
+                    {% if focused_reference.doi %}DOI: {{ focused_reference.doi }}{% endif %}
+                    {% if focused_reference.url %}
+                    <div><a href="{{ focused_reference.url }}" target="_blank" rel="noopener noreferrer">Open link</a></div>
+                    {% endif %}
+                </div>
+                <div class="mb-3">
+                    <span class="badge {% if focused_reference.screening_status == 'included' %}text-bg-success{% elif focused_reference.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
+                        {{ focused_reference.get_screening_status_display }}
+                    </span>
+                    {% if focused_reference.screened_by %}
+                    <div class="small text-muted mt-1">
+                        {{ focused_reference.screened_by.get_full_name|default:focused_reference.screened_by.username }} · {{ focused_reference.screening_decision_at|date:"Y-m-d H:i" }}
+                    </div>
+                    {% endif %}
+                    {% if focused_reference.screening_notes %}
+                    <div class="small mt-1">{{ focused_reference.screening_notes }}</div>
+                    {% endif %}
+                </div>
+                <form method="post" class="d-flex flex-wrap gap-2">
+                    {% csrf_token %}
+                    {% if status_filter %}
+                    <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                    {% endif %}
+                    <input type="hidden" name="focus" value="1">
+                    <input type="hidden" name="focus_ref" value="{{ focused_reference.id }}">
+                    {% if focus_next_id %}
+                    <input type="hidden" name="next_ref_id" value="{{ focus_next_id }}">
+                    {% else %}
+                    <input type="hidden" name="next_ref_id" value="{{ focused_reference.id }}">
+                    {% endif %}
+                    <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
+                    <button class="btn btn-success" type="submit" name="screening_status" value="included">Include</button>
+                    <button class="btn btn-outline-danger" type="submit" name="screening_status" value="excluded">Exclude</button>
+                    <button class="btn btn-outline-secondary" type="submit" name="screening_status" value="pending">Pending</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
 <div class="card">
     <div class="card-body">
         <div class="table-responsive">
@@ -286,6 +385,7 @@ details.abstract-details[open] .abstract-full {
                 </tbody>
             </table>
         </div>
+        {% endif %}
     </div>
 </div>
 <script>
