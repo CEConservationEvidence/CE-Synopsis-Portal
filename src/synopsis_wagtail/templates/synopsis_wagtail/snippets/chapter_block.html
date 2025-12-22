@@ -11,6 +11,8 @@
                 · {{ block.reference_summary.reference.publication_year }}
             {% endif %}
         </div>
-        {{ block.reference_summary.summary_text|linebreaksbr }}
+        {% with primary=block.reference_summary.summary_of_results|default:block.reference_summary.summary_text %}
+            {{ primary|linebreaksbr }}
+        {% endwith %}
     </div>
 {% endif %}
