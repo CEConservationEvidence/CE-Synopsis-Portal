@@ -9,10 +9,23 @@
         </div>
         <span class="badge text-bg-secondary">{{ value.summary.get_status_display }}</span>
     </div>
-    {% if value.summary.summary_text %}
-        <p class="mb-2">{{ value.summary.summary_text|linebreaksbr }}</p>
-    {% else %}
-        <p class="text-muted mb-2">No summary text added yet.</p>
+    {% with primary=value.summary.summary_of_results|default:value.summary.summary_text %}
+        {% if primary %}
+            <p class="mb-2">{{ primary|linebreaksbr }}</p>
+        {% else %}
+            <p class="text-muted mb-2">No summary added yet.</p>
+        {% endif %}
+    {% endwith %}
+    {% if value.summary.action_methods or value.summary.experimental_design or value.summary.site_context_details or value.summary.sampling_methods_details %}
+        <div class="bg-light border rounded p-3 mb-2">
+            <div class="fw-semibold small text-uppercase">Study details</div>
+            <ul class="mb-0 small ps-3">
+                {% if value.summary.action_methods %}<li><strong>Action methods:</strong> {{ value.summary.action_methods|linebreaksbr }}</li>{% endif %}
+                {% if value.summary.experimental_design %}<li><strong>Experimental design:</strong> {{ value.summary.experimental_design|linebreaksbr }}</li>{% endif %}
+                {% if value.summary.site_context_details %}<li><strong>Site context:</strong> {{ value.summary.site_context_details|linebreaksbr }}</li>{% endif %}
+                {% if value.summary.sampling_methods_details %}<li><strong>Sampling methods:</strong> {{ value.summary.sampling_methods_details|linebreaksbr }}</li>{% endif %}
+            </ul>
+        </div>
     {% endif %}
     {% with actions=value.summary.action_summaries.all %}
         {% if actions %}
@@ -27,12 +40,6 @@
             </div>
         {% endif %}
     {% endwith %}
-    {% if value.summary.key_findings %}
-        <div class="mb-2">
-            <div class="fw-semibold small text-uppercase">Key findings</div>
-            <p class="mb-0">{{ value.summary.key_findings|linebreaksbr }}</p>
-        </div>
-    {% endif %}
     <div class="mb-2 small">
         {% if value.summary.action_tags %}
             <span class="text-muted">Actions:</span>
