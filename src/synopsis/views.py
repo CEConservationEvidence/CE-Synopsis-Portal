@@ -4873,6 +4873,109 @@ def _resequence_action_summaries(reference_summary):
             action_summary.save(update_fields=["order"])
 
 
+def _structured_summary_paragraph(summary: ReferenceSummary) -> str:
+    """Generate a concise paragraph from structured summary fields."""
+
+    def _clean(text):
+        return (text or "").strip()
+
+    study_type = _clean(summary.study_type)
+    year_range = _clean(summary.year_range)
+    habitat = _clean(summary.habitat_and_sites)
+    location = ", ".join([part for part in [_clean(summary.region), _clean(summary.country)] if part])
+    ref_id = _clean(summary.reference_identifier)
+    intro_parts = ["A"]
+    intro_parts.append(study_type if study_type else "study")
+    if year_range:
+        intro_parts.append(f"in {year_range}")
+    if habitat:
+        intro_parts.append(f"in {habitat}")
+    if location:
+        intro_parts.append(f"in {location}")
+    intro_line = " ".join(intro_parts).strip()
+    if ref_id:
+        intro_line = f"{intro_line} ({ref_id})"
+    intro_line = f"{intro_line} found that"
+
+    results = _clean(summary.summary_of_results) or _clean(summary.summary_text)
+
+    methods_parts = []
+    if summary.action_methods:
+        methods_parts.append(_clean(summary.action_methods))
+    if summary.experimental_design:
+        methods_parts.append(_clean(summary.experimental_design))
+    if summary.site_context_details:
+        methods_parts.append(_clean(summary.site_context_details))
+    if summary.sampling_methods_details:
+        methods_parts.append(_clean(summary.sampling_methods_details))
+
+    outcome_lines = []
+    for row in summary.outcome_rows or []:
+        outcome = _clean(row.get("outcome", ""))
+        difference = _clean(row.get("difference", ""))
+        treatment = _clean(row.get("treatment", ""))
+        comparator = _clean(row.get("comparator", ""))
+        t_val = _clean(row.get("treatment_value", ""))
+        c_val = _clean(row.get("comparator_value", ""))
+        unit = _clean(row.get("unit", ""))
+        notes = _clean(row.get("notes", ""))
+        p_val = _clean(row.get("p_value", ""))
+        stats = _clean(row.get("stats", ""))
+
+        parts = []
+        if outcome:
+            parts.append(f"{outcome}:")
+        if difference and treatment and comparator:
+            parts.append(f"{difference} in {treatment} compared to {comparator}")
+        elif difference:
+            parts.append(difference)
+        if t_val or c_val:
+            val_bits = []
+            if t_val:
+                val_bits.append(t_val)
+            if c_val:
+                val_bits.append(c_val)
+            value_text = " vs ".join(val_bits)
+            if unit:
+                value_text = f"{value_text} {unit}".strip()
+            parts.append(f"({value_text})")
+        if stats:
+            parts.append(f"Stats: {stats}")
+        if p_val:
+            parts.append(f"p={p_val}")
+        if notes:
+            parts.append(notes)
+        sentence = " ".join([p for p in parts if p]).strip()
+        if sentence:
+            outcome_lines.append(sentence if sentence.endswith(".") else f"{sentence}.")
+
+    methods_text = " ".join([part for part in methods_parts if part]).strip()
+    scores = []
+    if summary.benefits_score is not None:
+        scores.append(f"Benefits: {summary.benefits_score}")
+    if summary.harms_score is not None:
+        scores.append(f"Harms: {summary.harms_score}")
+    if summary.reliability_score is not None:
+        scores.append(f"Reliability: {summary.reliability_score}")
+    if summary.relevance_score is not None:
+        scores.append(f"Relevance: {summary.relevance_score}")
+
+    segments = [intro_line]
+    if results:
+        segments.append(results)
+    if outcome_lines:
+        segments.append(" ".join(outcome_lines))
+    if methods_text:
+        segments.append(methods_text)
+
+    paragraph = " ".join([seg.strip() for seg in segments if seg.strip()]).strip()
+    if paragraph and not paragraph.endswith("."):
+        paragraph = f"{paragraph}."
+    if scores:
+        paragraph = f"{paragraph}\n\n" + " · ".join(scores)
+    return paragraph
+
+
 def _resolve_section(chapter, section_id):
     if not section_id:
         return None
@@ -5173,6 +5276,7 @@ def reference_summary_detail(request, project_id, summary_id):
 
     comments = summary.comments.select_related("author")
     action_summaries = summary.action_summaries.order_by("order", "id")
+    generated_summary = _structured_summary_paragraph(summary)
 
     return render(
         request,
@@ -5188,6 +5292,7 @@ def reference_summary_detail(request, project_id, summary_id):
             "document_form": document_form,
             "action_summary_form": action_summary_form,
             "action_summaries": action_summaries,
+            "generated_summary": generated_summary,
         },
     )
 
