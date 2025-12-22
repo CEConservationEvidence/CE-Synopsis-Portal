@@ -9,9 +9,22 @@
                         · {{ block.reference_summary.reference.publication_year }}
                     {% endif %}
                 </div>
+                {% with primary=block.reference_summary.summary_of_results|default:block.reference_summary.summary_text %}
                 <p class="mt-2 mb-2">
-                    {{ block.reference_summary.summary_text|default:"No summary text added yet."|linebreaksbr }}
+                    {{ primary|default:"No summary added yet."|linebreaksbr }}
                 </p>
+                {% endwith %}
+                {% if block.reference_summary.action_methods or block.reference_summary.experimental_design or block.reference_summary.site_context_details or block.reference_summary.sampling_methods_details %}
+                    <div class="bg-white border rounded p-2 mb-2">
+                        <div class="small text-uppercase text-muted mb-1">Study details</div>
+                        <ul class="mb-0 small ps-3">
+                            {% if block.reference_summary.action_methods %}<li><strong>Action methods:</strong> {{ block.reference_summary.action_methods|linebreaksbr }}</li>{% endif %}
+                            {% if block.reference_summary.experimental_design %}<li><strong>Experimental design:</strong> {{ block.reference_summary.experimental_design|linebreaksbr }}</li>{% endif %}
+                            {% if block.reference_summary.site_context_details %}<li><strong>Site context:</strong> {{ block.reference_summary.site_context_details|linebreaksbr }}</li>{% endif %}
+                            {% if block.reference_summary.sampling_methods_details %}<li><strong>Sampling methods:</strong> {{ block.reference_summary.sampling_methods_details|linebreaksbr }}</li>{% endif %}
+                        </ul>
+                    </div>
+                {% endif %}
                 {% if block.reference_summary.action_summaries.all %}
                     <div class="bg-white border rounded p-2 mb-2">
                         <div class="small text-uppercase text-muted mb-1">Action summaries</div>
@@ -21,12 +34,6 @@
                                 <p class="mb-1">{{ action.summary_text|linebreaksbr }}</p>
                             </div>
                         {% endfor %}
-                    </div>
-                {% endif %}
-                {% if block.reference_summary.key_findings %}
-                    <div class="mb-2">
-                        <div class="fw-semibold small text-uppercase">Key findings</div>
-                        <p class="mb-0">{{ block.reference_summary.key_findings|linebreaksbr }}</p>
                     </div>
                 {% endif %}
             {% elif block.block_type == 'heading' %}
