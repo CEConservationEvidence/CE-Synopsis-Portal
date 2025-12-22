@@ -949,6 +949,19 @@ class ReferenceSummaryAssignmentForm(forms.Form):
 
 
 class ReferenceSummaryUpdateForm(forms.ModelForm):
+    outcomes_raw = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 5,
+                "placeholder": "Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes",
+            }
+        ),
+        label="Outcome rows",
+        help_text="One outcome per line, fields separated by |",
+    )
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         instance = getattr(self, "instance", None)
@@ -963,13 +976,47 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                 value = getattr(instance, field) or []
                 if isinstance(value, list):
                     self.fields[field].initial = ", ".join(value)
+            if instance.outcome_rows:
+                lines = []
+                for row in instance.outcome_rows:
+                    parts = [
+                        row.get("outcome", ""),
+                        row.get("treatment_value", ""),
+                        row.get("treatment", ""),
+                        row.get("comparator_value", ""),
+                        row.get("comparator", ""),
+                        row.get("unit", ""),
+                        row.get("difference", ""),
+                        row.get("stats", ""),
+                        row.get("p_value", ""),
+                        row.get("notes", ""),
+                    ]
+                    lines.append(" | ".join(parts).strip())
+                self.fields["outcomes_raw"].initial = "\n".join([line for line in lines if line.strip()])
 
     class Meta:
         model = ReferenceSummary
         fields = [
             "status",
-            "summary_text",
-            "key_findings",
+            "reference_identifier",
+            "summary_identifier",
+            "reference_label",
+            "action_description",
+            "study_type",
+            "year_range",
+            "habitat_and_sites",
+            "region",
+            "country",
+            "summary_of_results",
+            "action_methods",
+            "experimental_design",
+            "site_context_details",
+            "sampling_methods_details",
+            "outcomes_raw",
+            "benefits_score",
+            "harms_score",
+            "reliability_score",
+            "relevance_score",
             "synopsis_draft",
             "action_tags",
             "threat_tags",
@@ -981,8 +1028,29 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         ]
         widgets = {
             "status": forms.Select(attrs={"class": "form-select"}),
-            "summary_text": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
-            "key_findings": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "reference_identifier": forms.TextInput(attrs={"class": "form-control"}),
+            "summary_identifier": forms.TextInput(attrs={"class": "form-control"}),
+            "reference_label": forms.TextInput(attrs={"class": "form-control"}),
+            "action_description": forms.TextInput(attrs={"class": "form-control"}),
+            "study_type": forms.TextInput(attrs={"class": "form-control"}),
+            "year_range": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "e.g. 2015-2018",
+                }
+            ),
+            "habitat_and_sites": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "region": forms.TextInput(attrs={"class": "form-control"}),
+            "country": forms.TextInput(attrs={"class": "form-control"}),
+            "summary_of_results": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
+            "action_methods": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "experimental_design": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "site_context_details": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "sampling_methods_details": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "benefits_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
+            "harms_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
+            "reliability_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
+            "relevance_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
             "synopsis_draft": DraftailRichTextArea(features=["h2", "h3", "bold", "italic", "ol", "ul", "link", "hr"]),
             "action_tags": forms.TextInput(attrs={"class": "form-control"}),
             "threat_tags": forms.TextInput(attrs={"class": "form-control"}),
@@ -1018,16 +1086,38 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
     def clean_location_tags(self):
         return self._split_tags("location_tags")
 
-    def clean_summary_text(self):
-        text = (self.cleaned_data.get("summary_text") or "").strip()
-        if not text:
-            return text
-        word_count = len(re.findall(r"\b\w+\b", text))
-        if word_count < 150 or word_count > 300:
-            raise forms.ValidationError(
-                f"Summary text must be between 150 and 300 words (currently {word_count})."
+    def clean_outcomes_raw(self):
+        raw = self.cleaned_data.get("outcomes_raw", "") or ""
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        parsed = []
+        for line in lines:
+            parts = [part.strip() for part in line.split("|")]
+            # Pad to 10 fields
+            while len(parts) < 10:
+                parts.append("")
+            parsed.append(
+                {
+                    "outcome": parts[0],
+                    "treatment_value": parts[1],
+                    "treatment": parts[2],
+                    "comparator_value": parts[3],
+                    "comparator": parts[4],
+                    "unit": parts[5],
+                    "difference": parts[6],
+                    "stats": parts[7],
+                    "p_value": parts[8],
+                    "notes": parts[9],
+                }
             )
-        return text
+        return parsed
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.outcome_rows = self.cleaned_data.get("outcomes_raw", [])
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
 
 
 class ReferenceSummaryCommentForm(forms.Form):
