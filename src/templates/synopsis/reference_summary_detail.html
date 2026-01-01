@@ -321,7 +321,8 @@
                                 </div>
                                 <div class="col-md-8">
                                     <label class="form-label small text-muted">Summary (~200 words)</label>
-                                    <textarea class="form-control form-control-sm" rows="3" name="summary_text">{{ action_summary.summary_text }}</textarea>
+                                    <textarea class="form-control form-control-sm" rows="3" name="summary_text" maxlength="1500">{{ action_summary.summary_text }}</textarea>
+                                    <div class="form-text">Aim for 150–200 words.</div>
                                 </div>
                             </div>
                             <button class="btn btn-outline-primary btn-sm mt-2">Save changes</button>
@@ -342,6 +343,7 @@
                     <div class="mb-3">
                         <label class="form-label">Action summary (~200 words)</label>
                         {{ action_summary_form.summary_text }}
+                        <div class="form-text">Aim for 150–200 words.</div>
                     </div>
                     <button class="btn btn-success">Add action summary</button>
                 </form>
