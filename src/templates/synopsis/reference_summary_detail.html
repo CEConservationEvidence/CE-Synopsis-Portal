@@ -29,14 +29,14 @@
 </div>
 <div class="row g-3">
     <div class="col-xl-6 col-12 d-flex flex-column">
-        <div class="card flex-grow-1">
+        <div class="card flex-grow-1" id="pdf-card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Reference PDF</span>
                 {% if reference.reference_document %}
                 <a class="btn btn-outline-secondary btn-sm" href="{{ reference.reference_document.url }}" target="_blank" rel="noopener">Open in new tab</a>
                 {% endif %}
             </div>
-            <div class="card-body d-flex flex-column">
+            <div class="card-body d-flex flex-column" id="pdf-card-body" style="overflow-y: auto;">
                 <form method="post" enctype="multipart/form-data" class="mb-3">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="upload-document">
@@ -50,7 +50,7 @@
                             <div class="small text-muted">Uploaded {{ reference.reference_document_uploaded_at|date:"Y-m-d H:i" }}</div>
                         {% endif %}
                     </div>
-                    <div class="flex-grow-1 border rounded position-relative" style="min-height: 720px;">
+                    <div class="flex-grow-1 border rounded position-relative" id="pdf-viewer" style="min-height: 400px;">
                         <object
                             data="{% url 'synopsis:reference_document_inline' project.id reference.id %}?inline=1&v={{ reference.reference_document_uploaded_at|date:'U' }}"
                             type="application/pdf"
@@ -76,7 +76,7 @@
         </div>
     </div>
     <div class="col-xl-6 col-12">
-        <div class="card mb-3">
+        <div class="card mb-3" id="summary-card">
             <div class="card-header">Summary details</div>
             <div class="card-body">
                 <form method="post">
@@ -380,6 +380,35 @@
     })();
 </script>
 {% endif %}
+<script>
+    (() => {
+        const pdfCard = document.getElementById("pdf-card");
+        const pdfBody = document.getElementById("pdf-card-body");
+        const summaryCard = document.getElementById("summary-card");
+        if (!pdfCard || !pdfBody || !summaryCard) return;
+
+        const syncHeights = () => {
+            const summaryHeight = summaryCard.getBoundingClientRect().height;
+            if (!summaryHeight) return;
+            pdfCard.style.height = `${summaryHeight}px`;
+            pdfCard.style.maxHeight = `${summaryHeight}px`;
+            const header = pdfCard.querySelector(".card-header");
+            const headerHeight = header ? header.getBoundingClientRect().height : 0;
+            const bodyStyles = window.getComputedStyle(pdfBody);
+            const paddingTop = parseFloat(bodyStyles.paddingTop) || 0;
+            const paddingBottom = parseFloat(bodyStyles.paddingBottom) || 0;
+            const available = summaryHeight - headerHeight - paddingTop - paddingBottom;
+            if (available > 0) {
+                pdfBody.style.maxHeight = `${available}px`;
+            }
+        };
+
+        const resizeObserver = new ResizeObserver(syncHeights);
+        resizeObserver.observe(summaryCard);
+        window.addEventListener("resize", syncHeights);
+        syncHeights();
+    })();
+</script>
 <script>
     (() => {
         const preview = document.getElementById("abstract-preview");
