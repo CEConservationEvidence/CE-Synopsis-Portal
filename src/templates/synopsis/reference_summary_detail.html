@@ -29,7 +29,7 @@
 </div>
 <div class="row g-3">
     <div class="col-xl-6 col-12 d-flex flex-column">
-        <div class="card flex-grow-1" id="pdf-card">
+        <div class="card flex-grow-1 shadow-sm" id="pdf-card" style="position: sticky; top: 1rem;">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Reference PDF</span>
                 {% if reference.reference_document %}
@@ -76,150 +76,177 @@
         </div>
     </div>
     <div class="col-xl-6 col-12">
-        <div class="card mb-3" id="summary-card">
+        <div class="card mb-3 shadow-sm" id="summary-card">
             <div class="card-header">Summary details</div>
             <div class="card-body">
-                <form method="post">
+                <form method="post" class="d-flex flex-column gap-4">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-summary">
-                    <div class="mb-3">
-                        <label class="form-label">Summary status</label>
-                        {{ summary_form.status }}
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Reference ID</label>
-                            {{ summary_form.reference_identifier }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Summary ID</label>
-                            {{ summary_form.summary_identifier }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Reference</label>
-                            {{ summary_form.reference_label }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Action</label>
-                            {{ summary_form.action_description }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Study design</label>
-                            {{ summary_form.study_design }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Type of study</label>
-                            {{ summary_form.study_type }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Number of sites/replications</label>
-                            {{ summary_form.sites_replications }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Years X-Y</label>
-                            {{ summary_form.year_range }}
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">Habitat and number of sites</label>
-                            {{ summary_form.habitat_and_sites }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Region</label>
-                            {{ summary_form.region }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Country</label>
-                            {{ summary_form.country }}
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Status & identifiers</div>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">Summary status</label>
+                                {{ summary_form.status }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Reference ID</label>
+                                {{ summary_form.reference_identifier }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Summary ID</label>
+                                {{ summary_form.summary_identifier }}
+                            </div>
                         </div>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Summary of results (action + outcome)</label>
-                        {{ summary_form.summary_of_results }}
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Outcome rows</label>
-                        {{ summary_form.outcomes_raw }}
-                        <div class="form-text">One outcome per line, fields separated by | (Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes).</div>
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Action methods</label>
-                            {{ summary_form.action_methods }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Experimental design</label>
-                            {{ summary_form.experimental_design }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Key details of site context</label>
-                            {{ summary_form.site_context_details }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Details of sampling methods</label>
-                            {{ summary_form.sampling_methods_details }}
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Costs</label>
-                        {{ summary_form.cost_summary }}
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Synopsis draft</label>
-                        {{ summary_form.synopsis_draft }}
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Action tags</label>
-                            {{ summary_form.action_tags }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Threat tags</label>
-                            {{ summary_form.threat_tags }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Taxon tags</label>
-                            {{ summary_form.taxon_tags }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Habitat tags</label>
-                            {{ summary_form.habitat_tags }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Location tags</label>
-                            {{ summary_form.location_tags }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Research design</label>
-                            {{ summary_form.research_design }}
-                        </div>
-                        <div class="col-md-12">
-                            <label class="form-label">Citation</label>
-                            {{ summary_form.citation }}
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Study overview</div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Reference</label>
+                                {{ summary_form.reference_label }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Action</label>
+                                {{ summary_form.action_description }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Study design</label>
+                                {{ summary_form.study_design }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Type of study</label>
+                                {{ summary_form.study_type }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Number of sites/replications</label>
+                                {{ summary_form.sites_replications }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Years X-Y</label>
+                                {{ summary_form.year_range }}
+                            </div>
                         </div>
                     </div>
-                    <div class="row g-3 mt-2">
-                        <div class="col-md-3">
-                            <label class="form-label">Benefits</label>
-                            {{ summary_form.benefits_score }}
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Harms</label>
-                            {{ summary_form.harms_score }}
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Reliability</label>
-                            {{ summary_form.reliability_score }}
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Relevance</label>
-                            {{ summary_form.relevance_score }}
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Habitat & geography</div>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">Habitat and number of sites</label>
+                                {{ summary_form.habitat_and_sites }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Region</label>
+                                {{ summary_form.region }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Country</label>
+                                {{ summary_form.country }}
+                            </div>
                         </div>
                     </div>
-                    <button class="btn btn-primary">Save summary</button>
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Findings & methods</div>
+                        <div class="mb-3">
+                            <label class="form-label">Summary of results (action + outcome)</label>
+                            {{ summary_form.summary_of_results }}
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Outcome rows</label>
+                            {{ summary_form.outcomes_raw }}
+                            <div class="form-text">One outcome per line, fields separated by | (Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes).</div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Action methods</label>
+                                {{ summary_form.action_methods }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Experimental design</label>
+                                {{ summary_form.experimental_design }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Key details of site context</label>
+                                {{ summary_form.site_context_details }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Details of sampling methods</label>
+                                {{ summary_form.sampling_methods_details }}
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Costs & narrative</div>
+                        <div class="mb-3">
+                            <label class="form-label">Costs</label>
+                            {{ summary_form.cost_summary }}
+                        </div>
+                        <div class="mb-0">
+                            <label class="form-label">Synopsis draft</label>
+                            {{ summary_form.synopsis_draft }}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Tags & design</div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Action tags</label>
+                                {{ summary_form.action_tags }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Threat tags</label>
+                                {{ summary_form.threat_tags }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Taxon tags</label>
+                                {{ summary_form.taxon_tags }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Habitat tags</label>
+                                {{ summary_form.habitat_tags }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Location tags</label>
+                                {{ summary_form.location_tags }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Research design</label>
+                                {{ summary_form.research_design }}
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label">Citation</label>
+                                {{ summary_form.citation }}
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Quality scores</div>
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label">Benefits</label>
+                                {{ summary_form.benefits_score }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Harms</label>
+                                {{ summary_form.harms_score }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Reliability</label>
+                                {{ summary_form.reliability_score }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Relevance</label>
+                                {{ summary_form.relevance_score }}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="pt-2">
+                        <button class="btn btn-primary">Save summary</button>
+                    </div>
                 </form>
             </div>
         </div>
-        <div class="card mb-3">
+        <div class="card mb-3 shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Generated summary paragraph</span>
                 {% if generated_summary %}
@@ -235,7 +262,7 @@
                 {% endif %}
             </div>
         </div>
-        <div class="card mb-3">
+        <div class="card mb-3 shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Action-specific summaries</span>
                 <span class="badge text-bg-light">{{ action_summaries|length }} total</span>
@@ -295,8 +322,6 @@
             </div>
         </div>
     </div>
-<div class="col-12 mt-4">
-</div>
 </div>
 
 <div class="modal fade" id="snapshotModal" tabindex="-1" aria-hidden="true">
@@ -390,15 +415,18 @@
         const syncHeights = () => {
             const summaryHeight = summaryCard.getBoundingClientRect().height;
             if (!summaryHeight) return;
-            pdfCard.style.height = `${summaryHeight}px`;
-            pdfCard.style.maxHeight = `${summaryHeight}px`;
+            const viewportAllowance = Math.max(window.innerHeight - 32, 320); // keep visible while sticky
+            const targetHeight = Math.min(summaryHeight, viewportAllowance);
+            pdfCard.style.height = `${targetHeight}px`;
+            pdfCard.style.maxHeight = `${targetHeight}px`;
             const header = pdfCard.querySelector(".card-header");
             const headerHeight = header ? header.getBoundingClientRect().height : 0;
             const bodyStyles = window.getComputedStyle(pdfBody);
             const paddingTop = parseFloat(bodyStyles.paddingTop) || 0;
             const paddingBottom = parseFloat(bodyStyles.paddingBottom) || 0;
-            const available = summaryHeight - headerHeight - paddingTop - paddingBottom;
+            const available = targetHeight - headerHeight - paddingTop - paddingBottom;
             if (available > 0) {
+                pdfBody.style.height = `${available}px`;
                 pdfBody.style.maxHeight = `${available}px`;
             }
         };
