@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import uuid
+import random
 from decimal import Decimal
 from urllib.parse import urlparse, urlencode
 
@@ -4981,10 +4982,78 @@ def reference_summary_board(request, project_id):
     _ensure_reference_summaries(project, included_references)
 
     if request.method == "POST":
+        action = request.POST.get("action")
+        selected_ids = request.POST.getlist("summary_ids") or []
+        if action == "auto-assign":
+            authors = list(project.author_users.order_by("id"))
+            if not authors:
+                messages.error(request, "No authors available to assign.")
+                return redirect("synopsis:reference_summary_board", project_id=project.id)
+            base_qs = ReferenceSummary.objects.filter(
+                project=project,
+                reference__screening_status="included",
+                assigned_to__isnull=True,
+            )
+            if selected_ids:
+                base_qs = base_qs.filter(id__in=selected_ids)
+            unassigned = list(base_qs.order_by("id"))
+            if not unassigned:
+                messages.info(request, "No unassigned summaries to distribute.")
+                return redirect("synopsis:reference_summary_board", project_id=project.id)
+            random.shuffle(unassigned)
+            for idx, item in enumerate(unassigned):
+                item.assigned_to = authors[idx % len(authors)]
+                item.save(update_fields=["assigned_to", "updated_at"])
+            messages.success(
+                request,
+                f"Auto-assigned {len(unassigned)} summaries across {len(authors)} author(s).",
+            )
+            return redirect("synopsis:reference_summary_board", project_id=project.id)
+        elif action == "bulk-assign-author":
+            author_id = request.POST.get("bulk_assigned_to")
+            if not author_id:
+                messages.error(request, "Select an author to assign.")
+                return redirect("synopsis:reference_summary_board", project_id=project.id)
+            try:
+                author = project.author_users.get(pk=author_id)
+            except User.DoesNotExist:
+                messages.error(request, "Selected author is not part of this project.")
+                return redirect("synopsis:reference_summary_board", project_id=project.id)
+            qs = ReferenceSummary.objects.filter(
+                project=project,
+                reference__screening_status="included",
+            )
+            if selected_ids:
+                qs = qs.filter(id__in=selected_ids)
+            else:
+                qs = qs.filter(assigned_to__isnull=True)
+            updated = qs.update(assigned_to=author, updated_at=timezone.now())
+            if updated:
+                messages.success(
+                    request,
+                    f"Assigned {updated} unassigned summaries to {author.get_full_name() or author.username}.",
+                )
+            else:
+                messages.info(request, "No unassigned summaries to distribute.")
+            return redirect("synopsis:reference_summary_board", project_id=project.id)
+        elif action == "bulk-unassign":
+            qs = ReferenceSummary.objects.filter(
+                project=project,
+                reference__screening_status="included",
+                assigned_to__isnull=False,
+            )
+            if selected_ids:
+                qs = qs.filter(id__in=selected_ids)
+            updated = qs.update(assigned_to=None, updated_at=timezone.now())
+            if updated:
+                messages.success(request, f"Unassigned {updated} summaries.")
+            else:
+                messages.info(request, "No summaries were unassigned.")
+            return redirect("synopsis:reference_summary_board", project_id=project.id)
+
         summary = get_object_or_404(
             ReferenceSummary, pk=request.POST.get("summary_id"), project=project
         )
-        action = request.POST.get("action")
         if action == "assign":
             form = ReferenceSummaryAssignmentForm(request.POST, project=project)
             if form.is_valid():
@@ -5009,6 +5078,17 @@ def reference_summary_board(request, project_id):
         project=project,
         reference__screening_status="included",
     ).select_related("reference", "assigned_to")
+    author_options = project.author_users.order_by("first_name", "last_name")
+    workload = []
+    for author in author_options:
+        workload.append(
+            {
+                "author": author,
+                "assigned": summaries.filter(assigned_to=author).count(),
+                "needs_help": summaries.filter(assigned_to=author, needs_help=True).count(),
+            }
+        )
+    unassigned_count = summaries.filter(assigned_to__isnull=True).count()
 
     status_map = {
         code: {"label": label, "items": []}
@@ -5031,8 +5111,6 @@ def reference_summary_board(request, project_id):
     completed = len(status_map.get(ReferenceSummary.STATUS_DONE, {}).get("items", []))
     progress = int((completed / total_included) * 100) if total_included else 0
 
-    author_options = project.author_users.order_by("first_name", "last_name")
-
     return render(
         request,
         "synopsis/reference_summary_board.html",
@@ -5045,6 +5123,9 @@ def reference_summary_board(request, project_id):
             "author_options": author_options,
             "status_choices": ReferenceSummary.STATUS_CHOICES,
             "reference_count": total_included,
+            "workload": workload,
+            "unassigned_count": unassigned_count,
+            "summaries": summaries.order_by("status", "assigned_to__first_name", "reference__title"),
         },
     )
 

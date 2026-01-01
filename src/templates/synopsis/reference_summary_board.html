@@ -6,6 +6,9 @@
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
     <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_list' project.id %}">Screening overview</a>
     <a class="btn btn-outline-success" href="{% url 'synopsis:project_synopsis_structure' project.id %}">Manage synopsis structure</a>
+    <div class="ms-auto">
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#distribution-modal">Distribution view</button>
+    </div>
 </div>
 {% if reference_count %}
 <div class="card mb-4">
@@ -13,7 +16,7 @@
         <div>
             <h5 class="mb-1">Progress</h5>
             <div class="display-6">{{ completed }} / {{ total_included }}</div>
-            <div class="small text-muted">Summaries marked as “Synopsised”</div>
+            <div class="small text-muted">Summaries marked as “Summarised”</div>
         </div>
         <div class="flex-grow-1">
             <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ progress }}">
@@ -110,6 +113,80 @@
     {% endfor %}
 </div>
 
+<div class="modal fade" id="distribution-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Reference distribution</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex flex-wrap gap-2 mb-2">
+            <span class="small text-muted">{{ unassigned_count }} unassigned / {{ reference_count }} total</span>
+        </div>
+        <div class="table-responsive">
+            <form method="post" id="distribution-form">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="">
+                <input type="hidden" name="bulk_assigned_to" value="">
+                <table class="table table-sm align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width:32px;"><input type="checkbox" id="dist-select-all"></th>
+                            <th>Title</th>
+                            <th>Status</th>
+                            <th>Assignee</th>
+                            <th>Needs help</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for summary in summaries %}
+                        <tr>
+                            <td><input type="checkbox" class="dist-row" name="summary_ids" value="{{ summary.id }}"></td>
+                            <td>
+                                <div class="fw-semibold">{{ summary.reference.title }}</div>
+                                <div class="small text-muted">
+                                    {% if summary.reference.authors %}{{ summary.reference.authors }}{% else %}Unknown authors{% endif %}
+                                    {% if summary.reference.publication_year %} · {{ summary.reference.publication_year }}{% endif %}
+                                </div>
+                            </td>
+                            <td><span class="badge text-bg-light">{{ summary.get_status_display }}</span></td>
+                            <td>
+                                {% if summary.assigned_to %}
+                                    {{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}
+                                {% else %}
+                                    <span class="text-muted">Unassigned</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if summary.needs_help %}
+                                    <span class="badge text-bg-warning text-dark">Yes</span>
+                                {% else %}
+                                    <span class="text-muted">No</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </form>
+        </div>
+      </div>
+      <div class="modal-footer d-flex flex-wrap gap-2 align-items-center">
+        <select class="form-select form-select-sm w-auto" id="dist-author">
+            <option value="">Select author…</option>
+            {% for author in author_options %}
+                <option value="{{ author.id }}">{{ author.get_full_name|default:author.username }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-outline-primary btn-sm" type="button" data-dist-action="bulk-assign-author">Assign selected</button>
+        <button class="btn btn-outline-danger btn-sm" type="button" data-dist-action="bulk-unassign">Unassign selected</button>
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-dist-action="auto-assign">Auto-distribute selected/unassigned</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
     (function() {
         document.querySelectorAll("#summary-board .card").forEach((card) => {
@@ -125,6 +202,25 @@
             });
             body.style.maxHeight = "70vh";
             body.style.overflowY = "auto";
+        });
+
+        const distSelectAll = document.getElementById("dist-select-all");
+        const distRows = document.querySelectorAll(".dist-row");
+        if (distSelectAll) {
+            distSelectAll.addEventListener("change", () => {
+                distRows.forEach((cb) => { cb.checked = distSelectAll.checked; });
+            });
+        }
+        const distForm = document.getElementById("distribution-form");
+        document.querySelectorAll("[data-dist-action]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+                if (!distForm) return;
+                const action = btn.getAttribute("data-dist-action");
+                distForm.querySelector("input[name='action']").value = action;
+                const authorSel = document.getElementById("dist-author");
+                distForm.querySelector("input[name='bulk_assigned_to']").value = authorSel ? authorSel.value : "";
+                distForm.submit();
+            });
         });
     })();
 </script>
