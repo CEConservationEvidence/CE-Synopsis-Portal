@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import Group, User, AnonymousUser
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, RequestFactory, override_settings
+from django.test import TestCase, override_settings, RequestFactory
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import PermissionDenied
@@ -36,6 +36,10 @@ from .models import (
     ReferenceSourceBatch,
     ReferenceSourceBatchNoteHistory,
     Reference,
+    ReferenceSummary,
+    SynopsisChapter,
+    SynopsisSubheading,
+    SynopsisIntervention,
 )
 from .forms import (
     AdvisoryMemberCustomDataForm,
@@ -63,6 +67,7 @@ from .views import (
     protocol_delete_revision,
     action_list_delete_revision,
     _parse_plaintext_references,
+    project_synopsis_structure,
 )
 
 # TODO: #25 Clean up tests.py and see if some tests can be split into separate files.
@@ -197,6 +202,75 @@ class ProjectAuthorUsersTests(TestCase):
     def test_returns_authors_sorted_by_username(self):
         usernames = list(self.project.author_users.values_list("username", flat=True))
         self.assertEqual(usernames, ["adam", "zoe"])
+
+
+class SynopsisStructureTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Synopsis Demo")
+        self.user = User.objects.create_user(username="manager", password="pw", is_staff=True)
+        UserRole.objects.create(user=self.user, project=self.project, role="manager")
+        self.client.force_login(self.user)
+        # Attach a reference/summary for assignment flows
+        self.batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Batch 1",
+            source_type="manual_upload",
+            uploaded_by=self.user,
+        )
+        self.reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Test ref",
+            hash_key="hash-test-ref",
+            screening_status="included",
+        )
+        self.summary = ReferenceSummary.objects.create(
+            project=self.project, reference=self.reference
+        )
+
+    def test_apply_preset_creates_chapters_once(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        response = self.client.post(
+            url,
+            {"action": "apply-preset", "preset_key": "standard_ce_toc"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(SynopsisChapter.objects.filter(project=self.project).exists())
+        count_after_first = SynopsisChapter.objects.filter(project=self.project).count()
+        # Second apply should be blocked because outline is not empty
+        response = self.client.post(
+            url,
+            {"action": "apply-preset", "preset_key": "standard_ce_toc"},
+        )
+        self.assertEqual(response.status_code, 302)
+        count_after_second = SynopsisChapter.objects.filter(project=self.project).count()
+        self.assertEqual(count_after_first, count_after_second)
+
+    def test_reset_structure_clears_outline(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        SynopsisChapter.objects.create(project=self.project, title="Tmp", position=1)
+        response = self.client.post(url, {"action": "reset-structure"})
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(SynopsisChapter.objects.filter(project=self.project).exists())
+
+    def test_create_intervention_without_subheading_creates_default(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(project=self.project, title="Ch", position=1)
+        response = self.client.post(
+            url,
+            {
+                "action": "create-intervention",
+                "chapter_id": chapter.id,
+                "title": "Intervention A",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        subheadings = SynopsisSubheading.objects.filter(chapter=chapter)
+        self.assertEqual(subheadings.count(), 1)
+        intervention_titles = list(
+            SynopsisIntervention.objects.filter(subheading__chapter=chapter).values_list("title", flat=True)
+        )
+        self.assertIn("Intervention A", intervention_titles)
 
 
 @override_settings(DEFAULT_FROM_EMAIL="reminders@example.com")

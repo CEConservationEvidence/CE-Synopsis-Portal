@@ -3,6 +3,7 @@ import uuid
 
 from django.contrib.auth.models import User
 from django.contrib.postgres.fields import ArrayField
+from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.utils import timezone
 
@@ -1110,6 +1111,14 @@ class Reference(models.Model):
         blank=True,
         help_text="Original RIS key/value pairs for full fidelity storage.",
     )
+    reference_document = models.FileField(
+        upload_to="reference_documents/%Y/%m/%d",
+        blank=True,
+        null=True,
+        validators=[FileExtensionValidator(["pdf"])],
+        help_text="Optional uploaded PDF of the reference.",
+    )
+    reference_document_uploaded_at = models.DateTimeField(null=True, blank=True)
     screening_status = models.CharField(
         max_length=40,
         choices=SCREENING_STATUS_CHOICES,
@@ -1152,3 +1161,192 @@ class Reference(models.Model):
                 "updated_at",
             ]
         )
+
+
+class ReferenceSummary(models.Model):
+    STATUS_TODO = "todo"
+    STATUS_DRAFT = "draft"
+    STATUS_REVIEW = "review"
+    STATUS_DONE = "done"
+    STATUS_CHOICES = [
+        (STATUS_TODO, "To summarise"),
+        (STATUS_DRAFT, "In progress"),
+        (STATUS_REVIEW, "Ready for review"),
+        (STATUS_DONE, "Synopsised"),
+    ]
+
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="reference_summaries"
+    )
+    reference = models.OneToOneField(
+        Reference, on_delete=models.CASCADE, related_name="summary"
+    )
+    assigned_to = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_summaries"
+    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_TODO)
+    needs_help = models.BooleanField(default=False)
+    reference_identifier = models.CharField(max_length=255, blank=True)
+    summary_identifier = models.CharField(max_length=255, blank=True)
+    reference_label = models.CharField(max_length=255, blank=True)
+    action_description = models.CharField(max_length=255, blank=True)
+    study_design = models.CharField(max_length=255, blank=True)
+    study_type = models.CharField(max_length=255, blank=True)
+    sites_replications = models.CharField(max_length=255, blank=True)
+    year_range = models.CharField(max_length=100, blank=True)
+    habitat_and_sites = models.TextField(blank=True)
+    region = models.CharField(max_length=255, blank=True)
+    country = models.CharField(max_length=255, blank=True)
+    summary_of_results = models.TextField(blank=True)
+    action_methods = models.TextField(blank=True)
+    experimental_design = models.TextField(blank=True)
+    site_context_details = models.TextField(blank=True)
+    sampling_methods_details = models.TextField(blank=True)
+    cost_summary = models.TextField(blank=True)
+    outcome_rows = models.JSONField(default=list, blank=True)
+    benefits_score = models.FloatField(null=True, blank=True)
+    harms_score = models.FloatField(null=True, blank=True)
+    reliability_score = models.FloatField(null=True, blank=True)
+    relevance_score = models.FloatField(null=True, blank=True)
+    summary_text = models.TextField(blank=True)
+    key_findings = models.TextField(blank=True)
+    synopsis_draft = models.TextField(blank=True)
+    ai_summary = models.TextField(blank=True)
+    ai_summary_model = models.CharField(max_length=255, blank=True)
+    ai_summary_generated_at = models.DateTimeField(null=True, blank=True)
+    action_tags = models.JSONField(default=list, blank=True)
+    threat_tags = models.JSONField(default=list, blank=True)
+    taxon_tags = models.JSONField(default=list, blank=True)
+    habitat_tags = models.JSONField(default=list, blank=True)
+    location_tags = models.JSONField(default=list, blank=True)
+    research_design = models.CharField(max_length=255, blank=True)
+    citation = models.CharField(max_length=512, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["reference__title"]
+
+    def __str__(self):
+        return f"Summary for {self.reference.title[:50]}"
+
+
+class ReferenceSummaryComment(models.Model):
+    summary = models.ForeignKey(
+        ReferenceSummary, on_delete=models.CASCADE, related_name="comments"
+    )
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    body = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"Comment by {self.author} on {self.summary}"
+
+
+class ReferenceActionSummary(models.Model):
+    reference_summary = models.ForeignKey(
+        ReferenceSummary,
+        on_delete=models.CASCADE,
+        related_name="action_summaries",
+    )
+    action_name = models.CharField(max_length=255)
+    summary_text = models.TextField()
+    order = models.PositiveIntegerField(default=0)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"{self.reference_summary.reference.title[:40]} – {self.action_name}"
+
+class SynopsisChapter(models.Model):
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="synopsis_chapters"
+    )
+    title = models.CharField(max_length=255)
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"{self.project.title}: {self.title}"
+
+
+class SynopsisSubheading(models.Model):
+    chapter = models.ForeignKey(
+        SynopsisChapter, on_delete=models.CASCADE, related_name="subheadings"
+    )
+    title = models.CharField(max_length=255)
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"{self.chapter.title} – {self.title}"
+
+
+class SynopsisIntervention(models.Model):
+    subheading = models.ForeignKey(
+        SynopsisSubheading, on_delete=models.CASCADE, related_name="interventions"
+    )
+    title = models.CharField(max_length=255)
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"{self.subheading.title} – {self.title}"
+
+
+class SynopsisAssignment(models.Model):
+    intervention = models.ForeignKey(
+        SynopsisIntervention, on_delete=models.CASCADE, related_name="assignments"
+    )
+    reference_summary = models.ForeignKey(
+        ReferenceSummary, on_delete=models.CASCADE, related_name="synopsis_assignments"
+    )
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+        unique_together = [("intervention", "reference_summary")]
+
+    def __str__(self):
+        return f"{self.intervention.title} – {self.reference_summary}"
+
+
+class SynopsisExportLog(models.Model):
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="synopsis_exports"
+    )
+    exported_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    exported_at = models.DateTimeField(auto_now_add=True)
+    note = models.TextField(blank=True)
+    archived_file = models.FileField(upload_to="synopsis_exports/", blank=True)
+
+    class Meta:
+        ordering = ["-exported_at", "id"]
+
+    def __str__(self):
+        return f"{self.project.title} export {self.exported_at:%Y-%m-%d %H:%M}"

@@ -211,6 +211,31 @@ urlpatterns = [
         name="reference_batch_upload",
     ),
     path(
+        "project/<int:project_id>/references/summaries/",
+        views.reference_summary_board,
+        name="reference_summary_board",
+    ),
+    path(
+        "project/<int:project_id>/references/summaries/<int:summary_id>/",
+        views.reference_summary_detail,
+        name="reference_summary_detail",
+    ),
+    path(
+        "project/<int:project_id>/references/<int:reference_id>/document/",
+        views.reference_document_inline,
+        name="reference_document_inline",
+    ),
+    path(
+        "project/<int:project_id>/synopsis/structure/",
+        views.project_synopsis_structure,
+        name="project_synopsis_structure",
+    ),
+    path(
+        "project/<int:project_id>/synopsis/export/",
+        views.project_synopsis_export_docx,
+        name="project_synopsis_export_docx",
+    ),
+    path(
         "project/<int:project_id>/advisory-board/invite/",
         views.advisory_invite_create,
         name="advisory_invite_create",

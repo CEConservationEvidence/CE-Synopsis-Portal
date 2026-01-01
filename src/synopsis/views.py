@@ -1,4 +1,5 @@
 import datetime as dt
+import io
 import hashlib
 import json
 import logging
@@ -14,28 +15,30 @@ import rispy
 
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User, Group
 from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
-from django.core.mail import EmailMultiAlternatives, send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.db import connection, transaction
 from collections import defaultdict
 
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Prefetch
 from django.http import (
     HttpResponseBadRequest,
     Http404,
     JsonResponse,
     HttpResponseNotAllowed,
+    HttpResponse,
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.safestring import mark_safe
+from django.utils.text import slugify
 from django import forms
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.clickjacking import xframe_options_exempt
+from django.http import FileResponse
 
 from .forms import (
     ProtocolUpdateForm,
@@ -65,6 +68,15 @@ from .forms import (
     AdvisoryCustomFieldForm,
     AdvisoryCustomFieldPlacementForm,
     AdvisoryMemberCustomDataForm,
+    ReferenceSummaryAssignmentForm,
+    ReferenceSummaryUpdateForm,
+    ReferenceSummaryCommentForm,
+    ReferenceDocumentForm,
+    SynopsisChapterForm,
+    SynopsisSubheadingForm,
+    SynopsisInterventionForm,
+    SynopsisAssignmentForm,
+    ReferenceActionSummaryForm,
 )
 from .models import (
     Project,
@@ -84,10 +96,19 @@ from .models import (
     ReferenceSourceBatch,
     ReferenceSourceBatchNoteHistory,
     Reference,
+    ReferenceSummary,
+    ReferenceSummaryComment,
+    ReferenceActionSummary,
     ProtocolRevision,
     ActionListRevision,
     CollaborativeSession,
+    SynopsisChapter,
+    SynopsisSubheading,
+    SynopsisIntervention,
+    SynopsisAssignment,
+    SynopsisExportLog,
 )
+from .presets import PRESETS
 from .utils import ensure_global_groups, email_subject, reply_to_list, reference_hash
 
 
@@ -107,7 +128,7 @@ def _collaborative_invitation_table_ready():
     table_name = CollaborativeSession.invitations.through._meta.db_table
     try:
         tables = connection.introspection.table_names()
-    except Exception as exc:  # pragma: no cover - defensive guard
+    except Exception as exc:
         logger.warning(
             "Could not inspect database tables for collaborative invites: %s", exc
         )
@@ -4720,6 +4741,881 @@ def reference_batch_list(request, project_id):
             "summary": summary,
         },
     )
+
+
+def _reference_summary_citation(reference):
+    parts = []
+    authors = (reference.authors or "").strip()
+    if authors:
+        parts.append(authors)
+    year = reference.publication_year
+    if year:
+        parts.append(f"({year})")
+    title = (reference.title or "").strip()
+    if title:
+        parts.append(title)
+    citation = " ".join(parts).strip()
+    if len(citation) > 500:
+        citation = citation[:497].rstrip() + "..."
+    return citation
+
+
+def _ensure_reference_summaries(project, references):
+    ref_ids = [ref.id for ref in references]
+    existing = {
+        summary.reference_id: summary
+        for summary in ReferenceSummary.objects.filter(reference_id__in=ref_ids)
+    }
+    with transaction.atomic():
+        for ref in references:
+            if ref.id not in existing:
+                existing[ref.id] = ReferenceSummary.objects.create(
+                    project=project,
+                    reference=ref,
+                    citation=_reference_summary_citation(ref),
+                )
+    return existing
+
+
+def _next_chapter_position(project):
+    max_pos = (
+        SynopsisChapter.objects.filter(project=project).aggregate(Max("position"))[
+            "position__max"
+        ]
+        or 0
+    )
+    return max_pos + 1
+
+
+def _resequence_chapter_positions(project):
+    for idx, chapter in enumerate(
+        SynopsisChapter.objects.filter(project=project).order_by("position", "id"),
+        start=1,
+    ):
+        if chapter.position != idx:
+            chapter.position = idx
+            chapter.save(update_fields=["position"])
+
+
+def _next_subheading_position(chapter):
+    max_pos = chapter.subheadings.aggregate(Max("position"))["position__max"] or 0
+    return max_pos + 1
+
+
+def _resequence_subheading_positions(chapter):
+    for idx, subheading in enumerate(
+        chapter.subheadings.order_by("position", "id"), start=1
+    ):
+        if subheading.position != idx:
+            subheading.position = idx
+            subheading.save(update_fields=["position"])
+
+
+def _next_intervention_position(subheading):
+    max_pos = subheading.interventions.aggregate(Max("position"))["position__max"] or 0
+    return max_pos + 1
+
+
+def _resequence_intervention_positions(subheading):
+    for idx, intervention in enumerate(
+        subheading.interventions.order_by("position", "id"), start=1
+    ):
+        if intervention.position != idx:
+            intervention.position = idx
+            intervention.save(update_fields=["position"])
+
+
+def _next_assignment_position(intervention):
+    max_pos = intervention.assignments.aggregate(Max("position"))["position__max"] or 0
+    return max_pos + 1
+
+
+def _resequence_assignment_positions(intervention):
+    for idx, assignment in enumerate(
+        intervention.assignments.order_by("position", "id"), start=1
+    ):
+        if assignment.position != idx:
+            assignment.position = idx
+            assignment.save(update_fields=["position"])
+
+
+def _next_action_summary_order(reference_summary):
+    max_pos = (
+        reference_summary.action_summaries.aggregate(Max("order"))["order__max"]
+        or 0
+    )
+    return max_pos + 1
+
+
+def _resequence_action_summaries(reference_summary):
+    for idx, action_summary in enumerate(
+        reference_summary.action_summaries.order_by("order", "id"),
+        start=1,
+    ):
+        if action_summary.order != idx:
+            action_summary.order = idx
+            action_summary.save(update_fields=["order"])
+
+
+def _structured_summary_paragraph(summary: ReferenceSummary) -> str:
+    """Generate a concise paragraph from structured summary fields."""
+
+    def _clean(text):
+        return (text or "").strip()
+
+    study_type = _clean(summary.study_type)
+    study_design = _clean(summary.study_design)
+    year_range = _clean(summary.year_range)
+    habitat = _clean(summary.habitat_and_sites)
+    location = ", ".join([part for part in [_clean(summary.region), _clean(summary.country)] if part])
+    ref_id = _clean(summary.reference_identifier)
+    sites = _clean(summary.sites_replications)
+    intro_parts = ["A"]
+    intro_parts.append(study_design or study_type or "study")
+    if year_range:
+        intro_parts.append(f"in {year_range}")
+    else:
+        intro_parts.append("(year not stated)")
+    if habitat:
+        intro_parts.append(f"in {habitat}")
+    if location:
+        intro_parts.append(f"in {location}")
+    if sites:
+        intro_parts.append(f"({sites})")
+    intro_line = " ".join(intro_parts).strip()
+    if ref_id:
+        intro_line = f"{intro_line} ({ref_id})"
+    intro_line = f"{intro_line} found that"
+
+    results = _clean(summary.summary_of_results) or _clean(summary.summary_text)
+
+    methods_parts = []
+    if summary.action_methods:
+        methods_parts.append(_clean(summary.action_methods))
+    if summary.experimental_design:
+        methods_parts.append(_clean(summary.experimental_design))
+    if summary.site_context_details:
+        methods_parts.append(_clean(summary.site_context_details))
+    if summary.sampling_methods_details:
+        methods_parts.append(_clean(summary.sampling_methods_details))
+
+    outcome_lines = []
+    for row in summary.outcome_rows or []:
+        outcome = _clean(row.get("outcome", ""))
+        difference = _clean(row.get("difference", ""))
+        treatment = _clean(row.get("treatment", ""))
+        comparator = _clean(row.get("comparator", ""))
+        t_val = _clean(row.get("treatment_value", ""))
+        c_val = _clean(row.get("comparator_value", ""))
+        unit = _clean(row.get("unit", ""))
+        notes = _clean(row.get("notes", ""))
+        p_val = _clean(row.get("p_value", ""))
+        stats = _clean(row.get("stats", ""))
+
+        parts = []
+        if outcome:
+            parts.append(f"{outcome}:")
+        if difference and treatment and comparator:
+            parts.append(f"{difference} in {treatment} compared to {comparator}")
+        elif difference:
+            parts.append(difference)
+        if t_val or c_val:
+            val_bits = []
+            if t_val:
+                val_bits.append(t_val)
+            if c_val:
+                val_bits.append(c_val)
+            value_text = " vs ".join(val_bits)
+            if unit:
+                value_text = f"{value_text} {unit}".strip()
+            parts.append(f"({value_text})")
+        if stats:
+            parts.append(f"Stats: {stats}")
+        if p_val:
+            parts.append(f"p={p_val}")
+        if notes:
+            parts.append(notes)
+        sentence = " ".join([p for p in parts if p]).strip()
+        if sentence:
+            outcome_lines.append(sentence if sentence.endswith(".") else f"{sentence}.")
+
+    methods_text = " ".join([part for part in methods_parts if part]).strip()
+    scores = []
+    if summary.benefits_score is not None:
+        scores.append(f"Benefits: {summary.benefits_score}")
+    if summary.harms_score is not None:
+        scores.append(f"Harms: {summary.harms_score}")
+    if summary.reliability_score is not None:
+        scores.append(f"Reliability: {summary.reliability_score}")
+    if summary.relevance_score is not None:
+        scores.append(f"Relevance: {summary.relevance_score}")
+
+    segments = [intro_line]
+    if results:
+        segments.append(results)
+    if outcome_lines:
+        segments.append(" ".join(outcome_lines))
+    if methods_text:
+        segments.append(methods_text)
+
+    paragraph = " ".join([seg.strip() for seg in segments if seg.strip()]).strip()
+    if paragraph and not paragraph.endswith("."):
+        paragraph = f"{paragraph}."
+    if scores:
+        paragraph = f"{paragraph}\n\n" + " · ".join(scores)
+    return paragraph
+
+
+@login_required
+def reference_summary_board(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    included_references = list(
+        project.references.filter(screening_status="included")
+        .select_related("batch")
+        .order_by("title")
+    )
+
+    _ensure_reference_summaries(project, included_references)
+
+    if request.method == "POST":
+        summary = get_object_or_404(
+            ReferenceSummary, pk=request.POST.get("summary_id"), project=project
+        )
+        action = request.POST.get("action")
+        if action == "assign":
+            form = ReferenceSummaryAssignmentForm(request.POST, project=project)
+            if form.is_valid():
+                summary.assigned_to = form.cleaned_data["assigned_to"]
+                summary.needs_help = form.cleaned_data["needs_help"]
+                summary.save(update_fields=["assigned_to", "needs_help", "updated_at"])
+                messages.success(request, "Assignment updated.")
+            else:
+                messages.error(request, "Could not update assignment.")
+        elif action == "status":
+            status = request.POST.get("status")
+            valid_statuses = {choice[0] for choice in ReferenceSummary.STATUS_CHOICES}
+            if status in valid_statuses:
+                summary.status = status
+                summary.save(update_fields=["status", "updated_at"])
+                messages.success(request, "Summary status updated.")
+            else:
+                messages.error(request, "Invalid summary status selected.")
+        return redirect("synopsis:reference_summary_board", project_id=project.id)
+
+    summaries = ReferenceSummary.objects.filter(
+        project=project,
+        reference__screening_status="included",
+    ).select_related("reference", "assigned_to")
+
+    status_map = {
+        code: {"label": label, "items": []}
+        for code, label in ReferenceSummary.STATUS_CHOICES
+    }
+    for summary in summaries:
+        status_map.setdefault(summary.status, {"label": summary.status, "items": []})
+        status_map[summary.status]["items"].append(summary)
+
+    columns = [
+        {
+            "code": code,
+            "label": label,
+            "items": status_map.get(code, {}).get("items", []),
+        }
+        for code, label in ReferenceSummary.STATUS_CHOICES
+    ]
+
+    total_included = len(included_references)
+    completed = len(status_map.get(ReferenceSummary.STATUS_DONE, {}).get("items", []))
+    progress = int((completed / total_included) * 100) if total_included else 0
+
+    author_options = project.author_users.order_by("first_name", "last_name")
+
+    return render(
+        request,
+        "synopsis/reference_summary_board.html",
+        {
+            "project": project,
+            "columns": columns,
+            "total_included": total_included,
+            "completed": completed,
+            "progress": progress,
+            "author_options": author_options,
+            "status_choices": ReferenceSummary.STATUS_CHOICES,
+            "reference_count": total_included,
+        },
+    )
+
+
+@login_required
+def reference_summary_detail(request, project_id, summary_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    summary = get_object_or_404(
+        ReferenceSummary.objects.select_related("reference", "assigned_to"),
+        pk=summary_id,
+        project=project,
+    )
+
+    summary_form = ReferenceSummaryUpdateForm(request.POST or None, instance=summary)
+    assignment_initial = {
+        "assigned_to": summary.assigned_to_id,
+        "needs_help": summary.needs_help,
+    }
+    assignment_form = ReferenceSummaryAssignmentForm(
+        request.POST if request.POST.get("action") == "assign" else None,
+        project=project,
+        initial=assignment_initial,
+    )
+    comment_form = ReferenceSummaryCommentForm()
+    document_form = ReferenceDocumentForm()
+    action_summary_form = ReferenceActionSummaryForm()
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "save-summary" and summary_form.is_valid():
+            summary_form.save()
+            messages.success(request, "Summary updated.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=summary.id,
+            )
+        if action == "assign" and assignment_form.is_valid():
+            summary.assigned_to = assignment_form.cleaned_data["assigned_to"]
+            summary.needs_help = assignment_form.cleaned_data["needs_help"]
+            summary.save(update_fields=["assigned_to", "needs_help", "updated_at"])
+            messages.success(request, "Assignment updated.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=summary.id,
+            )
+        if action == "comment":
+            comment_form = ReferenceSummaryCommentForm(request.POST)
+            if comment_form.is_valid():
+                ReferenceSummaryComment.objects.create(
+                    summary=summary,
+                    author=request.user,
+                    body=comment_form.cleaned_data["body"],
+                )
+                messages.success(request, "Comment added.")
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            else:
+                messages.error(request, "Could not add comment.")
+        if action == "upload-document":
+            document_form = ReferenceDocumentForm(request.POST, request.FILES)
+            if document_form.is_valid():
+                uploaded = document_form.cleaned_data["document"]
+                summary.reference.reference_document = uploaded
+                summary.reference.reference_document_uploaded_at = timezone.now()
+                summary.reference.save(update_fields=["reference_document", "reference_document_uploaded_at"])
+                messages.success(request, "PDF uploaded.")
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            else:
+                messages.error(request, "Upload failed. Ensure you selected a PDF file.")
+
+        if action == "add-action-summary":
+            action_summary_form = ReferenceActionSummaryForm(request.POST)
+            if action_summary_form.is_valid():
+                action_entry = action_summary_form.save(commit=False)
+                action_entry.reference_summary = summary
+                action_entry.order = _next_action_summary_order(summary)
+                if request.user.is_authenticated:
+                    action_entry.created_by = request.user
+                action_entry.save()
+                messages.success(request, "Action summary added.")
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            else:
+                messages.error(request, "Please fix the action summary details.")
+        if action == "edit-action-summary":
+            target = get_object_or_404(
+                ReferenceActionSummary,
+                pk=request.POST.get("action_summary_id"),
+                reference_summary=summary,
+            )
+            action_summary_form = ReferenceActionSummaryForm(
+                request.POST, instance=target
+            )
+            if action_summary_form.is_valid():
+                action_summary_form.save()
+                messages.success(request, "Action summary updated.")
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            else:
+                messages.error(request, "Could not update that action summary.")
+        if action == "delete-action-summary":
+            target = get_object_or_404(
+                ReferenceActionSummary,
+                pk=request.POST.get("action_summary_id"),
+                reference_summary=summary,
+            )
+            target.delete()
+            _resequence_action_summaries(summary)
+            messages.success(request, "Action summary removed.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=summary.id,
+            )
+
+    comments = summary.comments.select_related("author")
+    action_summaries = summary.action_summaries.order_by("order", "id")
+    generated_summary = _structured_summary_paragraph(summary)
+
+    return render(
+        request,
+        "synopsis/reference_summary_detail.html",
+        {
+            "project": project,
+            "summary": summary,
+            "reference": summary.reference,
+            "summary_form": summary_form,
+            "assignment_form": assignment_form,
+            "comment_form": comment_form,
+            "comments": comments,
+            "document_form": document_form,
+            "action_summary_form": action_summary_form,
+            "action_summaries": action_summaries,
+            "generated_summary": generated_summary,
+        },
+    )
+
+
+@login_required
+@xframe_options_exempt
+def reference_document_inline(request, project_id, reference_id):
+    project = get_object_or_404(Project, pk=project_id)
+    reference = get_object_or_404(
+        Reference, pk=reference_id, project=project, screening_status="included"
+    )
+    if not reference.reference_document:
+        raise Http404("No document available.")
+
+    file_handle = reference.reference_document.open("rb")
+    filename = reference.reference_document.name.rsplit("/", 1)[-1]
+    response = FileResponse(file_handle)
+    response["Content-Type"] = "application/pdf"
+    response["Content-Disposition"] = f'inline; filename="{filename}"'
+    response["Cache-Control"] = "no-store"
+    response["Content-Security-Policy"] = "default-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none';"
+    return response
+
+
+@login_required
+def project_synopsis_structure(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+    chapter_form = SynopsisChapterForm()
+    subheading_form = SynopsisSubheadingForm()
+    intervention_form = SynopsisInterventionForm()
+    assignment_form = SynopsisAssignmentForm(project=project)
+    redirect_url = reverse(
+        "synopsis:project_synopsis_structure", kwargs={"project_id": project.id}
+    )
+
+    interventions_prefetch = Prefetch(
+        "interventions",
+        queryset=SynopsisIntervention.objects.order_by("position", "id").prefetch_related(
+            Prefetch(
+                "assignments",
+                queryset=SynopsisAssignment.objects.select_related(
+                    "reference_summary__reference"
+                ).order_by("position", "id"),
+            )
+        ),
+    )
+    subheading_prefetch = Prefetch(
+        "subheadings",
+        queryset=SynopsisSubheading.objects.order_by("position", "id").prefetch_related(
+            interventions_prefetch
+        ),
+    )
+
+    def _chapter_qs():
+        return (
+            SynopsisChapter.objects.filter(project=project)
+            .prefetch_related(subheading_prefetch)
+            .order_by("position", "id")
+        )
+
+    def _ensure_default_subheading(chapter):
+        if chapter.subheadings.exists():
+            return
+        SynopsisSubheading.objects.create(
+            chapter=chapter, title="Interventions", position=1
+        )
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+
+        def _chapter_from_post():
+            return get_object_or_404(
+                SynopsisChapter, pk=request.POST.get("chapter_id"), project=project
+            )
+
+        def _subheading_from_post():
+            subheading = get_object_or_404(
+                SynopsisSubheading,
+                pk=request.POST.get("subheading_id"),
+                chapter__project=project,
+            )
+            return subheading
+
+        def _intervention_from_post():
+            intervention = get_object_or_404(
+                SynopsisIntervention,
+                pk=request.POST.get("intervention_id"),
+                subheading__chapter__project=project,
+            )
+            return intervention
+
+        if action == "create-chapter":
+            chapter_form = SynopsisChapterForm(request.POST)
+            if chapter_form.is_valid():
+                title = chapter_form.cleaned_data["title"] or "Untitled chapter"
+                SynopsisChapter.objects.create(
+                    project=project,
+                    title=title,
+                    position=_next_chapter_position(project),
+                )
+                messages.success(request, f"Added chapter “{title}”.")
+                return redirect(redirect_url)
+            messages.error(request, "Please fix the problems below.")
+        elif action == "delete-chapter":
+            chapter = _chapter_from_post()
+            chapter.delete()
+            _resequence_chapter_positions(project)
+            messages.success(request, f"Removed chapter “{chapter.title}”.")
+            return redirect(redirect_url)
+        elif action == "move-chapter":
+            chapter = _chapter_from_post()
+            direction = request.POST.get("direction")
+            if direction not in {"up", "down"}:
+                messages.error(request, "Unknown move direction.")
+            else:
+                qs = list(_chapter_qs())
+                if direction == "up":
+                    swap = next((c for c in reversed(qs) if c.position < chapter.position), None)
+                else:
+                    swap = next((c for c in qs if c.position > chapter.position), None)
+                if swap:
+                    chapter.position, swap.position = swap.position, chapter.position
+                    chapter.save(update_fields=["position"])
+                    swap.save(update_fields=["position"])
+                    messages.success(request, "Chapter reordered.")
+                else:
+                    messages.info(request, "Already at the edge.")
+            return redirect(redirect_url)
+        elif action == "create-subheading":
+            chapter = _chapter_from_post()
+            subheading_form = SynopsisSubheadingForm(request.POST)
+            if subheading_form.is_valid():
+                title = subheading_form.cleaned_data["title"] or "Untitled subheading"
+                SynopsisSubheading.objects.create(
+                    chapter=chapter,
+                    title=title,
+                    position=_next_subheading_position(chapter),
+                )
+                messages.success(request, "Subheading added.")
+                return redirect(redirect_url)
+            messages.error(request, "Could not add the subheading.")
+        elif action == "move-subheading":
+            subheading = _subheading_from_post()
+            direction = request.POST.get("direction")
+            siblings = subheading.chapter.subheadings.order_by("position", "id")
+            if direction == "up":
+                swap = siblings.filter(position__lt=subheading.position).order_by("-position").first()
+            elif direction == "down":
+                swap = siblings.filter(position__gt=subheading.position).order_by("position").first()
+            else:
+                swap = None
+            if swap:
+                subheading.position, swap.position = swap.position, subheading.position
+                subheading.save(update_fields=["position"])
+                swap.save(update_fields=["position"])
+                messages.success(request, "Subheading reordered.")
+            else:
+                messages.info(request, "Already at the edge.")
+            return redirect(redirect_url)
+        elif action == "delete-subheading":
+            subheading = _subheading_from_post()
+            chapter = subheading.chapter
+            subheading.delete()
+            _resequence_subheading_positions(chapter)
+            messages.success(request, "Subheading removed.")
+            return redirect(redirect_url)
+        elif action == "create-intervention":
+            subheading_id = request.POST.get("subheading_id")
+            if subheading_id:
+                subheading = _subheading_from_post()
+            else:
+                chapter = _chapter_from_post()
+                _ensure_default_subheading(chapter)
+                subheading = chapter.subheadings.first()
+            intervention_form = SynopsisInterventionForm(request.POST)
+            if intervention_form.is_valid():
+                title = intervention_form.cleaned_data["title"] or "Untitled intervention"
+                SynopsisIntervention.objects.create(
+                    subheading=subheading,
+                    title=title,
+                    position=_next_intervention_position(subheading),
+                )
+                messages.success(request, "Intervention added.")
+                return redirect(redirect_url)
+            messages.error(request, "Could not add the intervention.")
+        elif action == "move-intervention":
+            intervention = _intervention_from_post()
+            direction = request.POST.get("direction")
+            siblings = intervention.subheading.interventions.order_by("position", "id")
+            if direction == "up":
+                swap = siblings.filter(position__lt=intervention.position).order_by("-position").first()
+            elif direction == "down":
+                swap = siblings.filter(position__gt=intervention.position).order_by("position").first()
+            else:
+                swap = None
+            if swap:
+                intervention.position, swap.position = swap.position, intervention.position
+                intervention.save(update_fields=["position"])
+                swap.save(update_fields=["position"])
+                messages.success(request, "Intervention reordered.")
+            else:
+                messages.info(request, "Already at the edge.")
+            return redirect(redirect_url)
+        elif action == "delete-intervention":
+            intervention = _intervention_from_post()
+            subheading = intervention.subheading
+            intervention.delete()
+            _resequence_intervention_positions(subheading)
+            messages.success(request, "Intervention removed.")
+            return redirect(redirect_url)
+        elif action == "add-assignment":
+            intervention = _intervention_from_post()
+            assignment_form = SynopsisAssignmentForm(request.POST, project=project)
+            if assignment_form.is_valid():
+                summary = assignment_form.cleaned_data["summary"]
+                exists = intervention.assignments.filter(reference_summary=summary).exists()
+                if exists:
+                    messages.info(request, "That summary is already assigned here.")
+                else:
+                    SynopsisAssignment.objects.create(
+                        intervention=intervention,
+                        reference_summary=summary,
+                        position=_next_assignment_position(intervention),
+                    )
+                    messages.success(request, "Summary added to intervention.")
+                return redirect(redirect_url)
+            messages.error(request, "Select a summary to add.")
+        elif action == "delete-assignment":
+            assignment = get_object_or_404(
+                SynopsisAssignment,
+                pk=request.POST.get("assignment_id"),
+                intervention__subheading__chapter__project=project,
+            )
+            intervention = assignment.intervention
+            assignment.delete()
+            _resequence_assignment_positions(intervention)
+            messages.success(request, "Removed summary from intervention.")
+            return redirect(redirect_url)
+        elif action == "reorder-assignments" and request.content_type == "application/json":
+            try:
+                payload = json.loads(request.body.decode("utf-8"))
+            except (TypeError, ValueError):
+                return JsonResponse({"ok": False, "error": "Invalid payload"}, status=400)
+            assignment_ids = payload.get("assignment_ids") or []
+            intervention_id = payload.get("intervention_id")
+            intervention = get_object_or_404(
+                SynopsisIntervention, pk=intervention_id, subheading__chapter__project=project
+            )
+            assignments = list(intervention.assignments.filter(id__in=assignment_ids))
+            id_map = {str(a.id): a for a in assignments}
+            for idx, aid in enumerate(assignment_ids, start=1):
+                assignment = id_map.get(str(aid))
+                if not assignment:
+                    continue
+                if assignment.position != idx:
+                    assignment.position = idx
+                    assignment.save(update_fields=["position", "updated_at"])
+            return JsonResponse({"ok": True})
+        elif action == "apply-preset":
+            preset_key = request.POST.get("preset_key")
+            preset = PRESETS.get(preset_key)
+            if not preset:
+                messages.error(request, "Unknown preset.")
+                return redirect(redirect_url)
+            if SynopsisChapter.objects.filter(project=project).exists():
+                messages.error(request, "Presets can only be applied to an empty outline.")
+                return redirect(redirect_url)
+
+            chapter_pos = 1
+            for chapter_data in preset.chapters:
+                chapter = SynopsisChapter.objects.create(
+                    project=project,
+                    title=chapter_data.get("title") or "Untitled chapter",
+                    position=chapter_pos,
+                )
+                chapter_pos += 1
+                sub_pos = 1
+                for sub_data in chapter_data.get("subheadings", []) or []:
+                    sub = SynopsisSubheading.objects.create(
+                        chapter=chapter,
+                        title=sub_data.get("title") or "Untitled subheading",
+                        position=sub_pos,
+                    )
+                    sub_pos += 1
+                    int_pos = 1
+                    for int_data in sub_data.get("interventions", []) or []:
+                        SynopsisIntervention.objects.create(
+                            subheading=sub,
+                            title=int_data.get("title") or "Untitled intervention",
+                            position=int_pos,
+                        )
+                        int_pos += 1
+            messages.success(request, f"Applied preset: {preset.label}.")
+            return redirect(redirect_url)
+        elif action == "reset-structure":
+            SynopsisAssignment.objects.filter(
+                intervention__subheading__chapter__project=project
+            ).delete()
+            SynopsisIntervention.objects.filter(
+                subheading__chapter__project=project
+            ).delete()
+            SynopsisSubheading.objects.filter(chapter__project=project).delete()
+            SynopsisChapter.objects.filter(project=project).delete()
+            messages.success(request, "Cleared the outline. You can apply a preset or start fresh.")
+            return redirect(redirect_url)
+
+    # Ensure each chapter has at least one subheading so interventions can be added directly.
+    for chapter in SynopsisChapter.objects.filter(project=project):
+        _ensure_default_subheading(chapter)
+
+    chapters = list(_chapter_qs())
+    reference_summaries = (
+        project.reference_summaries.select_related("reference")
+        .order_by("reference__title")
+        .all()
+    )
+    last_export = SynopsisExportLog.objects.filter(project=project).first()
+    return render(
+        request,
+        "synopsis/project_synopsis_structure.html",
+        {
+            "project": project,
+            "chapters": chapters,
+            "chapter_form": chapter_form,
+            "subheading_form": subheading_form,
+            "intervention_form": intervention_form,
+            "assignment_form": assignment_form,
+            "reference_summaries": reference_summaries,
+            "last_exported": last_export.exported_at if last_export else None,
+            "presets": PRESETS.values(),
+        },
+    )
+
+
+def _generate_synopsis_docx(project):
+    try:
+        from docx import Document
+    except ImportError as exc:  # pragma: no cover - dependency guard
+        raise ImportError("Install python-docx to enable DOCX export.") from exc
+
+    interventions_prefetch = Prefetch(
+        "interventions",
+        queryset=SynopsisIntervention.objects.order_by("position", "id").prefetch_related(
+            Prefetch(
+                "assignments",
+                queryset=SynopsisAssignment.objects.select_related(
+                    "reference_summary__reference"
+                ).order_by("position", "id"),
+            )
+        ),
+    )
+    subheading_prefetch = Prefetch(
+        "subheadings",
+        queryset=SynopsisSubheading.objects.order_by("position", "id").prefetch_related(
+            interventions_prefetch
+        ),
+    )
+    chapters = (
+        SynopsisChapter.objects.filter(project=project)
+        .prefetch_related(subheading_prefetch)
+        .order_by("position", "id")
+    )
+    doc = Document()
+    doc.add_heading(f"{project.title} – Synopsis", 0)
+    doc.add_paragraph(f"Generated on {timezone.now().strftime('%Y-%m-%d %H:%M')}")
+
+    def _render_chapter(chapter):
+        doc.add_heading(chapter.title or "Untitled chapter", level=1)
+        for subheading in chapter.subheadings.all():
+            doc.add_heading(subheading.title or "Untitled subheading", level=2)
+            for intervention in subheading.interventions.all():
+                doc.add_heading(intervention.title or "Untitled intervention", level=3)
+                for assignment in intervention.assignments.all():
+                    summary = assignment.reference_summary
+                    doc.add_heading(summary.reference.title, level=4)
+                    paragraph = _structured_summary_paragraph(summary)
+                    if paragraph:
+                        doc.add_paragraph(paragraph)
+                    if summary.cost_summary:
+                        doc.add_paragraph(f"Costs: {summary.cost_summary}")
+
+    for chapter in chapters:
+        _render_chapter(chapter)
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+@login_required
+def project_synopsis_export_docx(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+    try:
+        payload = _generate_synopsis_docx(project)
+    except ImportError as exc:
+        messages.error(request, str(exc))
+        return redirect("synopsis:project_synopsis_structure", project_id=project.id)
+    filename = slugify(f"{project.title}-synopsis").replace(" ", "-") + ".docx"
+    log = SynopsisExportLog.objects.create(
+        project=project,
+        exported_by=request.user,
+        note="Manual export",
+    )
+    try:
+        log.archived_file.save(filename, ContentFile(payload), save=True)
+    except Exception:
+        # Best-effort logging; continue to serve the file even if archival failed.
+        pass
+    response = HttpResponse(
+        payload,
+        content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 @login_required

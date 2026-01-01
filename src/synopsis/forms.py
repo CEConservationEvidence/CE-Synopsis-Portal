@@ -1,5 +1,7 @@
+import re
+
 from django import forms
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 from django.core.validators import FileExtensionValidator
 from django.utils.text import slugify
 
@@ -11,7 +13,10 @@ from .models import (
     Project,
     Protocol,
     Reference,
+    ReferenceSummary,
     ReferenceSourceBatch,
+    ReferenceActionSummary,
+    SynopsisChapter,
     UserRole,
 )
 
@@ -356,6 +361,55 @@ class AdvisoryMemberCustomDataForm(forms.Form):
             if bound.errors and "is-invalid" not in widget.attrs.get("class", ""):
                 widget.attrs["class"] = f"{widget.attrs['class']} is-invalid".strip()
 
+
+class SynopsisChapterForm(forms.Form):
+    title = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Chapter title"}),
+        label="Chapter title",
+    )
+
+    def clean_title(self):
+        return (self.cleaned_data.get("title") or "").strip()
+
+
+class SynopsisSubheadingForm(forms.Form):
+    title = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Subheading"}),
+        label="Subheading",
+    )
+
+    def clean_title(self):
+        return (self.cleaned_data.get("title") or "").strip()
+
+
+class SynopsisInterventionForm(forms.Form):
+    title = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Intervention"}),
+        label="Intervention",
+    )
+
+    def clean_title(self):
+        return (self.cleaned_data.get("title") or "").strip()
+
+
+class SynopsisAssignmentForm(forms.Form):
+    summary = forms.ModelChoiceField(
+        queryset=ReferenceSummary.objects.none(),
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Reference summary",
+    )
+
+    def __init__(self, *args, project=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        qs = ReferenceSummary.objects.none()
+        if project:
+            qs = project.reference_summaries.select_related("reference").order_by(
+                "reference__title"
+            )
+        self.fields["summary"].queryset = qs
 
 class AssignAuthorsForm(forms.Form):
     authors = forms.ModelMultipleChoiceField(
@@ -881,4 +935,253 @@ class CollaborativeUpdateForm(forms.Form):
             }
         ),
         label="Change summary",
+    )
+
+
+class ReferenceSummaryAssignmentForm(forms.Form):
+    assigned_to = forms.ModelChoiceField(
+        queryset=User.objects.none(),
+        required=False,
+        label="Assignee",
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
+    needs_help = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Needs help",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+
+    def __init__(self, *args, project=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if project:
+            author_ids = project.author_users.values_list("id", flat=True)
+            self.fields["assigned_to"].queryset = User.objects.filter(
+                id__in=author_ids
+            ).order_by("first_name", "last_name")
+        else:
+            self.fields["assigned_to"].queryset = User.objects.none()
+
+
+class ReferenceSummaryUpdateForm(forms.ModelForm):
+    outcomes_raw = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 5,
+                "placeholder": "Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes",
+            }
+        ),
+        label="Outcome rows",
+        help_text="One outcome per line, fields separated by |",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        instance = getattr(self, "instance", None)
+        if instance and instance.pk:
+            for field in [
+                "action_tags",
+                "threat_tags",
+                "taxon_tags",
+                "habitat_tags",
+                "location_tags",
+            ]:
+                value = getattr(instance, field) or []
+                if isinstance(value, list):
+                    self.fields[field].initial = ", ".join(value)
+            if instance.outcome_rows:
+                lines = []
+                for row in instance.outcome_rows:
+                    parts = [
+                        row.get("outcome", ""),
+                        row.get("treatment_value", ""),
+                        row.get("treatment", ""),
+                        row.get("comparator_value", ""),
+                        row.get("comparator", ""),
+                        row.get("unit", ""),
+                        row.get("difference", ""),
+                        row.get("stats", ""),
+                        row.get("p_value", ""),
+                        row.get("notes", ""),
+                    ]
+                    lines.append(" | ".join(parts).strip())
+                self.fields["outcomes_raw"].initial = "\n".join([line for line in lines if line.strip()])
+
+    class Meta:
+        model = ReferenceSummary
+        fields = [
+            "status",
+            "reference_identifier",
+            "summary_identifier",
+            "reference_label",
+            "action_description",
+            "study_design",
+            "study_type",
+            "sites_replications",
+            "year_range",
+            "habitat_and_sites",
+            "region",
+            "country",
+            "summary_of_results",
+            "action_methods",
+            "experimental_design",
+            "site_context_details",
+            "sampling_methods_details",
+            "cost_summary",
+            "outcomes_raw",
+            "benefits_score",
+            "harms_score",
+            "reliability_score",
+            "relevance_score",
+            "synopsis_draft",
+            "action_tags",
+            "threat_tags",
+            "taxon_tags",
+            "habitat_tags",
+            "location_tags",
+            "research_design",
+            "citation",
+        ]
+        widgets = {
+            "status": forms.Select(attrs={"class": "form-select"}),
+            "reference_identifier": forms.TextInput(attrs={"class": "form-control"}),
+            "summary_identifier": forms.TextInput(attrs={"class": "form-control"}),
+            "reference_label": forms.TextInput(attrs={"class": "form-control"}),
+            "action_description": forms.TextInput(attrs={"class": "form-control"}),
+            "study_design": forms.TextInput(attrs={"class": "form-control"}),
+            "study_type": forms.TextInput(attrs={"class": "form-control"}),
+            "sites_replications": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "e.g. 5 sites, 3 replicates per treatment",
+                }
+            ),
+            "year_range": forms.TextInput(
+                attrs={
+                    "class": "form-control",
+                    "placeholder": "e.g. 2015-2018",
+                }
+            ),
+            "habitat_and_sites": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "region": forms.TextInput(attrs={"class": "form-control"}),
+            "country": forms.TextInput(attrs={"class": "form-control"}),
+            "summary_of_results": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
+            "action_methods": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "experimental_design": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "site_context_details": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+            "sampling_methods_details": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "cost_summary": forms.Textarea(
+                attrs={"class": "form-control", "rows": 2, "placeholder": "Brief summary of financial costs (optional)."}
+            ),
+            "benefits_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
+            "harms_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
+            "reliability_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
+            "relevance_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
+            "synopsis_draft": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
+            "action_tags": forms.TextInput(attrs={"class": "form-control"}),
+            "threat_tags": forms.TextInput(attrs={"class": "form-control"}),
+            "taxon_tags": forms.TextInput(attrs={"class": "form-control"}),
+            "habitat_tags": forms.TextInput(attrs={"class": "form-control"}),
+            "location_tags": forms.TextInput(attrs={"class": "form-control"}),
+            "research_design": forms.TextInput(attrs={"class": "form-control"}),
+            "citation": forms.TextInput(attrs={"class": "form-control"}),
+        }
+
+    def _split_tags(self, field_name):
+        value = self.cleaned_data.get(field_name)
+        if isinstance(value, list):
+            return value
+        if not value:
+            return []
+        if isinstance(value, str):
+            return [part.strip() for part in value.split(",") if part.strip()]
+        return []
+
+    def clean_action_tags(self):
+        return self._split_tags("action_tags")
+
+    def clean_threat_tags(self):
+        return self._split_tags("threat_tags")
+
+    def clean_taxon_tags(self):
+        return self._split_tags("taxon_tags")
+
+    def clean_habitat_tags(self):
+        return self._split_tags("habitat_tags")
+
+    def clean_location_tags(self):
+        return self._split_tags("location_tags")
+
+    def clean_outcomes_raw(self):
+        raw = self.cleaned_data.get("outcomes_raw", "") or ""
+        lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        parsed = []
+        for line in lines:
+            parts = re.split(r"(?<!\\)\|", line)
+            parts = [part.replace("\\|", "|").strip() for part in parts]
+            # Pad to 10 fields
+            while len(parts) < 10:
+                parts.append("")
+            parsed.append(
+                {
+                    "outcome": parts[0],
+                    "treatment_value": parts[1],
+                    "treatment": parts[2],
+                    "comparator_value": parts[3],
+                    "comparator": parts[4],
+                    "unit": parts[5],
+                    "difference": parts[6],
+                    "stats": parts[7],
+                    "p_value": parts[8],
+                    "notes": parts[9],
+                }
+            )
+        return parsed
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        instance.outcome_rows = self.cleaned_data.get("outcomes_raw", [])
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+
+
+class ReferenceActionSummaryForm(forms.ModelForm):
+    class Meta:
+        model = ReferenceActionSummary
+        fields = ["action_name", "summary_text"]
+        widgets = {
+            "action_name": forms.TextInput(
+                attrs={"class": "form-control", "placeholder": "Action title"}
+            ),
+            "summary_text": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 3,
+                    "placeholder": "Brief summary for this action",
+                }
+            ),
+        }
+
+
+class ReferenceSummaryCommentForm(forms.Form):
+    body = forms.CharField(
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "Add a comment",
+            }
+        ),
+        label="",
+    )
+
+
+class ReferenceDocumentForm(forms.Form):
+    document = forms.FileField(
+        label="Upload PDF",
+        widget=forms.ClearableFileInput(attrs={"class": "form-control", "accept": "application/pdf"}),
     )
