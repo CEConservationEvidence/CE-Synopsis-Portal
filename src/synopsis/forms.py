@@ -20,6 +20,19 @@ from .models import (
     UserRole,
 )
 
+RESEARCH_DESIGN_CHOICES = [
+    ("", "Choose"),
+    ("Replicated", "Replicated"),
+    ("Randomized", "Randomized"),
+    ("Paired sites", "Paired sites"),
+    ("Controlled*", "Controlled*"),
+    ("Before-and-after", "Before-and-after"),
+    ("Site comparison*", "Site comparison*"),
+    ("Review", "Review"),
+    ("Systematic review", "Systematic review"),
+    ("Study", "Study"),
+]
+
 FUNDER_TITLE_CHOICES = [
     ("", "Title"),
     ("Dr", "Dr"),
@@ -976,6 +989,12 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         label="Outcome rows",
         help_text="One outcome per line, fields separated by |",
     )
+    research_design = forms.ChoiceField(
+        required=False,
+        choices=RESEARCH_DESIGN_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Research design",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1085,7 +1104,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "taxon_tags": forms.TextInput(attrs={"class": "form-control"}),
             "habitat_tags": forms.TextInput(attrs={"class": "form-control"}),
             "location_tags": forms.TextInput(attrs={"class": "form-control"}),
-            "research_design": forms.TextInput(attrs={"class": "form-control"}),
             "citation": forms.TextInput(attrs={"class": "form-control"}),
         }
 
