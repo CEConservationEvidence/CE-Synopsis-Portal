@@ -15,12 +15,11 @@ import rispy
 
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User, Group
 from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
-from django.core.mail import EmailMultiAlternatives, send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.db import connection, transaction
 from collections import defaultdict
 
@@ -35,8 +34,6 @@ from django.http import (
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.utils.html import linebreaks
-from django.utils.safestring import mark_safe
 from django.utils.text import slugify
 from django import forms
 from django.views.decorators.csrf import csrf_exempt
