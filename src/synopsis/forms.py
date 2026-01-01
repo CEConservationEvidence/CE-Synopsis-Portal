@@ -1,8 +1,7 @@
 import re
-from typing import List, Optional
 
 from django import forms
-from django.contrib.auth.models import Group, User
+from django.contrib.auth.models import User
 from django.core.validators import FileExtensionValidator
 from django.utils.text import slugify
 
