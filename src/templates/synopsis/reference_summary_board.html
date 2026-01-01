@@ -26,10 +26,10 @@
 {% else %}
 <div class="alert alert-info">No references have been included yet. Complete screening to start summarising.</div>
 {% endif %}
-<div class="row row-cols-1 row-cols-lg-4 g-3">
+<div id="summary-board" class="row row-cols-1 row-cols-lg-4 g-3">
     {% for column in columns %}
     <div class="col">
-        <div class="card h-100">
+        <div class="card h-100 position-relative">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>{{ column.label }}</span>
                 <span class="badge text-bg-secondary">{{ column.items|length }}</span>
@@ -99,8 +99,33 @@
                 <p class="text-muted mb-0">No references in this column yet.</p>
                 {% endif %}
             </div>
+            <div class="card-footer bg-white border-0 pt-0">
+                <div class="btn-group w-100">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-scroll="up">↑</button>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-scroll="down">↓</button>
+                </div>
+            </div>
         </div>
     </div>
     {% endfor %}
 </div>
+
+<script>
+    (function() {
+        document.querySelectorAll("#summary-board .card").forEach((card) => {
+            const up = card.querySelector("button[data-scroll='up']");
+            const down = card.querySelector("button[data-scroll='down']");
+            const body = card.querySelector(".card-body");
+            if (!up || !down || !body) return;
+            up.addEventListener("click", () => {
+                body.scrollTo({ top: 0, behavior: "smooth" });
+            });
+            down.addEventListener("click", () => {
+                body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
+            });
+            body.style.maxHeight = "70vh";
+            body.style.overflowY = "auto";
+        });
+    })();
+</script>
 {% endblock %}
