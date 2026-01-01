@@ -108,7 +108,7 @@ from .models import (
     SynopsisAssignment,
     SynopsisExportLog,
 )
-from .presets import PRESETS, STANDARD_CE_SYNOPSIS
+from .presets import PRESETS
 from .utils import ensure_global_groups, email_subject, reply_to_list, reference_hash
 
 
@@ -128,7 +128,7 @@ def _collaborative_invitation_table_ready():
     table_name = CollaborativeSession.invitations.through._meta.db_table
     try:
         tables = connection.introspection.table_names()
-    except Exception as exc:  # pragma: no cover - defensive guard
+    except Exception as exc:
         logger.warning(
             "Could not inspect database tables for collaborative invites: %s", exc
         )
