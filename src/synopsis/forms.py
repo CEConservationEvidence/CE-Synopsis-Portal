@@ -48,6 +48,17 @@ class TagCommaField(forms.CharField):
             return trimmed
         return str(value)
 
+
+class LocationListField(forms.CharField):
+    """Render list-like location values as newline-separated entries."""
+
+    def prepare_value(self, value):
+        if not value or value == "[]":
+            return ""
+        if isinstance(value, list):
+            return "\n".join([str(v).strip() for v in value if str(v).strip()])
+        return str(value)
+
 FUNDER_TITLE_CHOICES = [
     ("", "Title"),
     ("Dr", "Dr"),
@@ -1020,10 +1031,14 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         ),
         label="Habitat tags",
     )
-    location_tags = TagCommaField(
+    location_tags = LocationListField(
         required=False,
-        widget=forms.TextInput(
-            attrs={"class": "form-control", "placeholder": "Comma-separated (e.g. Alaska, UK)"}
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "One per line. Format: Place - latitude, longitude (5 decimals). Example: London, UK - 51.50740, -0.12780",
+            }
         ),
         label="Location tags",
     )
@@ -1167,7 +1182,19 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         return self._split_tags("habitat_tags")
 
     def clean_location_tags(self):
-        return self._split_tags("location_tags")
+        raw = self.cleaned_data.get("location_tags", "") or ""
+        lines = [line.strip() for line in str(raw).splitlines() if line.strip()]
+        coord_pattern = re.compile(r"(-?\d+\.\d{5})\s*,\s*(-?\d+\.\d{5})")
+        cleaned = []
+        for line in lines:
+            match = coord_pattern.search(line)
+            has_numbers = bool(re.search(r"\d", line))
+            if has_numbers and not match:
+                raise forms.ValidationError(
+                    "Coordinates must be two numbers with 5 decimal places (lat, lon), e.g. 'London, UK - 51.50740, -0.12780'."
+                )
+            cleaned.append(line)
+        return cleaned
 
     def clean_status(self):
         value = self.cleaned_data.get("status")
