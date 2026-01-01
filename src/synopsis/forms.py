@@ -33,6 +33,21 @@ RESEARCH_DESIGN_CHOICES = [
     ("Study", "Study"),
 ]
 
+class TagCommaField(forms.CharField):
+    """Render list-like values as comma-separated strings and back."""
+
+    def prepare_value(self, value):
+        if not value or value == "[]":
+            return ""
+        if isinstance(value, list):
+            return ", ".join([str(v).strip() for v in value if str(v).strip()])
+        if isinstance(value, str):
+            trimmed = value.strip()
+            if trimmed.startswith("[") and trimmed.endswith("]"):
+                trimmed = trimmed[1:-1]
+            return trimmed
+        return str(value)
+
 FUNDER_TITLE_CHOICES = [
     ("", "Title"),
     ("Dr", "Dr"),
@@ -977,6 +992,41 @@ class ReferenceSummaryAssignmentForm(forms.Form):
 
 
 class ReferenceSummaryUpdateForm(forms.ModelForm):
+    action_tags = TagCommaField(
+        required=False,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Comma-separated (e.g. habitat, migration)"}
+        ),
+        label="Action tags",
+    )
+    threat_tags = TagCommaField(
+        required=False,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Comma-separated (e.g. pollution, predation)"}
+        ),
+        label="Threat tags",
+    )
+    taxon_tags = TagCommaField(
+        required=False,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Comma-separated (e.g. birds, mammals)"}
+        ),
+        label="Taxon tags",
+    )
+    habitat_tags = TagCommaField(
+        required=False,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Comma-separated (e.g. wetlands, forest)"}
+        ),
+        label="Habitat tags",
+    )
+    location_tags = TagCommaField(
+        required=False,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Comma-separated (e.g. Alaska, UK)"}
+        ),
+        label="Location tags",
+    )
     outcomes_raw = forms.CharField(
         required=False,
         widget=forms.Textarea(
@@ -999,34 +1049,26 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         instance = getattr(self, "instance", None)
-        if instance and instance.pk:
-            for field in [
-                "action_tags",
-                "threat_tags",
-                "taxon_tags",
-                "habitat_tags",
-                "location_tags",
-            ]:
-                value = getattr(instance, field) or []
-                if isinstance(value, list):
-                    self.fields[field].initial = ", ".join(value)
-            if instance.outcome_rows:
-                lines = []
-                for row in instance.outcome_rows:
-                    parts = [
-                        row.get("outcome", ""),
-                        row.get("treatment_value", ""),
-                        row.get("treatment", ""),
-                        row.get("comparator_value", ""),
-                        row.get("comparator", ""),
-                        row.get("unit", ""),
-                        row.get("difference", ""),
-                        row.get("stats", ""),
-                        row.get("p_value", ""),
-                        row.get("notes", ""),
-                    ]
-                    lines.append(" | ".join(parts).strip())
-                self.fields["outcomes_raw"].initial = "\n".join([line for line in lines if line.strip()])
+        self._existing_status = instance.status if instance else None
+        if "status" not in (self.data or {}):
+            self.fields["status"].required = False
+        if instance and instance.pk and instance.outcome_rows:
+            lines = []
+            for row in instance.outcome_rows:
+                parts = [
+                    row.get("outcome", ""),
+                    row.get("treatment_value", ""),
+                    row.get("treatment", ""),
+                    row.get("comparator_value", ""),
+                    row.get("comparator", ""),
+                    row.get("unit", ""),
+                    row.get("difference", ""),
+                    row.get("stats", ""),
+                    row.get("p_value", ""),
+                    row.get("notes", ""),
+                ]
+                lines.append(" | ".join(parts).strip())
+            self.fields["outcomes_raw"].initial = "\n".join([line for line in lines if line.strip()])
 
     class Meta:
         model = ReferenceSummary
@@ -1099,11 +1141,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "reliability_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
             "relevance_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
             "synopsis_draft": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
-            "action_tags": forms.TextInput(attrs={"class": "form-control"}),
-            "threat_tags": forms.TextInput(attrs={"class": "form-control"}),
-            "taxon_tags": forms.TextInput(attrs={"class": "form-control"}),
-            "habitat_tags": forms.TextInput(attrs={"class": "form-control"}),
-            "location_tags": forms.TextInput(attrs={"class": "form-control"}),
             "citation": forms.TextInput(attrs={"class": "form-control"}),
         }
 
@@ -1131,6 +1168,12 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
 
     def clean_location_tags(self):
         return self._split_tags("location_tags")
+
+    def clean_status(self):
+        value = self.cleaned_data.get("status")
+        if value:
+            return value
+        return self._existing_status
 
     def clean_outcomes_raw(self):
         raw = self.cleaned_data.get("outcomes_raw", "") or ""
@@ -1161,6 +1204,9 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
     def save(self, commit=True):
         instance = super().save(commit=False)
         instance.outcome_rows = self.cleaned_data.get("outcomes_raw", [])
+        for field in ["action_tags", "threat_tags", "taxon_tags", "habitat_tags", "location_tags"]:
+            instance_value = self.cleaned_data.get(field, [])
+            instance.__setattr__(field, instance_value if instance_value is not None else [])
         if commit:
             instance.save()
             self.save_m2m()
