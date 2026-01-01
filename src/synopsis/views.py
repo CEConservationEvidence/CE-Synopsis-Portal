@@ -5186,12 +5186,21 @@ def reference_summary_detail(request, project_id, summary_id):
                 summary_id=summary.id,
             )
         if action == "comment":
-            comment_form = ReferenceSummaryCommentForm(request.POST)
+            comment_form = ReferenceSummaryCommentForm(request.POST, request.FILES)
             if comment_form.is_valid():
+                parent = None
+                parent_id = comment_form.cleaned_data.get("parent_id")
+                if parent_id:
+                    parent = ReferenceSummaryComment.objects.filter(
+                        pk=parent_id, summary=summary
+                    ).first()
                 ReferenceSummaryComment.objects.create(
                     summary=summary,
                     author=request.user,
                     body=comment_form.cleaned_data["body"],
+                    parent=parent,
+                    attachment=comment_form.cleaned_data.get("attachment"),
+                    notify_assignee=comment_form.cleaned_data.get("notify_assignee") or False,
                 )
                 messages.success(request, "Comment added.")
                 return redirect(
@@ -5201,6 +5210,17 @@ def reference_summary_detail(request, project_id, summary_id):
                 )
             else:
                 messages.error(request, "Could not add comment.")
+        if action == "update-status":
+            if request.POST.get("status") in dict(ReferenceSummary.STATUS_CHOICES):
+                summary.status = request.POST.get("status")
+            summary.needs_help = bool(request.POST.get("needs_help"))
+            summary.save(update_fields=["status", "needs_help", "updated_at"])
+            messages.success(request, "Status updated.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=summary.id,
+            )
         if action == "upload-document":
             document_form = ReferenceDocumentForm(request.POST, request.FILES)
             if document_form.is_valid():
@@ -5271,6 +5291,12 @@ def reference_summary_detail(request, project_id, summary_id):
     comments = summary.comments.select_related("author")
     action_summaries = summary.action_summaries.order_by("order", "id")
     generated_summary = _structured_summary_paragraph(summary)
+    comment_children = defaultdict(list)
+    for c in comments:
+        comment_children[c.parent_id].append(c)
+    comment_tree = comment_children[None]
+    for c in comment_tree:
+        c.replies_cached = comment_children.get(c.id, [])
 
     return render(
         request,
@@ -5283,10 +5309,13 @@ def reference_summary_detail(request, project_id, summary_id):
             "assignment_form": assignment_form,
             "comment_form": comment_form,
             "comments": comments,
+            "comment_tree": comment_tree,
+            "comment_children": comment_children,
             "document_form": document_form,
             "action_summary_form": action_summary_form,
             "action_summaries": action_summaries,
             "generated_summary": generated_summary,
+            "status_choices": ReferenceSummary.STATUS_CHOICES,
         },
     )
 

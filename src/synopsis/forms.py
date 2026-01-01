@@ -1372,6 +1372,18 @@ class ReferenceSummaryCommentForm(forms.Form):
         ),
         label="",
     )
+    parent_id = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    attachment = forms.FileField(
+        required=False,
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        label="Attachment",
+    )
+    notify_assignee = forms.BooleanField(
+        required=False,
+        initial=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        label="Notify assignee",
+    )
 
 
 class ReferenceDocumentForm(forms.Form):

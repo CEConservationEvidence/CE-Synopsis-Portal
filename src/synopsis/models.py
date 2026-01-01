@@ -1242,10 +1242,15 @@ class ReferenceSummaryComment(models.Model):
     )
     author = models.ForeignKey(User, on_delete=models.CASCADE)
     body = models.TextField()
+    parent = models.ForeignKey(
+        "self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies"
+    )
+    attachment = models.FileField(upload_to="summary_comments/", blank=True)
+    notify_assignee = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["created_at"]
+        ordering = ["-created_at", "-id"]
 
     def __str__(self):
         return f"Comment by {self.author} on {self.summary}"

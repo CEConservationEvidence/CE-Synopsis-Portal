@@ -367,39 +367,99 @@
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
-        <div class="mb-3">
-            <dl class="row mb-0">
-                <dt class="col-sm-4">Status</dt>
-                <dd class="col-sm-8">{{ summary.get_status_display }}</dd>
-                <dt class="col-sm-4">Needs help?</dt>
-                <dd class="col-sm-8">{% if summary.needs_help %}Yes{% else %}No{% endif %}</dd>
-                <dt class="col-sm-4">Assigned to</dt>
-                <dd class="col-sm-8">{% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}<span class="text-muted">Unassigned</span>{% endif %}</dd>
-                <dt class="col-sm-4">Last updated</dt>
-                <dd class="col-sm-8">{{ summary.updated_at|date:"Y-m-d H:i" }}</dd>
-            </dl>
+        <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
+            <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'in_progress' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">{{ summary.get_status_display }}</span>
+            {% if summary.needs_help %}<span class="badge text-bg-warning text-dark">Needs help</span>{% endif %}
+            <span class="badge text-bg-light">Ref ID: {{ summary.reference_identifier|default:"—" }}</span>
+            <span class="badge text-bg-light">Summary ID: {{ summary.summary_identifier|default:"—" }}</span>
+            <span class="badge text-bg-light">Last updated: {{ summary.updated_at|date:"Y-m-d H:i" }}</span>
+            <span class="badge text-bg-light">Assigned: {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}</span>
+            <button class="btn btn-outline-secondary btn-sm ms-auto" type="button" id="copy-snapshot">Copy snapshot</button>
         </div>
         <hr>
-        <div>
-            <div class="fw-semibold mb-2">Comments</div>
-            {% if comments %}
-                <div class="mb-3">
-                    {% for comment in comments %}
-                        <div class="mb-3 border-bottom pb-2">
-                            <div class="small text-muted">{{ comment.author.get_full_name|default:comment.author.username }} · {{ comment.created_at|date:"Y-m-d H:i" }}</div>
-                            <p class="mb-0">{{ comment.body|linebreaksbr }}</p>
-                        </div>
-                    {% endfor %}
+        <div class="row g-3">
+            <div class="col-lg-7">
+                <div class="fw-semibold mb-2">Comments</div>
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <label class="form-check-label small d-flex align-items-center gap-1">
+                        <input type="checkbox" class="form-check-input" id="filter-my-comments"> My comments
+                    </label>
+                    <label class="form-check-label small d-flex align-items-center gap-1">
+                        <input type="checkbox" class="form-check-input" id="filter-recent-comments"> Last 7 days
+                    </label>
                 </div>
-            {% else %}
-                <p class="text-muted">No comments yet.</p>
-            {% endif %}
-            <form method="post">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="comment">
-                {{ comment_form.body }}
-                <button class="btn btn-outline-primary mt-2">Add comment</button>
-            </form>
+                {% if comment_tree %}
+                    <div class="mb-3" id="comments-thread">
+                        {% for comment in comment_tree %}
+                            <div class="mb-3 border-bottom pb-2 comment-block" data-author="{{ comment.author.username }}" data-created="{{ comment.created_at|date:'U' }}">
+                                <div class="small text-muted d-flex align-items-center gap-2">
+                                    <span class="fw-semibold">{{ comment.author.get_full_name|default:comment.author.username }}</span>
+                                    <span>{{ comment.created_at|date:"Y-m-d H:i" }}</span>
+                                    {% if comment.notify_assignee %}<span class="badge text-bg-info">Notified</span>{% endif %}
+                                    {% if comment.attachment %}<a href="{{ comment.attachment.url }}" target="_blank" rel="noopener" class="badge text-bg-light">Attachment</a>{% endif %}
+                                </div>
+                                <p class="mb-2">{{ comment.body|linebreaksbr }}</p>
+                                <button class="btn btn-outline-secondary btn-sm reply-btn" data-parent="{{ comment.id }}">Reply</button>
+                                {% if comment.replies_cached %}
+                                    <div class="ms-3 mt-2 border-start ps-3">
+                                        {% for reply in comment.replies_cached %}
+                                            <div class="mb-2 comment-block" data-author="{{ reply.author.username }}" data-created="{{ reply.created_at|date:'U' }}">
+                                                <div class="small text-muted d-flex align-items-center gap-2">
+                                                    <span class="fw-semibold">{{ reply.author.get_full_name|default:reply.author.username }}</span>
+                                                    <span>{{ reply.created_at|date:"Y-m-d H:i" }}</span>
+                                                    {% if reply.notify_assignee %}<span class="badge text-bg-info">Notified</span>{% endif %}
+                                                    {% if reply.attachment %}<a href="{{ reply.attachment.url }}" target="_blank" rel="noopener" class="badge text-bg-light">Attachment</a>{% endif %}
+                                                </div>
+                                                <p class="mb-2">{{ reply.body|linebreaksbr }}</p>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-muted">No comments yet.</p>
+                {% endif %}
+            </div>
+            <div class="col-lg-5">
+                <div class="fw-semibold mb-2">Quick updates</div>
+                <form method="post" class="mb-3">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="update-status">
+                    <div class="mb-2">
+                        <label class="form-label small">Status</label>
+                        <select name="status" class="form-select form-select-sm">
+                            {% for code, label in status_choices %}
+                                <option value="{{ code }}" {% if summary.status == code %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="modal-needs-help" name="needs_help" value="1" {% if summary.needs_help %}checked{% endif %}>
+                        <label class="form-check-label small" for="modal-needs-help">Needs help</label>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm">Save</button>
+                </form>
+
+                <div class="fw-semibold mb-2">Add comment</div>
+                <form method="post" enctype="multipart/form-data" id="comment-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="comment">
+                    {{ comment_form.parent_id }}
+                    <div class="mb-2">
+                        {{ comment_form.body }}
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Attachment (optional)</label>
+                        {{ comment_form.attachment }}
+                    </div>
+                    <div class="form-check mb-2">
+                        {{ comment_form.notify_assignee }} <label class="form-check-label small">Notify assignee</label>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm">Add comment</button>
+                </form>
+            </div>
         </div>
       </div>
       <div class="modal-footer">
@@ -518,6 +578,95 @@
                 uploadForm.submit();
             }
         });
+    })();
+</script>
+<script>
+    (() => {
+        const copySnapshotBtn = document.getElementById("copy-snapshot");
+        const snapshotText = [
+            "Status: {{ summary.get_status_display }}",
+            "Needs help: {% if summary.needs_help %}Yes{% else %}No{% endif %}",
+            "Assigned: {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}",
+            "Ref ID: {{ summary.reference_identifier|default:'—' }}",
+            "Summary ID: {{ summary.summary_identifier|default:'—' }}",
+            "Last updated: {{ summary.updated_at|date:'Y-m-d H:i' }}",
+        ].join(" | ");
+        const fallbackCopy = (text) => {
+            const temp = document.createElement("textarea");
+            temp.value = text;
+            temp.style.position = "fixed";
+            temp.style.opacity = "0";
+            document.body.appendChild(temp);
+            temp.select();
+            try { document.execCommand("copy"); } catch (e) {}
+            document.body.removeChild(temp);
+        };
+        if (copySnapshotBtn) {
+            copySnapshotBtn.addEventListener("click", () => {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(snapshotText).then(() => {
+                        copySnapshotBtn.textContent = "Copied";
+                        setTimeout(() => copySnapshotBtn.textContent = "Copy snapshot", 1500);
+                    }).catch(() => {
+                        fallbackCopy(snapshotText);
+                    });
+                } else {
+                    fallbackCopy(snapshotText);
+                }
+            });
+        }
+
+        const commentForm = document.getElementById("comment-form");
+        const replyButtons = document.querySelectorAll(".reply-btn");
+        const parentInput = commentForm ? commentForm.querySelector("input[name='parent_id']") : null;
+        const commentBody = commentForm ? commentForm.querySelector("textarea") : null;
+        replyButtons.forEach((btn) => {
+            btn.addEventListener("click", () => {
+                if (!parentInput || !commentBody) return;
+                parentInput.value = btn.getAttribute("data-parent");
+                commentBody.scrollIntoView({ behavior: "smooth", block: "center" });
+                commentBody.focus();
+            });
+        });
+
+        // Filters
+        const filterMy = document.getElementById("filter-my-comments");
+        const filterRecent = document.getElementById("filter-recent-comments");
+        const commentBlocks = document.querySelectorAll("#comments-thread .comment-block");
+        const currentUser = "{{ request.user.username }}";
+        const sevenDaysAgo = () => (Date.now() / 1000) - (7 * 24 * 60 * 60);
+        const applyFilters = () => {
+            const myOnly = filterMy && filterMy.checked;
+            const recentOnly = filterRecent && filterRecent.checked;
+            const cutoff = sevenDaysAgo();
+            commentBlocks.forEach((el) => {
+                const author = el.getAttribute("data-author") || "";
+                const created = parseInt(el.getAttribute("data-created") || "0", 10);
+                let show = true;
+                if (myOnly && author !== currentUser) show = false;
+                if (recentOnly && created < cutoff) show = false;
+                el.style.display = show ? "" : "none";
+            });
+        };
+        if (filterMy) filterMy.addEventListener("change", applyFilters);
+        if (filterRecent) filterRecent.addEventListener("change", applyFilters);
+
+        // Autosave comment draft
+        const draftKey = "summary-comment-draft-{{ summary.id }}";
+        if (commentBody) {
+            const existing = localStorage.getItem(draftKey);
+            if (existing && !commentBody.value) {
+                commentBody.value = existing;
+            }
+            commentBody.addEventListener("input", () => {
+                localStorage.setItem(draftKey, commentBody.value || "");
+            });
+        }
+        if (commentForm) {
+            commentForm.addEventListener("submit", () => {
+                localStorage.removeItem(draftKey);
+            });
+        }
     })();
 </script>
 <div class="d-flex justify-content-end my-3">
