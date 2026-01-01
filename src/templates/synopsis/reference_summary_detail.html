@@ -6,6 +6,7 @@
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_summary_board' project.id %}">Back to summaries</a>
     <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_list' project.id %}">Screening overview</a>
+    <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#snapshotModal">Snapshot & comments</button>
 </div>
 <div class="card mb-4">
     <div class="card-body">
@@ -15,7 +16,12 @@
             {% if reference.publication_year %} · {{ reference.publication_year }}{% endif %}
         </div>
         {% if reference.abstract %}
-        <p class="mb-0">{{ reference.abstract }}</p>
+        <div class="position-relative">
+            <div id="abstract-preview" class="mb-2" style="max-height: 6rem; overflow: hidden;">
+                <p class="mb-0">{{ reference.abstract }}</p>
+            </div>
+            <button class="btn btn-outline-link btn-sm p-0" type="button" id="toggle-abstract">Show more</button>
+        </div>
         {% else %}
         <p class="text-muted mb-0">No abstract available.</p>
         {% endif %}
@@ -288,59 +294,64 @@
                 </form>
             </div>
         </div>
-        <div class="card">
-            <div class="card-header">Comments</div>
-            <div class="card-body">
-                {% if comments %}
-                    <div class="mb-3">
-                        {% for comment in comments %}
-                            <div class="mb-3 border-bottom pb-2">
-                                <div class="small text-muted">{{ comment.author.get_full_name|default:comment.author.username }} · {{ comment.created_at|date:"Y-m-d H:i" }}</div>
-                                <p class="mb-0">{{ comment.body|linebreaksbr }}</p>
-                            </div>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <p class="text-muted">No comments yet.</p>
-                {% endif %}
-                <form method="post">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="comment">
-                    {{ comment_form.body }}
-                    <button class="btn btn-outline-primary mt-2">Add comment</button>
-                </form>
-            </div>
-        </div>
     </div>
 <div class="col-12 mt-4">
-        <div class="card mb-3">
-            <div class="card-header">Assignment</div>
-            <div class="card-body">
-                <form method="post">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="assign">
-                    {{ assignment_form.as_p }}
-                    <button class="btn btn-outline-primary">Update assignment</button>
-                </form>
-            </div>
-        </div>
-        <div class="card">
-            <div class="card-header">Snapshot</div>
-            <div class="card-body">
-                <dl class="mb-0">
-                    <dt>Status</dt>
-                    <dd>{{ summary.get_status_display }}</dd>
-                    <dt>Needs help?</dt>
-                    <dd>{% if summary.needs_help %}Yes{% else %}No{% endif %}</dd>
-                    <dt>Assigned to</dt>
-                    <dd>{% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}<span class="text-muted">Unassigned</span>{% endif %}</dd>
-                    <dt>Last updated</dt>
-                    <dd>{{ summary.updated_at|date:"Y-m-d H:i" }}</dd>
-                </dl>
-            </div>
-        </div>
-    </div>
 </div>
+</div>
+
+<div class="modal fade" id="snapshotModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+            <h5 class="modal-title mb-0">Snapshot & comments</h5>
+            <small class="text-muted">{{ reference.title }}</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+            <dl class="row mb-0">
+                <dt class="col-sm-4">Status</dt>
+                <dd class="col-sm-8">{{ summary.get_status_display }}</dd>
+                <dt class="col-sm-4">Needs help?</dt>
+                <dd class="col-sm-8">{% if summary.needs_help %}Yes{% else %}No{% endif %}</dd>
+                <dt class="col-sm-4">Assigned to</dt>
+                <dd class="col-sm-8">{% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}<span class="text-muted">Unassigned</span>{% endif %}</dd>
+                <dt class="col-sm-4">Last updated</dt>
+                <dd class="col-sm-8">{{ summary.updated_at|date:"Y-m-d H:i" }}</dd>
+            </dl>
+        </div>
+        <hr>
+        <div>
+            <div class="fw-semibold mb-2">Comments</div>
+            {% if comments %}
+                <div class="mb-3">
+                    {% for comment in comments %}
+                        <div class="mb-3 border-bottom pb-2">
+                            <div class="small text-muted">{{ comment.author.get_full_name|default:comment.author.username }} · {{ comment.created_at|date:"Y-m-d H:i" }}</div>
+                            <p class="mb-0">{{ comment.body|linebreaksbr }}</p>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="text-muted">No comments yet.</p>
+            {% endif %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="comment">
+                {{ comment_form.body }}
+                <button class="btn btn-outline-primary mt-2">Add comment</button>
+            </form>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% if generated_summary %}
 {{ generated_summary|json_script:"generated-summary-data" }}
 <script>
@@ -369,4 +380,24 @@
     })();
 </script>
 {% endif %}
+<script>
+    (() => {
+        const preview = document.getElementById("abstract-preview");
+        const toggle = document.getElementById("toggle-abstract");
+        if (preview && toggle) {
+            let expanded = false;
+            toggle.addEventListener("click", () => {
+                expanded = !expanded;
+                if (expanded) {
+                    preview.style.maxHeight = "none";
+                    toggle.textContent = "Show less";
+                } else {
+                    preview.style.maxHeight = "6rem";
+                    toggle.textContent = "Show more";
+                    preview.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
+            });
+        }
+    })();
+</script>
 {% endblock %}
