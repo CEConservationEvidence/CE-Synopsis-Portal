@@ -5143,6 +5143,7 @@ def reference_document_inline(request, project_id, reference_id):
     response["Content-Type"] = "application/pdf"
     response["Content-Disposition"] = f'inline; filename="{filename}"'
     response["Cache-Control"] = "no-store"
+    response["Content-Security-Policy"] = "default-src 'none'; script-src 'none'; object-src 'none'; base-uri 'none';"
     return response
 
 
