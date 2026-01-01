@@ -83,12 +83,8 @@
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-summary">
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Status & identifiers</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Identifiers</div>
                         <div class="row g-3">
-                            <div class="col-12">
-                                <label class="form-label">Summary status</label>
-                                {{ summary_form.status }}
-                            </div>
                             <div class="col-md-6">
                                 <label class="form-label">Reference ID</label>
                                 {{ summary_form.reference_identifier }}
@@ -176,14 +172,10 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Costs & narrative</div>
-                        <div class="mb-3">
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Costs</div>
+                        <div class="mb-0">
                             <label class="form-label">Costs</label>
                             {{ summary_form.cost_summary }}
-                        </div>
-                        <div class="mb-0">
-                            <label class="form-label">Synopsis draft</label>
-                            {{ summary_form.synopsis_draft }}
                         </div>
                     </div>
                     <div>
@@ -208,10 +200,6 @@
                             <div class="col-md-6">
                                 <label class="form-label">Location tags</label>
                                 {{ summary_form.location_tags }}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Research design</label>
-                                {{ summary_form.research_design }}
                             </div>
                             <div class="col-md-12">
                                 <label class="form-label">Citation</label>
