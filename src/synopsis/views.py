@@ -5089,6 +5089,7 @@ def reference_summary_board(request, project_id):
             }
         )
     unassigned_count = summaries.filter(assigned_to__isnull=True).count()
+    needs_help_count = summaries.filter(needs_help=True).count()
 
     status_map = {
         code: {"label": label, "items": []}
@@ -5126,6 +5127,7 @@ def reference_summary_board(request, project_id):
             "workload": workload,
             "unassigned_count": unassigned_count,
             "summaries": summaries.order_by("status", "assigned_to__first_name", "reference__title"),
+            "needs_help_count": needs_help_count,
         },
     )
 

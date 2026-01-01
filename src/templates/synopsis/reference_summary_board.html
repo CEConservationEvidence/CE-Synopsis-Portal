@@ -117,20 +117,58 @@
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title">Reference distribution</h5>
+        <div>
+            <h5 class="modal-title mb-0">Reference distribution</h5>
+            <small class="text-muted">{{ unassigned_count }} unassigned / {{ reference_count }} total · {{ needs_help_count }} flagged as needs help</small>
+        </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <div class="modal-body">
-        <div class="d-flex flex-wrap gap-2 mb-2">
-            <span class="small text-muted">{{ unassigned_count }} unassigned / {{ reference_count }} total</span>
-        </div>
+      <div class="px-3 pt-3">
+        <div class="fw-semibold mb-1">Author workload</div>
         <div class="table-responsive">
-            <form method="post" id="distribution-form">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="">
-                <input type="hidden" name="bulk_assigned_to" value="">
-                <table class="table table-sm align-middle">
-                    <thead class="table-light">
+            <table class="table table-sm mb-2">
+                <thead class="table-light">
+                    <tr>
+                        <th>Author</th>
+                        <th class="text-end">Assigned</th>
+                        <th class="text-end">Needs help</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in workload %}
+                    <tr>
+                        <td>{{ item.author.get_full_name|default:item.author.username }}</td>
+                        <td class="text-end">{{ item.assigned }}</td>
+                        <td class="text-end">{{ item.needs_help }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="3" class="text-muted text-center">No authors</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+      </div>
+      <div class="modal-body">
+        <form method="post" id="distribution-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="">
+            <input type="hidden" name="bulk_assigned_to" value="">
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">Filter</span>
+                        <input type="text" class="form-control" id="dist-filter" placeholder="Search title or author">
+                    </div>
+                </div>
+                <div class="col-md-6 d-flex flex-wrap align-items-center justify-content-md-end small text-muted gap-3">
+                    <span id="dist-selected-count">0 selected</span>
+                    <span>{{ unassigned_count }} unassigned</span>
+                    <span>{{ needs_help_count }} needs help</span>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle" id="dist-table">
+                    <thead class="table-light position-sticky top-0">
                         <tr>
                             <th style="width:32px;"><input type="checkbox" id="dist-select-all"></th>
                             <th>Title</th>
@@ -141,17 +179,17 @@
                     </thead>
                     <tbody>
                         {% for summary in summaries %}
-                        <tr>
+                        <tr class="dist-row-wrap">
                             <td><input type="checkbox" class="dist-row" name="summary_ids" value="{{ summary.id }}"></td>
                             <td>
-                                <div class="fw-semibold">{{ summary.reference.title }}</div>
-                                <div class="small text-muted">
+                                <div class="fw-semibold dist-text">{{ summary.reference.title }}</div>
+                                <div class="small text-muted dist-text">
                                     {% if summary.reference.authors %}{{ summary.reference.authors }}{% else %}Unknown authors{% endif %}
                                     {% if summary.reference.publication_year %} · {{ summary.reference.publication_year }}{% endif %}
                                 </div>
                             </td>
                             <td><span class="badge text-bg-light">{{ summary.get_status_display }}</span></td>
-                            <td>
+                            <td class="dist-text">
                                 {% if summary.assigned_to %}
                                     {{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}
                                 {% else %}
@@ -169,8 +207,8 @@
                         {% endfor %}
                     </tbody>
                 </table>
-            </form>
-        </div>
+            </div>
+        </form>
       </div>
       <div class="modal-footer d-flex flex-wrap gap-2 align-items-center">
         <select class="form-select form-select-sm w-auto" id="dist-author">
@@ -209,8 +247,14 @@
         if (distSelectAll) {
             distSelectAll.addEventListener("change", () => {
                 distRows.forEach((cb) => { cb.checked = distSelectAll.checked; });
+                updateSelectedCount();
             });
         }
+        const updateSelectedCount = () => {
+            const count = Array.from(distRows).filter((cb) => cb.checked).length;
+            const label = document.getElementById("dist-selected-count");
+            if (label) label.textContent = `${count} selected`;
+        };
         const distForm = document.getElementById("distribution-form");
         document.querySelectorAll("[data-dist-action]").forEach((btn) => {
             btn.addEventListener("click", () => {
@@ -222,6 +266,21 @@
                 distForm.submit();
             });
         });
+        distRows.forEach((cb) => {
+            cb.addEventListener("change", updateSelectedCount);
+        });
+        updateSelectedCount();
+
+        const filterInput = document.getElementById("dist-filter");
+        if (filterInput) {
+            filterInput.addEventListener("input", () => {
+                const q = filterInput.value.toLowerCase();
+                document.querySelectorAll("#dist-table tbody tr").forEach((row) => {
+                    const text = Array.from(row.querySelectorAll(".dist-text")).map((el) => el.textContent.toLowerCase()).join(" ");
+                    row.style.display = text.includes(q) ? "" : "none";
+                });
+            });
+        }
     })();
 </script>
 {% endblock %}
