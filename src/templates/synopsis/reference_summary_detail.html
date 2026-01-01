@@ -260,6 +260,9 @@
                 <span class="badge text-bg-light">{{ action_summaries|length }} total</span>
             </div>
             <div class="card-body">
+                <div class="alert alert-info py-2 small mb-3">
+                    Write one action summary per intervention when results are separate. If only combined results exist, repeat the paragraph under each intervention and state which interventions were applied together, noting that effects can’t be separated. Consider a single combined intervention only when ≥5 studies use the same well-defined bundle that is a common strategy.
+                </div>
                 {% if action_summaries %}
                     {% for action_summary in action_summaries %}
                     <div class="border rounded p-3 mb-3">
