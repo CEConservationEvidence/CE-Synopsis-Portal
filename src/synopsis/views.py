@@ -4695,13 +4695,14 @@ def _ensure_reference_summaries(project, references):
         summary.reference_id: summary
         for summary in ReferenceSummary.objects.filter(reference_id__in=ref_ids)
     }
-    for ref in references:
-        if ref.id not in existing:
-            existing[ref.id] = ReferenceSummary.objects.create(
-                project=project,
-                reference=ref,
-                citation=_reference_summary_citation(ref),
-            )
+    with transaction.atomic():
+        for ref in references:
+            if ref.id not in existing:
+                existing[ref.id] = ReferenceSummary.objects.create(
+                    project=project,
+                    reference=ref,
+                    citation=_reference_summary_citation(ref),
+                )
     return existing
 
 
