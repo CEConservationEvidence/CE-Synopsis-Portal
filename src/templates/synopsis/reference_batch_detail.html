@@ -285,7 +285,7 @@ details.abstract-details[open] .abstract-full {
                 </thead>
                 <tbody>
                     {% for ref in references %}
-                    <tr>
+                    <tr{% if not ref.abstract %} class="table-warning"{% endif %}>
                         <td class="text-center">
                             <input
                                 class="form-check-input bulk-reference-checkbox"
@@ -297,7 +297,12 @@ details.abstract-details[open] .abstract-full {
                             >
                         </td>
                         <td>
-                            <strong>{{ ref.title }}</strong>
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <strong>{{ ref.title }}</strong>
+                                {% if not ref.abstract %}
+                                <span class="badge text-bg-warning text-dark">No abstract</span>
+                                {% endif %}
+                            </div>
                             {% if ref.abstract %}
                             {% with preview=ref.abstract|slice:":250" remainder=ref.abstract|slice:"250:" %}
                             <div class="text-muted small mt-1">
