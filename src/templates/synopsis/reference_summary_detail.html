@@ -33,24 +33,28 @@
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Reference PDF</span>
                 {% if reference.reference_document %}
-                <a class="btn btn-outline-secondary btn-sm" href="{{ reference.reference_document.url }}" target="_blank" rel="noopener">Open in new tab</a>
+                <div class="btn-group btn-group-sm" role="group" aria-label="PDF actions">
+                    <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_document_inline' project.id reference.id %}?v={{ reference.reference_document_uploaded_at|date:'U' }}" target="_blank" rel="noopener">Open in new tab</a>
+                    <a class="btn btn-outline-secondary" href="{{ reference.reference_document.url }}" target="_blank" rel="noopener" download>Download</a>
+                </div>
                 {% endif %}
             </div>
-            <div class="card-body d-flex flex-column" id="pdf-card-body" style="overflow-y: auto;">
-                <form method="post" enctype="multipart/form-data" class="mb-3">
+            <div class="card-body d-flex flex-column gap-3" id="pdf-card-body" style="overflow-y: auto;">
+                <form method="post" enctype="multipart/form-data" class="mb-1" id="pdf-upload-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="upload-document">
                     {{ document_form.document }}
-                    <button class="btn btn-outline-primary btn-sm mt-2">Upload PDF</button>
+                    <button class="btn btn-outline-primary btn-sm mt-2 d-none" type="submit">Upload PDF</button>
                 </form>
                 {% if reference.reference_document %}
-                    <div class="mb-2">
-                        <a href="{% url 'synopsis:reference_document_inline' project.id reference.id %}?v={{ reference.reference_document_uploaded_at|date:'U' }}" target="_blank" rel="noopener">Open in new tab</a>
+                    <div class="small text-muted">
                         {% if reference.reference_document_uploaded_at %}
-                            <div class="small text-muted">Uploaded {{ reference.reference_document_uploaded_at|date:"Y-m-d H:i" }}</div>
+                            Uploaded {{ reference.reference_document_uploaded_at|date:"Y-m-d H:i" }}
+                        {% else %}
+                            PDF available
                         {% endif %}
                     </div>
-                    <div class="flex-grow-1 border rounded position-relative" id="pdf-viewer" style="min-height: 400px;">
+                    <div class="flex-grow-1 position-relative" id="pdf-viewer" style="min-height: 400px; background: #f8f9fa; border: 1px solid #e2e6ea; border-radius: 0.5rem; box-shadow: inset 0 1px 2px rgba(0,0,0,0.04); padding: 0.5rem;">
                         <object
                             data="{% url 'synopsis:reference_document_inline' project.id reference.id %}?inline=1&v={{ reference.reference_document_uploaded_at|date:'U' }}"
                             type="application/pdf"
@@ -483,6 +487,19 @@
                 }
             });
         }
+    })();
+</script>
+<script>
+    (() => {
+        const uploadForm = document.getElementById("pdf-upload-form");
+        if (!uploadForm) return;
+        const fileInput = uploadForm.querySelector("input[type='file']");
+        if (!fileInput) return;
+        fileInput.addEventListener("change", () => {
+            if (fileInput.files && fileInput.files.length > 0) {
+                uploadForm.submit();
+            }
+        });
     })();
 </script>
 {% endblock %}
