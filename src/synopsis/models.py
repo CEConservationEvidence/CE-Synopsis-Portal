@@ -6,8 +6,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.utils import timezone
-from wagtail.fields import RichTextField
-from wagtail.snippets.models import register_snippet
 
 """
 TODO: #16 Cleanup models.py by modularising models into separate files for organization and maintainability. Also add docstring comments (AI generated but reviewed) to explain purpose and usage.
@@ -1163,7 +1161,6 @@ class Reference(models.Model):
         )
 
 
-@register_snippet
 class ReferenceSummary(models.Model):
     STATUS_TODO = "todo"
     STATUS_DRAFT = "draft"
@@ -1191,7 +1188,9 @@ class ReferenceSummary(models.Model):
     summary_identifier = models.CharField(max_length=255, blank=True)
     reference_label = models.CharField(max_length=255, blank=True)
     action_description = models.CharField(max_length=255, blank=True)
+    study_design = models.CharField(max_length=255, blank=True)
     study_type = models.CharField(max_length=255, blank=True)
+    sites_replications = models.CharField(max_length=255, blank=True)
     year_range = models.CharField(max_length=100, blank=True)
     habitat_and_sites = models.TextField(blank=True)
     region = models.CharField(max_length=255, blank=True)
@@ -1201,6 +1200,7 @@ class ReferenceSummary(models.Model):
     experimental_design = models.TextField(blank=True)
     site_context_details = models.TextField(blank=True)
     sampling_methods_details = models.TextField(blank=True)
+    cost_summary = models.TextField(blank=True)
     outcome_rows = models.JSONField(default=list, blank=True)
     benefits_score = models.FloatField(null=True, blank=True)
     harms_score = models.FloatField(null=True, blank=True)
@@ -1208,7 +1208,7 @@ class ReferenceSummary(models.Model):
     relevance_score = models.FloatField(null=True, blank=True)
     summary_text = models.TextField(blank=True)
     key_findings = models.TextField(blank=True)
-    synopsis_draft = RichTextField(blank=True)
+    synopsis_draft = models.TextField(blank=True)
     ai_summary = models.TextField(blank=True)
     ai_summary_model = models.CharField(max_length=255, blank=True)
     ai_summary_generated_at = models.DateTimeField(null=True, blank=True)
@@ -1265,33 +1265,12 @@ class ReferenceActionSummary(models.Model):
     def __str__(self):
         return f"{self.reference_summary.reference.title[:40]} – {self.action_name}"
 
-
-class SynopsisOutlineChapter(models.Model):
+class SynopsisChapter(models.Model):
     project = models.ForeignKey(
-        Project, on_delete=models.CASCADE, related_name="outline_chapters"
-    )
-    wagtail_page = models.OneToOneField(
-        "synopsis_wagtail.SynopsisChapterPage",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="outline_chapter",
+        Project, on_delete=models.CASCADE, related_name="synopsis_chapters"
     )
     title = models.CharField(max_length=255)
-    summary = models.TextField(blank=True)
     position = models.PositiveIntegerField(default=0)
-    section_number = models.CharField(max_length=20, blank=True)
-    section_type = models.CharField(
-        max_length=20,
-        choices=[
-            ("front_matter", "Front matter"),
-            ("threat", "Threat"),
-            ("action", "Action group"),
-            ("appendix", "Appendix"),
-        ],
-        default="action",
-    )
-    template_key = models.CharField(max_length=50, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1302,62 +1281,12 @@ class SynopsisOutlineChapter(models.Model):
         return f"{self.project.title}: {self.title}"
 
 
-class SynopsisOutlineSection(models.Model):
+class SynopsisSubheading(models.Model):
     chapter = models.ForeignKey(
-        SynopsisOutlineChapter, on_delete=models.CASCADE, related_name="sections"
+        SynopsisChapter, on_delete=models.CASCADE, related_name="subheadings"
     )
-    title = models.CharField(max_length=255, blank=True)
+    title = models.CharField(max_length=255)
     position = models.PositiveIntegerField(default=0)
-    number_label = models.CharField(max_length=20, blank=True)
-
-    class Meta:
-        ordering = ["position", "id"]
-
-    def __str__(self):
-        base = self.title or "Section"
-        return f"{self.chapter.title} – {base}"
-
-
-class SynopsisOutlineBlock(models.Model):
-    TYPE_HEADING = "heading"
-    TYPE_PARAGRAPH = "paragraph"
-    TYPE_KEY_MESSAGE = "key_message"
-    TYPE_REFERENCE_SUMMARY = "reference_summary"
-    BLOCK_TYPE_CHOICES = [
-        (TYPE_HEADING, "Heading"),
-        (TYPE_PARAGRAPH, "Paragraph"),
-        (TYPE_KEY_MESSAGE, "Key message"),
-        (TYPE_REFERENCE_SUMMARY, "Reference summary"),
-    ]
-
-    chapter = models.ForeignKey(
-        SynopsisOutlineChapter, on_delete=models.CASCADE, related_name="blocks"
-    )
-    section = models.ForeignKey(
-        SynopsisOutlineSection,
-        on_delete=models.CASCADE,
-        null=True,
-        blank=True,
-        related_name="blocks",
-    )
-    block_type = models.CharField(max_length=32, choices=BLOCK_TYPE_CHOICES)
-    text = models.TextField(blank=True)
-    reference_summary = models.ForeignKey(
-        ReferenceSummary,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="outline_blocks",
-    )
-    reference_action_summary = models.ForeignKey(
-        ReferenceActionSummary,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="outline_blocks",
-    )
-    position = models.PositiveIntegerField(default=0)
-    metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1365,4 +1294,57 @@ class SynopsisOutlineBlock(models.Model):
         ordering = ["position", "id"]
 
     def __str__(self):
-        return f"{self.get_block_type_display()} ({self.chapter.title})"
+        return f"{self.chapter.title} – {self.title}"
+
+
+class SynopsisIntervention(models.Model):
+    subheading = models.ForeignKey(
+        SynopsisSubheading, on_delete=models.CASCADE, related_name="interventions"
+    )
+    title = models.CharField(max_length=255)
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        return f"{self.subheading.title} – {self.title}"
+
+
+class SynopsisAssignment(models.Model):
+    intervention = models.ForeignKey(
+        SynopsisIntervention, on_delete=models.CASCADE, related_name="assignments"
+    )
+    reference_summary = models.ForeignKey(
+        ReferenceSummary, on_delete=models.CASCADE, related_name="synopsis_assignments"
+    )
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+        unique_together = [("intervention", "reference_summary")]
+
+    def __str__(self):
+        return f"{self.intervention.title} – {self.reference_summary}"
+
+
+class SynopsisExportLog(models.Model):
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="synopsis_exports"
+    )
+    exported_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    exported_at = models.DateTimeField(auto_now_add=True)
+    note = models.TextField(blank=True)
+    archived_file = models.FileField(upload_to="synopsis_exports/", blank=True)
+
+    class Meta:
+        ordering = ["-exported_at", "id"]
+
+    def __str__(self):
+        return f"{self.project.title} export {self.exported_at:%Y-%m-%d %H:%M}"

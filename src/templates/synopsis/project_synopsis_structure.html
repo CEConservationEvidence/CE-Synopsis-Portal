@@ -3,226 +3,292 @@
 {% block title %}{{ project.title }} — Synopsis structure{% endblock %}
 
 {% block content %}
-<div class="bg-white p-4 rounded shadow-sm mb-4">
+<div class="bg-white p-4 rounded shadow-sm mb-3">
     <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
         <div>
             <p class="text-uppercase text-muted small mb-1">Synopsis structure</p>
             <h1 class="h3 mb-0">{{ project.title }}</h1>
+            <div class="small text-muted">Last exported: {{ last_exported|default:"—" }}</div>
         </div>
         <div class="d-flex flex-wrap gap-2">
             <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_summary_board' project.id %}">Summaries board</a>
-            <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_synopsis_writer' project.id %}" target="_blank" rel="noopener">Open Wagtail writer</a>
-            {% if project_page and project_page.url %}
-            <a class="btn btn-primary btn-sm" href="{{ project_page.url }}" target="_blank" rel="noopener">View live project</a>
-            {% endif %}
+            <a class="btn btn-success btn-sm" href="{% url 'synopsis:project_synopsis_export_docx' project.id %}">Export to DOCX</a>
         </div>
     </div>
-    <p class="text-muted small mb-0">
-        Fill out the templates below to keep the synopsis structure aligned with the published contents page. Publish whenever you want to refresh the draft in Wagtail.
-    </p>
+    <p class="text-muted small mb-0">Chapters → subheadings → interventions. Drop in summaries, reorder, then export to OnlyOffice.</p>
 </div>
 
-{% if front_matter_chapters or chapters %}
-<div class="card mb-4">
-    <div class="card-body">
-        <h2 class="h6 text-uppercase text-muted mb-3">Contents preview</h2>
-        <ul class="list-unstyled mb-0">
-            {% for chapter in front_matter_chapters %}
-            <li class="mb-2">
-                <div class="fw-semibold">
-                    {% if chapter.section_number %}{{ chapter.section_number }} {% endif %}{{ chapter.title }}
-                </div>
-                {% if chapter.sorted_sections %}
-                <ul class="text-muted small ps-3 mb-1">
-                    {% for section in chapter.sorted_sections %}
-                    <li>
-                        {% if section.number_label %}{{ section.number_label }} {% endif %}{{ section.title|default:"(Untitled section)" }}
-                        {% if section.blocks_list %}
-                        <ul class="mb-1">
-                            {% for block in section.blocks_list %}
-                                {% if block.block_type == 'reference_summary' and block.reference_summary %}
-                                    <li>{{ block.reference_summary.reference.title }}</li>
-                                {% elif block.block_type == 'heading' %}
-                                    <li>{{ block.text|truncatechars:80 }}</li>
-                                {% endif %}
-                            {% endfor %}
-                        </ul>
-                        {% endif %}
-                    </li>
-                    {% endfor %}
-                </ul>
-                {% endif %}
-            </li>
-            {% endfor %}
-            {% for chapter in chapters %}
-            <li class="mb-2">
-                <div class="fw-semibold">
-                    {% if chapter.section_number %}{{ chapter.section_number }} {% endif %}{{ chapter.title }}
-                </div>
-                {% if chapter.sorted_sections %}
-                <ul class="text-muted small ps-3 mb-1">
-                    {% for section in chapter.sorted_sections %}
-                    <li>
-                        {% if section.number_label %}{{ section.number_label }} {% endif %}{{ section.title|default:"(Untitled section)" }}
-                        {% if section.blocks_list %}
-                        <ul class="mb-1">
-                            {% for block in section.blocks_list %}
-                                {% if block.block_type == 'reference_summary' and block.reference_summary %}
-                                    <li>{{ block.reference_summary.reference.title }}</li>
-                                {% elif block.block_type == 'heading' %}
-                                    <li>{{ block.text|truncatechars:80 }}</li>
-                                {% endif %}
-                            {% endfor %}
-                        </ul>
-                        {% endif %}
-                    </li>
-                    {% endfor %}
-                </ul>
-                {% endif %}
-            </li>
-            {% endfor %}
-        </ul>
-    </div>
-</div>
-{% endif %}
-
-<div class="row g-4">
-    <div class="col-lg-8">
-        <div class="card h-100">
-            <div class="card-body">
-                {% if front_matter_forms %}
-                <div class="mb-4">
-                    <h2 class="h5 mb-1">Front matter templates</h2>
-                    <p class="text-muted small mb-3">Use these focused forms to keep the advisory board, author bios, acknowledgements, and “About this book” sections tidy. Blank lines create new paragraphs.</p>
-                    {% for entry in front_matter_forms %}
-                    <div class="border rounded p-3 mb-3">
-                        <div class="d-flex flex-column flex-md-row justify-content-between gap-2">
-                            <div>
-                                <h3 class="h6 mb-1">{{ entry.chapter.title }}</h3>
-                                <p class="text-muted small mb-0">{{ entry.config.description }}</p>
-                            </div>
-                            {% if entry.chapter.section_number %}
-                            <span class="badge text-bg-light align-self-start">{{ entry.chapter.section_number }}</span>
-                            {% endif %}
-                        </div>
-                        <form method="post" class="mt-3" novalidate>
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="save-front-matter">
-                            <input type="hidden" name="chapter_id" value="{{ entry.chapter.id }}">
-                            <input type="hidden" name="template_key" value="{{ entry.config.key }}">
-                            {% if entry.form.non_field_errors %}
-                            <div class="alert alert-danger py-2">{{ entry.form.non_field_errors }}</div>
-                            {% endif %}
-                            {% for field in entry.form %}
-                            <div class="mb-3">
-                                {{ field.label_tag }}
-                                {{ field }}
-                                {% if field.errors %}
-                                <div class="invalid-feedback d-block">{{ field.errors|join:", " }}</div>
-                                {% elif field.help_text %}
-                                <div class="form-text">{{ field.help_text }}</div>
-                                {% endif %}
-                            </div>
-                            {% endfor %}
-                            <div class="d-flex flex-wrap gap-2 justify-content-between">
-                                <button type="submit" class="btn btn-primary btn-sm">Save {{ entry.chapter.title }}</button>
-                            </div>
-                        </form>
-                        <div class="d-flex justify-content-end mt-2">
-                            <form method="post" class="m-0">
-                                {% csrf_token %}
-                                <input type="hidden" name="action" value="sync-chapter">
-                                <input type="hidden" name="chapter_id" value="{{ entry.chapter.id }}">
-                                <button class="btn btn-outline-success btn-sm">Publish to Wagtail</button>
-                            </form>
-                        </div>
-                    </div>
-                    {% endfor %}
-                </div>
-                {% endif %}
-                {% if front_matter_generic_chapters %}
-                <div class="mb-4">
-                    <h2 class="h6 mb-1">Additional front matter</h2>
-                    <p class="text-muted small mb-3">These sections still use the legacy block editor.</p>
-                    {% for chapter in front_matter_generic_chapters %}
-                        {% include "synopsis/_outline_chapter_card.html" with chapter=chapter reference_summaries=reference_summaries section_type_choices=section_type_choices disable_move=True disable_delete=True manage_sections=False allow_reference_blocks=False is_first=False is_last=False %}
-                    {% endfor %}
-                </div>
-                {% endif %}
-                {% if front_matter_forms or front_matter_generic_chapters %}
-                <hr class="my-4">
-                {% endif %}
-                <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-start align-items-md-center mb-3">
-                    <div>
-                        <h2 class="h5 mb-1">Chapters</h2>
-                        <p class="text-muted small mb-0">{{ chapters|length }} chapter{% if chapters|length != 1 %}s{% endif %}</p>
-                    </div>
-                    {% if chapters %}
-                    <form method="post" class="ms-md-auto">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="sync-all">
-                        <button type="submit" class="btn btn-success btn-sm">Publish all to Wagtail</button>
-                    </form>
-                    {% endif %}
-                </div>
-                {% if chapters %}
-                    {% for chapter in chapters %}
-                        {% include "synopsis/_outline_chapter_card.html" with chapter=chapter reference_summaries=reference_summaries section_type_choices=section_type_choices disable_move=False disable_delete=False manage_sections=True allow_reference_blocks=True is_first=forloop.first is_last=forloop.last %}
-                    {% endfor %}
-                {% else %}
-                <div class="alert alert-secondary mb-0">
-                    No chapters have been created yet. Use the form on the right to add your first chapter.
-                </div>
-                {% endif %}
-            </div>
-        </div>
-    </div>
+<div class="row g-3">
     <div class="col-lg-4">
-        <div class="card h-100">
+        <div class="card mb-3">
             <div class="card-body">
-                <h2 class="h6 mb-3">Add a chapter</h2>
+                <h2 class="h6 text-uppercase text-muted mb-3">Add a chapter</h2>
                 <form method="post" novalidate>
                     {% csrf_token %}
                     <input type="hidden" name="action" value="create-chapter">
-                    {% if chapter_form.non_field_errors %}
-                    <div class="alert alert-danger py-2">{{ chapter_form.non_field_errors }}</div>
-                    {% endif %}
-                    <div class="mb-3">
-                        {{ chapter_form.title.label_tag }}
-                        {{ chapter_form.title }}
-                        {% if chapter_form.title.errors %}
-                        <div class="invalid-feedback d-block">{{ chapter_form.title.errors|join:", " }}</div>
-                        {% elif chapter_form.title.help_text %}
-                        <div class="form-text">{{ chapter_form.title.help_text }}</div>
-                        {% endif %}
-                    </div>
-                    <div class="mb-3">
-                        {{ chapter_form.summary.label_tag }}
-                        {{ chapter_form.summary }}
-                        {% if chapter_form.summary.errors %}
-                        <div class="invalid-feedback d-block">{{ chapter_form.summary.errors|join:", " }}</div>
-                        {% elif chapter_form.summary.help_text %}
-                        <div class="form-text">{{ chapter_form.summary.help_text }}</div>
-                        {% endif %}
-                    </div>
-                    <div class="row g-2 mb-3">
-                        <div class="col-md-4">
-                            {{ chapter_form.section_number.label_tag }}
-                            {{ chapter_form.section_number }}
-                        </div>
-                        <div class="col-md-8">
-                            {{ chapter_form.section_type.label_tag }}
-                            {{ chapter_form.section_type }}
-                        </div>
-                    </div>
-                    <button type="submit" class="btn btn-primary w-100">Create chapter</button>
+                    <div class="mb-2">{{ chapter_form.title.label_tag }}{{ chapter_form.title }}</div>
+                    <button type="submit" class="btn btn-primary w-100 btn-sm">Create chapter</button>
                 </form>
-                <hr>
-                <p class="small text-muted mb-0">
-                    Chapters remain editable here. Use “Publish chapter” when you want the Wagtail draft to reflect the latest outline.
-                </p>
+            </div>
+        </div>
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h6 text-uppercase text-muted mb-2">Chapters</h2>
+                <div class="mb-3">
+                    <form method="post" class="d-flex gap-2 align-items-center">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="apply-preset">
+                        <select name="preset_key" class="form-select form-select-sm">
+                            {% for preset in presets %}
+                                <option value="{{ preset.key }}">{{ preset.label }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-outline-primary btn-sm" {% if chapters %}disabled{% endif %}>Apply</button>
+                    </form>
+                    <form method="post" class="mt-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="reset-structure">
+                        <button class="btn btn-outline-danger btn-sm" {% if not chapters %}disabled{% endif %} onclick="return confirm('Clear all chapters and start over?')">Remove preset / clear outline</button>
+                    </form>
+                    <div class="small text-muted mt-1">Presets can be applied only when the outline is empty.</div>
+                </div>
+                <div class="list-group">
+                    {% for chapter in chapters %}
+                        <a class="list-group-item list-group-item-action" href="#chapter-{{ chapter.id }}">{{ chapter.title }}</a>
+                    {% empty %}
+                        <div class="text-muted small">No chapters yet.</div>
+                    {% endfor %}
+                </div>
             </div>
         </div>
     </div>
+
+    <div class="col-lg-8">
+        {% for chapter in chapters %}
+        <div class="card mb-3" id="chapter-{{ chapter.id }}">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div class="fw-semibold">{{ chapter.title }}</div>
+                <div class="btn-group btn-group-sm" role="group">
+                    <form method="post" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="move-chapter">
+                        <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+                        <input type="hidden" name="direction" value="up">
+                        <button class="btn btn-outline-secondary" title="Move up">↑</button>
+                    </form>
+                    <form method="post" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="move-chapter">
+                        <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+                        <input type="hidden" name="direction" value="down">
+                        <button class="btn btn-outline-secondary" title="Move down">↓</button>
+                    </form>
+                    <form method="post" class="d-inline">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="delete-chapter">
+                        <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+                        <button class="btn btn-outline-danger" title="Delete" onclick="return confirm('Delete this chapter and everything inside it?')">✕</button>
+                    </form>
+                </div>
+            </div>
+            <div class="card-body">
+                <h6 class="text-muted text-uppercase small mb-2">Subheadings</h6>
+                <div class="mb-2">
+                    <form method="post" class="row g-2 align-items-center">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create-subheading">
+                        <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+                        <div class="col-8 col-md-9">
+                            {{ subheading_form.title }}
+                        </div>
+                        <div class="col-4 col-md-3">
+                            <button class="btn btn-outline-primary w-100 btn-sm">Add</button>
+                        </div>
+                    </form>
+                </div>
+
+                {% for subheading in chapter.subheadings.all %}
+                <div class="border rounded p-2 mb-2">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="fw-semibold">{{ subheading.title }}</div>
+                        <div class="btn-group btn-group-sm">
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="move-subheading">
+                                <input type="hidden" name="subheading_id" value="{{ subheading.id }}">
+                                <input type="hidden" name="direction" value="up">
+                                <button class="btn btn-outline-secondary">↑</button>
+                            </form>
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="move-subheading">
+                                <input type="hidden" name="subheading_id" value="{{ subheading.id }}">
+                                <input type="hidden" name="direction" value="down">
+                                <button class="btn btn-outline-secondary">↓</button>
+                            </form>
+                            <form method="post" class="d-inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="delete-subheading">
+                                <input type="hidden" name="subheading_id" value="{{ subheading.id }}">
+                                <button class="btn btn-outline-danger" onclick="return confirm('Delete this subheading and its interventions?')">✕</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="mt-2 ms-2">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="text-muted small text-uppercase">Interventions</span>
+                            <form method="post" class="d-inline-flex gap-2">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="create-intervention">
+                                <input type="hidden" name="subheading_id" value="{{ subheading.id }}">
+                                {{ intervention_form.title }}
+                                <button class="btn btn-outline-primary btn-sm">Add</button>
+                            </form>
+                        </div>
+
+                        {% for intervention in subheading.interventions.all %}
+                        <div class="border rounded p-2 mb-2">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div class="fw-semibold">{{ intervention.title }}</div>
+                                <div class="btn-group btn-group-sm">
+                                    <form method="post" class="d-inline">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="move-intervention">
+                                        <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                        <input type="hidden" name="direction" value="up">
+                                        <button class="btn btn-outline-secondary">↑</button>
+                                    </form>
+                                    <form method="post" class="d-inline">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="move-intervention">
+                                        <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                        <input type="hidden" name="direction" value="down">
+                                        <button class="btn btn-outline-secondary">↓</button>
+                                    </form>
+                                    <form method="post" class="d-inline">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="delete-intervention">
+                                        <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                        <button class="btn btn-outline-danger" onclick="return confirm('Delete this intervention and its summaries?')">✕</button>
+                                    </form>
+                                </div>
+                            </div>
+
+                            <div class="mt-2">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <span class="text-muted small text-uppercase">Assigned summaries</span>
+                                    <form method="post" class="d-inline-flex gap-2 align-items-center">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="add-assignment">
+                                        <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                        <input type="text" class="form-control form-control-sm summary-filter" data-target="summary-select-{{ intervention.id }}" placeholder="Filter">
+                                        <select id="summary-select-{{ intervention.id }}" name="summary" class="form-select form-select-sm">
+                                            <option value="">Select summary…</option>
+                                            {% for summary in reference_summaries %}
+                                                <option value="{{ summary.id }}">{{ summary.reference.title }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button class="btn btn-outline-primary btn-sm">Add</button>
+                                    </form>
+                                </div>
+
+                                <ul class="list-group assignment-list" data-intervention="{{ intervention.id }}">
+                                    {% for assignment in intervention.assignments.all %}
+                                    <li class="list-group-item d-flex justify-content-between align-items-center" draggable="true" data-assignment-id="{{ assignment.id }}">
+                                        <span class="me-2">☰</span>
+                                        <div class="flex-grow-1">{{ assignment.reference_summary.reference.title }}</div>
+                                        <form method="post" class="ms-2">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="action" value="delete-assignment">
+                                            <input type="hidden" name="assignment_id" value="{{ assignment.id }}">
+                                            <button class="btn btn-outline-danger btn-sm">Remove</button>
+                                        </form>
+                                    </li>
+                                    {% empty %}
+                                    <li class="list-group-item text-muted small">No summaries yet.</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        </div>
+                        {% empty %}
+                        <div class="text-muted small ms-2">No interventions yet.</div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% empty %}
+                <div class="text-muted small">No subheadings yet.</div>
+                {% endfor %}
+            </div>
+        </div>
+        {% empty %}
+        <div class="alert alert-secondary">No chapters yet. Use the form on the left to add one.</div>
+        {% endfor %}
+    </div>
 </div>
+
+<script>
+    (() => {
+        const getCookie = (name) => {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+            return "";
+        };
+        const csrftoken = getCookie("csrftoken");
+
+        document.querySelectorAll(".summary-filter").forEach((input) => {
+            input.addEventListener("input", () => {
+                const target = document.getElementById(input.dataset.target);
+                if (!target) return;
+                const q = input.value.toLowerCase();
+                Array.from(target.options).forEach((opt, idx) => {
+                    if (idx === 0) return;
+                    opt.hidden = q && !opt.textContent.toLowerCase().includes(q);
+                });
+            });
+        });
+
+        document.querySelectorAll(".assignment-list").forEach((list) => {
+            let dragged = null;
+            list.addEventListener("dragstart", (e) => {
+                const li = e.target.closest("li[data-assignment-id]");
+                if (!li) return;
+                dragged = li;
+                e.dataTransfer.effectAllowed = "move";
+            });
+            list.addEventListener("dragover", (e) => {
+                e.preventDefault();
+                const li = e.target.closest("li[data-assignment-id]");
+                if (!li || li === dragged) return;
+                const rect = li.getBoundingClientRect();
+                const offset = e.clientY - rect.top;
+                if (offset > rect.height / 2) {
+                    li.after(dragged);
+                } else {
+                    li.before(dragged);
+                }
+            });
+            list.addEventListener("drop", (e) => {
+                e.preventDefault();
+                const ids = Array.from(list.querySelectorAll("li[data-assignment-id]")).map((li) =>
+                    li.getAttribute("data-assignment-id")
+                );
+                fetch(window.location.href, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRFToken": csrftoken,
+                    },
+                    body: JSON.stringify({
+                        action: "reorder-assignments",
+                        assignment_ids: ids,
+                        intervention_id: list.getAttribute("data-intervention"),
+                    }),
+                }).catch(() => {});
+                dragged = null;
+            });
+        });
+    })();
+</script>
 {% endblock %}

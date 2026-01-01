@@ -1,5 +1,4 @@
 {% extends "synopsis/base.html" %}
-{% load wagtailadmin_tags %}
 {% block title %}Reference summary – {{ project.title }}{% endblock %}
 {% block content %}
 {{ summary_form.media }}
@@ -99,8 +98,16 @@
                             {{ summary_form.action_description }}
                         </div>
                         <div class="col-md-6">
+                            <label class="form-label">Study design</label>
+                            {{ summary_form.study_design }}
+                        </div>
+                        <div class="col-md-6">
                             <label class="form-label">Type of study</label>
                             {{ summary_form.study_type }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Number of sites/replications</label>
+                            {{ summary_form.sites_replications }}
                         </div>
                         <div class="col-md-6">
                             <label class="form-label">Years X-Y</label>
@@ -145,6 +152,10 @@
                             <label class="form-label">Details of sampling methods</label>
                             {{ summary_form.sampling_methods_details }}
                         </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Costs</label>
+                        {{ summary_form.cost_summary }}
                     </div>
                     <div class="mb-3">
                         <label class="form-label">Synopsis draft</label>

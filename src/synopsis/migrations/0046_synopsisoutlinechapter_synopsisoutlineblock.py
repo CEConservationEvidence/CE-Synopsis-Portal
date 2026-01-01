@@ -5,7 +5,6 @@ import django.db.models.deletion
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("synopsis_wagtail", "0004_alter_synopsischapterpage_body"),
         ("synopsis", "0045_reference_document"),
     ]
 
@@ -33,16 +32,6 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="outline_chapters",
                         to="synopsis.project",
-                    ),
-                ),
-                (
-                    "wagtail_page",
-                    models.OneToOneField(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="outline_chapter",
-                        to="synopsis_wagtail.synopsischapterpage",
                     ),
                 ),
             ],

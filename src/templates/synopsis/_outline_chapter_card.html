@@ -1,4 +1,4 @@
-<div class="border rounded p-3 mb-4">
+<div class="border rounded p-3 mb-4" id="chapter-{{ anchor_id|default:chapter.id }}">
     <div class="d-flex flex-column flex-lg-row gap-2 align-items-lg-start">
         <div class="flex-grow-1">
             <form method="post" class="border rounded p-2 bg-light-subtle">
@@ -32,7 +32,7 @@
                 </div>
                 <div class="d-flex justify-content-between align-items-center">
                     <span class="badge text-bg-light">{{ chapter.blocks.all|length }} blocks</span>
-                    <button class="btn btn-outline-primary btn-sm">Save chapter details</button>
+                    <button class="btn btn-outline-primary btn-sm">Save chapter</button>
                 </div>
             </form>
         </div>
@@ -53,15 +53,6 @@
                 <button class="btn btn-outline-secondary btn-sm" {% if is_last %}disabled{% endif %}>Move down</button>
             </form>
             {% endif %}
-            <form method="post">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="sync-chapter">
-                <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
-                <button class="btn btn-outline-success btn-sm">Publish chapter</button>
-            </form>
-            {% if chapter.wagtail_page %}
-            <a class="btn btn-outline-primary btn-sm" href="{% url 'wagtailadmin_pages:edit' chapter.wagtail_page_id %}" target="_blank" rel="noopener">Open in Wagtail</a>
-            {% endif %}
             {% if not disable_delete %}
            <form method="post" onsubmit="return confirm('Remove {{ chapter.title }}?');">
                {% csrf_token %}
@@ -76,9 +67,11 @@
     <div class="mt-3">
         {% if chapter.unsectioned_blocks %}
             <div class="fw-semibold small text-uppercase text-muted mb-2">Ungrouped blocks</div>
-            {% for block in chapter.unsectioned_blocks %}
-                {% include "synopsis/_outline_block.html" with block=block chapter=chapter %}
-            {% endfor %}
+            <ul class="list-group mb-3 block-draggable" data-chapter="{{ chapter.id }}" data-section="">
+                {% for block in chapter.unsectioned_blocks %}
+                    {% include "synopsis/_outline_block.html" with block=block chapter=chapter draggable=True %}
+                {% endfor %}
+            </ul>
         {% endif %}
         {% for section in chapter.sorted_sections %}
             <div class="mt-4">
@@ -134,13 +127,17 @@
                     <button class="btn btn-outline-primary btn-sm mt-2">Save section</button>
                 </form>
                 {% endif %}
-                {% if section.blocks_list %}
-                    {% for block in section.blocks_list %}
-                        {% include "synopsis/_outline_block.html" with block=block chapter=chapter %}
-                    {% endfor %}
-                {% else %}
-                    <p class="text-muted small">No blocks in this section yet.</p>
-                {% endif %}
+                <div class="border rounded p-2">
+                    {% if section.blocks_list %}
+                        <ul class="list-group block-draggable" data-chapter="{{ chapter.id }}" data-section="{{ section.id }}">
+                            {% for block in section.blocks_list %}
+                                {% include "synopsis/_outline_block.html" with block=block chapter=chapter draggable=True %}
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p class="text-muted small mb-0">No blocks in this section yet.</p>
+                    {% endif %}
+                </div>
             </div>
         {% endfor %}
         {% if not chapter.unsectioned_blocks and not chapter.sorted_sections %}
@@ -197,8 +194,12 @@
             {% csrf_token %}
             <input type="hidden" name="action" value="add-summary">
             <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+            <div class="mb-2">
+                <label class="form-label small text-muted">Search summaries</label>
+                <input type="text" class="form-control form-control-sm summary-filter" placeholder="Type to filter…" data-target="summary-select-{{ chapter.id }}">
+            </div>
             <div class="input-group input-group-sm">
-                <select name="summary" class="form-select">
+                <select name="summary" class="form-select" id="summary-select-{{ chapter.id }}">
                     <option value="">Select summary…</option>
                     {% for summary in reference_summaries %}
                     <option value="{{ summary.id }}">

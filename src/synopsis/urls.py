@@ -226,14 +226,14 @@ urlpatterns = [
         name="reference_document_inline",
     ),
     path(
-        "project/<int:project_id>/synopsis/writer/",
-        views.project_synopsis_writer,
-        name="project_synopsis_writer",
-    ),
-    path(
         "project/<int:project_id>/synopsis/structure/",
         views.project_synopsis_structure,
         name="project_synopsis_structure",
+    ),
+    path(
+        "project/<int:project_id>/synopsis/export/",
+        views.project_synopsis_export_docx,
+        name="project_synopsis_export_docx",
     ),
     path(
         "project/<int:project_id>/advisory-board/invite/",

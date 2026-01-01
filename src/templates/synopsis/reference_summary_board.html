@@ -6,7 +6,6 @@
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
     <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_list' project.id %}">Screening overview</a>
     <a class="btn btn-outline-success" href="{% url 'synopsis:project_synopsis_structure' project.id %}">Manage synopsis structure</a>
-    <a class="btn btn-primary" href="{% url 'synopsis:project_synopsis_writer' project.id %}">Open synopsis writer</a>
 </div>
 {% if reference_count %}
 <div class="card mb-4">
