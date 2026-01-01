@@ -33,6 +33,47 @@ RESEARCH_DESIGN_CHOICES = [
     ("Study", "Study"),
 ]
 
+IUCN_ACTION_CHOICES = [
+    ("Land/water protection", "Land/water protection"),
+    ("Land/water management", "Land/water management"),
+    ("Species management", "Species management"),
+    ("Education & awareness", "Education & awareness"),
+    ("Law & policy", "Law & policy"),
+    ("Livelihood/economic incentives", "Livelihood/economic incentives"),
+    ("External capacity building", "External capacity building"),
+]
+
+IUCN_THREAT_CHOICES = [
+    ("Residential & commercial development", "Residential & commercial development"),
+    ("Agriculture & aquaculture", "Agriculture & aquaculture"),
+    ("Energy production & mining", "Energy production & mining"),
+    ("Transportation & service corridors", "Transportation & service corridors"),
+    ("Biological resource use", "Biological resource use"),
+    ("Human intrusions & disturbance", "Human intrusions & disturbance"),
+    ("Natural system modifications", "Natural system modifications"),
+    ("Invasive & other problematic species/genes/diseases", "Invasive & other problematic species/genes/diseases"),
+    ("Pollution", "Pollution"),
+    ("Geological events", "Geological events"),
+    ("Climate change & severe weather", "Climate change & severe weather"),
+]
+
+IUCN_HABITAT_CHOICES = [
+    ("Forest", "Forest"),
+    ("Savanna", "Savanna"),
+    ("Shrubland", "Shrubland"),
+    ("Grassland", "Grassland"),
+    ("Wetlands (inland)", "Wetlands (inland)"),
+    ("Rocky areas", "Rocky areas"),
+    ("Caves & subterranean", "Caves & subterranean"),
+    ("Marine neritic", "Marine neritic"),
+    ("Marine oceanic", "Marine oceanic"),
+    ("Marine deep ocean floor", "Marine deep ocean floor"),
+    ("Marine intertidal", "Marine intertidal"),
+    ("Coastal wetlands", "Coastal wetlands"),
+    ("Anthropogenic terrestrial", "Anthropogenic terrestrial"),
+    ("Introduced vegetation", "Introduced vegetation"),
+]
+
 class TagCommaField(forms.CharField):
     """Render list-like values as comma-separated strings and back."""
 
@@ -432,6 +473,31 @@ class SynopsisInterventionForm(forms.Form):
 
     def clean_title(self):
         return (self.cleaned_data.get("title") or "").strip()
+
+
+class SynopsisBackgroundForm(forms.Form):
+    background_text = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 4,
+                "placeholder": "Brief background (<200 words): description, context, related literature/harms.",
+            }
+        ),
+        label="Background",
+    )
+    background_references = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "Background references (one per line, published before search end date).",
+            }
+        ),
+        label="Background references",
+    )
 
 
 class SynopsisAssignmentForm(forms.Form):
@@ -1003,33 +1069,30 @@ class ReferenceSummaryAssignmentForm(forms.Form):
 
 
 class ReferenceSummaryUpdateForm(forms.ModelForm):
-    action_tags = TagCommaField(
+    action_tags = forms.MultipleChoiceField(
         required=False,
-        widget=forms.TextInput(
-            attrs={"class": "form-control", "placeholder": "Comma-separated (e.g. habitat, migration)"}
-        ),
-        label="Action tags",
+        choices=IUCN_ACTION_CHOICES,
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        label="Action (IUCN)",
     )
-    threat_tags = TagCommaField(
+    threat_tags = forms.MultipleChoiceField(
         required=False,
-        widget=forms.TextInput(
-            attrs={"class": "form-control", "placeholder": "Comma-separated (e.g. pollution, predation)"}
-        ),
-        label="Threat tags",
+        choices=IUCN_THREAT_CHOICES,
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        label="Threat (IUCN)",
+    )
+    habitat_tags = forms.MultipleChoiceField(
+        required=False,
+        choices=IUCN_HABITAT_CHOICES,
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        label="Habitat (IUCN)",
     )
     taxon_tags = TagCommaField(
         required=False,
         widget=forms.TextInput(
-            attrs={"class": "form-control", "placeholder": "Comma-separated (e.g. birds, mammals)"}
+            attrs={"class": "form-control", "placeholder": "Binomial + common names, comma-separated (e.g. Anas platyrhynchos, mallard)"}
         ),
         label="Taxon tags",
-    )
-    habitat_tags = TagCommaField(
-        required=False,
-        widget=forms.TextInput(
-            attrs={"class": "form-control", "placeholder": "Comma-separated (e.g. wetlands, forest)"}
-        ),
-        label="Habitat tags",
     )
     location_tags = LocationListField(
         required=False,
@@ -1041,6 +1104,31 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             }
         ),
         label="Location tags",
+    )
+    summary_author = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Name of summary author"}),
+        label="Summary author",
+    )
+    broad_category = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Broad category"}),
+        label="Broad category",
+    )
+    keywords = TagCommaField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Comma-separated keywords"}),
+        label="Keywords",
+    )
+    source_url = forms.URLField(
+        required=False,
+        widget=forms.URLInput(attrs={"class": "form-control", "placeholder": "Stable URL or DOI"}),
+        label="URL",
+    )
+    crop_type = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Crop type (if relevant)"}),
+        label="Crop type",
     )
     outcomes_raw = forms.CharField(
         required=False,
@@ -1112,11 +1200,16 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "reliability_score",
             "relevance_score",
             "synopsis_draft",
+            "summary_author",
+            "broad_category",
+            "keywords",
+            "source_url",
             "action_tags",
             "threat_tags",
             "taxon_tags",
             "habitat_tags",
             "location_tags",
+            "crop_type",
             "research_design",
             "citation",
         ]
@@ -1196,6 +1289,9 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             cleaned.append(line)
         return cleaned
 
+    def clean_keywords(self):
+        return self._split_tags("keywords")
+
     def clean_status(self):
         value = self.cleaned_data.get("status")
         if value:
@@ -1231,7 +1327,14 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
     def save(self, commit=True):
         instance = super().save(commit=False)
         instance.outcome_rows = self.cleaned_data.get("outcomes_raw", [])
-        for field in ["action_tags", "threat_tags", "taxon_tags", "habitat_tags", "location_tags"]:
+        for field in [
+            "action_tags",
+            "threat_tags",
+            "taxon_tags",
+            "habitat_tags",
+            "location_tags",
+            "keywords",
+        ]:
             instance_value = self.cleaned_data.get(field, [])
             instance.__setattr__(field, instance_value if instance_value is not None else [])
         if commit:

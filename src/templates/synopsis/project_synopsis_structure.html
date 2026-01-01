@@ -92,6 +92,23 @@
                 </div>
             </div>
             <div class="card-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="text-muted small text-uppercase">Chapter background</span>
+                    </div>
+                    <form method="post" class="mt-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="update-chapter-background">
+                        <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+                        <div class="mb-2">
+                            <textarea name="background_text" class="form-control form-control-sm" rows="3" placeholder="Brief background (<200 words): describe intervention scope, context, key literature/harms.">{{ chapter.background_text }}</textarea>
+                        </div>
+                        <div class="mb-2">
+                            <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, published before search end date).">{{ chapter.background_references }}</textarea>
+                        </div>
+                        <button class="btn btn-outline-primary btn-sm">Save background</button>
+                    </form>
+                </div>
                 <h6 class="text-muted text-uppercase small mb-2">Subheadings</h6>
                 <div class="mb-2">
                     <form method="post" class="row g-2 align-items-center">
@@ -176,6 +193,18 @@
                             </div>
 
                             <div class="mt-2">
+                                <div class="mb-2">
+                                    <form method="post" class="d-flex flex-column gap-2">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="action" value="update-intervention-background">
+                                        <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                        <textarea name="background_text" class="form-control form-control-sm" rows="3" placeholder="Background (<200 words): describe the intervention, context, related literature/harms.">{{ intervention.background_text }}</textarea>
+                                        <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, pre-search-end).">{{ intervention.background_references }}</textarea>
+                                        <div class="d-flex justify-content-end">
+                                            <button class="btn btn-outline-primary btn-sm">Save background</button>
+                                        </div>
+                                    </form>
+                                </div>
                                 <div class="d-flex justify-content-between align-items-center mb-1">
                                     <span class="text-muted small text-uppercase">Assigned summaries</span>
                                     <form method="post" class="d-inline-flex gap-2 align-items-center">

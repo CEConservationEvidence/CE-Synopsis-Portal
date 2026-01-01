@@ -76,6 +76,7 @@ from .forms import (
     SynopsisChapterForm,
     SynopsisSubheadingForm,
     SynopsisInterventionForm,
+    SynopsisBackgroundForm,
     SynopsisAssignmentForm,
     ReferenceActionSummaryForm,
 )
@@ -5161,7 +5162,13 @@ def reference_summary_detail(request, project_id, summary_id):
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "save-summary" and summary_form.is_valid():
-            summary_form.save()
+            updated_summary = summary_form.save(commit=False)
+            if not updated_summary.summary_author:
+                updated_summary.summary_author = (
+                    request.user.get_full_name() or request.user.username
+                )
+            updated_summary.save()
+            summary_form.save_m2m()
             messages.success(request, "Summary updated.")
             return redirect(
                 "synopsis:reference_summary_detail",
@@ -5391,6 +5398,19 @@ def project_synopsis_structure(request, project_id):
             _resequence_chapter_positions(project)
             messages.success(request, f"Removed chapter “{chapter.title}”.")
             return redirect(redirect_url)
+        elif action == "update-chapter-background":
+            chapter = _chapter_from_post()
+            bg_form = SynopsisBackgroundForm(request.POST)
+            if bg_form.is_valid():
+                chapter.background_text = bg_form.cleaned_data.get("background_text", "") or ""
+                chapter.background_references = (
+                    bg_form.cleaned_data.get("background_references", "") or ""
+                )
+                chapter.save(update_fields=["background_text", "background_references", "updated_at"])
+                messages.success(request, "Chapter background saved.")
+            else:
+                messages.error(request, "Please check the background fields.")
+            return redirect(redirect_url)
         elif action == "move-chapter":
             chapter = _chapter_from_post()
             direction = request.POST.get("direction")
@@ -5491,6 +5511,21 @@ def project_synopsis_structure(request, project_id):
             intervention.delete()
             _resequence_intervention_positions(subheading)
             messages.success(request, "Intervention removed.")
+            return redirect(redirect_url)
+        elif action == "update-intervention-background":
+            intervention = _intervention_from_post()
+            bg_form = SynopsisBackgroundForm(request.POST)
+            if bg_form.is_valid():
+                intervention.background_text = bg_form.cleaned_data.get("background_text", "") or ""
+                intervention.background_references = (
+                    bg_form.cleaned_data.get("background_references", "") or ""
+                )
+                intervention.save(
+                    update_fields=["background_text", "background_references", "updated_at"]
+                )
+                messages.success(request, "Intervention background saved.")
+            else:
+                messages.error(request, "Please check the background fields.")
             return redirect(redirect_url)
         elif action == "add-assignment":
             intervention = _intervention_from_post()
@@ -5650,10 +5685,20 @@ def _generate_synopsis_docx(project):
 
     def _render_chapter(chapter):
         doc.add_heading(chapter.title or "Untitled chapter", level=1)
+        if chapter.background_text:
+            doc.add_paragraph(chapter.background_text)
+        if chapter.background_references:
+            doc.add_paragraph(f"Background references: {chapter.background_references}")
         for subheading in chapter.subheadings.all():
             doc.add_heading(subheading.title or "Untitled subheading", level=2)
             for intervention in subheading.interventions.all():
                 doc.add_heading(intervention.title or "Untitled intervention", level=3)
+                if intervention.background_text:
+                    doc.add_paragraph(intervention.background_text)
+                if intervention.background_references:
+                    doc.add_paragraph(
+                        f"Background references: {intervention.background_references}"
+                    )
                 for assignment in intervention.assignments.all():
                     summary = assignment.reference_summary
                     doc.add_heading(summary.reference.title, level=4)

@@ -182,20 +182,24 @@
                         <div class="text-uppercase text-muted small fw-semibold mb-2">Tags & design</div>
                         <div class="row g-3">
                             <div class="col-md-6">
-                                <label class="form-label">Action tags</label>
+                                <label class="form-label">Action tags (IUCN)</label>
                                 {{ summary_form.action_tags }}
+                                <div class="form-text">Select all applicable interventions.</div>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label">Threat tags</label>
+                                <label class="form-label">Threat tags (IUCN)</label>
                                 {{ summary_form.threat_tags }}
+                                <div class="form-text">Select all applicable threats.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Habitat tags (IUCN)</label>
+                                {{ summary_form.habitat_tags }}
+                                <div class="form-text">Select all applicable habitats.</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Taxon tags</label>
                                 {{ summary_form.taxon_tags }}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Habitat tags</label>
-                                {{ summary_form.habitat_tags }}
+                                <div class="form-text">Binomial + common names, comma-separated.</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Location tags</label>
@@ -208,6 +212,33 @@
                             <div class="col-md-12">
                                 <label class="form-label">Citation</label>
                                 {{ summary_form.citation }}
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">CE metadata</div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Summary author</label>
+                                {{ summary_form.summary_author }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Broad category</label>
+                                {{ summary_form.broad_category }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Keywords</label>
+                                {{ summary_form.keywords }}
+                                <div class="form-text">Comma-separated key terms or synonyms.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">URL</label>
+                                {{ summary_form.source_url }}
+                                <div class="form-text">Stable link (DOI or landing page).</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Crop type (if relevant)</label>
+                                {{ summary_form.crop_type }}
                             </div>
                         </div>
                     </div>
