@@ -999,7 +999,8 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         lines = [line.strip() for line in raw.splitlines() if line.strip()]
         parsed = []
         for line in lines:
-            parts = [part.strip() for part in line.split("|")]
+            parts = re.split(r"(?<!\\)\|", line)
+            parts = [part.replace("\\|", "|").strip() for part in parts]
             # Pad to 10 fields
             while len(parts) < 10:
                 parts.append("")
