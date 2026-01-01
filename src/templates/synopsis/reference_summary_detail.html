@@ -342,12 +342,21 @@
     </div>
 </div>
 {% if generated_summary %}
+{{ generated_summary|json_script:"generated-summary-data" }}
 <script>
     (function() {
         const btn = document.getElementById("copy-generated-summary");
-        if (!btn || !navigator.clipboard) return;
+        const dataEl = document.getElementById("generated-summary-data");
+        if (!btn || !dataEl || !navigator.clipboard) return;
+        let summaryText = "";
+        try {
+            summaryText = JSON.parse(dataEl.textContent);
+        } catch (e) {
+            console.warn("Could not parse generated summary payload");
+            return;
+        }
         btn.addEventListener("click", () => {
-            navigator.clipboard.writeText(`{{ generated_summary|escapejs }}`)
+            navigator.clipboard.writeText(summaryText)
                 .then(() => {
                     btn.textContent = "Copied";
                     setTimeout(() => { btn.textContent = "Copy"; }, 1500);
