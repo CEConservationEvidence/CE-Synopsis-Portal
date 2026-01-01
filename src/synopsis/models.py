@@ -1171,8 +1171,8 @@ class ReferenceSummary(models.Model):
     STATUS_CHOICES = [
         (STATUS_TODO, "To summarise"),
         (STATUS_DRAFT, "In progress"),
-        (STATUS_REVIEW, "Ready for review"),
-        (STATUS_DONE, "Synopsised"),
+        (STATUS_REVIEW, "Needs review/help"),
+        (STATUS_DONE, "Summarised"),
     ]
 
     project = models.ForeignKey(
