@@ -69,77 +69,86 @@ details.abstract-details[open] .abstract-full {
     border: 1px solid rgba(255,255,255,0.08);
 }
 </style>
-<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
-    <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_list' project.id %}">Back to reference imports</a>
-    <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload another RIS</a>
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center justify-content-between">
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_list' project.id %}">Back to reference imports</a>
+        <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload another RIS</a>
+        <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#notes-editor" aria-expanded="false" aria-controls="notes-editor">
+            Manage notes
+        </button>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+        {% if focus_mode %}
+        <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}">Exit focused mode</a>
+        {% else %}
+        <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}?focus=1{% if status_filter %}&status={{ status_filter }}{% endif %}">Enter focused mode</a>
+        {% endif %}
+    </div>
 </div>
 {% if not focus_mode %}
-<div class="card mb-3">
-    <div class="card-body">
-        <div class="row g-3 small">
-            <div class="col-sm-12">
-                <div class="mt-2">
-                    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#notes-editor" aria-expanded="false" aria-controls="notes-editor">
-                        Manage notes
-                    </button>
-                    {% with latest_note=note_history|first %}
-                        {% if latest_note %}
-                        <div class="small text-muted mt-1">
-                            Notes last updated {{ latest_note.changed_at|date:"Y-m-d H:i" }}{% if latest_note.changed_by %} by {{ latest_note.changed_by.get_full_name|default:latest_note.changed_by.username }}{% endif %}
-                        </div>
-                        {% else %}
-                        <div class="small text-muted mt-1">Notes have not been updated yet.</div>
-                        {% endif %}
-                    {% endwith %}
-                    <div class="collapse" id="notes-editor">
-                        <form method="post" class="mt-2">
-                            {% csrf_token %}
-                            {% if status_filter %}
-                            <input type="hidden" name="status_filter" value="{{ status_filter }}">
-                            {% endif %}
-                            <input type="hidden" name="action" value="update_notes">
-                            <label class="form-label fw-semibold" for="batch-notes">Notes</label>
-                            <textarea id="batch-notes" name="notes" class="form-control" rows="3" placeholder="Add internal notes about this batch"></textarea>
-                            <button class="btn btn-primary btn-sm mt-2" type="submit">Save notes</button>
-                        </form>
-                        {% if note_history %}
-                        <div class="mt-3">
-                            <button class="btn btn-link btn-sm px-0" type="button" data-bs-toggle="collapse" data-bs-target="#note-history" aria-expanded="false" aria-controls="note-history">
-                                View note history
-                            </button>
-                            <div class="collapse" id="note-history">
-                                <div class="list-group list-group-flush">
-                                    {% for entry in note_history|slice:":5" %}
-                                    <div class="list-group-item px-0">
-                                        <div class="small text-muted">
-                                            {{ entry.changed_at|date:"Y-m-d H:i" }}{% if entry.changed_by %} · {{ entry.changed_by.get_full_name|default:entry.changed_by.username }}{% endif %}
-                                        </div>
-                                        <div class="mt-1">
-                                            <strong class="d-block small text-muted">Updated notes:</strong>
-                                            <div class="border rounded bg-light p-2 small" style="white-space: pre-wrap;">{{ entry.new_notes|default:"—" }}</div>
-                                            {% if entry.previous_notes != entry.new_notes %}
-                                            <details class="small mt-1">
-                                                <summary class="text-muted">View previous version</summary>
-                                                <div class="border rounded bg-light p-2 mt-1" style="white-space: pre-wrap;">{{ entry.previous_notes|default:"—" }}</div>
-                                            </details>
-                                            {% endif %}
-                                        </div>
-                                    </div>
-                                    {% endfor %}
-                                </div>
+{% with latest_note=note_history|first %}
+<div class="collapse mb-3" id="notes-editor">
+    <div class="card">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                    <div class="fw-semibold">Batch notes</div>
+                    {% if latest_note %}
+                    <div class="small text-muted">
+                        Last updated {{ latest_note.changed_at|date:"Y-m-d H:i" }}{% if latest_note.changed_by %} by {{ latest_note.changed_by.get_full_name|default:latest_note.changed_by.username }}{% endif %}
+                    </div>
+                    {% else %}
+                    <div class="small text-muted">Notes have not been updated yet.</div>
+                    {% endif %}
+                </div>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#notes-editor" aria-expanded="true" aria-controls="notes-editor">Close</button>
+            </div>
+            <form method="post" class="mt-2">
+                {% csrf_token %}
+                {% if status_filter %}
+                <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                {% endif %}
+                <input type="hidden" name="action" value="update_notes">
+                <label class="form-label fw-semibold" for="batch-notes">Notes</label>
+                <textarea id="batch-notes" name="notes" class="form-control" rows="3" placeholder="Add internal notes about this batch"></textarea>
+                <button class="btn btn-primary btn-sm mt-2" type="submit">Save notes</button>
+            </form>
+            {% if note_history %}
+            <div class="mt-3">
+                <button class="btn btn-link btn-sm px-0" type="button" data-bs-toggle="collapse" data-bs-target="#note-history" aria-expanded="false" aria-controls="note-history">
+                    View note history
+                </button>
+                <div class="collapse" id="note-history">
+                    <div class="list-group list-group-flush">
+                        {% for entry in note_history|slice:":5" %}
+                        <div class="list-group-item px-0">
+                            <div class="small text-muted">
+                                {{ entry.changed_at|date:"Y-m-d H:i" }}{% if entry.changed_by %} · {{ entry.changed_by.get_full_name|default:entry.changed_by.username }}{% endif %}
+                            </div>
+                            <div class="mt-1">
+                                <strong class="d-block small text-muted">Updated notes:</strong>
+                                <div class="border rounded bg-light p-2 small" style="white-space: pre-wrap;">{{ entry.new_notes|default:"—" }}</div>
+                                {% if entry.previous_notes != entry.new_notes %}
+                                <details class="small mt-1">
+                                    <summary class="text-muted">View previous version</summary>
+                                    <div class="border rounded bg-light p-2 mt-1" style="white-space: pre-wrap;">{{ entry.previous_notes|default:"—" }}</div>
+                                </details>
+                                {% endif %}
                             </div>
                         </div>
-                        {% endif %}
+                        {% endfor %}
                     </div>
                 </div>
             </div>
+            {% endif %}
         </div>
     </div>
 </div>
+{% endwith %}
 <div class="card mb-3">
     <div class="card-body">
         <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
-            <h5 class="mb-0">Screening status</h5>
+            <h5 class="mb-0">Screening &amp; bulk actions</h5>
             <div class="d-flex flex-wrap gap-2 small">
                 <a class="btn btn-sm {% if not status_filter %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}">All</a>
                 {% for item in status_summary %}
@@ -148,50 +157,40 @@ details.abstract-details[open] .abstract-full {
                 <span class="text-muted">No references yet.</span>
                 {% endfor %}
             </div>
+            <span class="text-muted">|</span>
+            <form method="post" id="bulk-screening-form" class="d-flex flex-wrap align-items-center gap-2 mb-0">
+                {% csrf_token %}
+                {% if status_filter %}
+                <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                {% endif %}
+                <input type="hidden" name="action" value="bulk-screen">
+                <span class="fw-semibold small text-uppercase text-muted">Bulk</span>
+                <button class="btn btn-success btn-sm" type="submit" name="bulk_action" value="include">Mark as Include</button>
+                <button class="btn btn-outline-danger btn-sm" type="submit" name="bulk_action" value="exclude">Mark as Exclude</button>
+                <button class="btn btn-outline-secondary btn-sm" type="submit" name="bulk_action" value="pending">Reset to Pending</button>
+            </form>
+        </div>
+        <div class="row g-3 align-items-end mt-1">
+            <div class="col-md-4">
+                <form method="get" class="d-flex align-items-end gap-2">
+                    <div class="flex-grow-1">
+                        <label class="form-label fw-semibold">Filter</label>
+                        <input type="text" class="form-control" name="q" placeholder="Search title/author/DOI" value="{{ request.GET.q }}">
+                    </div>
+                    <div class="d-flex gap-1 mb-1">
+                        <button class="btn btn-outline-primary btn-sm" type="submit">Apply</button>
+                        {% if request.GET.q %}
+                        <a class="btn btn-link btn-sm px-0" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}">Clear</a>
+                        {% endif %}
+                    </div>
+                </form>
+            </div>
+            <div class="col-md-8 d-flex align-items-end">
+                <p class="small text-muted mb-0">Select references below to apply bulk changes.</p>
+            </div>
         </div>
     </div>
 </div>
-{% endif %}
-<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-    {% if focus_mode %}
-    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}">Exit focused mode</a>
-    {% else %}
-    <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}?focus=1{% if status_filter %}&status={{ status_filter }}{% endif %}">Enter focused mode</a>
-    {% endif %}
-</div>
-{% if not focus_mode %}
-<form method="post" id="bulk-screening-form" class="d-flex flex-wrap gap-2 align-items-center mb-3">
-    {% csrf_token %}
-    {% if status_filter %}
-    <input type="hidden" name="status_filter" value="{{ status_filter }}">
-    {% endif %}
-    <span class="fw-semibold small text-uppercase text-muted me-2">Bulk actions</span>
-    <button
-        class="btn btn-success btn-sm"
-        type="submit"
-        name="bulk_action"
-        value="include"
-    >
-        Mark as Include
-    </button>
-    <button
-        class="btn btn-outline-danger btn-sm"
-        type="submit"
-        name="bulk_action"
-        value="exclude"
-    >
-        Mark as Exclude
-    </button>
-    <button
-        class="btn btn-outline-secondary btn-sm"
-        type="submit"
-        name="bulk_action"
-        value="pending"
-    >
-        Reset to Pending
-    </button>
-    <span class="small text-muted">Select references below to apply.</span>
-</form>
 {% endif %}
 {% if focus_mode and focused_reference %}
 <div class="focus-overlay">
