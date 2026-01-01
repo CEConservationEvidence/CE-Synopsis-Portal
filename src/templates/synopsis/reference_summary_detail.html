@@ -415,7 +415,7 @@
     (function() {
         const btn = document.getElementById("copy-generated-summary");
         const dataEl = document.getElementById("generated-summary-data");
-        if (!btn || !dataEl || !navigator.clipboard) return;
+        if (!btn || !dataEl) return;
         let summaryText = "";
         try {
             summaryText = JSON.parse(dataEl.textContent);
@@ -423,16 +423,34 @@
             console.warn("Could not parse generated summary payload");
             return;
         }
+        const fallbackCopy = (text) => {
+            const temp = document.createElement("textarea");
+            temp.value = text;
+            temp.style.position = "fixed";
+            temp.style.opacity = "0";
+            document.body.appendChild(temp);
+            temp.select();
+            try { document.execCommand("copy"); } catch (e) {}
+            document.body.removeChild(temp);
+        };
         btn.addEventListener("click", () => {
-            navigator.clipboard.writeText(summaryText)
-                .then(() => {
-                    btn.textContent = "Copied";
-                    setTimeout(() => { btn.textContent = "Copy"; }, 1500);
-                })
-                .catch(() => {
-                    btn.textContent = "Copy failed";
-                    setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+            const doSuccess = () => {
+                btn.textContent = "Copied";
+                setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+            };
+            const doFail = () => {
+                btn.textContent = "Copy failed";
+                setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(summaryText).then(doSuccess).catch(() => {
+                    fallbackCopy(summaryText);
+                    doSuccess();
                 });
+            } else {
+                fallbackCopy(summaryText);
+                doSuccess();
+            }
         });
     })();
 </script>
