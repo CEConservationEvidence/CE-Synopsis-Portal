@@ -10,33 +10,6 @@ class SynopsisPreset:
     chapters: List[dict]
 
 
-# A minimal “standard CE synopsis” scaffold that mirrors common sections authors
-# repeatedly create. It stays intentionally light so teams can rename or reorder
-# after insertion.
-STANDARD_CE_SYNOPSIS = SynopsisPreset(
-    key="standard_ce",
-    label="Standard CE synopsis",
-    description="Overview, methods, key messages, and an interventions container.",
-    chapters=[
-        {"title": "Overview", "subheadings": []},
-        {"title": "How the evidence was summarized", "subheadings": []},
-        {"title": "Key messages", "subheadings": []},
-        {
-            "title": "Interventions",
-            "subheadings": [
-                {
-                    "title": "Interventions",
-                    "interventions": [
-                        {"title": "Add interventions and drop summaries here"},
-                    ],
-                }
-            ],
-        },
-        {"title": "Glossary", "subheadings": []},
-        {"title": "Acknowledgements", "subheadings": []},
-    ],
-)
-
 STANDARD_CE_TOC = SynopsisPreset(
     key="standard_ce_toc",
     label="Standard CE synopsis (full ToC, chapters only)",
@@ -69,4 +42,4 @@ STANDARD_CE_TOC = SynopsisPreset(
 )
 
 
-PRESETS = {preset.key: preset for preset in [STANDARD_CE_SYNOPSIS, STANDARD_CE_TOC]}
+PRESETS = {preset.key: preset for preset in [STANDARD_CE_TOC]}
