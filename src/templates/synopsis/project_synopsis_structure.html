@@ -274,6 +274,11 @@
                 const ids = Array.from(list.querySelectorAll("li[data-assignment-id]")).map((li) =>
                     li.getAttribute("data-assignment-id")
                 );
+                if (!csrftoken) {
+                    console.warn("Missing CSRF token; reorder not sent.");
+                    dragged = null;
+                    return;
+                }
                 fetch(window.location.href, {
                     method: "POST",
                     headers: {
