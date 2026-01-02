@@ -216,44 +216,36 @@
         <div class="card h-100">
             <div class="card-body">
                 <h5>Advisory Board</h5>
-                <div class="row g-2 small">
-                    <div class="col-6">
-                        Members:
-                        <strong>{{ ab_stats.members }}</strong>
-                    </div>
-                    <div class="col-6">
-                        Member invites sent:
-                        <strong>{{ ab_stats.member_invites_sent }}</strong>
-                    </div>
-                    <div class="col-6">
-                        Invitations (total):
-                        <strong>{{ ab_stats.invites_total }}</strong>
-                    </div>
-                    <div class="col-6">
-                        Linked to members:
-                        <strong>{{ ab_stats.invites_member }}</strong>
-                    </div>
-                    <div class="col-6">
-                        Direct email invites:
-                        <strong>{{ ab_stats.invites_direct }}</strong>
-                    </div>
-                    <div class="col-4">
-                        Accepted:
-                        <strong class="text-success">{{ ab_stats.accepted }}</strong>
-                    </div>
-                    <div class="col-4">
-                        Declined:
-                        <strong class="text-danger">{{ ab_stats.declined }}</strong>
-                    </div>
-                    <div class="col-4">
-                        Pending:
-                        <strong class="text-muted">{{ ab_stats.pending }}</strong>
-                    </div>
-                    <div class="col-12">
-                        Protocol sent to members:
-                        <strong>{{ ab_stats.protocol_sent_to_members }}</strong>
-                    </div>
+                <div class="small text-muted mb-2">
+                    Members: <strong>{{ ab_stats.members }}</strong> · Invites sent: <strong>{{ ab_stats.member_invites_sent }}</strong> · Accepted: <strong class="text-success">{{ ab_stats.accepted }}</strong> · Declined: <strong class="text-danger">{{ ab_stats.declined }}</strong> · Pending: <strong class="text-muted">{{ ab_stats.pending }}</strong>
                 </div>
+                {% if ab_member_updates %}
+                <div class="small">
+                    <div class="fw-semibold mb-1">Recent activity</div>
+                    <ul class="mb-2 ps-3">
+                        {% for m in ab_member_updates %}
+                        <li class="mb-1">
+                            <strong>{{ m.first_name }} {{ m.last_name|default:"" }}</strong>
+                            {% if m.response %}
+                                {% if m.response|lower == "accepted" %}
+                                    <span class="text-success">accepted</span>
+                                {% elif m.response|lower == "declined" %}
+                                    <span class="text-danger">declined</span>
+                                {% else %}
+                                    responded: {{ m.response }}
+                                {% endif %}
+                                {% if m.response_date %} on {{ m.response_date|date:"Y-m-d" }}{% endif %}
+                            {% elif m.invite_sent %}
+                                invite sent {{ m.invite_sent_at|date:"Y-m-d" }}
+                            {% else %}
+                                invite not sent
+                            {% endif %}
+                            {% if m.sent_protocol_at %} · protocol sent {{ m.sent_protocol_at|date:"Y-m-d" }}{% endif %}
+                        </li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
                 <a class="btn btn-outline-primary btn-sm mt-3" href="{% url 'synopsis:advisory_board_list' project.id %}">Manage advisory board</a>
             </div>
         </div>

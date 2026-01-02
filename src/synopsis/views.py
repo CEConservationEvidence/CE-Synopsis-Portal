@@ -1791,6 +1791,9 @@ def project_hub(request, project_id):
         "declined": inv_qs.filter(accepted=False).count(),
         "pending": inv_qs.filter(accepted__isnull=True).count(),
     }
+    ab_member_updates = list(
+        members_qs.order_by("-invite_sent_at", "-response_date", "last_name")[:6]
+    )
 
     latest_batch = project.reference_batches.order_by("-created_at", "-id").first()
     reference_stats = {
@@ -1844,6 +1847,7 @@ def project_hub(request, project_id):
             "protocol": protocol,
             "action_list": action_list,
             "ab_stats": ab_stats,
+            "ab_member_updates": ab_member_updates,
             "reference_stats": reference_stats,
             "summary_stats": summary_stats,
             "structure_stats": structure_stats,
