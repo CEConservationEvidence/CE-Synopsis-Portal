@@ -1,4 +1,5 @@
 {% extends "synopsis/base.html" %}
+{% load advisory_extras %}
 {% block title %}Reference Batch – {{ batch.label }}{% endblock %}
 {% block content %}
 <h1 class="mb-1">{{ batch.label }}</h1>
@@ -211,9 +212,27 @@ details.abstract-details[open] .abstract-full {
                     {% endif %}
                 </div>
                 <div class="mb-3">
-                    <span class="badge {% if focused_reference.screening_status == 'included' %}text-bg-success{% elif focused_reference.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
+                    <div class="fw-semibold text-uppercase small text-muted mb-1">Current status</div>
+                    <span class="status-chip {% if focused_reference.screening_status == 'included' %}status-chip-included{% elif focused_reference.screening_status == 'excluded' %}status-chip-excluded{% else %}status-chip-pending{% endif %}">
+                        <span class="status-dot {% if focused_reference.screening_status == 'included' %}status-dot-included{% elif focused_reference.screening_status == 'excluded' %}status-dot-excluded{% else %}status-dot-pending{% endif %}"></span>
                         {{ focused_reference.get_screening_status_display }}
                     </span>
+                    {% if focused_reference.needs_help %}
+                    <span class="badge text-bg-warning text-dark ms-2">Needs help</span>
+                    {% endif %}
+                    <div class="mt-2 d-flex flex-wrap align-items-center gap-2">
+                        <button
+                            class="btn btn-outline-secondary btn-sm"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#refCommentsModal-{{ focused_reference.id }}"
+                        >
+                            Notes &amp; comments
+                        </button>
+                        {% with comment_counts|get_item:focused_reference.id as ccount %}
+                        <span class="badge text-bg-light">{{ ccount|default:0 }} note{% if ccount|default:0 != 1 %}s{% endif %}</span>
+                        {% endwith %}
+                    </div>
                     {% if focused_reference.screened_by %}
                     <div class="small text-muted mt-1">
                         {{ focused_reference.screened_by.get_full_name|default:focused_reference.screened_by.username }} · {{ focused_reference.screening_decision_at|date:"Y-m-d H:i" }}
@@ -325,6 +344,19 @@ details.abstract-details[open] .abstract-full {
               {% if ref.screening_notes %}
                             <div class="small mt-1">{{ ref.screening_notes }}</div>
                             {% endif %}
+                            <div class="mt-2 d-flex flex-wrap align-items-center gap-2">
+                                <button
+                                    class="btn btn-outline-secondary btn-sm"
+                                    type="button"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#refCommentsModal-{{ ref.id }}"
+                                >
+                                    Notes &amp; comments
+                                </button>
+                                {% with comment_counts|get_item:ref.id as ccount %}
+                                <span class="badge text-bg-light">{{ ccount|default:0 }} note{% if ccount|default:0 != 1 %}s{% endif %}</span>
+                                {% endwith %}
+                            </div>
                         </td>
                         <td class="text-center">
                             <div class="d-flex flex-wrap justify-content-center gap-2">
@@ -367,6 +399,87 @@ details.abstract-details[open] .abstract-full {
         {% endif %}
     </div>
 </div>
+{% for ref in references %}
+<div class="modal fade" id="refCommentsModal-{{ ref.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+            <h5 class="modal-title mb-0">Notes &amp; comments</h5>
+            <small class="text-muted">{{ ref.title }}</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3 small text-muted d-flex flex-wrap align-items-center gap-2">
+            <span class="badge {% if ref.screening_status == 'included' %}text-bg-success{% elif ref.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ ref.get_screening_status_display }}</span>
+            {% if ref.screened_by %}
+            <span>Last by {{ ref.screened_by.get_full_name|default:ref.screened_by.username }} · {{ ref.screening_decision_at|date:"Y-m-d H:i" }}</span>
+            {% endif %}
+        </div>
+        <div class="row g-3">
+            <div class="col-lg-7">
+                <div class="fw-semibold mb-2">Comments</div>
+                {% with comment_trees|get_item:ref.id as tree %}
+                    {% if tree %}
+                        <div class="mb-2">
+                            {% for comment in tree %}
+                                <div class="mb-3 border-bottom pb-2 comment-block">
+                                    <div class="small text-muted d-flex align-items-center gap-2">
+                                        <span class="fw-semibold">{{ comment.author.get_full_name|default:comment.author.username }}</span>
+                                        <span>{{ comment.created_at|date:"Y-m-d H:i" }}</span>
+                                        {% if comment.attachment %}<a href="{{ comment.attachment.url }}" target="_blank" rel="noopener" class="badge text-bg-light">Attachment</a>{% endif %}
+                                    </div>
+                                    <p class="mb-2">{{ comment.body|linebreaksbr }}</p>
+                                    <button class="btn btn-outline-secondary btn-sm ref-reply-btn" data-ref-reply="{{ comment.id }}" data-target="#refCommentsModal-{{ ref.id }}">Reply</button>
+                                    {% if comment.replies_cached %}
+                                    <div class="ms-3 mt-2 border-start ps-3">
+                                        {% for reply in comment.replies_cached %}
+                                            <div class="mb-2">
+                                                <div class="small text-muted d-flex align-items-center gap-2">
+                                                    <span class="fw-semibold">{{ reply.author.get_full_name|default:reply.author.username }}</span>
+                                                    <span>{{ reply.created_at|date:"Y-m-d H:i" }}</span>
+                                                    {% if reply.attachment %}<a href="{{ reply.attachment.url }}" target="_blank" rel="noopener" class="badge text-bg-light">Attachment</a>{% endif %}
+                                                </div>
+                                                <p class="mb-2">{{ reply.body|linebreaksbr }}</p>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <p class="text-muted mb-0">No comments yet.</p>
+                    {% endif %}
+                {% endwith %}
+            </div>
+            <div class="col-lg-5">
+                <div class="fw-semibold mb-2">Add comment</div>
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="add-ref-comment">
+                    <input type="hidden" name="reference_id" value="{{ ref.id }}">
+                    {{ comment_form.parent_id }}
+                    <div class="mb-2">
+                        {{ comment_form.body }}
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Attachment (optional)</label>
+                        {{ comment_form.attachment }}
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm">Save comment</button>
+                </form>
+            </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const selectAll = document.getElementById("select-all-references");
@@ -392,6 +505,28 @@ document.addEventListener("DOMContentLoaded", function () {
     if (input) {
         input.addEventListener("input", applyFilter);
     }
+
+    document.querySelectorAll(".ref-reply-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+            const targetId = btn.getAttribute("data-target");
+            const modalEl = document.querySelector(targetId);
+            if (!modalEl) return;
+            const parentInput = modalEl.querySelector("input[name='parent_id']");
+            if (parentInput) {
+                parentInput.value = btn.getAttribute("data-ref-reply") || "";
+                parentInput.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+        });
+    });
+
+    document.querySelectorAll(".modal").forEach((modal) => {
+        modal.addEventListener("hidden.bs.modal", () => {
+            const parentInput = modal.querySelector("input[name='parent_id']");
+            if (parentInput) {
+                parentInput.value = "";
+            }
+        });
+    });
 });
 </script>
 <div class="modal fade" id="abstractModal" tabindex="-1" aria-hidden="true">

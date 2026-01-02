@@ -74,6 +74,7 @@ from .forms import (
     ReferenceSummaryAssignmentForm,
     ReferenceSummaryUpdateForm,
     ReferenceSummaryCommentForm,
+    ReferenceCommentForm,
     ReferenceDocumentForm,
     SynopsisChapterForm,
     SynopsisSubheadingForm,
@@ -102,6 +103,7 @@ from .models import (
     Reference,
     ReferenceSummary,
     ReferenceSummaryComment,
+    ReferenceComment,
     ReferenceActionSummary,
     ProtocolRevision,
     ActionListRevision,
@@ -5823,6 +5825,7 @@ def reference_batch_detail(request, project_id, batch_id):
     focus_prev_id = None
     focus_next_id = None
     focus_index = None
+    comment_form = ReferenceCommentForm()
     if focus_mode and ordered_ids:
         focus_id_param = (
             (request.GET.get("ref") or "").strip()
@@ -5869,6 +5872,43 @@ def reference_batch_detail(request, project_id, batch_id):
             )
             if status_filter in dict(Reference.SCREENING_STATUS_CHOICES):
                 redirect_url = f"{redirect_url}?status={status_filter}"
+            return redirect(redirect_url)
+
+        if action_type == "add-ref-comment":
+            if not _user_can_edit_project(request.user, project):
+                raise PermissionDenied
+            comment_form = ReferenceCommentForm(request.POST, request.FILES)
+            ref_id = request.POST.get("reference_id")
+            ref = get_object_or_404(Reference, pk=ref_id, project=project, batch=batch)
+            if comment_form.is_valid():
+                parent = None
+                parent_id = comment_form.cleaned_data.get("parent_id")
+                if parent_id:
+                    parent = ReferenceComment.objects.filter(
+                        pk=parent_id, reference=ref
+                    ).first()
+                ReferenceComment.objects.create(
+                    reference=ref,
+                    author=request.user,
+                    body=comment_form.cleaned_data["body"],
+                    parent=parent,
+                    attachment=comment_form.cleaned_data.get("attachment"),
+                )
+                messages.success(request, "Comment added.")
+            else:
+                messages.error(request, "Could not add comment.")
+            redirect_params = []
+            if status_filter:
+                redirect_params.append(("status", status_filter))
+            if (request.POST.get("focus") or "").strip() == "1":
+                redirect_params.append(("focus", "1"))
+                redirect_params.append(("ref", ref.id))
+            redirect_url = reverse(
+                "synopsis:reference_batch_detail",
+                kwargs={"project_id": project.id, "batch_id": batch.id},
+            )
+            if redirect_params:
+                redirect_url = f"{redirect_url}?{urlencode(redirect_params)}"
             return redirect(redirect_url)
 
         bulk_action = request.POST.get("bulk_action")
@@ -6068,6 +6108,31 @@ def reference_batch_detail(request, project_id, batch_id):
     if focused_reference:
         focused_reference.decoded_abstract = _decode_entities(focused_reference.abstract)
 
+    # Comments/notes per reference
+    comment_trees = {}
+    comment_counts = {}
+    target_refs = [focused_reference] if focus_mode and focused_reference else list(
+        references
+    )
+    if target_refs:
+        comment_qs = (
+            ReferenceComment.objects.filter(reference__in=target_refs)
+            .select_related("author", "reference")
+            .order_by("-created_at", "-id")
+        )
+        by_ref = defaultdict(list)
+        for c in comment_qs:
+            by_ref[c.reference_id].append(c)
+        for ref_id, items in by_ref.items():
+            children = defaultdict(list)
+            for c in items:
+                children[c.parent_id].append(c)
+            tree = children[None]
+            for c in tree:
+                c.replies_cached = children.get(c.id, [])
+            comment_trees[ref_id] = tree
+            comment_counts[ref_id] = len(items)
+
     return render(
         request,
         "synopsis/reference_batch_detail.html",
@@ -6086,6 +6151,9 @@ def reference_batch_detail(request, project_id, batch_id):
             "status_summary": status_summary,
             "summary_stats": summary_stats,
             "note_history": batch.note_history.select_related("changed_by").all(),
+            "comment_form": comment_form,
+            "comment_trees": comment_trees,
+            "comment_counts": comment_counts,
         },
     )
 

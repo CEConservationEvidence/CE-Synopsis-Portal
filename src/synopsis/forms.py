@@ -1386,6 +1386,25 @@ class ReferenceSummaryCommentForm(forms.Form):
     )
 
 
+class ReferenceCommentForm(forms.Form):
+    body = forms.CharField(
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "Add a note or comment",
+            }
+        ),
+        label="",
+    )
+    parent_id = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    attachment = forms.FileField(
+        required=False,
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        label="Attachment",
+    )
+
+
 class ReferenceDocumentForm(forms.Form):
     document = forms.FileField(
         label="Upload PDF",
