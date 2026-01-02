@@ -1816,6 +1816,13 @@ def project_hub(request, project_id):
         "unassigned": summary_qs.filter(assigned_to__isnull=True).count(),
     }
 
+    structure_stats = {
+        "chapters": project.synopsis_chapters.count(),
+        "interventions": SynopsisIntervention.objects.filter(
+            subheading__chapter__project=project
+        ).count(),
+    }
+
     phase_labels = dict(Project.PHASE_CHOICES)
     order = [k for k, _ in Project.PHASE_CHOICES]
     current_phase = project.phase
@@ -1839,6 +1846,7 @@ def project_hub(request, project_id):
             "ab_stats": ab_stats,
             "reference_stats": reference_stats,
             "summary_stats": summary_stats,
+            "structure_stats": structure_stats,
             "phase_labels": phase_labels,
             "next_phase": next_phase,
             "next_phase_label": next_phase_label,

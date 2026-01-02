@@ -315,6 +315,22 @@
             </div>
         </div>
     </div>
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5>Synopsis structure</h5>
+                {% if structure_stats.chapters or structure_stats.interventions %}
+                <div class="row g-2 small mb-2">
+                    <div class="col-6">Chapters: <strong>{{ structure_stats.chapters }}</strong></div>
+                    <div class="col-6">Interventions: <strong>{{ structure_stats.interventions }}</strong></div>
+                </div>
+                {% else %}
+                <p class="text-muted small mb-2">No synopsis structure defined yet.</p>
+                {% endif %}
+                <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_synopsis_structure' project.id %}">Open synopsis structure</a>
+            </div>
+        </div>
+    </div>
 </div>
 <div class="card mt-3">
     <div class="card-body">
