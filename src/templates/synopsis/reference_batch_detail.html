@@ -169,7 +169,7 @@ details.abstract-details[open] .abstract-full {
                             data-bs-toggle="modal"
                             data-bs-target="#refCommentsModal-{{ focused_reference.id }}"
                         >
-                            Notes &amp; comments
+                            Notes
                         </button>
                         {% with comment_counts|get_item:focused_reference.id as ccount %}
                         <span class="badge text-bg-light">{{ ccount|default:0 }} note{% if ccount|default:0 != 1 %}s{% endif %}</span>
@@ -278,7 +278,7 @@ details.abstract-details[open] .abstract-full {
                         <td class="small">{{ ref.authors }}</td>
                         <td class="small">{{ ref.publication_year|default:"—" }}</td>
                         <td class="small">{{ ref.journal|default:"—" }}</td>
-                        <td>
+                        <td class="text-center">
                             <span class="badge {% if ref.screening_status == 'included' %}text-bg-success{% elif ref.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ ref.get_screening_status_display }}</span>
                             {% if ref.screened_by %}
                             <div class="small text-muted">{{ ref.screened_by.get_full_name|default:ref.screened_by.username }} · {{ ref.screening_decision_at|date:"Y-m-d H:i" }}</div>
@@ -286,14 +286,14 @@ details.abstract-details[open] .abstract-full {
               {% if ref.screening_notes %}
                             <div class="small mt-1">{{ ref.screening_notes }}</div>
                             {% endif %}
-                            <div class="mt-2 d-flex flex-wrap align-items-center gap-2">
+                            <div class="mt-2 d-flex flex-wrap align-items-center justify-content-center gap-2">
                                 <button
                                     class="btn btn-outline-secondary btn-sm"
                                     type="button"
                                     data-bs-toggle="modal"
                                     data-bs-target="#refCommentsModal-{{ ref.id }}"
                                 >
-                                    Notes &amp; comments
+                                    Notes
                                 </button>
                                 {% with comment_counts|get_item:ref.id as ccount %}
                                 <span class="badge text-bg-light">{{ ccount|default:0 }} note{% if ccount|default:0 != 1 %}s{% endif %}</span>
@@ -347,7 +347,7 @@ details.abstract-details[open] .abstract-full {
     <div class="modal-content">
       <div class="modal-header">
         <div>
-            <h5 class="modal-title mb-0">Notes &amp; comments</h5>
+            <h5 class="modal-title mb-0">Notes</h5>
             <small class="text-muted">{{ ref.title }}</small>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
