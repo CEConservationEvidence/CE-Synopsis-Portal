@@ -51,21 +51,21 @@ details.abstract-details[open] .abstract-full {
 .focus-overlay {
     position: fixed;
     inset: 0;
-    background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.45));
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.65), rgba(0, 0, 0, 0.7));
     z-index: 1050;
     display: flex;
     align-items: flex-start;
     justify-content: center;
     padding: 2.5rem 1rem;
     overflow-y: auto;
-    backdrop-filter: blur(4px);
+    backdrop-filter: blur(6px);
 }
 .focus-panel {
     max-width: 1400px;
     width: 100%;
 }
 .focus-card {
-    box-shadow: 0 0.9rem 2rem rgba(0,0,0,0.25);
+    box-shadow: 0 1rem 2.4rem rgba(0,0,0,0.28);
     border: 1px solid rgba(255,255,255,0.08);
 }
 </style>
@@ -191,15 +191,15 @@ details.abstract-details[open] .abstract-full {
                     <div class="d-flex align-items-center gap-2">
                         <span class="badge bg-secondary">{{ focus_index|add:1 }} / {{ focus_total }}</span>
                         {% if focus_prev_id %}
-                        <a class="btn btn-sm btn-outline-light" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}?focus=1&ref={{ focus_prev_id }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Previous</a>
+                        <a class="btn btn-sm btn-light text-dark" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}?focus=1&ref={{ focus_prev_id }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Previous</a>
                         {% endif %}
                         {% if focus_next_id %}
-                        <a class="btn btn-sm btn-outline-light" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}?focus=1&ref={{ focus_next_id }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Next</a>
+                        <a class="btn btn-sm btn-light text-dark" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}?focus=1&ref={{ focus_next_id }}{% if status_filter %}&status={{ status_filter }}{% endif %}">Next</a>
                         {% endif %}
                     </div>
                     <div class="d-flex align-items-center gap-3">
                         <span class="text-light small">Focused screening</span>
-                        <a class="btn btn-sm btn-light" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}">Close</a>
+                        <a class="btn btn-sm btn-outline-light" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}">Close</a>
                     </div>
                 </div>
                 <div class="card focus-card">
