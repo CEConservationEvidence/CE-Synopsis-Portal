@@ -245,7 +245,6 @@ details.abstract-details[open] .abstract-full {
                     <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
                     <button class="btn btn-success" type="submit" name="screening_status" value="included">Include</button>
                     <button class="btn btn-outline-danger" type="submit" name="screening_status" value="excluded">Exclude</button>
-                    <button class="btn btn-outline-secondary" type="submit" name="screening_status" value="pending">Pending</button>
                 </form>
             </div>
         </div>
@@ -334,19 +333,19 @@ details.abstract-details[open] .abstract-full {
                             <div class="small mt-1">{{ ref.screening_notes }}</div>
                             {% endif %}
                         </td>
-                        <td>
-                            <div class="d-grid gap-2">
-                                <form method="post">
+                        <td class="text-center">
+                            <div class="d-flex flex-wrap justify-content-center gap-2">
+                                <form method="post" class="mb-0">
                                     {% csrf_token %}
                                     <input type="hidden" name="reference_id" value="{{ ref.id }}">
                                     <div class="d-flex flex-wrap gap-2">
                                         <button class="btn btn-success btn-sm" type="submit" name="screening_status" value="included">Include</button>
                                         <button class="btn btn-outline-danger btn-sm" type="submit" name="screening_status" value="excluded">Exclude</button>
-                                        <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="pending">Pending</button>
                                     </div>
                                 </form>
                                 <form
                                     method="post"
+                                    class="mb-0"
                                     action="{% url 'synopsis:reference_delete' project.id ref.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}"
                                 >
                                     {% csrf_token %}
@@ -354,7 +353,7 @@ details.abstract-details[open] .abstract-full {
                                     <input type="hidden" name="status_filter" value="{{ status_filter }}">
                                     {% endif %}
                                     <button
-                                        class="btn btn-outline-danger btn-sm w-100"
+                                        class="btn btn-outline-danger btn-sm"
                                         type="submit"
                                         onclick="return confirm('Remove this reference from the batch?');"
                                     >
