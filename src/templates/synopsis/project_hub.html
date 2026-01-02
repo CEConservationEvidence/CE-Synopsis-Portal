@@ -248,23 +248,32 @@
         </div>
     </div>
 </div>
-<div class="card mt-3">
+<div class="card mt-3 mb-4">
     <div class="card-body">
-        <h5 class="mb-3">Recent changes</h5>
-        <ul class="list-unstyled mb-0 small">
-            {% for entry in change_log_entries %}
-            <li class="mb-2">
-                <strong>{{ entry.action }}</strong>
-                <br>
-                <span class="text-muted">{{ entry.created_at|date:"Y-m-d H:i" }} · {% if entry.changed_by %}{{ entry.changed_by.get_full_name|default:entry.changed_by.username }}{% else %}system{% endif %}</span>
-                {% if entry.details %}
-                <div>{{ entry.details }}</div>
-                {% endif %}
-            </li>
-            {% empty %}
-            <li class="text-muted">No changes logged yet.</li>
-            {% endfor %}
-        </ul>
+        <div class="d-flex align-items-center justify-content-between">
+            <h5 class="mb-0">Recent changes</h5>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#changesCollapse" aria-expanded="true" aria-controls="changesCollapse">Toggle</button>
+        </div>
+        <div class="collapse show mt-3" id="changesCollapse">
+            <div style="max-height: 240px; overflow-y: auto;">
+                <ul class="list-unstyled mb-0 small">
+                    {% for entry in change_log_entries %}
+                    <li class="mb-2">
+                        <strong>{{ entry.action }}</strong><br>
+                        <span class="text-muted">{{ entry.created_at|date:"Y-m-d H:i" }} · {% if entry.changed_by %}{{ entry.changed_by.get_full_name|default:entry.changed_by.username }}{% else %}system{% endif %}</span>
+                        {% if entry.details %}
+                        <div>{{ entry.details }}</div>
+                        {% endif %}
+                    </li>
+                    {% empty %}
+                    <li class="text-muted">No changes logged yet.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
     </div>
 </div>
+<button type="button" class="btn btn-outline-secondary btn-sm position-fixed" style="bottom: 1rem; right: 1rem; z-index: 10;" onclick="window.scrollTo({top:0, behavior:'smooth'});">
+    Back to top
+</button>
 {% endblock %}
