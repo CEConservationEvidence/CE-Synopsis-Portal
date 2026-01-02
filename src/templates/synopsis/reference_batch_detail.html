@@ -185,7 +185,7 @@ details.abstract-details[open] .abstract-full {
 </div>
 {% endif %}
 {% if focus_mode and focused_reference %}
-<div class="focus-overlay">
+<div class="focus-overlay" id="focus-overlay">
     <div class="focus-panel">
         <div class="d-flex justify-content-between align-items-center mb-3">
                     <div class="d-flex align-items-center gap-2">
@@ -230,7 +230,7 @@ details.abstract-details[open] .abstract-full {
                     <div class="small mt-1">{{ focused_reference.screening_notes }}</div>
                     {% endif %}
                 </div>
-                <form method="post" class="d-flex flex-wrap gap-2">
+                <form method="post" class="d-flex flex-wrap gap-2 justify-content-end">
                     {% csrf_token %}
                     {% if status_filter %}
                     <input type="hidden" name="status_filter" value="{{ status_filter }}">
@@ -510,6 +510,17 @@ document.addEventListener("DOMContentLoaded", function () {
         modal.addEventListener("hidden.bs.modal", hideFallback);
         modal.querySelectorAll("[data-bs-dismiss='modal'], .btn-close").forEach((btn) => {
             btn.addEventListener("click", hideFallback);
+        });
+    })();
+
+    (() => {
+        const overlay = document.getElementById("focus-overlay");
+        if (!overlay) return;
+        const exitUrl = "{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}";
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) {
+                window.location.href = exitUrl;
+            }
         });
     })();
 </script>
