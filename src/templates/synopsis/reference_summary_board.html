@@ -28,6 +28,14 @@
 {% else %}
 <div class="alert alert-info">No references have been included yet. Complete screening to start summarising.</div>
 {% endif %}
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <label for="summary-filter" class="fw-semibold mb-0">Filter</label>
+            <input type="text" id="summary-filter" class="form-control form-control-sm" style="max-width: 340px;" placeholder="Search title or author">
+        </div>
+    </div>
+</div>
 <div id="summary-board" class="row row-cols-1 row-cols-lg-4 g-3 pb-4">
     {% for column in columns %}
     <div class="col">
@@ -39,7 +47,7 @@
             <div class="card-body">
                 {% if column.items %}
                     {% for summary in column.items %}
-                    <div class="border rounded p-3 mb-3">
+                    <div class="border rounded p-3 mb-3 summary-card" data-search="{{ summary.reference.title }} {{ summary.reference.authors }} {{ summary.reference.publication_year }} {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% endif %}">
                         <div class="fw-semibold">{{ summary.reference.title }}</div>
                         <div class="small text-muted">
                             {% if summary.reference.authors %}{{ summary.reference.authors }}{% else %}Unknown authors{% endif %}
@@ -111,6 +119,21 @@
     </div>
     {% endfor %}
 </div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const input = document.getElementById("summary-filter");
+    const cards = document.querySelectorAll(".summary-card");
+    if (!input || !cards.length) return;
+    const applyFilter = () => {
+        const q = (input.value || "").toLowerCase();
+        cards.forEach((card) => {
+            const text = (card.getAttribute("data-search") || card.textContent || "").toLowerCase();
+            card.style.display = text.includes(q) ? "" : "none";
+        });
+    };
+    input.addEventListener("input", applyFilter);
+});
+</script>
 
 <div class="modal fade" id="distribution-modal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
