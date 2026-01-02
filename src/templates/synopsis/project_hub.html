@@ -292,6 +292,29 @@
             </div>
         </div>
     </div>
+    <div class="col-md-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5>Summaries</h5>
+                {% if summary_stats.total %}
+                <div class="row g-2 small mb-2">
+                    <div class="col-6">Total summaries: <strong>{{ summary_stats.total }}</strong></div>
+                    <div class="col-6">Completed: <strong>{{ summary_stats.done }}</strong></div>
+                    <div class="col-6">In progress: <strong>{{ summary_stats.draft }}</strong></div>
+                    <div class="col-6">Needs review/help: <strong>{{ summary_stats.review }}</strong></div>
+                    <div class="col-6">Not started: <strong>{{ summary_stats.todo }}</strong></div>
+                    <div class="col-6">Flagged needs help: <strong class="text-warning">{{ summary_stats.needs_help }}</strong></div>
+                    <div class="col-6">Unassigned: <strong>{{ summary_stats.unassigned }}</strong></div>
+                </div>
+                {% else %}
+                <p class="text-muted small mb-2">No summaries yet.</p>
+                {% endif %}
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-primary btn-sm" href="{% url 'synopsis:reference_summary_board' project.id %}">Open summary workspace</a>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 <div class="card mt-3">
     <div class="card-body">

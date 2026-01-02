@@ -1798,6 +1798,22 @@ def project_hub(request, project_id):
         "latest_batch": latest_batch,
     }
 
+    summary_qs = ReferenceSummary.objects.filter(project=project)
+    summary_total = summary_qs.count()
+    summary_counts = {
+        row["status"]: row["count"]
+        for row in summary_qs.values("status").annotate(count=Count("id"))
+    }
+    summary_stats = {
+        "total": summary_total,
+        "todo": summary_counts.get(ReferenceSummary.STATUS_TODO, 0),
+        "draft": summary_counts.get(ReferenceSummary.STATUS_DRAFT, 0),
+        "review": summary_counts.get(ReferenceSummary.STATUS_REVIEW, 0),
+        "done": summary_counts.get(ReferenceSummary.STATUS_DONE, 0),
+        "needs_help": summary_qs.filter(needs_help=True).count(),
+        "unassigned": summary_qs.filter(assigned_to__isnull=True).count(),
+    }
+
     phase_labels = dict(Project.PHASE_CHOICES)
     order = [k for k, _ in Project.PHASE_CHOICES]
     current_phase = project.phase
@@ -1820,6 +1836,7 @@ def project_hub(request, project_id):
             "action_list": action_list,
             "ab_stats": ab_stats,
             "reference_stats": reference_stats,
+            "summary_stats": summary_stats,
             "phase_labels": phase_labels,
             "next_phase": next_phase,
             "next_phase_label": next_phase_label,
