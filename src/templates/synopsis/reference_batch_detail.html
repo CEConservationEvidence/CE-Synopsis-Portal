@@ -220,11 +220,11 @@ details.abstract-details[open] .abstract-full {
                             >
                         </th>
                         <th class="text-center" style="width: 40%">Title</th>
-                        <th class="text-center">Authors</th>
-                        <th class="text-center">Year</th>
-                        <th class="text-center">Journal</th>
-                        <th class="text-center">Status</th>
-                        <th class="text-center" style="width: 22%">Actions</th>
+                        <th class="text-center" style="text-align: center;">Authors</th>
+                        <th class="text-center" style="text-align: center;">Year</th>
+                        <th class="text-center" style="text-align: center;">Journal</th>
+                        <th class="text-center" style="width: 16%; text-align: center;">Status</th>
+                        <th class="text-center" style="width: 18%; text-align: center;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -275,9 +275,9 @@ details.abstract-details[open] .abstract-full {
                                 {% endif %}
                             </div>
                         </td>
-                        <td class="small">{{ ref.authors }}</td>
-                        <td class="small">{{ ref.publication_year|default:"—" }}</td>
-                        <td class="small">{{ ref.journal|default:"—" }}</td>
+                        <td class="small text-center">{{ ref.authors }}</td>
+                        <td class="small text-center">{{ ref.publication_year|default:"—" }}</td>
+                        <td class="small text-center">{{ ref.journal|default:"—" }}</td>
                         <td class="text-center">
                             <span class="badge {% if ref.screening_status == 'included' %}text-bg-success{% elif ref.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ ref.get_screening_status_display }}</span>
                             {% if ref.screened_by %}
@@ -295,9 +295,6 @@ details.abstract-details[open] .abstract-full {
                                 >
                                     Notes
                                 </button>
-                                {% with comment_counts|get_item:ref.id as ccount %}
-                                <span class="badge text-bg-light">{{ ccount|default:0 }} note{% if ccount|default:0 != 1 %}s{% endif %}</span>
-                                {% endwith %}
                             </div>
                         </td>
                         <td class="text-center">
