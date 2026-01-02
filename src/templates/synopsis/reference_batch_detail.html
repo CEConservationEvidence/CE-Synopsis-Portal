@@ -77,7 +77,13 @@ details.abstract-details[open] .abstract-full {
             Manage notes
         </button>
     </div>
-    <div class="d-flex flex-wrap gap-2">
+    <div class="d-flex flex-wrap gap-2 align-items-end">
+        <div class="d-flex align-items-end gap-2 mb-0">
+            <div class="flex-grow-1">
+                <label class="form-label fw-semibold small mb-1">Filter</label>
+                <input type="text" class="form-control form-control-sm" id="batch-filter-input" placeholder="Search title/author/DOI">
+            </div>
+        </div>
         {% if focus_mode %}
         <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}">Exit focused mode</a>
         {% else %}
@@ -171,21 +177,7 @@ details.abstract-details[open] .abstract-full {
             </form>
         </div>
         <div class="row g-3 align-items-end mt-1">
-            <div class="col-md-4">
-                <form method="get" class="d-flex align-items-end gap-2">
-                    <div class="flex-grow-1">
-                        <label class="form-label fw-semibold">Filter</label>
-                        <input type="text" class="form-control" name="q" placeholder="Search title/author/DOI" value="{{ request.GET.q }}">
-                    </div>
-                    <div class="d-flex gap-1 mb-1">
-                        <button class="btn btn-outline-primary btn-sm" type="submit">Apply</button>
-                        {% if request.GET.q %}
-                        <a class="btn btn-link btn-sm px-0" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}">Clear</a>
-                        {% endif %}
-                    </div>
-                </form>
-            </div>
-            <div class="col-md-8 d-flex align-items-end">
+            <div class="col-12 d-flex align-items-end">
                 <p class="small text-muted mb-0">Select references below to apply bulk changes.</p>
             </div>
         </div>
@@ -317,6 +309,9 @@ details.abstract-details[open] .abstract-full {
                                     View full abstract
                                 </button>
                                 <span class="abstract-full-data d-none" data-index="{{ forloop.counter0 }}">{{ ref.decoded_abstract }}</span>
+                                <span class="d-none ref-search-text">
+                                    {{ ref.title }} {{ ref.authors }} {{ ref.doi }} {{ ref.publication_year }} {{ ref.journal }}
+                                </span>
                             </div>
                             {% endif %}
                             <div class="small text-muted mt-1">
@@ -383,15 +378,28 @@ details.abstract-details[open] .abstract-full {
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const selectAll = document.getElementById("select-all-references");
-    if (!selectAll) {
-        return;
-    }
-    const checkboxes = document.querySelectorAll(".bulk-reference-checkbox");
-    selectAll.addEventListener("change", function () {
-        checkboxes.forEach((checkbox) => {
-            checkbox.checked = selectAll.checked;
+    if (selectAll) {
+        const checkboxes = document.querySelectorAll(".bulk-reference-checkbox");
+        selectAll.addEventListener("change", function () {
+            checkboxes.forEach((checkbox) => {
+                checkbox.checked = selectAll.checked;
+            });
         });
-    });
+    }
+
+    const input = document.getElementById("batch-filter-input");
+    const rows = document.querySelectorAll("table tbody tr");
+    const applyFilter = () => {
+        const q = (input.value || "").toLowerCase();
+        rows.forEach((row) => {
+            const txtEl = row.querySelector(".ref-search-text");
+            const text = txtEl ? txtEl.textContent.toLowerCase() : row.textContent.toLowerCase();
+            row.style.display = text.includes(q) ? "" : "none";
+        });
+    };
+    if (input) {
+        input.addEventListener("input", applyFilter);
+    }
 });
 </script>
 <div class="modal fade" id="abstractModal" tabindex="-1" aria-hidden="true">
