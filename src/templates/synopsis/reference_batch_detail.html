@@ -220,11 +220,11 @@ details.abstract-details[open] .abstract-full {
                             >
                         </th>
                         <th class="text-center" style="width: 40%">Title</th>
-                        <th class="text-center" style="text-align: center;">Authors</th>
-                        <th class="text-center" style="text-align: center;">Year</th>
-                        <th class="text-center" style="text-align: center;">Journal</th>
-                        <th class="text-center" style="width: 16%; text-align: center;">Status</th>
-                        <th class="text-center" style="width: 18%; text-align: center;">Actions</th>
+                        <th class="text-center px-3" style="text-align: center;">Authors</th>
+                        <th class="text-center px-3" style="text-align: center;">Year</th>
+                        <th class="text-center px-3" style="text-align: center;">Journal</th>
+                        <th class="text-center px-3" style="width: 16%; text-align: center;">Status</th>
+                        <th class="text-center" style="width: 14%; text-align: center;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -275,10 +275,10 @@ details.abstract-details[open] .abstract-full {
                                 {% endif %}
                             </div>
                         </td>
-                        <td class="small text-center">{{ ref.authors }}</td>
-                        <td class="small text-center">{{ ref.publication_year|default:"—" }}</td>
-                        <td class="small text-center">{{ ref.journal|default:"—" }}</td>
-                        <td class="text-center">
+                        <td class="small text-center px-3">{{ ref.authors }}</td>
+                        <td class="small text-center px-3">{{ ref.publication_year|default:"—" }}</td>
+                        <td class="small text-center px-3">{{ ref.journal|default:"—" }}</td>
+                        <td class="text-center px-3">
                             <span class="badge {% if ref.screening_status == 'included' %}text-bg-success{% elif ref.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ ref.get_screening_status_display }}</span>
                             {% if ref.screened_by %}
                             <div class="small text-muted">{{ ref.screened_by.get_full_name|default:ref.screened_by.username }} · {{ ref.screening_decision_at|date:"Y-m-d H:i" }}</div>
