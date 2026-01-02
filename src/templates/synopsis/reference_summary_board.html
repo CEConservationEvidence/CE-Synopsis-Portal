@@ -4,7 +4,6 @@
 <h1 class="mb-3">Reference summaries – {{ project.title }}</h1>
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
-    <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_list' project.id %}">Screening overview</a>
     <a class="btn btn-outline-success" href="{% url 'synopsis:project_synopsis_structure' project.id %}">Manage synopsis structure</a>
     <div class="ms-auto">
         <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#distribution-modal">Distribution view</button>
