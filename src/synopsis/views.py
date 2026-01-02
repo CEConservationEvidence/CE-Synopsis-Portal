@@ -13,6 +13,8 @@ from urllib.parse import urlparse, urlencode
 import jwt
 import requests
 import rispy
+import html
+import re
 
 from django.conf import settings
 from django.contrib import messages
@@ -117,6 +119,19 @@ from .utils import ensure_global_groups, email_subject, reply_to_list, reference
 ONLYOFFICE_SETTINGS = getattr(settings, "ONLYOFFICE", {})
 
 logger = logging.getLogger(__name__)
+
+
+def _decode_entities(text):
+    if not text:
+        return ""
+    try:
+        text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), text)
+    except Exception:
+        pass
+    try:
+        return html.unescape(text)
+    except Exception:
+        return text
 
 
 _COLLAB_INVITE_TABLE_EXISTS = None
@@ -6029,6 +6044,12 @@ def reference_batch_detail(request, project_id, batch_id):
         if latest_screening
         else None,
     }
+
+    # Decode abstracts for clean display
+    for ref in references:
+        ref.decoded_abstract = _decode_entities(ref.abstract)
+    if focused_reference:
+        focused_reference.decoded_abstract = _decode_entities(focused_reference.abstract)
 
     return render(
         request,

@@ -217,7 +217,7 @@ details.abstract-details[open] .abstract-full {
                     {{ focused_reference.authors|default:"—" }}{% if focused_reference.publication_year %} · {{ focused_reference.publication_year }}{% endif %}{% if focused_reference.journal %} · {{ focused_reference.journal }}{% endif %}
                 </div>
                 {% if focused_reference.abstract %}
-                <div class="mb-3 small text-muted" style="white-space: pre-wrap;">{{ focused_reference.abstract }}</div>
+                <div class="mb-3 small text-muted" style="white-space: pre-wrap;">{{ focused_reference.decoded_abstract }}</div>
                 {% endif %}
                 <div class="mb-3 small text-muted">
                     {% if focused_reference.doi %}DOI: {{ focused_reference.doi }}{% endif %}
@@ -303,33 +303,21 @@ details.abstract-details[open] .abstract-full {
                                 {% endif %}
                             </div>
                             {% if ref.abstract %}
-                            {% with preview=ref.abstract|slice:":250" remainder=ref.abstract|slice:"250:" %}
                             <div class="text-muted small mt-1">
-                                {% if remainder %}
-                                    {% if preview|last == ' ' %}
-                                        {% with preview_trimmed=preview|slice:":-1" remainder_clean=remainder|slice:"1:" %}
-                                    <details class="abstract-details">
-                                        <summary class="abstract-summary">
-                                            <span class="abstract-preview">{{ preview_trimmed }}</span><span class="abstract-ellipsis">…</span><span class="abstract-hide text-muted">Hide full abstract</span>
-                                        </summary>
-                                        <div class="abstract-full text-muted" style="white-space: pre-wrap;">{{ remainder_clean }}</div>
-                                    </details>
-                                        {% endwith %}
-                                    {% else %}
-                                        {% with remainder_clean=remainder %}
-                                    <details class="abstract-details">
-                                        <summary class="abstract-summary">
-                                            <span class="abstract-preview">{{ preview }}</span><span class="abstract-ellipsis">…</span><span class="abstract-hide text-muted">Hide full abstract</span>
-                                        </summary>
-                                        <div class="abstract-full text-muted" style="white-space: pre-wrap;">{{ remainder_clean }}</div>
-                                    </details>
-                                        {% endwith %}
-                                    {% endif %}
-                                {% else %}
-                                    {{ preview }}
-                                {% endif %}
+                                {{ ref.decoded_abstract|truncatechars:140 }}
+                                <button
+                                    class="btn btn-link btn-sm p-0 ms-1 view-abstract-btn"
+                                    type="button"
+                                    data-index="{{ forloop.counter0 }}"
+                                    data-title="{{ ref.title|escape }}"
+                                    data-authors="{{ ref.authors|default:'—'|escape }}"
+                                    data-year="{{ ref.publication_year|default:'—' }}"
+                                    data-journal="{{ ref.journal|default:'—'|escape }}"
+                                >
+                                    View full abstract
+                                </button>
+                                <span class="abstract-full-data d-none" data-index="{{ forloop.counter0 }}">{{ ref.decoded_abstract }}</span>
                             </div>
-                            {% endwith %}
                             {% endif %}
                             <div class="small text-muted mt-1">
                                 {% if ref.doi %}DOI: {{ ref.doi }}{% endif %}
@@ -405,5 +393,116 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     });
 });
+</script>
+<div class="modal fade" id="abstractModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="abstractModalLabel">Abstract</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <h6 class="fw-semibold" id="abstractModalTitle"></h6>
+        <div class="small text-muted" id="abstractMeta"></div>
+        <div class="mt-2" id="abstractModalBody" style="white-space: pre-wrap;"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" id="abstractPrev">Prev</button>
+        <button type="button" class="btn btn-outline-secondary" id="abstractNext">Next</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+    (() => {
+        const modal = document.getElementById("abstractModal");
+        if (!modal) return;
+        const titleEl = modal.querySelector("#abstractModalTitle");
+        const bodyEl = modal.querySelector("#abstractModalBody");
+        const metaEl = modal.querySelector("#abstractMeta");
+        const triggers = Array.from(document.querySelectorAll(".view-abstract-btn"));
+        const abstracts = {};
+        document.querySelectorAll(".abstract-full-data").forEach((el) => {
+            abstracts[el.getAttribute("data-index")] = el.textContent;
+        });
+        const btnPrev = modal.querySelector("#abstractPrev");
+        const btnNext = modal.querySelector("#abstractNext");
+        let backdrop;
+        let currentIndex = 0;
+
+        const ensureBackdrop = () => {
+            if (backdrop) return;
+            backdrop = document.createElement("div");
+            backdrop.className = "modal-backdrop fade show";
+        };
+        const showFallback = () => {
+            ensureBackdrop();
+            document.body.appendChild(backdrop);
+            document.body.classList.add("modal-open");
+            modal.classList.add("show");
+            modal.style.display = "block";
+            modal.removeAttribute("aria-hidden");
+        };
+        const hideFallback = () => {
+            if (backdrop && backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+            document.body.classList.remove("modal-open");
+            modal.classList.remove("show");
+            modal.style.display = "";
+            modal.setAttribute("aria-hidden", "true");
+        };
+
+        const entries = triggers.map((btn) => ({
+            title: btn.getAttribute("data-title") || "Abstract",
+            authors: btn.getAttribute("data-authors") || "—",
+            year: btn.getAttribute("data-year") || "—",
+            journal: btn.getAttribute("data-journal") || "—",
+            abstract: abstracts[btn.getAttribute("data-index")] || "No abstract provided.",
+        }));
+
+        const renderEntry = (idx) => {
+            const entry = entries[idx];
+            if (!entry) return;
+            currentIndex = idx;
+            if (titleEl) titleEl.textContent = entry.title;
+            if (metaEl) metaEl.textContent = `${entry.authors} · ${entry.year} · ${entry.journal}`;
+            if (bodyEl) bodyEl.textContent = entry.abstract;
+        };
+
+        const showModal = (idx) => {
+            renderEntry(idx);
+            if (window.bootstrap && bootstrap.Modal) {
+                const instance = bootstrap.Modal.getOrCreateInstance(modal);
+                instance.show();
+            } else {
+                showFallback();
+            }
+        };
+
+        triggers.forEach((btn, idx) => {
+            btn.addEventListener("click", (e) => {
+                e.preventDefault();
+                showModal(idx);
+            });
+        });
+
+        if (btnPrev) {
+            btnPrev.addEventListener("click", () => {
+                const nextIdx = (currentIndex - 1 + entries.length) % entries.length;
+                renderEntry(nextIdx);
+            });
+        }
+        if (btnNext) {
+            btnNext.addEventListener("click", () => {
+                const nextIdx = (currentIndex + 1) % entries.length;
+                renderEntry(nextIdx);
+            });
+        }
+
+        modal.addEventListener("hidden.bs.modal", hideFallback);
+        modal.querySelectorAll("[data-bs-dismiss='modal'], .btn-close").forEach((btn) => {
+            btn.addEventListener("click", hideFallback);
+        });
+    })();
 </script>
 {% endblock %}
