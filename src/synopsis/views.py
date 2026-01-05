@@ -1909,9 +1909,21 @@ def project_hub(request, project_id):
 
     structure_stats = {
         "chapters": project.synopsis_chapters.count(),
+        "subheadings": SynopsisSubheading.objects.filter(
+            chapter__project=project
+        ).count(),
         "interventions": SynopsisIntervention.objects.filter(
             subheading__chapter__project=project
         ).count(),
+        "assignments": SynopsisAssignment.objects.filter(
+            intervention__subheading__chapter__project=project
+        ).count(),
+        "summaries_mapped": SynopsisAssignment.objects.filter(
+            intervention__subheading__chapter__project=project
+        )
+        .values("reference_summary_id")
+        .distinct()
+        .count(),
     }
 
     phase_labels = dict(Project.PHASE_CHOICES)

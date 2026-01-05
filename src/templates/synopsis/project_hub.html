@@ -241,7 +241,10 @@
                 {% if structure_stats.chapters or structure_stats.interventions %}
                 <div class="row g-2 small mb-2">
                     <div class="col-6">Chapters: <strong>{{ structure_stats.chapters }}</strong></div>
+                    <div class="col-6">Subheadings: <strong>{{ structure_stats.subheadings }}</strong></div>
                     <div class="col-6">Interventions: <strong>{{ structure_stats.interventions }}</strong></div>
+                    <div class="col-6">Assignments: <strong>{{ structure_stats.assignments }}</strong></div>
+                    <div class="col-12">Summaries mapped: <strong>{{ structure_stats.summaries_mapped }}</strong></div>
                 </div>
                 {% else %}
                 <p class="text-muted small mb-2">No synopsis structure defined yet.</p>
