@@ -5,6 +5,8 @@ from django.contrib.auth.models import User
 from django.core.validators import FileExtensionValidator
 from django.utils.text import slugify
 
+MAX_LOCATION_LINE_LENGTH = 200
+
 from .models import (
     ActionList,
     AdvisoryBoardMember,
@@ -1282,7 +1284,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         cleaned = []
         for line in lines:
             # Guard against pathological long strings
-            if len(line) > 200:
+            if len(line) > MAX_LOCATION_LINE_LENGTH:
                 raise forms.ValidationError("Each location line must be reasonably short (under 200 characters).")
             match = coord_pattern.search(line.strip())
             has_numbers = bool(re.search(r"\d", line))
