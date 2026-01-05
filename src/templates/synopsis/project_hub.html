@@ -43,12 +43,11 @@
                             {% endif %}
                         </div>
                         {% if funder_summary.count %}
-                        <div class="small text-muted d-flex flex-wrap gap-3">
-                            <span>Count: <strong>{{ funder_summary.count }}</strong></span>
-                            {% if funder_summary.total is not None %}<span>Total allocated: <strong>{{ funder_summary.total|floatformat:2 }}</strong></span>{% endif %}
-                            {% if funder_summary.earliest_start %}<span>From: <strong>{{ funder_summary.earliest_start|date:"Y-m-d" }}</strong></span>{% endif %}
-                            {% if funder_summary.latest_end %}<span>To: <strong>{{ funder_summary.latest_end|date:"Y-m-d" }}</strong></span>{% endif %}
-                        </div>
+                        <p class="small mb-0 text-muted">
+                            {% for funder in funders %}
+                                {{ funder.organisation|default:"(Funder)" }}{% if not forloop.last %}{% if forloop.counter0 == 0 %}{% endif %}{% if not forloop.last %} · {% endif %}{% endif %}
+                            {% endfor %}
+                        </p>
                         {% else %}
                         <p class="text-muted small mb-0">No funder information yet.</p>
                         {% endif %}
