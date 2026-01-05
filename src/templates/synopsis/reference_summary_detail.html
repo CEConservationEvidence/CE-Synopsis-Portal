@@ -83,6 +83,23 @@
         <div class="card mb-3 shadow-sm" id="summary-card">
             <div class="card-header">Summary details</div>
             <div class="card-body">
+                {% if summary_form.errors %}
+                <div class="alert alert-danger">
+                    <div class="fw-semibold mb-1">Please fix the errors below.</div>
+                    <ul class="mb-0 small">
+                        {% for field, errors in summary_form.errors.items %}
+                            {% for error in errors %}
+                                <li>
+                                    {% if field != "__all__" %}{{ field|capfirst }}: {% endif %}{{ error }}
+                                </li>
+                            {% endfor %}
+                        {% endfor %}
+                        {% for error in summary_form.non_field_errors %}
+                            <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
                 <form method="post" class="d-flex flex-column gap-4">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-summary">

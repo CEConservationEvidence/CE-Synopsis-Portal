@@ -1170,7 +1170,8 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                     row.get("p_value", ""),
                     row.get("notes", ""),
                 ]
-                lines.append(" | ".join(parts).strip())
+                if any(part.strip() for part in parts):
+                    lines.append(" | ".join(parts).strip())
             self.fields["outcomes_raw"].initial = "\n".join([line for line in lines if line.strip()])
 
     class Meta:
@@ -1277,13 +1278,13 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
     def clean_location_tags(self):
         raw = self.cleaned_data.get("location_tags", "") or ""
         lines = [line.strip() for line in str(raw).splitlines() if line.strip()]
-        coord_pattern = re.compile(r"^-?\d+\.\d{5}\s*,\s*-?\d+\.\d{5}$")
+        coord_pattern = re.compile(r"(-?\d{1,3}\.\d{5})\s*,\s*(-?\d{1,3}\.\d{5})")
         cleaned = []
         for line in lines:
             # Guard against pathological long strings
             if len(line) > 200:
                 raise forms.ValidationError("Each location line must be reasonably short (under 200 characters).")
-            match = coord_pattern.match(line.strip())
+            match = coord_pattern.search(line.strip())
             has_numbers = bool(re.search(r"\d", line))
             if has_numbers and not match:
                 raise forms.ValidationError(
@@ -1311,20 +1312,21 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             # Pad to 10 fields
             while len(parts) < 10:
                 parts.append("")
-            parsed.append(
-                {
-                    "outcome": parts[0],
-                    "treatment_value": parts[1],
-                    "treatment": parts[2],
-                    "comparator_value": parts[3],
-                    "comparator": parts[4],
-                    "unit": parts[5],
-                    "difference": parts[6],
-                    "stats": parts[7],
-                    "p_value": parts[8],
-                    "notes": parts[9],
-                }
-            )
+            if any(parts):
+                parsed.append(
+                    {
+                        "outcome": parts[0],
+                        "treatment_value": parts[1],
+                        "treatment": parts[2],
+                        "comparator_value": parts[3],
+                        "comparator": parts[4],
+                        "unit": parts[5],
+                        "difference": parts[6],
+                        "stats": parts[7],
+                        "p_value": parts[8],
+                        "notes": parts[9],
+                    }
+                )
         return parsed
 
     def save(self, commit=True):

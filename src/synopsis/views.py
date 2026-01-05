@@ -5221,6 +5221,18 @@ def reference_summary_detail(request, project_id, summary_id):
                 project_id=project.id,
                 summary_id=summary.id,
             )
+        elif action == "save-summary":
+            # Surface validation errors to help users understand why the save failed.
+            error_list = []
+            for err in summary_form.non_field_errors():
+                error_list.append(err)
+            for field, errs in summary_form.errors.items():
+                for err in errs:
+                    label = summary_form.fields.get(field).label if field in summary_form.fields else field
+                    error_list.append(f"{label}: {err}")
+            if not error_list:
+                error_list.append("Unable to save summary. Please review your inputs.")
+            messages.error(request, " ".join(error_list))
         if action == "assign" and assignment_form.is_valid():
             summary.assigned_to = assignment_form.cleaned_data["assigned_to"]
             summary.needs_help = assignment_form.cleaned_data["needs_help"]
