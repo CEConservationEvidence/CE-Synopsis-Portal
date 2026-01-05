@@ -796,24 +796,21 @@ class FunderContactFormSetTests(TestCase):
             base.update(overrides)
         return base
 
-    def test_requires_primary_when_contacts_present(self):
+    def test_primary_auto_selected_when_missing(self):
         payload = self._formset_payload()
         formset = FunderContactFormSet(
             data=payload, instance=self.funder, prefix="contacts"
         )
-        self.assertFalse(formset.is_valid())
-        self.assertIn("Select a primary contact.", formset.non_form_errors())
+        self.assertTrue(formset.is_valid())
+        self.assertTrue(formset.forms[0].cleaned_data.get("is_primary"))
 
-    def test_primary_contact_requires_email(self):
-        payload = self._formset_payload({"contacts-0-is_primary": "on"})
+    def test_primary_contact_email_optional(self):
+        payload = self._formset_payload({"contacts-0-is_primary": "on", "contacts-0-email": ""})
         formset = FunderContactFormSet(
             data=payload, instance=self.funder, prefix="contacts"
         )
-        self.assertFalse(formset.is_valid())
-        self.assertIn(
-            "Email is required for the primary contact.",
-            formset.forms[0].errors["email"],
-        )
+        self.assertTrue(formset.is_valid())
+        self.assertTrue(formset.forms[0].cleaned_data.get("is_primary"))
 
     def test_valid_primary_contact(self):
         payload = self._formset_payload(
