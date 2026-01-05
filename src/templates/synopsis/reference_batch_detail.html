@@ -732,9 +732,28 @@ document.addEventListener("DOMContentLoaded", function () {
         const overlay = document.getElementById("focus-overlay");
         if (!overlay) return;
         const exitUrl = "{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}";
+        const closeOverlay = () => {
+            window.location.href = exitUrl;
+        };
         overlay.addEventListener("click", (e) => {
             if (e.target === overlay) {
-                window.location.href = exitUrl;
+                closeOverlay();
+            }
+        });
+        const closeButton = document.createElement("button");
+        closeButton.type = "button";
+        closeButton.setAttribute("aria-label", "Close focused mode");
+        closeButton.textContent = "×";
+        closeButton.className = "btn btn-light position-absolute top-0 end-0 m-3";
+        closeButton.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeOverlay();
+        });
+        overlay.appendChild(closeButton);
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" || e.key === "Esc") {
+                closeOverlay();
             }
         });
     })();
