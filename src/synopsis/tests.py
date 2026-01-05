@@ -740,6 +740,11 @@ class FunderFormTests(TestCase):
         self.assertTrue(form.is_valid())
         self.assertFalse(form.has_meaningful_input())
 
+    def test_notes_count_as_meaningful_input(self):
+        form = FunderForm(data={"organisation_details": "Focuses on wetlands"})
+        self.assertTrue(form.is_valid())
+        self.assertTrue(form.has_meaningful_input())
+
     def test_start_date_cannot_be_after_end_date(self):
         form = FunderForm(
             data={
