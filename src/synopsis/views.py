@@ -5208,12 +5208,12 @@ def reference_summary_detail(request, project_id, summary_id):
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "save-summary" and summary_form.is_valid():
-            updated_summary = summary_form.save(commit=False)
-            if not updated_summary.summary_author:
-                updated_summary.summary_author = (
+            summary = summary_form.save(commit=False)
+            if not summary.summary_author:
+                summary.summary_author = (
                     request.user.get_full_name() or request.user.username
                 )
-            updated_summary.save()
+            summary.save()
             summary_form.save_m2m()
             messages.success(request, "Summary updated.")
             return redirect(
