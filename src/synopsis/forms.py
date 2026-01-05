@@ -1277,10 +1277,13 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
     def clean_location_tags(self):
         raw = self.cleaned_data.get("location_tags", "") or ""
         lines = [line.strip() for line in str(raw).splitlines() if line.strip()]
-        coord_pattern = re.compile(r"(-?\d+\.\d{5})\s*,\s*(-?\d+\.\d{5})")
+        coord_pattern = re.compile(r"^-?\d+\.\d{5}\s*,\s*-?\d+\.\d{5}$")
         cleaned = []
         for line in lines:
-            match = coord_pattern.search(line)
+            # Guard against pathological long strings
+            if len(line) > 200:
+                raise forms.ValidationError("Each location line must be reasonably short (under 200 characters).")
+            match = coord_pattern.match(line.strip())
             has_numbers = bool(re.search(r"\d", line))
             if has_numbers and not match:
                 raise forms.ValidationError(
