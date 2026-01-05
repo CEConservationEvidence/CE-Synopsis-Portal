@@ -246,6 +246,7 @@ class Funder(models.Model):
     contact_first_name = models.CharField(max_length=100, blank=True)
     contact_last_name = models.CharField(max_length=100, blank=True)
     organisation = models.CharField(max_length=255, blank=True)
+    organisation_details = models.TextField(blank=True)
     funds_allocated = models.DecimalField(
         max_digits=12, decimal_places=2, null=True, blank=True
     )
