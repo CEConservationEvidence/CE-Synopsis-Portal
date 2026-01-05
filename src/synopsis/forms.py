@@ -1288,7 +1288,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             has_numbers = bool(re.search(r"\d", line))
             if has_numbers and not match:
                 raise forms.ValidationError(
-                    "Coordinates must be two numbers with 5 decimal places (lat, lon), e.g. 'London, UK - 51.50740, -0.12780'."
+                    "Coordinates must have exactly 5 decimal places for both latitude and longitude (e.g. '51.50740, -0.12780')."
                 )
             cleaned.append(line)
         return cleaned
