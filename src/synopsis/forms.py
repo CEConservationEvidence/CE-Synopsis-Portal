@@ -534,12 +534,16 @@ class FunderForm(forms.ModelForm):
         model = Funder
         fields = [
             "organisation",
+            "organisation_details",
             "funds_allocated",
             "fund_start_date",
             "fund_end_date",
         ]
         widgets = {
             "organisation": forms.TextInput(attrs={"class": "form-control"}),
+            "organisation_details": forms.Textarea(
+                attrs={"class": "form-control", "rows": 3, "placeholder": "Optional organisation notes"}
+            ),
             "funds_allocated": forms.NumberInput(
                 attrs={"class": "form-control", "step": "0.01"}
             ),
@@ -566,6 +570,7 @@ class FunderForm(forms.ModelForm):
             cleaned.get(key)
             for key in (
                 "organisation",
+                "organisation_details",
                 "funds_allocated",
                 "fund_start_date",
                 "fund_end_date",
@@ -576,6 +581,10 @@ class FunderForm(forms.ModelForm):
         cleaned = super().clean()
         start = cleaned.get("fund_start_date")
         end = cleaned.get("fund_end_date")
+        if cleaned.get("organisation_details"):
+            cleaned["organisation_details"] = cleaned.get("organisation_details", "").strip()
+        if cleaned.get("organisation"):
+            cleaned["organisation"] = cleaned.get("organisation", "").strip()
         if start and end and start > end:
             message = "Start date cannot be after the end date."
             self.add_error("fund_start_date", message)
@@ -596,12 +605,23 @@ class FunderContactForm(forms.ModelForm):
         model = FunderContact
         fields = ["title", "first_name", "last_name", "phone", "email", "is_primary"]
         widgets = {
-            "first_name": forms.TextInput(attrs={"class": "form-control"}),
-            "last_name": forms.TextInput(attrs={"class": "form-control"}),
-            "phone": forms.TextInput(attrs={"class": "form-control"}),
-            "email": forms.EmailInput(attrs={"class": "form-control"}),
+            "first_name": forms.TextInput(
+                attrs={"class": "form-control", "style": "width: 110%; min-width: 0;"}
+            ),
+            "last_name": forms.TextInput(
+                attrs={"class": "form-control", "style": "width: 110%; min-width: 0;"}
+            ),
+            "phone": forms.TextInput(
+                attrs={"class": "form-control", "style": "width: 110%; min-width: 0;"}
+            ),
+            "email": forms.EmailInput(
+                attrs={"class": "form-control", "style": "width: 110%; min-width: 0;"}
+            ),
             "is_primary": forms.CheckboxInput(
                 attrs={"class": "form-check-input ms-1 me-1"}
+            ),
+            "title": forms.Select(
+                attrs={"class": "form-select", "style": "width: 110%; min-width: 0;"}
             ),
         }
 
