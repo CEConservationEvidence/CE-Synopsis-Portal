@@ -319,7 +319,7 @@ details.abstract-details[open] .abstract-full {
                                     <button
                                         class="btn btn-outline-danger btn-sm"
                                         type="submit"
-                                        onclick="return confirm('Remove this reference from the batch?');"
+                                        data-confirm="Remove this reference from the batch?"
                                     >
                                         Delete
                                     </button>
@@ -545,6 +545,15 @@ document.addEventListener("DOMContentLoaded", function () {
             const parentInput = modal.querySelector("input[name='parent_id']");
             if (parentInput) {
                 parentInput.value = "";
+            }
+        });
+    });
+
+    document.querySelectorAll("button[data-confirm]").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+            const msg = btn.getAttribute("data-confirm");
+            if (msg && !window.confirm(msg)) {
+                e.preventDefault();
             }
         });
     });
