@@ -657,7 +657,7 @@
         if (filterRecent) filterRecent.addEventListener("change", applyFilters);
 
         // Autosave comment draft
-        const draftKey = "summary-comment-draft-{{ summary.id }}";
+        const draftKey = "summary-comment-draft-{{ project.id }}-{{ summary.id }}";
         if (commentBody) {
             const existing = localStorage.getItem(draftKey);
             if (existing && !commentBody.value) {
