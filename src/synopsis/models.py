@@ -1133,6 +1133,7 @@ class Reference(models.Model):
         blank=True,
         related_name="screened_references",
     )
+    needs_help = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["title"]
