@@ -2139,55 +2139,48 @@ def project_funder_edit(request, project_id, funder_id):
             request.POST, prefix="contacts", instance=funder
         )
         if form.is_valid() and contact_formset.is_valid():
-            if not form.has_meaningful_input() and not _formset_has_contacts(
-                contact_formset
-            ):
-                form.add_error(None, "Enter details before saving a funder.")
-            else:
-                old_values = {
-                    field: getattr(funder, field)
-                    for field in (
-                        "organisation",
-                        "organisation_details",
-                        "funds_allocated",
-                        "fund_start_date",
-                        "fund_end_date",
-                    )
-                }
-                old_contacts = list(funder.contacts.all())
-                updated = form.save(commit=False)
-                updated.project = project
-                updated.save()
-                contact_formset.instance = updated
-                contact_formset.save()
-                updated.update_cached_contact_fields()
-                changes = []
+            old_values = {
+                field: getattr(funder, field)
                 for field in (
                     "organisation",
+                    "organisation_details",
                     "funds_allocated",
                     "fund_start_date",
                     "fund_end_date",
-                ):
-                    old_value = old_values[field]
-                    new_value = getattr(updated, field)
-                    if old_value != new_value:
-                        label = field.replace("_", " ").title()
-                        changes.append(
-                            f"{label}: {_format_value(old_value)} → {_format_value(new_value)}"
-                        )
-                new_contacts = list(updated.contacts.all())
-                if _contact_summary_text(old_contacts) != _contact_summary_text(
-                    new_contacts
-                ):
-                    changes.append(
-                        f"Contacts: {_contact_summary_text(old_contacts)} → {_contact_summary_text(new_contacts)}"
-                    )
-                detail_msg = (
-                    "; ".join(changes) if changes else "No visible field changes"
                 )
-                _log_project_change(project, request.user, "Updated funder", detail_msg)
-                messages.success(request, "Funder details updated.")
-                return redirect("synopsis:project_funder_add", project_id=project.id)
+            }
+            old_contacts = list(funder.contacts.all())
+            updated = form.save(commit=False)
+            updated.project = project
+            updated.save()
+            contact_formset.instance = updated
+            contact_formset.save()
+            updated.update_cached_contact_fields()
+            changes = []
+            for field in (
+                "organisation",
+                "funds_allocated",
+                "fund_start_date",
+                "fund_end_date",
+            ):
+                old_value = old_values[field]
+                new_value = getattr(updated, field)
+                if old_value != new_value:
+                    label = field.replace("_", " ").title()
+                    changes.append(
+                        f"{label}: {_format_value(old_value)} → {_format_value(new_value)}"
+                    )
+            new_contacts = list(updated.contacts.all())
+            if _contact_summary_text(old_contacts) != _contact_summary_text(
+                new_contacts
+            ):
+                changes.append(
+                    f"Contacts: {_contact_summary_text(old_contacts)} → {_contact_summary_text(new_contacts)}"
+                )
+            detail_msg = "; ".join(changes) if changes else "No visible field changes"
+            _log_project_change(project, request.user, "Updated funder", detail_msg)
+            messages.success(request, "Funder details updated.")
+            return redirect("synopsis:project_funder_add", project_id=project.id)
     else:
         form = FunderForm(instance=funder)
         contact_formset = FunderContactFormSet(prefix="contacts", instance=funder)
