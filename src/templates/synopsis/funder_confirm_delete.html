@@ -4,7 +4,7 @@
 <h1 class="mb-3">Remove funder</h1>
 <p>
     Are you sure you want to remove
-    <strong>{% if funder.organisation %}{{ funder.organisation }}{% else %}{{ funder.contact_first_name }} {{ funder.contact_last_name }}{% endif %}</strong>
+    <strong>{{ funder.contact_display_name }}</strong>
     from
     <strong>{{ project.title }}</strong>
     ? This action cannot be undone.
