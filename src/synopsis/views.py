@@ -82,6 +82,7 @@ from .forms import (
     SynopsisBackgroundForm,
     SynopsisAssignmentForm,
     ReferenceActionSummaryForm,
+    FunderContactFormSet,
 )
 from .models import (
     Project,
@@ -93,6 +94,7 @@ from .models import (
     AdvisoryBoardCustomFieldValue,
     AdvisoryBoardCustomFieldValueHistory,
     Funder,
+    FunderContact,
     UserRole,
     ProjectPhaseEvent,
     ProjectChangeLog,
@@ -460,11 +462,63 @@ def _advisory_member_display(member: AdvisoryBoardMember) -> str:
     return name
 
 
-def _funder_contact_label(first: str | None, last: str | None) -> str:
-    parts = [
-        part.strip() for part in [first or "", last or ""] if part and part.strip()
-    ]
-    return " ".join(parts) if parts else "—"
+def _funder_contact_label(contact) -> str:
+    if not contact:
+        return "—"
+    label = contact.display_name()
+    if contact.email:
+        return f"{label} ({contact.email})" if label != "—" else contact.email
+    return label
+
+
+def _contact_entries_from_formset(formset):
+    contacts = []
+    for form in formset:
+        data = getattr(form, "cleaned_data", {}) or {}
+        if not data or data.get("DELETE"):
+            continue
+        has_data = getattr(form, "has_contact_data", lambda *_: False)(data)
+        if not has_data:
+            continue
+        contacts.append(
+            {
+                "title": data.get("title") or "",
+                "first_name": data.get("first_name") or "",
+                "last_name": data.get("last_name") or "",
+                "email": data.get("email") or "",
+                "is_primary": bool(data.get("is_primary")),
+            }
+        )
+    contacts.sort(
+        key=lambda c: (
+            not c["is_primary"],
+            (c["last_name"] or "").lower(),
+            (c["first_name"] or "").lower(),
+        )
+    )
+    return contacts
+
+
+def _formset_has_contacts(formset) -> bool:
+    return any(_contact_entries_from_formset(formset))
+
+
+def _contact_summary_text(contacts) -> str:
+    contact_list = sorted(
+        contacts,
+        key=lambda c: (
+            not getattr(c, "is_primary", False),
+            (getattr(c, "last_name", "") or "").lower(),
+            (getattr(c, "first_name", "") or "").lower(),
+            getattr(c, "id", 0),
+        ),
+    )
+    if not contact_list:
+        return "—"
+    return "; ".join(
+        f"{'Primary: ' if c.is_primary else ''}{_funder_contact_label(c)}"
+        for c in contact_list
+    )
 
 
 def _format_deadline(deadline):
@@ -1616,11 +1670,20 @@ class ProjectCreateForm(forms.ModelForm):
 @login_required
 def project_create(request):
     today = timezone.localdate()
+    contact_instance = Funder()
     if request.method == "POST":
         pform = ProjectCreateForm(request.POST)
         aform = AssignAuthorsForm(request.POST)
         fform = FunderForm(request.POST)
-        if pform.is_valid() and aform.is_valid() and fform.is_valid():
+        contact_formset = FunderContactFormSet(
+            request.POST, prefix="contacts", instance=contact_instance
+        )
+        if (
+            pform.is_valid()
+            and aform.is_valid()
+            and fform.is_valid()
+            and contact_formset.is_valid()
+        ):
             if request.POST.get("edit") == "1":
                 pform.fields["start_date"].initial = today
                 return render(
@@ -1630,6 +1693,7 @@ def project_create(request):
                         "form": pform,
                         "authors_form": aform,
                         "funder_form": fform,
+                        "contact_formset": contact_formset,
                     },
                 )
 
@@ -1659,23 +1723,21 @@ def project_create(request):
                         f"Initial author list: {author_labels}",
                     )
 
-                if fform.has_meaningful_input():
+                if fform.has_meaningful_input() or _formset_has_contacts(
+                    contact_formset
+                ):
                     funder = fform.save(commit=False)
                     funder.project = project
-                    funder.name = Funder.build_display_name(
-                        funder.organisation,
-                        funder.contact_title,
-                        funder.contact_first_name,
-                        funder.contact_last_name,
-                    )
                     funder.save()
-                    contact_label = _funder_contact_label(
-                        funder.contact_first_name, funder.contact_last_name
-                    )
+                    contact_formset.instance = funder
+                    contact_formset.save()
+                    funder.update_cached_contact_fields()
+                    primary = funder.primary_contact()
+                    contact_summary = _contact_summary_text(funder.contacts.all())
                     details = (
                         f"Organisation: {_format_value(funder.organisation)}; "
-                        f"Title: {_format_value(funder.contact_title)}; "
-                        f"Contact: {contact_label}; "
+                        f"Primary contact: {_funder_contact_label(primary)}; "
+                        f"Contacts: {contact_summary}; "
                         f"Funds allocated: {_format_value(funder.funds_allocated)}; "
                         f"Dates: {_format_value(funder.fund_start_date)} to {_format_value(funder.fund_end_date)}"
                     )
@@ -1695,21 +1757,25 @@ def project_create(request):
             for name, field in hidden_funder_form.fields.items():
                 field.widget = forms.HiddenInput()
 
+            hidden_contact_formset = FunderContactFormSet(
+                request.POST, prefix="contacts", instance=contact_instance
+            )
+            for form in hidden_contact_formset.forms:
+                for field in form.fields.values():
+                    field.widget = forms.HiddenInput()
+
             authors = aform.cleaned_data.get("authors") or []
             author_names = [_user_display(user) for user in authors]
 
             funder_cleaned = fform.cleaned_data
+            contact_entries = _contact_entries_from_formset(contact_formset)
             funder_summary = {
                 "organisation": funder_cleaned.get("organisation"),
-                "contact_title": funder_cleaned.get("contact_title"),
-                "contact": _funder_contact_label(
-                    funder_cleaned.get("contact_first_name"),
-                    funder_cleaned.get("contact_last_name"),
-                ),
                 "funds_allocated": funder_cleaned.get("funds_allocated"),
                 "fund_start_date": funder_cleaned.get("fund_start_date"),
                 "fund_end_date": funder_cleaned.get("fund_end_date"),
-                "has_details": fform.has_meaningful_input(),
+                "contacts": contact_entries,
+                "has_details": fform.has_meaningful_input() or bool(contact_entries),
             }
 
             return render(
@@ -1719,6 +1785,7 @@ def project_create(request):
                     "project_form": hidden_project_form,
                     "authors_form_hidden": hidden_authors_form,
                     "funder_form_hidden": hidden_funder_form,
+                    "contact_formset_hidden": hidden_contact_formset,
                     "summary": {
                         "title": pform.cleaned_data["title"],
                         "start_date": today,
@@ -1731,11 +1798,17 @@ def project_create(request):
         pform = ProjectCreateForm(initial={"start_date": today})
         aform = AssignAuthorsForm()
         fform = FunderForm()
+        contact_formset = FunderContactFormSet(prefix="contacts", instance=contact_instance)
 
     return render(
         request,
         "synopsis/project_create.html",
-        {"form": pform, "authors_form": aform, "funder_form": fform},
+        {
+            "form": pform,
+            "authors_form": aform,
+            "funder_form": fform,
+            "contact_formset": contact_formset,
+        },
     )
 
 
@@ -1744,6 +1817,7 @@ def project_hub(request, project_id):
     project = get_object_or_404(
         Project.objects.prefetch_related(
             "funders",
+            Prefetch("funders__contacts"),
             "userrole_set__user",
             "change_log__changed_by",
             "phase_events",
@@ -1755,14 +1829,16 @@ def project_hub(request, project_id):
     can_manage = _user_is_manager(request.user)
 
     funders = list(project.funders.all())
-    funders.sort(
-        key=lambda f: (
-            f.fund_start_date or dt.date.max,
-            (
-                f.organisation or f.contact_last_name or f.contact_first_name or ""
-            ).lower(),
+    def _funder_sort_key(funder):
+        primary = funder.primary_contact()
+        last = primary.last_name if primary else ""
+        first = primary.first_name if primary else ""
+        return (
+            funder.fund_start_date or dt.date.max,
+            (funder.organisation or last or first or "").lower(),
         )
-    )
+
+    funders.sort(key=_funder_sort_key)
     funding_values = [
         f.funds_allocated for f in funders if f.funds_allocated is not None
     ]
@@ -1988,28 +2064,39 @@ def project_funder_add(request, project_id):
         return redirect("synopsis:project_hub", project_id=project.id)
 
     instance = Funder(project=project)
+    funders = list(project.funders.prefetch_related("contacts"))
+    def _sort_funder(f):
+        primary = f.primary_contact()
+        last = primary.last_name if primary else ""
+        first = primary.first_name if primary else ""
+        return (
+            f.fund_start_date or dt.date.max,
+            (f.organisation or last or first or "").lower(),
+        )
+    funders.sort(key=_sort_funder)
     if request.method == "POST":
         form = FunderForm(request.POST, instance=instance)
-        if form.is_valid():
-            if not form.has_meaningful_input():
+        contact_formset = FunderContactFormSet(
+            request.POST, prefix="contacts", instance=instance
+        )
+        if form.is_valid() and contact_formset.is_valid():
+            if not form.has_meaningful_input() and not _formset_has_contacts(
+                contact_formset
+            ):
                 form.add_error(None, "Enter details before saving a funder.")
             else:
                 funder = form.save(commit=False)
                 funder.project = project
-                funder.name = Funder.build_display_name(
-                    funder.organisation,
-                    funder.contact_title,
-                    funder.contact_first_name,
-                    funder.contact_last_name,
-                )
                 funder.save()
-                contact_label = _funder_contact_label(
-                    funder.contact_first_name, funder.contact_last_name
-                )
+                contact_formset.instance = funder
+                contact_formset.save()
+                funder.update_cached_contact_fields()
+                primary = funder.primary_contact()
+                contact_summary = _contact_summary_text(funder.contacts.all())
                 details = (
                     f"Organisation: {_format_value(funder.organisation)}; "
-                    f"Contact: {contact_label}; "
-                    f"Title: {_format_value(funder.contact_title)}; "
+                    f"Primary contact: {_funder_contact_label(primary)}; "
+                    f"Contacts: {contact_summary}; "
                     f"Funds allocated: {_format_value(funder.funds_allocated)}; "
                     f"Start date: {_format_value(funder.fund_start_date)}; "
                     f"End date: {_format_value(funder.fund_end_date)}"
@@ -2019,11 +2106,19 @@ def project_funder_add(request, project_id):
                 return redirect("synopsis:project_hub", project_id=project.id)
     else:
         form = FunderForm(instance=instance)
+        contact_formset = FunderContactFormSet(prefix="contacts", instance=instance)
 
     return render(
         request,
         "synopsis/funder_form.html",
-        {"project": project, "form": form, "funder": None, "mode": "add"},
+        {
+            "project": project,
+            "form": form,
+            "contact_formset": contact_formset,
+            "existing_funders": funders,
+            "funder": None,
+            "mode": "add",
+        },
     )
 
 
@@ -2037,35 +2132,34 @@ def project_funder_edit(request, project_id, funder_id):
 
     if request.method == "POST":
         form = FunderForm(request.POST, instance=funder)
-        if form.is_valid():
-            if not form.has_meaningful_input():
+        contact_formset = FunderContactFormSet(
+            request.POST, prefix="contacts", instance=funder
+        )
+        if form.is_valid() and contact_formset.is_valid():
+            if not form.has_meaningful_input() and not _formset_has_contacts(
+                contact_formset
+            ):
                 form.add_error(None, "Enter details before saving a funder.")
             else:
                 old_values = {
                     field: getattr(funder, field)
                     for field in (
                         "organisation",
-                        "contact_title",
-                        "contact_first_name",
-                        "contact_last_name",
                         "funds_allocated",
                         "fund_start_date",
                         "fund_end_date",
                     )
                 }
+                old_contacts = list(funder.contacts.all())
                 updated = form.save(commit=False)
                 updated.project = project
-                updated.name = Funder.build_display_name(
-                    updated.organisation,
-                    updated.contact_title,
-                    updated.contact_first_name,
-                    updated.contact_last_name,
-                )
                 updated.save()
+                contact_formset.instance = updated
+                contact_formset.save()
+                updated.update_cached_contact_fields()
                 changes = []
                 for field in (
                     "organisation",
-                    "contact_title",
                     "funds_allocated",
                     "fund_start_date",
                     "fund_end_date",
@@ -2077,14 +2171,13 @@ def project_funder_edit(request, project_id, funder_id):
                         changes.append(
                             f"{label}: {_format_value(old_value)} → {_format_value(new_value)}"
                         )
-                old_contact = _funder_contact_label(
-                    old_values["contact_first_name"], old_values["contact_last_name"]
-                )
-                new_contact = _funder_contact_label(
-                    updated.contact_first_name, updated.contact_last_name
-                )
-                if old_contact != new_contact:
-                    changes.append(f"Contact: {old_contact} → {new_contact}")
+                new_contacts = list(updated.contacts.all())
+                if _contact_summary_text(old_contacts) != _contact_summary_text(
+                    new_contacts
+                ):
+                    changes.append(
+                        f"Contacts: {_contact_summary_text(old_contacts)} → {_contact_summary_text(new_contacts)}"
+                    )
                 detail_msg = (
                     "; ".join(changes) if changes else "No visible field changes"
                 )
@@ -2093,11 +2186,18 @@ def project_funder_edit(request, project_id, funder_id):
                 return redirect("synopsis:project_hub", project_id=project.id)
     else:
         form = FunderForm(instance=funder)
+        contact_formset = FunderContactFormSet(prefix="contacts", instance=funder)
 
     return render(
         request,
         "synopsis/funder_form.html",
-        {"project": project, "form": form, "funder": funder, "mode": "edit"},
+        {
+            "project": project,
+            "form": form,
+            "contact_formset": contact_formset,
+            "funder": funder,
+            "mode": "edit",
+        },
     )
 
 
@@ -2110,16 +2210,11 @@ def project_funder_delete(request, project_id, funder_id):
         return redirect("synopsis:project_hub", project_id=project.id)
 
     if request.method == "POST":
-        detail = "Removed funder " + Funder.build_display_name(
-            funder.organisation,
-            funder.contact_title,
-            funder.contact_first_name,
-            funder.contact_last_name,
-        )
+        detail = "Removed funder " + funder.contact_display_name()
         funder.delete()
         _log_project_change(project, request.user, "Removed funder", detail)
         messages.success(request, "Funder removed.")
-        return redirect("synopsis:project_hub", project_id=project.id)
+        return redirect("synopsis:project_funder_add", project_id=project.id)
 
     return render(
         request,
