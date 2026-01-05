@@ -479,6 +479,11 @@
         let summaryText = "";
         try {
             summaryText = JSON.parse(dataEl.textContent);
+            if (typeof summaryText !== "string") {
+                summaryText = Array.isArray(summaryText)
+                    ? summaryText.join("\n")
+                    : String(summaryText);
+            }
         } catch (e) {
             console.warn("Could not parse generated summary payload");
             return;
