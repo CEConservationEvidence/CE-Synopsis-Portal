@@ -29,9 +29,14 @@
                     <dt class="col-sm-3">Funder</dt>
                     <dd class="col-sm-9">
                         {% if summary.funder.has_details %}
-                            {% if summary.funder.organisation %}
+                        {% if summary.funder.organisation %}
                         <div>
                             <strong>Organisation:</strong> {{ summary.funder.organisation }}
+                        </div>
+                        {% endif %}
+                            {% if summary.funder.organisation_details %}
+                        <div class="mt-1">
+                            <strong>Details:</strong> {{ summary.funder.organisation_details }}
                         </div>
                         {% endif %}
                             {% if summary.funder.contacts %}
