@@ -20,17 +20,16 @@
                 {% endif %}
                 {% endwith %}
                 {% if can_manage_project %}
+                {% if next_phase %}
                 <div class="mt-3 d-flex flex-wrap gap-2">
-                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
-                    {% if next_phase %}
                     <form method="post" action="{% url 'synopsis:project_phase_confirm' project.id next_phase %}">
                         {% csrf_token %}
                         <button class="btn btn-outline-primary btn-sm" onclick="return confirm('Confirm phase: {{ next_phase_label }}?');">
                             Confirm phase: {{ next_phase_label }}
                         </button>
                     </form>
-                    {% endif %}
                 </div>
+                {% endif %}
                 {% endif %}
             </div>
             <div class="col-lg-6">
@@ -67,6 +66,11 @@
                         </div>
                         {% else %}
                         <p class="text-muted small mb-0">No authors assigned yet.</p>
+                        {% endif %}
+                        {% if can_manage_project %}
+                        <div class="mt-2 text-end">
+                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
+                        </div>
                         {% endif %}
                     </div>
                 </div>
