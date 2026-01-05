@@ -34,14 +34,17 @@
                             <strong>Organisation:</strong> {{ summary.funder.organisation }}
                         </div>
                         {% endif %}
-                            {% if summary.funder.contact_title %}
-                        <div>
-                            <strong>Title:</strong> {{ summary.funder.contact_title }}
-                        </div>
-                        {% endif %}
-                            {% if summary.funder.contact and summary.funder.contact != "—" %}
-                        <div>
-                            <strong>Contact:</strong> {{ summary.funder.contact }}
+                            {% if summary.funder.contacts %}
+                        <div class="mt-1">
+                            <strong>Contacts:</strong>
+                            <ul class="mb-0 ps-3">
+                            {% for contact in summary.funder.contacts %}
+                                <li>
+                                    {% if contact.is_primary %}<span class="badge text-bg-primary me-1">Primary</span>{% endif %}
+                                    {% if contact.title %}{{ contact.title }} {% endif %}{{ contact.first_name }} {{ contact.last_name }}{% if contact.email %} ({{ contact.email }}){% endif %}
+                                </li>
+                            {% endfor %}
+                            </ul>
                         </div>
                         {% endif %}
                             {% if summary.funder.funds_allocated %}
@@ -72,8 +75,14 @@
             {% for field in authors_form_hidden %}
                 {{ field }}
             {% endfor %}
+            {{ contact_formset_hidden.management_form }}
             {% for field in funder_form_hidden %}
                 {{ field }}
+            {% endfor %}
+            {% for cform in contact_formset_hidden.forms %}
+                {% for field in cform %}
+                    {{ field }}
+                {% endfor %}
             {% endfor %}
             <div class="d-flex justify-content-between">
                 <button
