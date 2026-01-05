@@ -6,6 +6,7 @@
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_summary_board' project.id %}">Back to summaries</a>
     <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_list' project.id %}">Screening overview</a>
+    <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#snapshotModal">Snapshot & comments</button>
 </div>
 <div class="card mb-4">
     <div class="card-body">
@@ -15,7 +16,12 @@
             {% if reference.publication_year %} · {{ reference.publication_year }}{% endif %}
         </div>
         {% if reference.abstract %}
-        <p class="mb-0">{{ reference.abstract }}</p>
+        <div class="position-relative">
+            <div id="abstract-preview" class="mb-2" style="max-height: 6rem; overflow: hidden;">
+                <p class="mb-0">{{ reference.abstract }}</p>
+            </div>
+            <button class="btn btn-outline-link btn-sm p-0" type="button" id="toggle-abstract">Show more</button>
+        </div>
         {% else %}
         <p class="text-muted mb-0">No abstract available.</p>
         {% endif %}
@@ -23,28 +29,32 @@
 </div>
 <div class="row g-3">
     <div class="col-xl-6 col-12 d-flex flex-column">
-        <div class="card flex-grow-1">
+        <div class="card flex-grow-1 shadow-sm" id="pdf-card" style="position: sticky; top: 1rem;">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Reference PDF</span>
                 {% if reference.reference_document %}
-                <a class="btn btn-outline-secondary btn-sm" href="{{ reference.reference_document.url }}" target="_blank" rel="noopener">Open in new tab</a>
+                <div class="btn-group btn-group-sm" role="group" aria-label="PDF actions">
+                    <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_document_inline' project.id reference.id %}?v={{ reference.reference_document_uploaded_at|date:'U' }}" target="_blank" rel="noopener">Open in new tab</a>
+                    <a class="btn btn-outline-secondary" href="{{ reference.reference_document.url }}" target="_blank" rel="noopener" download>Download</a>
+                </div>
                 {% endif %}
             </div>
-            <div class="card-body d-flex flex-column">
-                <form method="post" enctype="multipart/form-data" class="mb-3">
+            <div class="card-body d-flex flex-column gap-3" id="pdf-card-body" style="overflow-y: auto;">
+                <form method="post" enctype="multipart/form-data" class="mb-1" id="pdf-upload-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="upload-document">
                     {{ document_form.document }}
-                    <button class="btn btn-outline-primary btn-sm mt-2">Upload PDF</button>
+                    <button class="btn btn-outline-primary btn-sm mt-2 d-none" type="submit">Upload PDF</button>
                 </form>
                 {% if reference.reference_document %}
-                    <div class="mb-2">
-                        <a href="{% url 'synopsis:reference_document_inline' project.id reference.id %}?v={{ reference.reference_document_uploaded_at|date:'U' }}" target="_blank" rel="noopener">Open in new tab</a>
+                    <div class="small text-muted">
                         {% if reference.reference_document_uploaded_at %}
-                            <div class="small text-muted">Uploaded {{ reference.reference_document_uploaded_at|date:"Y-m-d H:i" }}</div>
+                            Uploaded {{ reference.reference_document_uploaded_at|date:"Y-m-d H:i" }}
+                        {% else %}
+                            PDF available
                         {% endif %}
                     </div>
-                    <div class="flex-grow-1 border rounded position-relative" style="min-height: 720px;">
+                    <div class="flex-grow-1 position-relative" id="pdf-viewer" style="min-height: 400px; background: #f8f9fa; border: 1px solid #e2e6ea; border-radius: 0.5rem; box-shadow: inset 0 1px 2px rgba(0,0,0,0.04); padding: 0.5rem;">
                         <object
                             data="{% url 'synopsis:reference_document_inline' project.id reference.id %}?inline=1&v={{ reference.reference_document_uploaded_at|date:'U' }}"
                             type="application/pdf"
@@ -70,150 +80,217 @@
         </div>
     </div>
     <div class="col-xl-6 col-12">
-        <div class="card mb-3">
+        <div class="card mb-3 shadow-sm" id="summary-card">
             <div class="card-header">Summary details</div>
             <div class="card-body">
-                <form method="post">
+                {% if summary_form.errors %}
+                <div class="alert alert-danger">
+                    <div class="fw-semibold mb-1">Please fix the errors below.</div>
+                    <ul class="mb-0 small">
+                        {% for field, errors in summary_form.errors.items %}
+                            {% for error in errors %}
+                                <li>
+                                    {% if field != "__all__" %}{{ field|capfirst }}: {% endif %}{{ error }}
+                                </li>
+                            {% endfor %}
+                        {% endfor %}
+                        {% for error in summary_form.non_field_errors %}
+                            <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+                <form method="post" class="d-flex flex-column gap-4">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-summary">
-                    <div class="mb-3">
-                        <label class="form-label">Summary status</label>
-                        {{ summary_form.status }}
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Reference ID</label>
-                            {{ summary_form.reference_identifier }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Summary ID</label>
-                            {{ summary_form.summary_identifier }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Reference</label>
-                            {{ summary_form.reference_label }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Action</label>
-                            {{ summary_form.action_description }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Study design</label>
-                            {{ summary_form.study_design }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Type of study</label>
-                            {{ summary_form.study_type }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Number of sites/replications</label>
-                            {{ summary_form.sites_replications }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Years X-Y</label>
-                            {{ summary_form.year_range }}
-                        </div>
-                        <div class="col-12">
-                            <label class="form-label">Habitat and number of sites</label>
-                            {{ summary_form.habitat_and_sites }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Region</label>
-                            {{ summary_form.region }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Country</label>
-                            {{ summary_form.country }}
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Identifiers</div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Reference ID</label>
+                                {{ summary_form.reference_identifier }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Summary ID</label>
+                                {{ summary_form.summary_identifier }}
+                            </div>
                         </div>
                     </div>
-                    <div class="mb-3">
-                        <label class="form-label">Summary of results (action + outcome)</label>
-                        {{ summary_form.summary_of_results }}
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Outcome rows</label>
-                        {{ summary_form.outcomes_raw }}
-                        <div class="form-text">One outcome per line, fields separated by | (Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes).</div>
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Action methods</label>
-                            {{ summary_form.action_methods }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Experimental design</label>
-                            {{ summary_form.experimental_design }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Key details of site context</label>
-                            {{ summary_form.site_context_details }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Details of sampling methods</label>
-                            {{ summary_form.sampling_methods_details }}
-                        </div>
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Costs</label>
-                        {{ summary_form.cost_summary }}
-                    </div>
-                    <div class="mb-3">
-                        <label class="form-label">Synopsis draft</label>
-                        {{ summary_form.synopsis_draft }}
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-md-6">
-                            <label class="form-label">Action tags</label>
-                            {{ summary_form.action_tags }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Threat tags</label>
-                            {{ summary_form.threat_tags }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Taxon tags</label>
-                            {{ summary_form.taxon_tags }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Habitat tags</label>
-                            {{ summary_form.habitat_tags }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Location tags</label>
-                            {{ summary_form.location_tags }}
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label">Research design</label>
-                            {{ summary_form.research_design }}
-                        </div>
-                        <div class="col-md-12">
-                            <label class="form-label">Citation</label>
-                            {{ summary_form.citation }}
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Study overview</div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Reference</label>
+                                {{ summary_form.reference_label }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Action</label>
+                                {{ summary_form.action_description }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Study design</label>
+                                {{ summary_form.study_design }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Type of study</label>
+                                {{ summary_form.study_type }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Number of sites/replications</label>
+                                {{ summary_form.sites_replications }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Years X-Y</label>
+                                {{ summary_form.year_range }}
+                            </div>
                         </div>
                     </div>
-                    <div class="row g-3 mt-2">
-                        <div class="col-md-3">
-                            <label class="form-label">Benefits</label>
-                            {{ summary_form.benefits_score }}
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Harms</label>
-                            {{ summary_form.harms_score }}
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Reliability</label>
-                            {{ summary_form.reliability_score }}
-                        </div>
-                        <div class="col-md-3">
-                            <label class="form-label">Relevance</label>
-                            {{ summary_form.relevance_score }}
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Habitat & geography</div>
+                        <div class="row g-3">
+                            <div class="col-12">
+                                <label class="form-label">Habitat and number of sites</label>
+                                {{ summary_form.habitat_and_sites }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Region</label>
+                                {{ summary_form.region }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Country</label>
+                                {{ summary_form.country }}
+                            </div>
                         </div>
                     </div>
-                    <button class="btn btn-primary">Save summary</button>
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Findings & methods</div>
+                        <div class="mb-3">
+                            <label class="form-label">Summary of results (action + outcome)</label>
+                            {{ summary_form.summary_of_results }}
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Outcome rows</label>
+                            {{ summary_form.outcomes_raw }}
+                            <div class="form-text">One outcome per line, fields separated by | (Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes).</div>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Action methods</label>
+                                {{ summary_form.action_methods }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Experimental design</label>
+                                {{ summary_form.experimental_design }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Key details of site context</label>
+                                {{ summary_form.site_context_details }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Details of sampling methods</label>
+                                {{ summary_form.sampling_methods_details }}
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Costs</div>
+                        <div class="mb-0">
+                            <label class="form-label">Costs</label>
+                            {{ summary_form.cost_summary }}
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Tags & design</div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Action tags (IUCN)</label>
+                                {{ summary_form.action_tags }}
+                                <div class="form-text">Select all applicable interventions.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Threat tags (IUCN)</label>
+                                {{ summary_form.threat_tags }}
+                                <div class="form-text">Select all applicable threats.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Habitat tags (IUCN)</label>
+                                {{ summary_form.habitat_tags }}
+                                <div class="form-text">Select all applicable habitats.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Taxon tags</label>
+                                {{ summary_form.taxon_tags }}
+                                <div class="form-text">Binomial + common names, comma-separated.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Location tags</label>
+                                {{ summary_form.location_tags }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Research design</label>
+                                {{ summary_form.research_design }}
+                            </div>
+                            <div class="col-md-12">
+                                <label class="form-label">Citation</label>
+                                {{ summary_form.citation }}
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">CE metadata</div>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">Summary author</label>
+                                {{ summary_form.summary_author }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Broad category</label>
+                                {{ summary_form.broad_category }}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Keywords</label>
+                                {{ summary_form.keywords }}
+                                <div class="form-text">Comma-separated key terms or synonyms.</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">URL</label>
+                                {{ summary_form.source_url }}
+                                <div class="form-text">Stable link (DOI or landing page).</div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Crop type (if relevant)</label>
+                                {{ summary_form.crop_type }}
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Quality scores</div>
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label class="form-label">Benefits</label>
+                                {{ summary_form.benefits_score }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Harms</label>
+                                {{ summary_form.harms_score }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Reliability</label>
+                                {{ summary_form.reliability_score }}
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">Relevance</label>
+                                {{ summary_form.relevance_score }}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="pt-2">
+                        <button class="btn btn-primary">Save summary</button>
+                    </div>
                 </form>
             </div>
         </div>
-        <div class="card mb-3">
+        <div class="card mb-3 shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Generated summary paragraph</span>
                 {% if generated_summary %}
@@ -229,12 +306,15 @@
                 {% endif %}
             </div>
         </div>
-        <div class="card mb-3">
+        <div class="card mb-3 shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Action-specific summaries</span>
                 <span class="badge text-bg-light">{{ action_summaries|length }} total</span>
             </div>
             <div class="card-body">
+                <div class="alert alert-info py-2 small mb-3">
+                    Write one action summary per intervention when results are separate. If only combined results exist, repeat the paragraph under each intervention and state which interventions were applied together, noting that effects can’t be separated. Consider a single combined intervention only when ≥5 studies use the same well-defined bundle that is a common strategy.
+                </div>
                 {% if action_summaries %}
                     {% for action_summary in action_summaries %}
                     <div class="border rounded p-3 mb-3">
@@ -262,7 +342,8 @@
                                 </div>
                                 <div class="col-md-8">
                                     <label class="form-label small text-muted">Summary (~200 words)</label>
-                                    <textarea class="form-control form-control-sm" rows="3" name="summary_text">{{ action_summary.summary_text }}</textarea>
+                                    <textarea class="form-control form-control-sm" rows="3" name="summary_text" maxlength="1500">{{ action_summary.summary_text }}</textarea>
+                                    <div class="form-text">Aim for 150–200 words (up to ~1,500 characters).</div>
                                 </div>
                             </div>
                             <button class="btn btn-outline-primary btn-sm mt-2">Save changes</button>
@@ -283,90 +364,333 @@
                     <div class="mb-3">
                         <label class="form-label">Action summary (~200 words)</label>
                         {{ action_summary_form.summary_text }}
+                        <div class="form-text">Aim for 150–200 words (up to ~1,500 characters).</div>
                     </div>
                     <button class="btn btn-success">Add action summary</button>
                 </form>
             </div>
         </div>
-        <div class="card">
-            <div class="card-header">Comments</div>
-            <div class="card-body">
-                {% if comments %}
-                    <div class="mb-3">
-                        {% for comment in comments %}
-                            <div class="mb-3 border-bottom pb-2">
-                                <div class="small text-muted">{{ comment.author.get_full_name|default:comment.author.username }} · {{ comment.created_at|date:"Y-m-d H:i" }}</div>
-                                <p class="mb-0">{{ comment.body|linebreaksbr }}</p>
+    </div>
+</div>
+
+<div class="modal fade" id="snapshotModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable" style="max-width: 1080px;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+            <h5 class="modal-title mb-0">Snapshot & comments</h5>
+            <small class="text-muted">{{ reference.title }}</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
+            <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'in_progress' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">{{ summary.get_status_display }}</span>
+            {% if summary.needs_help %}<span class="badge text-bg-warning text-dark">Needs help</span>{% endif %}
+            <span class="badge text-bg-light">Ref ID: {{ summary.reference_identifier|default:"—" }}</span>
+            <span class="badge text-bg-light">Summary ID: {{ summary.summary_identifier|default:"—" }}</span>
+            <span class="badge text-bg-light">Last updated: {{ summary.updated_at|date:"Y-m-d H:i" }}</span>
+            <span class="badge text-bg-light">Assigned: {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}</span>
+            <button class="btn btn-outline-secondary btn-sm ms-auto" type="button" id="copy-snapshot">Copy snapshot</button>
+        </div>
+        <hr>
+        <div class="row g-3">
+            <div class="col-lg-7">
+                <div class="fw-semibold mb-2">Comments</div>
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <label class="form-check-label small d-flex align-items-center gap-1">
+                        <input type="checkbox" class="form-check-input" id="filter-my-comments"> My comments
+                    </label>
+                    <label class="form-check-label small d-flex align-items-center gap-1">
+                        <input type="checkbox" class="form-check-input" id="filter-recent-comments"> Last 7 days
+                    </label>
+                </div>
+                {% if comment_tree %}
+                    <div class="mb-3" id="comments-thread">
+                        {% for comment in comment_tree %}
+                            <div class="mb-3 border-bottom pb-2 comment-block" data-author="{{ comment.author.username }}" data-mine="{% if comment.author_id == request.user.id %}1{% else %}0{% endif %}" data-created="{{ comment.created_at|date:'U' }}">
+                                <div class="small text-muted d-flex align-items-center gap-2">
+                                    <span class="fw-semibold">{{ comment.author.get_full_name|default:comment.author.username }}</span>
+                                    <span>{{ comment.created_at|date:"Y-m-d H:i" }}</span>
+                                    {% if comment.notify_assignee %}<span class="badge text-bg-info">Notified</span>{% endif %}
+                                    {% if comment.attachment %}<a href="{{ comment.attachment.url }}" target="_blank" rel="noopener" class="badge text-bg-light">Attachment</a>{% endif %}
+                                </div>
+                                <p class="mb-2">{{ comment.body|linebreaksbr }}</p>
+                                <button class="btn btn-outline-secondary btn-sm reply-btn" data-parent="{{ comment.id }}">Reply</button>
+                                {% if comment.replies_cached %}
+                                    <div class="ms-3 mt-2 border-start ps-3">
+                                        {% for reply in comment.replies_cached %}
+                                            <div class="mb-2 comment-block" data-author="{{ reply.author.username }}" data-mine="{% if reply.author_id == request.user.id %}1{% else %}0{% endif %}" data-created="{{ reply.created_at|date:'U' }}">
+                                                <div class="small text-muted d-flex align-items-center gap-2">
+                                                    <span class="fw-semibold">{{ reply.author.get_full_name|default:reply.author.username }}</span>
+                                                    <span>{{ reply.created_at|date:"Y-m-d H:i" }}</span>
+                                                    {% if reply.notify_assignee %}<span class="badge text-bg-info">Notified</span>{% endif %}
+                                                    {% if reply.attachment %}<a href="{{ reply.attachment.url }}" target="_blank" rel="noopener" class="badge text-bg-light">Attachment</a>{% endif %}
+                                                </div>
+                                                <p class="mb-2">{{ reply.body|linebreaksbr }}</p>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
                             </div>
                         {% endfor %}
                     </div>
                 {% else %}
                     <p class="text-muted">No comments yet.</p>
                 {% endif %}
-                <form method="post">
+            </div>
+            <div class="col-lg-5">
+                <div class="fw-semibold mb-2">Quick updates</div>
+                <form method="post" class="mb-3">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="update-status">
+                    <div class="mb-2">
+                        <label class="form-label small">Status</label>
+                        <select name="status" class="form-select form-select-sm">
+                            {% for code, label in status_choices %}
+                                <option value="{{ code }}" {% if summary.status == code %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-check form-switch mb-2">
+                        <input class="form-check-input" type="checkbox" id="modal-needs-help" name="needs_help" value="1" {% if summary.needs_help %}checked{% endif %}>
+                        <label class="form-check-label small" for="modal-needs-help">Needs help</label>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm">Save</button>
+                </form>
+
+                <div class="fw-semibold mb-2">Add comment</div>
+                <form method="post" enctype="multipart/form-data" id="comment-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="comment">
-                    {{ comment_form.body }}
-                    <button class="btn btn-outline-primary mt-2">Add comment</button>
+                    {{ comment_form.parent_id }}
+                    <div class="mb-2">
+                        {{ comment_form.body }}
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small">Attachment (optional)</label>
+                        {{ comment_form.attachment }}
+                    </div>
+                    <div class="form-check mb-2">
+                        {{ comment_form.notify_assignee }} <label class="form-check-label small">Notify assignee</label>
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm">Add comment</button>
                 </form>
             </div>
         </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
     </div>
-<div class="col-12 mt-4">
-        <div class="card mb-3">
-            <div class="card-header">Assignment</div>
-            <div class="card-body">
-                <form method="post">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="assign">
-                    {{ assignment_form.as_p }}
-                    <button class="btn btn-outline-primary">Update assignment</button>
-                </form>
-            </div>
-        </div>
-        <div class="card">
-            <div class="card-header">Snapshot</div>
-            <div class="card-body">
-                <dl class="mb-0">
-                    <dt>Status</dt>
-                    <dd>{{ summary.get_status_display }}</dd>
-                    <dt>Needs help?</dt>
-                    <dd>{% if summary.needs_help %}Yes{% else %}No{% endif %}</dd>
-                    <dt>Assigned to</dt>
-                    <dd>{% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}<span class="text-muted">Unassigned</span>{% endif %}</dd>
-                    <dt>Last updated</dt>
-                    <dd>{{ summary.updated_at|date:"Y-m-d H:i" }}</dd>
-                </dl>
-            </div>
-        </div>
-    </div>
+  </div>
 </div>
+
 {% if generated_summary %}
 {{ generated_summary|json_script:"generated-summary-data" }}
 <script>
     (function() {
         const btn = document.getElementById("copy-generated-summary");
         const dataEl = document.getElementById("generated-summary-data");
-        if (!btn || !dataEl || !navigator.clipboard) return;
+        if (!btn || !dataEl) return;
         let summaryText = "";
         try {
             summaryText = JSON.parse(dataEl.textContent);
+            if (typeof summaryText !== "string") {
+                summaryText = Array.isArray(summaryText)
+                    ? summaryText.join("\n")
+                    : String(summaryText);
+            }
         } catch (e) {
             console.warn("Could not parse generated summary payload");
             return;
         }
+        const fallbackCopy = (text) => {
+            const temp = document.createElement("textarea");
+            temp.value = text;
+            temp.style.position = "fixed";
+            temp.style.opacity = "0";
+            document.body.appendChild(temp);
+            temp.select();
+            try { document.execCommand("copy"); } catch (e) {}
+            document.body.removeChild(temp);
+        };
         btn.addEventListener("click", () => {
-            navigator.clipboard.writeText(summaryText)
-                .then(() => {
-                    btn.textContent = "Copied";
-                    setTimeout(() => { btn.textContent = "Copy"; }, 1500);
-                })
-                .catch(() => {
-                    btn.textContent = "Copy failed";
-                    setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+            const doSuccess = () => {
+                btn.textContent = "Copied";
+                setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+            };
+            const doFail = () => {
+                btn.textContent = "Copy failed";
+                setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(summaryText).then(doSuccess).catch(() => {
+                    fallbackCopy(summaryText);
+                    doSuccess();
                 });
+            } else {
+                fallbackCopy(summaryText);
+                doSuccess();
+            }
         });
     })();
 </script>
 {% endif %}
+<script>
+    (() => {
+        const pdfCard = document.getElementById("pdf-card");
+        const pdfBody = document.getElementById("pdf-card-body");
+        const summaryCard = document.getElementById("summary-card");
+        if (!pdfCard || !pdfBody || !summaryCard) return;
+
+        const syncHeights = () => {
+            const summaryHeight = summaryCard.getBoundingClientRect().height;
+            if (!summaryHeight) return;
+            const viewportAllowance = Math.max(window.innerHeight - 32, 320); // keep visible while sticky
+            const targetHeight = Math.min(summaryHeight, viewportAllowance);
+            pdfCard.style.height = `${targetHeight}px`;
+            pdfCard.style.maxHeight = `${targetHeight}px`;
+            const header = pdfCard.querySelector(".card-header");
+            const headerHeight = header ? header.getBoundingClientRect().height : 0;
+            const bodyStyles = window.getComputedStyle(pdfBody);
+            const paddingTop = parseFloat(bodyStyles.paddingTop) || 0;
+            const paddingBottom = parseFloat(bodyStyles.paddingBottom) || 0;
+            const available = targetHeight - headerHeight - paddingTop - paddingBottom;
+            if (available > 0) {
+                pdfBody.style.height = `${available}px`;
+                pdfBody.style.maxHeight = `${available}px`;
+            }
+        };
+
+        const resizeObserver = new ResizeObserver(syncHeights);
+        resizeObserver.observe(summaryCard);
+        window.addEventListener("resize", syncHeights);
+        syncHeights();
+    })();
+</script>
+<script>
+    (() => {
+        const preview = document.getElementById("abstract-preview");
+        const toggle = document.getElementById("toggle-abstract");
+        if (preview && toggle) {
+            let expanded = false;
+            toggle.addEventListener("click", () => {
+                expanded = !expanded;
+                if (expanded) {
+                    preview.style.maxHeight = "none";
+                    toggle.textContent = "Show less";
+                } else {
+                    preview.style.maxHeight = "6rem";
+                    toggle.textContent = "Show more";
+                    preview.scrollIntoView({ behavior: "smooth", block: "center" });
+                }
+            });
+        }
+    })();
+</script>
+<script>
+    (() => {
+        const uploadForm = document.getElementById("pdf-upload-form");
+        if (!uploadForm) return;
+        const fileInput = uploadForm.querySelector("input[type='file']");
+        if (!fileInput) return;
+        fileInput.addEventListener("change", () => {
+            if (fileInput.files && fileInput.files.length > 0) {
+                uploadForm.submit();
+            }
+        });
+    })();
+</script>
+<script>
+    (() => {
+        const copySnapshotBtn = document.getElementById("copy-snapshot");
+        const snapshotText = [
+            "Status: {{ summary.get_status_display }}",
+            "Needs help: {% if summary.needs_help %}Yes{% else %}No{% endif %}",
+            "Assigned: {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}",
+            "Ref ID: {{ summary.reference_identifier|default:'—' }}",
+            "Summary ID: {{ summary.summary_identifier|default:'—' }}",
+            "Last updated: {{ summary.updated_at|date:'Y-m-d H:i' }}",
+        ].join(" | ");
+        const fallbackCopy = (text) => {
+            const temp = document.createElement("textarea");
+            temp.value = text;
+            temp.style.position = "fixed";
+            temp.style.opacity = "0";
+            document.body.appendChild(temp);
+            temp.select();
+            try { document.execCommand("copy"); } catch (e) {}
+            document.body.removeChild(temp);
+        };
+        if (copySnapshotBtn) {
+            copySnapshotBtn.addEventListener("click", () => {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(snapshotText).then(() => {
+                        copySnapshotBtn.textContent = "Copied";
+                        setTimeout(() => copySnapshotBtn.textContent = "Copy snapshot", 1500);
+                    }).catch(() => {
+                        fallbackCopy(snapshotText);
+                    });
+                } else {
+                    fallbackCopy(snapshotText);
+                }
+            });
+        }
+
+        const commentForm = document.getElementById("comment-form");
+        const replyButtons = document.querySelectorAll(".reply-btn");
+        const parentInput = commentForm ? commentForm.querySelector("input[name='parent_id']") : null;
+        const commentBody = commentForm ? commentForm.querySelector("textarea") : null;
+        replyButtons.forEach((btn) => {
+            btn.addEventListener("click", () => {
+                if (!parentInput || !commentBody) return;
+                parentInput.value = btn.getAttribute("data-parent");
+                commentBody.scrollIntoView({ behavior: "smooth", block: "center" });
+                commentBody.focus();
+            });
+        });
+
+        // Filters
+        const filterMy = document.getElementById("filter-my-comments");
+        const filterRecent = document.getElementById("filter-recent-comments");
+        const commentBlocks = document.querySelectorAll("#comments-thread .comment-block");
+        const sevenDaysAgo = () => (Date.now() / 1000) - (7 * 24 * 60 * 60);
+        const applyFilters = () => {
+            const myOnly = filterMy && filterMy.checked;
+            const recentOnly = filterRecent && filterRecent.checked;
+            const cutoff = sevenDaysAgo();
+            commentBlocks.forEach((el) => {
+                const isMine = el.getAttribute("data-mine") === "1";
+                const created = parseInt(el.getAttribute("data-created") || "0", 10);
+                let show = true;
+                if (myOnly && !isMine) show = false;
+                if (recentOnly && created < cutoff) show = false;
+                el.style.display = show ? "" : "none";
+            });
+        };
+        if (filterMy) filterMy.addEventListener("change", applyFilters);
+        if (filterRecent) filterRecent.addEventListener("change", applyFilters);
+
+        // Autosave comment draft
+        const draftKey = "summary-comment-draft-{{ project.id }}-{{ summary.id }}";
+        if (commentBody) {
+            const existing = localStorage.getItem(draftKey);
+            if (existing && !commentBody.value) {
+                commentBody.value = existing;
+            }
+            commentBody.addEventListener("input", () => {
+                localStorage.setItem(draftKey, commentBody.value || "");
+            });
+        }
+        if (commentForm) {
+            commentForm.addEventListener("submit", () => {
+                localStorage.removeItem(draftKey);
+            });
+        }
+    })();
+</script>
+<div class="d-flex justify-content-end my-3">
+    <a href="#top" class="btn btn-outline-secondary btn-sm">Back to top</a>
+</div>
 {% endblock %}

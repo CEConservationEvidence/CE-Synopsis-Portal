@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.contrib.auth.models import Group, User, AnonymousUser
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings, RequestFactory
+from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import PermissionDenied
@@ -46,6 +47,7 @@ from .forms import (
     FunderForm,
     ProjectDeleteForm,
     ProjectSettingsForm,
+    ReferenceSummaryUpdateForm,
 )
 from .utils import (
     BRAND,
@@ -2204,3 +2206,71 @@ class ReferenceBatchUploadParsingTests(TestCase):
         latest = history.first()
         self.assertEqual(latest.previous_notes, "Initial notes")
         self.assertEqual(latest.new_notes, "Updated notes")
+
+
+class ReferenceSummaryFormTests(TestCase):
+    def test_location_tags_accepts_place_and_coords(self):
+        form = ReferenceSummaryUpdateForm(
+            data={"status": ReferenceSummary.STATUS_TODO, "location_tags": "London, UK - 51.50740, -0.12780"}
+        )
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["location_tags"], ["London, UK - 51.50740, -0.12780"])
+
+    def test_location_tags_rejects_out_of_range(self):
+        form = ReferenceSummaryUpdateForm(
+            data={"status": ReferenceSummary.STATUS_TODO, "location_tags": "Nowhere - 123.00000, 200.00000"}
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("Coordinates must be valid latitude", str(form.errors))
+
+    def test_outcomes_raw_ignores_empty_rows(self):
+        data = {
+            "status": ReferenceSummary.STATUS_TODO,
+            "outcomes_raw": "Outcome | 1 | treat | 2 | comp | unit | diff | stats | p | notes\n | | | | | | | | | ",
+        }
+        form = ReferenceSummaryUpdateForm(data=data)
+        self.assertTrue(form.is_valid())
+        cleaned = form.cleaned_data["outcomes_raw"]
+        self.assertEqual(len(cleaned), 1)
+        self.assertEqual(cleaned[0]["outcome"], "Outcome")
+
+
+class ReferenceSummaryDetailViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="author", password="pass123")
+        self.project = Project.objects.create(title="Summary Project")
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        self.reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="a" * 40,
+            title="Test reference",
+        )
+        self.summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+    def test_save_summary_persists_changes(self):
+        self.client.login(username="author", password="pass123")
+        url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        resp = self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "habitat_and_sites": "New habitat info",
+            },
+            follow=True,
+        )
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.status, ReferenceSummary.STATUS_DRAFT)
+        self.assertEqual(self.summary.habitat_and_sites, "New habitat info")
+        messages = list(get_messages(resp.wsgi_request))
+        self.assertTrue(any("Summary updated" in str(m) for m in messages))

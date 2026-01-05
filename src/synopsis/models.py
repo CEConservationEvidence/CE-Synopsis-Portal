@@ -1133,6 +1133,7 @@ class Reference(models.Model):
         blank=True,
         related_name="screened_references",
     )
+    needs_help = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["title"]
@@ -1171,8 +1172,8 @@ class ReferenceSummary(models.Model):
     STATUS_CHOICES = [
         (STATUS_TODO, "To summarise"),
         (STATUS_DRAFT, "In progress"),
-        (STATUS_REVIEW, "Ready for review"),
-        (STATUS_DONE, "Synopsised"),
+        (STATUS_REVIEW, "Needs review/help"),
+        (STATUS_DONE, "Summarised"),
     ]
 
     project = models.ForeignKey(
@@ -1211,6 +1212,11 @@ class ReferenceSummary(models.Model):
     summary_text = models.TextField(blank=True)
     key_findings = models.TextField(blank=True)
     synopsis_draft = models.TextField(blank=True)
+    summary_author = models.CharField(max_length=255, blank=True)
+    broad_category = models.CharField(max_length=255, blank=True)
+    keywords = models.JSONField(default=list, blank=True)
+    source_url = models.URLField(max_length=500, blank=True)
+    crop_type = models.CharField(max_length=255, blank=True)
     ai_summary = models.TextField(blank=True)
     ai_summary_model = models.CharField(max_length=255, blank=True)
     ai_summary_generated_at = models.DateTimeField(null=True, blank=True)
@@ -1237,13 +1243,37 @@ class ReferenceSummaryComment(models.Model):
     )
     author = models.ForeignKey(User, on_delete=models.CASCADE)
     body = models.TextField()
+    parent = models.ForeignKey(
+        "self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies"
+    )
+    attachment = models.FileField(upload_to="summary_comments/", blank=True)
+    notify_assignee = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        ordering = ["created_at"]
+        ordering = ["-created_at", "-id"]
 
     def __str__(self):
         return f"Comment by {self.author} on {self.summary}"
+
+
+class ReferenceComment(models.Model):
+    reference = models.ForeignKey(
+        Reference, on_delete=models.CASCADE, related_name="comments"
+    )
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    body = models.TextField()
+    parent = models.ForeignKey(
+        "self", on_delete=models.CASCADE, null=True, blank=True, related_name="replies"
+    )
+    attachment = models.FileField(upload_to="reference_comments/", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"Comment by {self.author} on reference {self.reference_id}"
 
 
 class ReferenceActionSummary(models.Model):
@@ -1272,6 +1302,8 @@ class SynopsisChapter(models.Model):
         Project, on_delete=models.CASCADE, related_name="synopsis_chapters"
     )
     title = models.CharField(max_length=255)
+    background_text = models.TextField(blank=True)
+    background_references = models.TextField(blank=True)
     position = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1304,6 +1336,8 @@ class SynopsisIntervention(models.Model):
         SynopsisSubheading, on_delete=models.CASCADE, related_name="interventions"
     )
     title = models.CharField(max_length=255)
+    background_text = models.TextField(blank=True)
+    background_references = models.TextField(blank=True)
     position = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

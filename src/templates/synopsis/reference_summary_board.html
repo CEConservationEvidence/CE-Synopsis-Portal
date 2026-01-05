@@ -4,8 +4,10 @@
 <h1 class="mb-3">Reference summaries – {{ project.title }}</h1>
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
-    <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_list' project.id %}">Screening overview</a>
     <a class="btn btn-outline-success" href="{% url 'synopsis:project_synopsis_structure' project.id %}">Manage synopsis structure</a>
+    <div class="ms-auto">
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#distribution-modal">Distribution view</button>
+    </div>
 </div>
 {% if reference_count %}
 <div class="card mb-4">
@@ -13,7 +15,7 @@
         <div>
             <h5 class="mb-1">Progress</h5>
             <div class="display-6">{{ completed }} / {{ total_included }}</div>
-            <div class="small text-muted">Summaries marked as “Synopsised”</div>
+            <div class="small text-muted">Summaries marked as “Summarised”</div>
         </div>
         <div class="flex-grow-1">
             <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ progress }}">
@@ -26,10 +28,18 @@
 {% else %}
 <div class="alert alert-info">No references have been included yet. Complete screening to start summarising.</div>
 {% endif %}
-<div class="row row-cols-1 row-cols-lg-4 g-3">
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <label for="summary-filter" class="fw-semibold mb-0">Filter</label>
+            <input type="text" id="summary-filter" class="form-control form-control-sm" style="max-width: 340px;" placeholder="Search title or author">
+        </div>
+    </div>
+</div>
+<div id="summary-board" class="row row-cols-1 row-cols-lg-4 g-3 pb-4">
     {% for column in columns %}
     <div class="col">
-        <div class="card h-100">
+        <div class="card h-100 position-relative">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>{{ column.label }}</span>
                 <span class="badge text-bg-secondary">{{ column.items|length }}</span>
@@ -37,7 +47,7 @@
             <div class="card-body">
                 {% if column.items %}
                     {% for summary in column.items %}
-                    <div class="border rounded p-3 mb-3">
+                    <div class="border rounded p-3 mb-3 summary-card" data-search="{{ summary.reference.title }} {{ summary.reference.authors }} {{ summary.reference.publication_year }} {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% endif %}">
                         <div class="fw-semibold">{{ summary.reference.title }}</div>
                         <div class="small text-muted">
                             {% if summary.reference.authors %}{{ summary.reference.authors }}{% else %}Unknown authors{% endif %}
@@ -99,8 +109,200 @@
                 <p class="text-muted mb-0">No references in this column yet.</p>
                 {% endif %}
             </div>
+            <div class="card-footer bg-white border-0 pt-0">
+                <div class="btn-group w-100">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-scroll="up">↑</button>
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-scroll="down">↓</button>
+                </div>
+            </div>
         </div>
     </div>
     {% endfor %}
 </div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const input = document.getElementById("summary-filter");
+    const cards = document.querySelectorAll(".summary-card");
+    if (!input || !cards.length) return;
+    const applyFilter = () => {
+        const q = (input.value || "").toLowerCase();
+        cards.forEach((card) => {
+            const text = (card.getAttribute("data-search") || card.textContent || "").toLowerCase();
+            card.style.display = text.includes(q) ? "" : "none";
+        });
+    };
+    input.addEventListener("input", applyFilter);
+});
+</script>
+
+<div class="modal fade" id="distribution-modal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+            <h5 class="modal-title mb-0">Reference distribution</h5>
+            <small class="text-muted">{{ unassigned_count }} unassigned / {{ reference_count }} total · {{ needs_help_count }} flagged as needs help</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="px-3 pt-3">
+        <div class="fw-semibold mb-1">Author workload</div>
+        <div class="table-responsive">
+            <table class="table table-sm mb-2">
+                <thead class="table-light">
+                    <tr>
+                        <th>Author</th>
+                        <th class="text-end">Assigned</th>
+                        <th class="text-end">Needs help</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in workload %}
+                    <tr>
+                        <td>{{ item.author.get_full_name|default:item.author.username }}</td>
+                        <td class="text-end">{{ item.assigned }}</td>
+                        <td class="text-end">{{ item.needs_help }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="3" class="text-muted text-center">No authors</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+      </div>
+      <div class="modal-body">
+        <form method="post" id="distribution-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="">
+            <input type="hidden" name="bulk_assigned_to" value="">
+            <div class="row g-3 mb-3">
+                <div class="col-md-6">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text">Filter</span>
+                        <input type="text" class="form-control" id="dist-filter" placeholder="Search title or author">
+                    </div>
+                </div>
+                <div class="col-md-6 d-flex flex-wrap align-items-center justify-content-md-end small text-muted gap-3">
+                    <span id="dist-selected-count">0 selected</span>
+                    <span>{{ unassigned_count }} unassigned</span>
+                    <span>{{ needs_help_count }} needs help</span>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle" id="dist-table">
+                    <thead class="table-light position-sticky top-0">
+                        <tr>
+                            <th style="width:32px;"><input type="checkbox" id="dist-select-all"></th>
+                            <th>Title</th>
+                            <th>Status</th>
+                            <th>Assignee</th>
+                            <th>Needs help</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for summary in summaries %}
+                        <tr class="dist-row-wrap">
+                            <td><input type="checkbox" class="dist-row" name="summary_ids" value="{{ summary.id }}"></td>
+                            <td>
+                                <div class="fw-semibold dist-text">{{ summary.reference.title }}</div>
+                                <div class="small text-muted dist-text">
+                                    {% if summary.reference.authors %}{{ summary.reference.authors }}{% else %}Unknown authors{% endif %}
+                                    {% if summary.reference.publication_year %} · {{ summary.reference.publication_year }}{% endif %}
+                                </div>
+                            </td>
+                            <td><span class="badge text-bg-light">{{ summary.get_status_display }}</span></td>
+                            <td class="dist-text">
+                                {% if summary.assigned_to %}
+                                    {{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}
+                                {% else %}
+                                    <span class="text-muted">Unassigned</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if summary.needs_help %}
+                                    <span class="badge text-bg-warning text-dark">Yes</span>
+                                {% else %}
+                                    <span class="text-muted">No</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </form>
+      </div>
+      <div class="modal-footer d-flex flex-wrap gap-2 align-items-center">
+        <select class="form-select form-select-sm w-auto" id="dist-author">
+            <option value="">Select author…</option>
+            {% for author in author_options %}
+                <option value="{{ author.id }}">{{ author.get_full_name|default:author.username }}</option>
+            {% endfor %}
+        </select>
+        <button class="btn btn-outline-primary btn-sm" type="button" data-dist-action="bulk-assign-author">Assign selected</button>
+        <button class="btn btn-outline-danger btn-sm" type="button" data-dist-action="bulk-unassign">Unassign selected</button>
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-dist-action="auto-assign">Auto-distribute selected/unassigned</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+    (function() {
+        document.querySelectorAll("#summary-board .card").forEach((card) => {
+            const up = card.querySelector("button[data-scroll='up']");
+            const down = card.querySelector("button[data-scroll='down']");
+            const body = card.querySelector(".card-body");
+            if (!up || !down || !body) return;
+            up.addEventListener("click", () => {
+                body.scrollTo({ top: 0, behavior: "smooth" });
+            });
+            down.addEventListener("click", () => {
+                body.scrollTo({ top: body.scrollHeight, behavior: "smooth" });
+            });
+            body.style.maxHeight = "70vh";
+            body.style.overflowY = "auto";
+        });
+
+        const distSelectAll = document.getElementById("dist-select-all");
+        const distRows = document.querySelectorAll(".dist-row");
+        if (distSelectAll) {
+            distSelectAll.addEventListener("change", () => {
+                distRows.forEach((cb) => { cb.checked = distSelectAll.checked; });
+                updateSelectedCount();
+            });
+        }
+        const updateSelectedCount = () => {
+            const count = Array.from(distRows).filter((cb) => cb.checked).length;
+            const label = document.getElementById("dist-selected-count");
+            if (label) label.textContent = `${count} selected`;
+        };
+        const distForm = document.getElementById("distribution-form");
+        document.querySelectorAll("[data-dist-action]").forEach((btn) => {
+            btn.addEventListener("click", () => {
+                if (!distForm) return;
+                const action = btn.getAttribute("data-dist-action");
+                distForm.querySelector("input[name='action']").value = action;
+                const authorSel = document.getElementById("dist-author");
+                distForm.querySelector("input[name='bulk_assigned_to']").value = authorSel ? authorSel.value : "";
+                distForm.submit();
+            });
+        });
+        distRows.forEach((cb) => {
+            cb.addEventListener("change", updateSelectedCount);
+        });
+        updateSelectedCount();
+
+        const filterInput = document.getElementById("dist-filter");
+        if (filterInput) {
+            filterInput.addEventListener("input", () => {
+                const q = filterInput.value.toLowerCase();
+                document.querySelectorAll("#dist-table tbody tr").forEach((row) => {
+                    const text = Array.from(row.querySelectorAll(".dist-text")).map((el) => el.textContent.toLowerCase()).join(" ");
+                    row.style.display = text.includes(q) ? "" : "none";
+                });
+            });
+        }
+    })();
+</script>
 {% endblock %}

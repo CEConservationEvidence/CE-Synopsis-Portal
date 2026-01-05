@@ -5,6 +5,8 @@ from django.contrib.auth.models import User
 from django.core.validators import FileExtensionValidator
 from django.utils.text import slugify
 
+MAX_LOCATION_LINE_LENGTH = 200
+
 from .models import (
     ActionList,
     AdvisoryBoardMember,
@@ -19,6 +21,86 @@ from .models import (
     SynopsisChapter,
     UserRole,
 )
+
+RESEARCH_DESIGN_CHOICES = [
+    ("", "Choose"),
+    ("Replicated", "Replicated"),
+    ("Randomized", "Randomized"),
+    ("Paired sites", "Paired sites"),
+    ("Controlled*", "Controlled*"),
+    ("Before-and-after", "Before-and-after"),
+    ("Site comparison*", "Site comparison*"),
+    ("Review", "Review"),
+    ("Systematic review", "Systematic review"),
+    ("Study", "Study"),
+]
+
+IUCN_ACTION_CHOICES = [
+    ("Land/water protection", "Land/water protection"),
+    ("Land/water management", "Land/water management"),
+    ("Species management", "Species management"),
+    ("Education & awareness", "Education & awareness"),
+    ("Law & policy", "Law & policy"),
+    ("Livelihood/economic incentives", "Livelihood/economic incentives"),
+    ("External capacity building", "External capacity building"),
+]
+
+IUCN_THREAT_CHOICES = [
+    ("Residential & commercial development", "Residential & commercial development"),
+    ("Agriculture & aquaculture", "Agriculture & aquaculture"),
+    ("Energy production & mining", "Energy production & mining"),
+    ("Transportation & service corridors", "Transportation & service corridors"),
+    ("Biological resource use", "Biological resource use"),
+    ("Human intrusions & disturbance", "Human intrusions & disturbance"),
+    ("Natural system modifications", "Natural system modifications"),
+    ("Invasive & other problematic species/genes/diseases", "Invasive & other problematic species/genes/diseases"),
+    ("Pollution", "Pollution"),
+    ("Geological events", "Geological events"),
+    ("Climate change & severe weather", "Climate change & severe weather"),
+]
+
+IUCN_HABITAT_CHOICES = [
+    ("Forest", "Forest"),
+    ("Savanna", "Savanna"),
+    ("Shrubland", "Shrubland"),
+    ("Grassland", "Grassland"),
+    ("Wetlands (inland)", "Wetlands (inland)"),
+    ("Rocky areas", "Rocky areas"),
+    ("Caves & subterranean", "Caves & subterranean"),
+    ("Marine neritic", "Marine neritic"),
+    ("Marine oceanic", "Marine oceanic"),
+    ("Marine deep ocean floor", "Marine deep ocean floor"),
+    ("Marine intertidal", "Marine intertidal"),
+    ("Coastal wetlands", "Coastal wetlands"),
+    ("Anthropogenic terrestrial", "Anthropogenic terrestrial"),
+    ("Introduced vegetation", "Introduced vegetation"),
+]
+
+class TagCommaField(forms.CharField):
+    """Render list-like values as comma-separated strings and back."""
+
+    def prepare_value(self, value):
+        if not value or value == "[]":
+            return ""
+        if isinstance(value, list):
+            return ", ".join([str(v).strip() for v in value if str(v).strip()])
+        if isinstance(value, str):
+            trimmed = value.strip()
+            if trimmed.startswith("[") and trimmed.endswith("]"):
+                trimmed = trimmed[1:-1]
+            return trimmed
+        return str(value)
+
+
+class LocationListField(forms.CharField):
+    """Render list-like location values as newline-separated entries."""
+
+    def prepare_value(self, value):
+        if not value or value == "[]":
+            return ""
+        if isinstance(value, list):
+            return "\n".join([str(v).strip() for v in value if str(v).strip()])
+        return str(value)
 
 FUNDER_TITLE_CHOICES = [
     ("", "Title"),
@@ -393,6 +475,31 @@ class SynopsisInterventionForm(forms.Form):
 
     def clean_title(self):
         return (self.cleaned_data.get("title") or "").strip()
+
+
+class SynopsisBackgroundForm(forms.Form):
+    background_text = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 4,
+                "placeholder": "Brief background (<200 words): description, context, related literature/harms.",
+            }
+        ),
+        label="Background",
+    )
+    background_references = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "Background references (one per line, published before search end date).",
+            }
+        ),
+        label="Background references",
+    )
 
 
 class SynopsisAssignmentForm(forms.Form):
@@ -964,6 +1071,67 @@ class ReferenceSummaryAssignmentForm(forms.Form):
 
 
 class ReferenceSummaryUpdateForm(forms.ModelForm):
+    action_tags = forms.MultipleChoiceField(
+        required=False,
+        choices=IUCN_ACTION_CHOICES,
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        label="Action (IUCN)",
+    )
+    threat_tags = forms.MultipleChoiceField(
+        required=False,
+        choices=IUCN_THREAT_CHOICES,
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        label="Threat (IUCN)",
+    )
+    habitat_tags = forms.MultipleChoiceField(
+        required=False,
+        choices=IUCN_HABITAT_CHOICES,
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        label="Habitat (IUCN)",
+    )
+    taxon_tags = TagCommaField(
+        required=False,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Binomial + common names, comma-separated (e.g. Anas platyrhynchos, mallard)"}
+        ),
+        label="Taxon tags",
+    )
+    location_tags = LocationListField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "One per line. Format: Place - latitude, longitude (5 decimals). Example: London, UK - 51.50740, -0.12780",
+            }
+        ),
+        label="Location tags",
+    )
+    summary_author = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Name of summary author"}),
+        label="Summary author",
+    )
+    broad_category = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Broad category"}),
+        label="Broad category",
+    )
+    keywords = TagCommaField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Comma-separated keywords"}),
+        label="Keywords",
+    )
+    source_url = forms.URLField(
+        required=False,
+        widget=forms.URLInput(attrs={"class": "form-control", "placeholder": "Stable URL or DOI"}),
+        label="URL",
+    )
+    crop_type = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Crop type (if relevant)"}),
+        label="Crop type",
+    )
     outcomes_raw = forms.CharField(
         required=False,
         widget=forms.Textarea(
@@ -976,38 +1144,37 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         label="Outcome rows",
         help_text="One outcome per line, fields separated by |",
     )
+    research_design = forms.ChoiceField(
+        required=False,
+        choices=RESEARCH_DESIGN_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Research design",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         instance = getattr(self, "instance", None)
-        if instance and instance.pk:
-            for field in [
-                "action_tags",
-                "threat_tags",
-                "taxon_tags",
-                "habitat_tags",
-                "location_tags",
-            ]:
-                value = getattr(instance, field) or []
-                if isinstance(value, list):
-                    self.fields[field].initial = ", ".join(value)
-            if instance.outcome_rows:
-                lines = []
-                for row in instance.outcome_rows:
-                    parts = [
-                        row.get("outcome", ""),
-                        row.get("treatment_value", ""),
-                        row.get("treatment", ""),
-                        row.get("comparator_value", ""),
-                        row.get("comparator", ""),
-                        row.get("unit", ""),
-                        row.get("difference", ""),
-                        row.get("stats", ""),
-                        row.get("p_value", ""),
-                        row.get("notes", ""),
-                    ]
+        self._existing_status = instance.status if instance else None
+        if "status" not in (self.data or {}):
+            self.fields["status"].required = False
+        if instance and instance.pk and instance.outcome_rows:
+            lines = []
+            for row in instance.outcome_rows:
+                parts = [
+                    row.get("outcome", ""),
+                    row.get("treatment_value", ""),
+                    row.get("treatment", ""),
+                    row.get("comparator_value", ""),
+                    row.get("comparator", ""),
+                    row.get("unit", ""),
+                    row.get("difference", ""),
+                    row.get("stats", ""),
+                    row.get("p_value", ""),
+                    row.get("notes", ""),
+                ]
+                if any(part.strip() for part in parts):
                     lines.append(" | ".join(parts).strip())
-                self.fields["outcomes_raw"].initial = "\n".join([line for line in lines if line.strip()])
+            self.fields["outcomes_raw"].initial = "\n".join([line for line in lines if line.strip()])
 
     class Meta:
         model = ReferenceSummary
@@ -1036,11 +1203,16 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "reliability_score",
             "relevance_score",
             "synopsis_draft",
+            "summary_author",
+            "broad_category",
+            "keywords",
+            "source_url",
             "action_tags",
             "threat_tags",
             "taxon_tags",
             "habitat_tags",
             "location_tags",
+            "crop_type",
             "research_design",
             "citation",
         ]
@@ -1080,12 +1252,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "reliability_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
             "relevance_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
             "synopsis_draft": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
-            "action_tags": forms.TextInput(attrs={"class": "form-control"}),
-            "threat_tags": forms.TextInput(attrs={"class": "form-control"}),
-            "taxon_tags": forms.TextInput(attrs={"class": "form-control"}),
-            "habitat_tags": forms.TextInput(attrs={"class": "form-control"}),
-            "location_tags": forms.TextInput(attrs={"class": "form-control"}),
-            "research_design": forms.TextInput(attrs={"class": "form-control"}),
             "citation": forms.TextInput(attrs={"class": "form-control"}),
         }
 
@@ -1112,7 +1278,38 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         return self._split_tags("habitat_tags")
 
     def clean_location_tags(self):
-        return self._split_tags("location_tags")
+        raw = self.cleaned_data.get("location_tags", "") or ""
+        lines = [line.strip() for line in str(raw).splitlines() if line.strip()]
+        coord_pattern = re.compile(r"(-?\d{1,3}\.\d{5})\s*,\s*(-?\d{1,3}\.\d{5})")
+        cleaned = []
+        for line in lines:
+            # Guard against pathological long strings
+            if len(line) > MAX_LOCATION_LINE_LENGTH:
+                raise forms.ValidationError("Each location line must be reasonably short (under 200 characters).")
+            match = coord_pattern.search(line.strip())
+            has_numbers = bool(re.search(r"\d", line))
+            if has_numbers and not match:
+                raise forms.ValidationError(
+                    "Coordinates must have exactly 5 decimal places for both latitude and longitude (e.g. '51.50740, -0.12780')."
+                )
+            if match:
+                lat = float(match.group(1))
+                lon = float(match.group(2))
+                if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+                    raise forms.ValidationError(
+                        "Coordinates must be valid latitude (-90 to 90) and longitude (-180 to 180)."
+                    )
+            cleaned.append(line)
+        return cleaned
+
+    def clean_keywords(self):
+        return self._split_tags("keywords")
+
+    def clean_status(self):
+        value = self.cleaned_data.get("status")
+        if value:
+            return value
+        return self._existing_status
 
     def clean_outcomes_raw(self):
         raw = self.cleaned_data.get("outcomes_raw", "") or ""
@@ -1124,25 +1321,36 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             # Pad to 10 fields
             while len(parts) < 10:
                 parts.append("")
-            parsed.append(
-                {
-                    "outcome": parts[0],
-                    "treatment_value": parts[1],
-                    "treatment": parts[2],
-                    "comparator_value": parts[3],
-                    "comparator": parts[4],
-                    "unit": parts[5],
-                    "difference": parts[6],
-                    "stats": parts[7],
-                    "p_value": parts[8],
-                    "notes": parts[9],
-                }
-            )
+            if any(parts):
+                parsed.append(
+                    {
+                        "outcome": parts[0],
+                        "treatment_value": parts[1],
+                        "treatment": parts[2],
+                        "comparator_value": parts[3],
+                        "comparator": parts[4],
+                        "unit": parts[5],
+                        "difference": parts[6],
+                        "stats": parts[7],
+                        "p_value": parts[8],
+                        "notes": parts[9],
+                    }
+                )
         return parsed
 
     def save(self, commit=True):
         instance = super().save(commit=False)
         instance.outcome_rows = self.cleaned_data.get("outcomes_raw", [])
+        for field in [
+            "action_tags",
+            "threat_tags",
+            "taxon_tags",
+            "habitat_tags",
+            "location_tags",
+            "keywords",
+        ]:
+            instance_value = self.cleaned_data.get(field, [])
+            instance.__setattr__(field, instance_value if instance_value is not None else [])
         if commit:
             instance.save()
             self.save_m2m()
@@ -1177,6 +1385,37 @@ class ReferenceSummaryCommentForm(forms.Form):
             }
         ),
         label="",
+    )
+    parent_id = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    attachment = forms.FileField(
+        required=False,
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        label="Attachment",
+    )
+    notify_assignee = forms.BooleanField(
+        required=False,
+        initial=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        label="Notify assignee",
+    )
+
+
+class ReferenceCommentForm(forms.Form):
+    body = forms.CharField(
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "Add a note or comment",
+            }
+        ),
+        label="",
+    )
+    parent_id = forms.IntegerField(required=False, widget=forms.HiddenInput())
+    attachment = forms.FileField(
+        required=False,
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        label="Attachment",
     )
 
 

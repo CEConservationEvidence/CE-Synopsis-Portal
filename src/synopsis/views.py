@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import random
 import uuid
 from decimal import Decimal
 from urllib.parse import urlparse, urlencode
@@ -12,6 +13,8 @@ from urllib.parse import urlparse, urlencode
 import jwt
 import requests
 import rispy
+import html
+import re
 
 from django.conf import settings
 from django.contrib import messages
@@ -71,10 +74,12 @@ from .forms import (
     ReferenceSummaryAssignmentForm,
     ReferenceSummaryUpdateForm,
     ReferenceSummaryCommentForm,
+    ReferenceCommentForm,
     ReferenceDocumentForm,
     SynopsisChapterForm,
     SynopsisSubheadingForm,
     SynopsisInterventionForm,
+    SynopsisBackgroundForm,
     SynopsisAssignmentForm,
     ReferenceActionSummaryForm,
 )
@@ -98,6 +103,7 @@ from .models import (
     Reference,
     ReferenceSummary,
     ReferenceSummaryComment,
+    ReferenceComment,
     ReferenceActionSummary,
     ProtocolRevision,
     ActionListRevision,
@@ -115,6 +121,19 @@ from .utils import ensure_global_groups, email_subject, reply_to_list, reference
 ONLYOFFICE_SETTINGS = getattr(settings, "ONLYOFFICE", {})
 
 logger = logging.getLogger(__name__)
+
+
+def _decode_entities(text):
+    if not text:
+        return ""
+    try:
+        text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), text)
+    except Exception:
+        pass
+    try:
+        return html.unescape(text)
+    except Exception:
+        return text
 
 
 _COLLAB_INVITE_TABLE_EXISTS = None
@@ -1772,6 +1791,9 @@ def project_hub(request, project_id):
         "declined": inv_qs.filter(accepted=False).count(),
         "pending": inv_qs.filter(accepted__isnull=True).count(),
     }
+    ab_member_updates = list(
+        members_qs.order_by("-invite_sent_at", "-response_date", "last_name")[:6]
+    )
 
     latest_batch = project.reference_batches.order_by("-created_at", "-id").first()
     reference_stats = {
@@ -1779,6 +1801,29 @@ def project_hub(request, project_id):
         "references": project.references.count(),
         "pending": project.references.filter(screening_status="pending").count(),
         "latest_batch": latest_batch,
+    }
+
+    summary_qs = ReferenceSummary.objects.filter(project=project)
+    summary_total = summary_qs.count()
+    summary_counts = {
+        row["status"]: row["count"]
+        for row in summary_qs.values("status").annotate(count=Count("id"))
+    }
+    summary_stats = {
+        "total": summary_total,
+        "todo": summary_counts.get(ReferenceSummary.STATUS_TODO, 0),
+        "draft": summary_counts.get(ReferenceSummary.STATUS_DRAFT, 0),
+        "review": summary_counts.get(ReferenceSummary.STATUS_REVIEW, 0),
+        "done": summary_counts.get(ReferenceSummary.STATUS_DONE, 0),
+        "needs_help": summary_qs.filter(needs_help=True).count(),
+        "unassigned": summary_qs.filter(assigned_to__isnull=True).count(),
+    }
+
+    structure_stats = {
+        "chapters": project.synopsis_chapters.count(),
+        "interventions": SynopsisIntervention.objects.filter(
+            subheading__chapter__project=project
+        ).count(),
     }
 
     phase_labels = dict(Project.PHASE_CHOICES)
@@ -1802,7 +1847,10 @@ def project_hub(request, project_id):
             "protocol": protocol,
             "action_list": action_list,
             "ab_stats": ab_stats,
+            "ab_member_updates": ab_member_updates,
             "reference_stats": reference_stats,
+            "summary_stats": summary_stats,
+            "structure_stats": structure_stats,
             "phase_labels": phase_labels,
             "next_phase": next_phase,
             "next_phase_label": next_phase_label,
@@ -4981,10 +5029,78 @@ def reference_summary_board(request, project_id):
     _ensure_reference_summaries(project, included_references)
 
     if request.method == "POST":
+        action = request.POST.get("action")
+        selected_ids = request.POST.getlist("summary_ids") or []
+        if action == "auto-assign":
+            authors = list(project.author_users.order_by("id"))
+            if not authors:
+                messages.error(request, "No authors available to assign.")
+                return redirect("synopsis:reference_summary_board", project_id=project.id)
+            base_qs = ReferenceSummary.objects.filter(
+                project=project,
+                reference__screening_status="included",
+                assigned_to__isnull=True,
+            )
+            if selected_ids:
+                base_qs = base_qs.filter(id__in=selected_ids)
+            unassigned = list(base_qs.order_by("id"))
+            if not unassigned:
+                messages.info(request, "No unassigned summaries to distribute.")
+                return redirect("synopsis:reference_summary_board", project_id=project.id)
+            random.shuffle(unassigned)
+            for idx, item in enumerate(unassigned):
+                item.assigned_to = authors[idx % len(authors)]
+                item.save(update_fields=["assigned_to", "updated_at"])
+            messages.success(
+                request,
+                f"Auto-assigned {len(unassigned)} summaries across {len(authors)} author(s).",
+            )
+            return redirect("synopsis:reference_summary_board", project_id=project.id)
+        elif action == "bulk-assign-author":
+            author_id = request.POST.get("bulk_assigned_to")
+            if not author_id:
+                messages.error(request, "Select an author to assign.")
+                return redirect("synopsis:reference_summary_board", project_id=project.id)
+            try:
+                author = project.author_users.get(pk=author_id)
+            except User.DoesNotExist:
+                messages.error(request, "Selected author is not part of this project.")
+                return redirect("synopsis:reference_summary_board", project_id=project.id)
+            qs = ReferenceSummary.objects.filter(
+                project=project,
+                reference__screening_status="included",
+            )
+            if selected_ids:
+                qs = qs.filter(id__in=selected_ids)
+            else:
+                qs = qs.filter(assigned_to__isnull=True)
+            updated = qs.update(assigned_to=author, updated_at=timezone.now())
+            if updated:
+                messages.success(
+                    request,
+                    f"Assigned {updated} unassigned summaries to {author.get_full_name() or author.username}.",
+                )
+            else:
+                messages.info(request, "No unassigned summaries to distribute.")
+            return redirect("synopsis:reference_summary_board", project_id=project.id)
+        elif action == "bulk-unassign":
+            qs = ReferenceSummary.objects.filter(
+                project=project,
+                reference__screening_status="included",
+                assigned_to__isnull=False,
+            )
+            if selected_ids:
+                qs = qs.filter(id__in=selected_ids)
+            updated = qs.update(assigned_to=None, updated_at=timezone.now())
+            if updated:
+                messages.success(request, f"Unassigned {updated} summaries.")
+            else:
+                messages.info(request, "No summaries were unassigned.")
+            return redirect("synopsis:reference_summary_board", project_id=project.id)
+
         summary = get_object_or_404(
             ReferenceSummary, pk=request.POST.get("summary_id"), project=project
         )
-        action = request.POST.get("action")
         if action == "assign":
             form = ReferenceSummaryAssignmentForm(request.POST, project=project)
             if form.is_valid():
@@ -5009,6 +5125,18 @@ def reference_summary_board(request, project_id):
         project=project,
         reference__screening_status="included",
     ).select_related("reference", "assigned_to")
+    author_options = project.author_users.order_by("first_name", "last_name")
+    workload = []
+    for author in author_options:
+        workload.append(
+            {
+                "author": author,
+                "assigned": summaries.filter(assigned_to=author).count(),
+                "needs_help": summaries.filter(assigned_to=author, needs_help=True).count(),
+            }
+        )
+    unassigned_count = summaries.filter(assigned_to__isnull=True).count()
+    needs_help_count = summaries.filter(needs_help=True).count()
 
     status_map = {
         code: {"label": label, "items": []}
@@ -5031,8 +5159,6 @@ def reference_summary_board(request, project_id):
     completed = len(status_map.get(ReferenceSummary.STATUS_DONE, {}).get("items", []))
     progress = int((completed / total_included) * 100) if total_included else 0
 
-    author_options = project.author_users.order_by("first_name", "last_name")
-
     return render(
         request,
         "synopsis/reference_summary_board.html",
@@ -5045,6 +5171,10 @@ def reference_summary_board(request, project_id):
             "author_options": author_options,
             "status_choices": ReferenceSummary.STATUS_CHOICES,
             "reference_count": total_included,
+            "workload": workload,
+            "unassigned_count": unassigned_count,
+            "summaries": summaries.order_by("status", "assigned_to__first_name", "reference__title"),
+            "needs_help_count": needs_help_count,
         },
     )
 
@@ -5078,13 +5208,31 @@ def reference_summary_detail(request, project_id, summary_id):
     if request.method == "POST":
         action = request.POST.get("action")
         if action == "save-summary" and summary_form.is_valid():
-            summary_form.save()
+            summary = summary_form.save(commit=False)
+            if not summary.summary_author:
+                summary.summary_author = (
+                    request.user.get_full_name() or request.user.username
+                )
+            summary.save()
+            summary_form.save_m2m()
             messages.success(request, "Summary updated.")
             return redirect(
                 "synopsis:reference_summary_detail",
                 project_id=project.id,
                 summary_id=summary.id,
             )
+        elif action == "save-summary":
+            # Surface validation errors to help users understand why the save failed.
+            error_list = []
+            for err in summary_form.non_field_errors():
+                error_list.append(err)
+            for field, errs in summary_form.errors.items():
+                for err in errs:
+                    label = summary_form.fields.get(field).label if field in summary_form.fields else field
+                    error_list.append(f"{label}: {err}")
+            if not error_list:
+                error_list.append("Unable to save summary. Please review your inputs.")
+            messages.error(request, " ".join(error_list))
         if action == "assign" and assignment_form.is_valid():
             summary.assigned_to = assignment_form.cleaned_data["assigned_to"]
             summary.needs_help = assignment_form.cleaned_data["needs_help"]
@@ -5096,12 +5244,21 @@ def reference_summary_detail(request, project_id, summary_id):
                 summary_id=summary.id,
             )
         if action == "comment":
-            comment_form = ReferenceSummaryCommentForm(request.POST)
+            comment_form = ReferenceSummaryCommentForm(request.POST, request.FILES)
             if comment_form.is_valid():
+                parent = None
+                parent_id = comment_form.cleaned_data.get("parent_id")
+                if parent_id:
+                    parent = ReferenceSummaryComment.objects.filter(
+                        pk=parent_id, summary=summary
+                    ).first()
                 ReferenceSummaryComment.objects.create(
                     summary=summary,
                     author=request.user,
                     body=comment_form.cleaned_data["body"],
+                    parent=parent,
+                    attachment=comment_form.cleaned_data.get("attachment"),
+                    notify_assignee=comment_form.cleaned_data.get("notify_assignee") or False,
                 )
                 messages.success(request, "Comment added.")
                 return redirect(
@@ -5111,6 +5268,17 @@ def reference_summary_detail(request, project_id, summary_id):
                 )
             else:
                 messages.error(request, "Could not add comment.")
+        if action == "update-status":
+            if request.POST.get("status") in dict(ReferenceSummary.STATUS_CHOICES):
+                summary.status = request.POST.get("status")
+            summary.needs_help = bool(request.POST.get("needs_help"))
+            summary.save(update_fields=["status", "needs_help", "updated_at"])
+            messages.success(request, "Status updated.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=summary.id,
+            )
         if action == "upload-document":
             document_form = ReferenceDocumentForm(request.POST, request.FILES)
             if document_form.is_valid():
@@ -5181,6 +5349,12 @@ def reference_summary_detail(request, project_id, summary_id):
     comments = summary.comments.select_related("author")
     action_summaries = summary.action_summaries.order_by("order", "id")
     generated_summary = _structured_summary_paragraph(summary)
+    comment_children = defaultdict(list)
+    for c in comments:
+        comment_children[c.parent_id].append(c)
+    comment_tree = comment_children[None]
+    for c in comment_tree:
+        c.replies_cached = comment_children.get(c.id, [])
 
     return render(
         request,
@@ -5193,10 +5367,13 @@ def reference_summary_detail(request, project_id, summary_id):
             "assignment_form": assignment_form,
             "comment_form": comment_form,
             "comments": comments,
+            "comment_tree": comment_tree,
+            "comment_children": comment_children,
             "document_form": document_form,
             "action_summary_form": action_summary_form,
             "action_summaries": action_summaries,
             "generated_summary": generated_summary,
+            "status_choices": ReferenceSummary.STATUS_CHOICES,
         },
     )
 
@@ -5308,6 +5485,19 @@ def project_synopsis_structure(request, project_id):
             _resequence_chapter_positions(project)
             messages.success(request, f"Removed chapter “{chapter.title}”.")
             return redirect(redirect_url)
+        elif action == "update-chapter-background":
+            chapter = _chapter_from_post()
+            bg_form = SynopsisBackgroundForm(request.POST)
+            if bg_form.is_valid():
+                chapter.background_text = bg_form.cleaned_data.get("background_text", "") or ""
+                chapter.background_references = (
+                    bg_form.cleaned_data.get("background_references", "") or ""
+                )
+                chapter.save(update_fields=["background_text", "background_references", "updated_at"])
+                messages.success(request, "Chapter background saved.")
+            else:
+                messages.error(request, "Please check the background fields.")
+            return redirect(redirect_url)
         elif action == "move-chapter":
             chapter = _chapter_from_post()
             direction = request.POST.get("direction")
@@ -5408,6 +5598,21 @@ def project_synopsis_structure(request, project_id):
             intervention.delete()
             _resequence_intervention_positions(subheading)
             messages.success(request, "Intervention removed.")
+            return redirect(redirect_url)
+        elif action == "update-intervention-background":
+            intervention = _intervention_from_post()
+            bg_form = SynopsisBackgroundForm(request.POST)
+            if bg_form.is_valid():
+                intervention.background_text = bg_form.cleaned_data.get("background_text", "") or ""
+                intervention.background_references = (
+                    bg_form.cleaned_data.get("background_references", "") or ""
+                )
+                intervention.save(
+                    update_fields=["background_text", "background_references", "updated_at"]
+                )
+                messages.success(request, "Intervention background saved.")
+            else:
+                messages.error(request, "Please check the background fields.")
             return redirect(redirect_url)
         elif action == "add-assignment":
             intervention = _intervention_from_post()
@@ -5567,10 +5772,20 @@ def _generate_synopsis_docx(project):
 
     def _render_chapter(chapter):
         doc.add_heading(chapter.title or "Untitled chapter", level=1)
+        if chapter.background_text:
+            doc.add_paragraph(chapter.background_text)
+        if chapter.background_references:
+            doc.add_paragraph(f"Background references: {chapter.background_references}")
         for subheading in chapter.subheadings.all():
             doc.add_heading(subheading.title or "Untitled subheading", level=2)
             for intervention in subheading.interventions.all():
                 doc.add_heading(intervention.title or "Untitled intervention", level=3)
+                if intervention.background_text:
+                    doc.add_paragraph(intervention.background_text)
+                if intervention.background_references:
+                    doc.add_paragraph(
+                        f"Background references: {intervention.background_references}"
+                    )
                 for assignment in intervention.assignments.all():
                     summary = assignment.reference_summary
                     doc.add_heading(summary.reference.title, level=4)
@@ -5634,6 +5849,7 @@ def reference_batch_detail(request, project_id, batch_id):
     focus_prev_id = None
     focus_next_id = None
     focus_index = None
+    comment_form = ReferenceCommentForm()
     if focus_mode and ordered_ids:
         focus_id_param = (
             (request.GET.get("ref") or "").strip()
@@ -5680,6 +5896,43 @@ def reference_batch_detail(request, project_id, batch_id):
             )
             if status_filter in dict(Reference.SCREENING_STATUS_CHOICES):
                 redirect_url = f"{redirect_url}?status={status_filter}"
+            return redirect(redirect_url)
+
+        if action_type == "add-ref-comment":
+            if not _user_can_edit_project(request.user, project):
+                raise PermissionDenied
+            comment_form = ReferenceCommentForm(request.POST, request.FILES)
+            ref_id = request.POST.get("reference_id")
+            ref = get_object_or_404(Reference, pk=ref_id, project=project, batch=batch)
+            if comment_form.is_valid():
+                parent = None
+                parent_id = comment_form.cleaned_data.get("parent_id")
+                if parent_id:
+                    parent = ReferenceComment.objects.filter(
+                        pk=parent_id, reference=ref
+                    ).first()
+                ReferenceComment.objects.create(
+                    reference=ref,
+                    author=request.user,
+                    body=comment_form.cleaned_data["body"],
+                    parent=parent,
+                    attachment=comment_form.cleaned_data.get("attachment"),
+                )
+                messages.success(request, "Comment added.")
+            else:
+                messages.error(request, "Could not add comment.")
+            redirect_params = []
+            if status_filter:
+                redirect_params.append(("status", status_filter))
+            if (request.POST.get("focus") or "").strip() == "1":
+                redirect_params.append(("focus", "1"))
+                redirect_params.append(("ref", ref.id))
+            redirect_url = reverse(
+                "synopsis:reference_batch_detail",
+                kwargs={"project_id": project.id, "batch_id": batch.id},
+            )
+            if redirect_params:
+                redirect_url = f"{redirect_url}?{urlencode(redirect_params)}"
             return redirect(redirect_url)
 
         bulk_action = request.POST.get("bulk_action")
@@ -5873,6 +6126,46 @@ def reference_batch_detail(request, project_id, batch_id):
         else None,
     }
 
+    # Decode abstracts for clean display
+    for ref in references:
+        ref.decoded_abstract = _decode_entities(ref.abstract)
+    if focused_reference:
+        focused_reference.decoded_abstract = _decode_entities(focused_reference.abstract)
+
+    # Comments/notes per reference (lightweight counts; tree built only when manageable)
+    comment_trees = {}
+    comment_counts = {}
+    target_refs = [focused_reference] if focus_mode and focused_reference else list(
+        references
+    )
+    if target_refs:
+        counts = (
+            ReferenceComment.objects.filter(reference__in=target_refs)
+            .values("reference_id")
+            .annotate(count=Count("id"))
+        )
+        for row in counts:
+            comment_counts[row["reference_id"]] = row["count"]
+
+        MAX_REFS_FOR_COMMENT_TREE = 50  # build trees only for small sets to avoid heavy processing
+        if focus_mode or len(target_refs) <= MAX_REFS_FOR_COMMENT_TREE:
+            comment_qs = (
+                ReferenceComment.objects.filter(reference__in=target_refs)
+                .select_related("author", "reference")
+                .order_by("-created_at", "-id")
+            )
+            by_ref = defaultdict(list)
+            for c in comment_qs:
+                by_ref[c.reference_id].append(c)
+            for ref_id, items in by_ref.items():
+                children = defaultdict(list)
+                for c in items:
+                    children[c.parent_id].append(c)
+                tree = children[None]
+                for c in tree:
+                    c.replies_cached = children.get(c.id, [])
+                comment_trees[ref_id] = tree
+
     return render(
         request,
         "synopsis/reference_batch_detail.html",
@@ -5891,6 +6184,9 @@ def reference_batch_detail(request, project_id, batch_id):
             "status_summary": status_summary,
             "summary_stats": summary_stats,
             "note_history": batch.note_history.select_related("changed_by").all(),
+            "comment_form": comment_form,
+            "comment_trees": comment_trees,
+            "comment_counts": comment_counts,
         },
     )
 
