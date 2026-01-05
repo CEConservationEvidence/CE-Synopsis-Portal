@@ -688,6 +688,8 @@ document.addEventListener("DOMContentLoaded", function () {
             if (titleEl) titleEl.textContent = entry.title;
             if (metaEl) metaEl.textContent = `${entry.authors} · ${entry.year} · ${entry.journal}`;
             if (bodyEl) bodyEl.textContent = entry.abstract;
+            if (btnPrev) btnPrev.disabled = currentIndex <= 0;
+            if (btnNext) btnNext.disabled = currentIndex >= entries.length - 1;
         };
 
         const showModal = (idx) => {
@@ -709,14 +711,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
         if (btnPrev) {
             btnPrev.addEventListener("click", () => {
-                const nextIdx = (currentIndex - 1 + entries.length) % entries.length;
-                renderEntry(nextIdx);
+                if (currentIndex <= 0) return;
+                renderEntry(currentIndex - 1);
             });
         }
         if (btnNext) {
             btnNext.addEventListener("click", () => {
-                const nextIdx = (currentIndex + 1) % entries.length;
-                renderEntry(nextIdx);
+                if (currentIndex >= entries.length - 1) return;
+                renderEntry(currentIndex + 1);
             });
         }
 
