@@ -64,7 +64,7 @@
                     <div id="contact-formset" data-prefix="{{ contact_formset.prefix }}" data-empty-template-id="contact-empty-form">
                         <div class="contact-items">
                             {% for cform in contact_formset.forms %}
-                            <div class="contact-form mb-3 p-2">
+                            <div class="contact-form mb-3">
                                 {{ cform.non_field_errors }}
                                 <div class="row g-4 align-items-end">
                                     <div class="col-sm-1">
@@ -108,7 +108,7 @@
                         </div>
                     </div>
                     <div id="contact-empty-form" class="d-none">
-                        <div class="contact-form mb-3 p-2">
+                        <div class="contact-form mb-3">
                             {{ contact_formset.empty_form.non_field_errors }}
                             <div class="row g-4 align-items-end">
                                 <div class="col-sm-1">

@@ -2187,7 +2187,7 @@ def project_funder_edit(request, project_id, funder_id):
                 )
                 _log_project_change(project, request.user, "Updated funder", detail_msg)
                 messages.success(request, "Funder details updated.")
-                return redirect("synopsis:project_hub", project_id=project.id)
+                return redirect("synopsis:project_funder_add", project_id=project.id)
     else:
         form = FunderForm(instance=funder)
         contact_formset = FunderContactFormSet(prefix="contacts", instance=funder)

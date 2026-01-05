@@ -24,6 +24,7 @@
                 <div class="d-flex justify-content-between align-items-center">
                     <div class="fw-semibold">{{ item.organisation|default:"(Funder)" }}</div>
                     <div>
+                        <a class="btn btn-link btn-sm p-0 me-2" href="{% url 'synopsis:project_funder_edit' project.id item.id %}">Edit</a>
                         <a class="btn btn-link btn-sm text-danger p-0" href="{% url 'synopsis:project_funder_delete' project.id item.id %}">Remove</a>
                     </div>
                 </div>
@@ -78,7 +79,7 @@
             <div id="contact-formset" data-prefix="{{ contact_formset.prefix }}" data-empty-template-id="contact-empty-form">
                 <div class="contact-items">
                     {% for cform in contact_formset.forms %}
-                    <div class="contact-form mb-3 p-2">
+                    <div class="contact-form mb-3">
                         {{ cform.non_field_errors }}
                         <div class="row g-4 align-items-end">
                             <div class="col-sm-1">
@@ -122,7 +123,7 @@
                 </div>
             </div>
             <div id="contact-empty-form" class="d-none">
-                <div class="contact-form mb-3 p-2">
+                <div class="contact-form mb-3">
                     {{ contact_formset.empty_form.non_field_errors }}
                     <div class="row g-4 align-items-end">
                         <div class="col-sm-1">
@@ -188,7 +189,11 @@
     </div>
     <div class="d-flex gap-3 justify-content-start mt-4 mb-3">
         <button class="btn btn-primary px-4">{% if mode == "edit" %}Save changes{% else %}Add funder{% endif %}</button>
+        {% if mode == "edit" %}
+        <a class="btn btn-outline-secondary px-4" href="{% url 'synopsis:project_funder_add' project.id %}">Cancel</a>
+        {% else %}
         <a class="btn btn-outline-secondary px-4" href="{% url 'synopsis:project_hub' project.id %}">Cancel</a>
+        {% endif %}
     </div>
 </form>
 <script>
