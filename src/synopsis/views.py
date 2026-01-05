@@ -5,8 +5,8 @@ import json
 import logging
 import os
 import re
-import uuid
 import random
+import uuid
 from decimal import Decimal
 from urllib.parse import urlparse, urlencode
 
