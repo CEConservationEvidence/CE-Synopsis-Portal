@@ -274,6 +274,73 @@ class Funder(models.Model):
             return " ".join(names)
         return "(Funder)"
 
+    def primary_contact(self):
+        cached = getattr(self, "_prefetched_objects_cache", {}).get("contacts")
+        if cached is not None:
+            primary = next((contact for contact in cached if contact.is_primary), None)
+            return primary or (cached[0] if cached else None)
+        return (
+            self.contacts.filter(is_primary=True).order_by("-id").first()
+            or self.contacts.order_by("id").first()
+        )
+
+    def update_cached_contact_fields(self, *, save: bool = True):
+        primary = self.primary_contact()
+        self.contact_title = primary.title if primary else ""
+        self.contact_first_name = primary.first_name if primary else ""
+        self.contact_last_name = primary.last_name if primary else ""
+        self.name = self.build_display_name(
+            self.organisation,
+            self.contact_title,
+            self.contact_first_name,
+            self.contact_last_name,
+        )
+        if save:
+            self.save(
+                update_fields=[
+                    "name",
+                    "contact_title",
+                    "contact_first_name",
+                    "contact_last_name",
+                ]
+            )
+
+    def contact_display_name(self) -> str:
+        primary = self.primary_contact()
+        if primary:
+            return primary.display_name()
+        return self.organisation or "(Funder)"
+
+
+class FunderContact(models.Model):
+    funder = models.ForeignKey(
+        Funder, on_delete=models.CASCADE, related_name="contacts"
+    )
+    title = models.CharField(max_length=50, blank=True)
+    first_name = models.CharField(max_length=100, blank=True)
+    last_name = models.CharField(max_length=100, blank=True)
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=50, blank=True)
+    is_primary = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-is_primary", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["funder"],
+                condition=models.Q(is_primary=True),
+                name="unique_primary_contact_per_funder",
+            )
+        ]
+
+    def display_name(self) -> str:
+        parts = [self.title, self.first_name, self.last_name]
+        cleaned = [p.strip() for p in parts if p and p.strip()]
+        return " ".join(cleaned) if cleaned else self.email or "—"
+
+    def __str__(self):
+        return self.display_name()
+
 
 class Protocol(models.Model):
     """The protocol document for a project, drafted by an author and finalized by manager."""
