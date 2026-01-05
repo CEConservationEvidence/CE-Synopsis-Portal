@@ -408,7 +408,7 @@
                 {% if comment_tree %}
                     <div class="mb-3" id="comments-thread">
                         {% for comment in comment_tree %}
-                            <div class="mb-3 border-bottom pb-2 comment-block" data-author="{{ comment.author.username }}" data-created="{{ comment.created_at|date:'U' }}">
+                            <div class="mb-3 border-bottom pb-2 comment-block" data-author="{{ comment.author.username }}" data-mine="{% if comment.author_id == request.user.id %}1{% else %}0{% endif %}" data-created="{{ comment.created_at|date:'U' }}">
                                 <div class="small text-muted d-flex align-items-center gap-2">
                                     <span class="fw-semibold">{{ comment.author.get_full_name|default:comment.author.username }}</span>
                                     <span>{{ comment.created_at|date:"Y-m-d H:i" }}</span>
@@ -420,7 +420,7 @@
                                 {% if comment.replies_cached %}
                                     <div class="ms-3 mt-2 border-start ps-3">
                                         {% for reply in comment.replies_cached %}
-                                            <div class="mb-2 comment-block" data-author="{{ reply.author.username }}" data-created="{{ reply.created_at|date:'U' }}">
+                                            <div class="mb-2 comment-block" data-author="{{ reply.author.username }}" data-mine="{% if reply.author_id == request.user.id %}1{% else %}0{% endif %}" data-created="{{ reply.created_at|date:'U' }}">
                                                 <div class="small text-muted d-flex align-items-center gap-2">
                                                     <span class="fw-semibold">{{ reply.author.get_full_name|default:reply.author.username }}</span>
                                                     <span>{{ reply.created_at|date:"Y-m-d H:i" }}</span>
@@ -655,17 +655,16 @@
         const filterMy = document.getElementById("filter-my-comments");
         const filterRecent = document.getElementById("filter-recent-comments");
         const commentBlocks = document.querySelectorAll("#comments-thread .comment-block");
-        const currentUser = "{{ request.user.username }}";
         const sevenDaysAgo = () => (Date.now() / 1000) - (7 * 24 * 60 * 60);
         const applyFilters = () => {
             const myOnly = filterMy && filterMy.checked;
             const recentOnly = filterRecent && filterRecent.checked;
             const cutoff = sevenDaysAgo();
             commentBlocks.forEach((el) => {
-                const author = el.getAttribute("data-author") || "";
+                const isMine = el.getAttribute("data-mine") === "1";
                 const created = parseInt(el.getAttribute("data-created") || "0", 10);
                 let show = true;
-                if (myOnly && author !== currentUser) show = false;
+                if (myOnly && !isMine) show = false;
                 if (recentOnly && created < cutoff) show = false;
                 el.style.display = show ? "" : "none";
             });
