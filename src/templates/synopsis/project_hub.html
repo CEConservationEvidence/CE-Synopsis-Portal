@@ -39,7 +39,7 @@
                         <div class="d-flex justify-content-between align-items-center mb-1">
                             <h5 class="mb-0">Funders</h5>
                             {% if can_manage_project %}
-                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_funder_add' project.id %}">Add funder</a>
+                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_funder_add' project.id %}">Manage funder(s)</a>
                             {% endif %}
                         </div>
                         {% if funder_summary.count %}
