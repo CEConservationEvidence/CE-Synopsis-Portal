@@ -6120,30 +6120,39 @@ def reference_batch_detail(request, project_id, batch_id):
     if focused_reference:
         focused_reference.decoded_abstract = _decode_entities(focused_reference.abstract)
 
-    # Comments/notes per reference
+    # Comments/notes per reference (lightweight counts; tree built only when manageable)
     comment_trees = {}
     comment_counts = {}
     target_refs = [focused_reference] if focus_mode and focused_reference else list(
         references
     )
     if target_refs:
-        comment_qs = (
+        counts = (
             ReferenceComment.objects.filter(reference__in=target_refs)
-            .select_related("author", "reference")
-            .order_by("-created_at", "-id")
+            .values("reference_id")
+            .annotate(count=Count("id"))
         )
-        by_ref = defaultdict(list)
-        for c in comment_qs:
-            by_ref[c.reference_id].append(c)
-        for ref_id, items in by_ref.items():
-            children = defaultdict(list)
-            for c in items:
-                children[c.parent_id].append(c)
-            tree = children[None]
-            for c in tree:
-                c.replies_cached = children.get(c.id, [])
-            comment_trees[ref_id] = tree
-            comment_counts[ref_id] = len(items)
+        for row in counts:
+            comment_counts[row["reference_id"]] = row["count"]
+
+        # Only build full trees when the set is small to avoid heavy processing
+        if focus_mode or len(target_refs) <= 50:
+            comment_qs = (
+                ReferenceComment.objects.filter(reference__in=target_refs)
+                .select_related("author", "reference")
+                .order_by("-created_at", "-id")
+            )
+            by_ref = defaultdict(list)
+            for c in comment_qs:
+                by_ref[c.reference_id].append(c)
+            for ref_id, items in by_ref.items():
+                children = defaultdict(list)
+                for c in items:
+                    children[c.parent_id].append(c)
+                tree = children[None]
+                for c in tree:
+                    c.replies_cached = children.get(c.id, [])
+                comment_trees[ref_id] = tree
 
     return render(
         request,
