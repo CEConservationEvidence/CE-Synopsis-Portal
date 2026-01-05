@@ -1292,6 +1292,13 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                 raise forms.ValidationError(
                     "Coordinates must have exactly 5 decimal places for both latitude and longitude (e.g. '51.50740, -0.12780')."
                 )
+            if match:
+                lat = float(match.group(1))
+                lon = float(match.group(2))
+                if not (-90.0 <= lat <= 90.0 and -180.0 <= lon <= 180.0):
+                    raise forms.ValidationError(
+                        "Coordinates must be valid latitude (-90 to 90) and longitude (-180 to 180)."
+                    )
             cleaned.append(line)
         return cleaned
 
