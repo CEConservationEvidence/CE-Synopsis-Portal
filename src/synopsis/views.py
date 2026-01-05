@@ -6135,8 +6135,8 @@ def reference_batch_detail(request, project_id, batch_id):
         for row in counts:
             comment_counts[row["reference_id"]] = row["count"]
 
-        # Only build full trees when the set is small to avoid heavy processing
-        if focus_mode or len(target_refs) <= 50:
+        MAX_REFS_FOR_COMMENT_TREE = 50  # build trees only for small sets to avoid heavy processing
+        if focus_mode or len(target_refs) <= MAX_REFS_FOR_COMMENT_TREE:
             comment_qs = (
                 ReferenceComment.objects.filter(reference__in=target_refs)
                 .select_related("author", "reference")
