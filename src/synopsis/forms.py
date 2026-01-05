@@ -3,6 +3,7 @@ import re
 from django import forms
 from django.contrib.auth.models import User
 from django.core.validators import FileExtensionValidator
+from django.forms.models import BaseInlineFormSet, inlineformset_factory
 from django.utils.text import slugify
 
 MAX_LOCATION_LINE_LENGTH = 200
@@ -12,6 +13,7 @@ from .models import (
     AdvisoryBoardMember,
     AdvisoryBoardCustomField,
     Funder,
+    FunderContact,
     Project,
     Protocol,
     Reference,
@@ -528,28 +530,16 @@ class AssignAuthorsForm(forms.Form):
 
 
 class FunderForm(forms.ModelForm):
-    contact_title = forms.ChoiceField(
-        choices=FUNDER_TITLE_CHOICES,
-        required=False,
-        widget=forms.Select(attrs={"class": "form-select"}),
-        label="Title",
-    )
-
     class Meta:
         model = Funder
         fields = [
             "organisation",
-            "contact_title",
-            "contact_first_name",
-            "contact_last_name",
             "funds_allocated",
             "fund_start_date",
             "fund_end_date",
         ]
         widgets = {
             "organisation": forms.TextInput(attrs={"class": "form-control"}),
-            "contact_first_name": forms.TextInput(attrs={"class": "form-control"}),
-            "contact_last_name": forms.TextInput(attrs={"class": "form-control"}),
             "funds_allocated": forms.NumberInput(
                 attrs={"class": "form-control", "step": "0.01"}
             ),
@@ -568,10 +558,7 @@ class FunderForm(forms.ModelForm):
 
     def has_identity_fields(self) -> bool:
         cleaned = getattr(self, "cleaned_data", {})
-        return any(
-            cleaned.get(key)
-            for key in ("organisation", "contact_first_name", "contact_last_name")
-        )
+        return bool(cleaned.get("organisation"))
 
     def has_meaningful_input(self) -> bool:
         cleaned = getattr(self, "cleaned_data", {})
@@ -579,9 +566,6 @@ class FunderForm(forms.ModelForm):
             cleaned.get(key)
             for key in (
                 "organisation",
-                "contact_title",
-                "contact_first_name",
-                "contact_last_name",
                 "funds_allocated",
                 "fund_start_date",
                 "fund_end_date",
@@ -590,11 +574,6 @@ class FunderForm(forms.ModelForm):
 
     def clean(self):
         cleaned = super().clean()
-        if self.has_meaningful_input() and not self.has_identity_fields():
-            raise forms.ValidationError(
-                "Provide an organisation or a contact first/last name for the funder."
-            )
-
         start = cleaned.get("fund_start_date")
         end = cleaned.get("fund_end_date")
         if start and end and start > end:
@@ -603,6 +582,80 @@ class FunderForm(forms.ModelForm):
             self.add_error("fund_end_date", message)
             raise forms.ValidationError(message)
         return cleaned
+
+
+class FunderContactForm(forms.ModelForm):
+    title = forms.ChoiceField(
+        choices=FUNDER_TITLE_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Title",
+    )
+
+    class Meta:
+        model = FunderContact
+        fields = ["title", "first_name", "last_name", "phone", "email", "is_primary"]
+        widgets = {
+            "first_name": forms.TextInput(attrs={"class": "form-control"}),
+            "last_name": forms.TextInput(attrs={"class": "form-control"}),
+            "phone": forms.TextInput(attrs={"class": "form-control"}),
+            "email": forms.EmailInput(attrs={"class": "form-control"}),
+            "is_primary": forms.CheckboxInput(
+                attrs={"class": "form-check-input ms-1 me-1"}
+            ),
+        }
+
+    def has_contact_data(self, cleaned: dict | None = None) -> bool:
+        data = cleaned or getattr(self, "cleaned_data", {}) or {}
+        return any(data.get(key) for key in ("first_name", "last_name", "email", "phone"))
+
+    def clean(self):
+        cleaned = super().clean()
+        if self.cleaned_data.get("DELETE"):
+            return cleaned
+        if not self.has_contact_data(cleaned):
+            if self.has_changed():
+                raise forms.ValidationError(
+                    "Enter a name or email for this contact."
+                )
+            return cleaned
+        if cleaned.get("is_primary") and not cleaned.get("email"):
+            self.add_error("email", "Email is required for the primary contact.")
+            raise forms.ValidationError("Primary contact requires an email address.")
+        return cleaned
+
+
+class BaseFunderContactFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        primary_count = 0
+        has_contacts = False
+        for form in self.forms:
+            if not hasattr(form, "cleaned_data"):
+                continue
+            if form.cleaned_data.get("DELETE"):
+                continue
+            if not getattr(form, "has_contact_data", lambda *_: False)(
+                form.cleaned_data
+            ):
+                continue
+            has_contacts = True
+            if form.cleaned_data.get("is_primary"):
+                primary_count += 1
+        if has_contacts and primary_count == 0:
+            raise forms.ValidationError("Select a primary contact.")
+        if primary_count > 1:
+            raise forms.ValidationError("Only one contact can be marked as primary.")
+
+
+FunderContactFormSet = inlineformset_factory(
+    Funder,
+    FunderContact,
+    form=FunderContactForm,
+    formset=BaseFunderContactFormSet,
+    extra=1,
+    can_delete=True,
+)
 
 
 class ProjectDeleteForm(forms.Form):
