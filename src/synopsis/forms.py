@@ -634,14 +634,9 @@ class FunderContactForm(forms.ModelForm):
         if self.cleaned_data.get("DELETE"):
             return cleaned
         if not self.has_contact_data(cleaned):
-            if self.has_changed():
-                raise forms.ValidationError(
-                    "Enter a name or email for this contact."
-                )
+            # Ignore empty rows; also clear any stray primary flag so it doesn't block save
+            cleaned["is_primary"] = False
             return cleaned
-        if cleaned.get("is_primary") and not cleaned.get("email"):
-            self.add_error("email", "Email is required for the primary contact.")
-            raise forms.ValidationError("Primary contact requires an email address.")
         return cleaned
 
 
@@ -650,6 +645,7 @@ class BaseFunderContactFormSet(BaseInlineFormSet):
         super().clean()
         primary_count = 0
         has_contacts = False
+        first_contact_form = None
         for form in self.forms:
             if not hasattr(form, "cleaned_data"):
                 continue
@@ -660,10 +656,14 @@ class BaseFunderContactFormSet(BaseInlineFormSet):
             ):
                 continue
             has_contacts = True
+            if first_contact_form is None:
+                first_contact_form = form
             if form.cleaned_data.get("is_primary"):
                 primary_count += 1
-        if has_contacts and primary_count == 0:
-            raise forms.ValidationError("Select a primary contact.")
+        if has_contacts and primary_count == 0 and first_contact_form:
+            # Auto-promote the first contact to primary if none selected
+            first_contact_form.cleaned_data["is_primary"] = True
+            first_contact_form.instance.is_primary = True
         if primary_count > 1:
             raise forms.ValidationError("Only one contact can be marked as primary.")
 
@@ -673,7 +673,7 @@ FunderContactFormSet = inlineformset_factory(
     FunderContact,
     form=FunderContactForm,
     formset=BaseFunderContactFormSet,
-    extra=1,
+    extra=0,
     can_delete=True,
 )
 
