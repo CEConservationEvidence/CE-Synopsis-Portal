@@ -1,4 +1,28 @@
-from django.db import migrations, models
+from django.db import migrations
+
+
+def ensure_needs_help(apps, schema_editor):
+    """Add needs_help field to reference table only if missing (idempotent)."""
+    Reference = apps.get_model("synopsis", "Reference")
+    table = Reference._meta.db_table
+    connection = schema_editor.connection
+
+    with connection.cursor() as cursor:
+        try:
+            columns = {
+                col.name
+                for col in connection.introspection.get_table_description(
+                    cursor, table
+                )
+            }
+        except Exception:
+            columns = set()
+
+    if "needs_help" in columns:
+        return
+
+    field = Reference._meta.get_field("needs_help")
+    schema_editor.add_field(Reference, field)
 
 
 class Migration(migrations.Migration):
@@ -8,10 +32,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="reference",
-            name="needs_help",
-            field=models.BooleanField(default=False),
-        ),
+        migrations.RunPython(ensure_needs_help, migrations.RunPython.noop),
     ]
-

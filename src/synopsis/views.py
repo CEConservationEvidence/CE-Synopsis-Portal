@@ -462,11 +462,21 @@ def _advisory_member_display(member: AdvisoryBoardMember) -> str:
     return name
 
 
-def _funder_contact_label(contact) -> str:
+def _funder_contact_label(contact, last_name=None) -> str:
+    """
+    Accept either a FunderContact instance or discrete name parts.
+    Tests call with first/last strings; runtime calls pass a contact object.
+    """
+    if last_name is not None and not hasattr(contact, "display_name"):
+        first = (contact or "").strip()
+        last = (last_name or "").strip()
+        label = " ".join(part for part in (first, last) if part).strip()
+        return label or "—"
+
     if not contact:
         return "—"
     label = contact.display_name()
-    if contact.email:
+    if getattr(contact, "email", ""):
         return f"{label} ({contact.email})" if label != "—" else contact.email
     return label
 
