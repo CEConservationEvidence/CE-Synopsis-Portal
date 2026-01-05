@@ -40,9 +40,18 @@
             <div class="border rounded-3 p-3 bg-light">
                 <div class="mb-4">
                     <h6 class="text-uppercase small text-muted mb-2">Organisation</h6>
-                    <label class="form-label">Organisation name</label>
-                    {{ funder_form.organisation }}
-                    {{ funder_form.organisation.errors }}
+                    <div class="row g-3">
+                        <div class="col-lg-4 col-md-5">
+                            <label class="form-label">Organisation name</label>
+                            {{ funder_form.organisation }}
+                            {{ funder_form.organisation.errors }}
+                        </div>
+                        <div class="col-lg-8 col-md-7">
+                            <label class="form-label">Organisation details (optional)</label>
+                            {{ funder_form.organisation_details }}
+                            {{ funder_form.organisation_details.errors }}
+                        </div>
+                    </div>
                 </div>
                 <div class="mb-4">
                     <div class="d-flex justify-content-between align-items-center mb-2">
@@ -57,28 +66,28 @@
                             {% for cform in contact_formset.forms %}
                             <div class="contact-form mb-3 p-2">
                                 {{ cform.non_field_errors }}
-                                <div class="row g-3 align-items-end">
+                                <div class="row g-4 align-items-end">
                                     <div class="col-sm-1">
                                         <label class="form-label">Title</label>
                                         {{ cform.title }}
                                         {{ cform.title.errors }}
                                     </div>
-                                    <div class="col-sm-2 col-md-1">
+                                    <div class="col-sm-2">
                                         <label class="form-label">First name</label>
                                         {{ cform.first_name }}
                                         {{ cform.first_name.errors }}
                                     </div>
-                                    <div class="col-sm-2 col-md-1">
+                                    <div class="col-sm-2">
                                         <label class="form-label">Surname</label>
                                         {{ cform.last_name }}
                                         {{ cform.last_name.errors }}
                                     </div>
-                                    <div class="col-sm-2 col-md-3">
+                                    <div class="col-sm-2">
                                         <label class="form-label">Email</label>
                                         {{ cform.email }}
                                         {{ cform.email.errors }}
                                     </div>
-                                    <div class="col-sm-2 col-md-3">
+                                    <div class="col-sm-2">
                                         <label class="form-label">Phone</label>
                                         {{ cform.phone }}
                                         {{ cform.phone.errors }}
@@ -89,7 +98,7 @@
                                             {{ cform.is_primary.errors }}
                                         </div>
                                     </div>
-                                    <div class="col-sm-2 text-end">
+                                    <div class="col-sm-2 text-end remove-contact-col">
                                         <button type="button" class="btn btn-link text-danger remove-contact-btn">Remove</button>
                                         <span class="d-none">{{ cform.DELETE }}</span>
                                     </div>
@@ -101,28 +110,28 @@
                     <div id="contact-empty-form" class="d-none">
                         <div class="contact-form mb-3 p-2">
                             {{ contact_formset.empty_form.non_field_errors }}
-                            <div class="row g-3 align-items-end">
+                            <div class="row g-4 align-items-end">
                                 <div class="col-sm-1">
                                     <label class="form-label">Title</label>
                                     {{ contact_formset.empty_form.title }}
                                     {{ contact_formset.empty_form.title.errors }}
                                 </div>
-                                <div class="col-sm-2 col-md-1">
+                                <div class="col-sm-2">
                                     <label class="form-label">First name</label>
                                     {{ contact_formset.empty_form.first_name }}
                                     {{ contact_formset.empty_form.first_name.errors }}
                                 </div>
-                                <div class="col-sm-2 col-md-1">
+                                <div class="col-sm-2">
                                     <label class="form-label">Surname</label>
                                     {{ contact_formset.empty_form.last_name }}
                                     {{ contact_formset.empty_form.last_name.errors }}
                                 </div>
-                                <div class="col-sm-2 col-md-3">
+                                <div class="col-sm-2">
                                     <label class="form-label">Email</label>
                                     {{ contact_formset.empty_form.email }}
                                     {{ contact_formset.empty_form.email.errors }}
                                 </div>
-                                <div class="col-sm-2 col-md-3">
+                                <div class="col-sm-2">
                                     <label class="form-label">Phone</label>
                                     {{ contact_formset.empty_form.phone }}
                                     {{ contact_formset.empty_form.phone.errors }}
@@ -133,7 +142,7 @@
                                         {{ contact_formset.empty_form.is_primary.errors }}
                                     </div>
                                 </div>
-                                <div class="col-sm-2 text-end">
+                                <div class="col-sm-2 text-end remove-contact-col">
                                     <button type="button" class="btn btn-link text-danger remove-contact-btn">Remove</button>
                                     <span class="d-none">{{ contact_formset.empty_form.DELETE }}</span>
                                 </div>
@@ -199,6 +208,13 @@
         }).length;
     }
 
+    function updateRemoveButtons() {
+        const hide = activeFormCount() <= 1;
+        contactItems.querySelectorAll(".remove-contact-col").forEach((col) => {
+            col.classList.toggle("d-none", hide);
+        });
+    }
+
     function wireRemove(formEl) {
         const removeBtn = formEl.querySelector(".remove-contact-btn");
         const deleteInput = formEl.querySelector('input[name$="-DELETE"]');
@@ -220,6 +236,7 @@
                     if (nextPrimary) nextPrimary.checked = true;
                 }
             }
+            updateRemoveButtons();
         });
     }
 
@@ -238,6 +255,7 @@
 
     contactItems.querySelectorAll(".contact-form").forEach(wireForm);
     ensurePrimarySelected();
+    updateRemoveButtons();
 
     addButton?.addEventListener("click", function (evt) {
         evt.preventDefault();
@@ -249,6 +267,7 @@
         managementTotal.value = newIndex + 1;
         wireForm(clone);
         ensurePrimarySelected();
+        updateRemoveButtons();
     });
 })();
 </script>
