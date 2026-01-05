@@ -13,68 +13,253 @@
     .
     {% endif %}
 </p>
-<form method="post">
+{% if existing_funders %}
+<div class="card mb-3">
+    <div class="card-body">
+        <h6 class="text-uppercase small text-muted mb-2">Current funders</h6>
+        <ul class="list-unstyled mb-0">
+            {% for item in existing_funders %}
+            {% with primary=item.primary_contact %}
+            <li class="mb-2">
+                <div class="d-flex justify-content-between align-items-center">
+                    <div class="fw-semibold">{{ item.organisation|default:"(Funder)" }}</div>
+                    <div>
+                        <a class="btn btn-link btn-sm text-danger p-0" href="{% url 'synopsis:project_funder_delete' project.id item.id %}">Remove</a>
+                    </div>
+                </div>
+                <div class="text-muted small">
+                    {% if primary %}
+                        Primary: {{ primary.display_name }}{% if primary.email %} ({{ primary.email }}){% endif %}{% if primary.phone %} · {{ primary.phone }}{% endif %}
+                    {% else %}
+                        Primary: —
+                    {% endif %}
+                    {% if item.funds_allocated %} · Funds: {{ item.funds_allocated|floatformat:2 }}{% endif %}
+                    {% if item.fund_start_date %} · From {{ item.fund_start_date|date:"Y-m-d" }}{% endif %}
+                    {% if item.fund_end_date %} to {{ item.fund_end_date|date:"Y-m-d" }}{% endif %}
+                </div>
+            </li>
+            {% endwith %}
+            {% endfor %}
+        </ul>
+    </div>
+</div>
+{% endif %}
+<form method="post" class="mt-3">
     {% csrf_token %}
     {{ form.non_field_errors }}
-    <div class="row g-4">
-        <div class="col-xl-6">
-            <div class="border rounded-3 p-3 h-100 bg-light">
-                <h6 class="text-uppercase small text-muted mb-3">Organisation</h6>
-                <div class="mb-0">
-                    <label class="form-label">Organisation name</label>
-                    {{ form.organisation }}
-                    {{ form.organisation.errors }}
+    <div class="border rounded-3 p-3 bg-light">
+        <div class="mb-4">
+            <h6 class="text-uppercase small text-muted mb-2">Organisation</h6>
+            <label class="form-label">Organisation name</label>
+            {{ form.organisation }}
+            {{ form.organisation.errors }}
+        </div>
+
+        <div class="mb-4">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="text-uppercase small text-muted mb-0">Contacts</h6>
+                <button class="btn btn-sm btn-outline-secondary" type="button" id="add-contact-row">Add contact</button>
+            </div>
+            <p class="text-muted small mb-2">Add at least one contact. Mark one as primary.</p>
+            {{ contact_formset.management_form }}
+            {{ contact_formset.non_form_errors }}
+            <div id="contact-formset" data-prefix="{{ contact_formset.prefix }}" data-empty-template-id="contact-empty-form">
+                <div class="contact-items">
+                    {% for cform in contact_formset.forms %}
+                    <div class="contact-form mb-3 p-2">
+                        {{ cform.non_field_errors }}
+                        <div class="row g-3 align-items-end">
+                            <div class="col-sm-1">
+                                <label class="form-label">Title</label>
+                                {{ cform.title }}
+                                {{ cform.title.errors }}
+                            </div>
+                            <div class="col-sm-2">
+                                <label class="form-label">First name</label>
+                                {{ cform.first_name }}
+                                {{ cform.first_name.errors }}
+                            </div>
+                            <div class="col-sm-2">
+                                <label class="form-label">Surname</label>
+                                {{ cform.last_name }}
+                                {{ cform.last_name.errors }}
+                            </div>
+                            <div class="col-sm-3">
+                                <label class="form-label">Email</label>
+                                {{ cform.email }}
+                                {{ cform.email.errors }}
+                            </div>
+                            <div class="col-sm-2">
+                                <label class="form-label">Phone</label>
+                                {{ cform.phone }}
+                                {{ cform.phone.errors }}
+                            </div>
+                            <div class="col-sm-1 d-flex align-items-center">
+                                <div class="form-check mb-0">
+                                    {{ cform.is_primary }} <label class="form-check-label">Primary</label>
+                                    {{ cform.is_primary.errors }}
+                                </div>
+                            </div>
+                            <div class="col-sm-1 text-end">
+                                <button type="button" class="btn btn-link text-danger remove-contact-btn">Remove</button>
+                                <span class="d-none">{{ cform.DELETE }}</span>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            <div id="contact-empty-form" class="d-none">
+                <div class="contact-form mb-3 p-2">
+                    {{ contact_formset.empty_form.non_field_errors }}
+                    <div class="row g-3 align-items-end">
+                        <div class="col-sm-1">
+                            <label class="form-label">Title</label>
+                            {{ contact_formset.empty_form.title }}
+                            {{ contact_formset.empty_form.title.errors }}
+                        </div>
+                        <div class="col-sm-2">
+                            <label class="form-label">First name</label>
+                            {{ contact_formset.empty_form.first_name }}
+                            {{ contact_formset.empty_form.first_name.errors }}
+                        </div>
+                        <div class="col-sm-2">
+                            <label class="form-label">Surname</label>
+                            {{ contact_formset.empty_form.last_name }}
+                            {{ contact_formset.empty_form.last_name.errors }}
+                        </div>
+                        <div class="col-sm-3">
+                            <label class="form-label">Email</label>
+                            {{ contact_formset.empty_form.email }}
+                            {{ contact_formset.empty_form.email.errors }}
+                        </div>
+                        <div class="col-sm-2">
+                            <label class="form-label">Phone</label>
+                            {{ contact_formset.empty_form.phone }}
+                            {{ contact_formset.empty_form.phone.errors }}
+                        </div>
+                        <div class="col-sm-1 d-flex align-items-center">
+                            <div class="form-check mb-0">
+                                {{ contact_formset.empty_form.is_primary }} <label class="form-check-label">Primary</label>
+                                {{ contact_formset.empty_form.is_primary.errors }}
+                            </div>
+                        </div>
+                        <div class="col-sm-1 text-end">
+                            <button type="button" class="btn btn-link text-danger remove-contact-btn">Remove</button>
+                            <span class="d-none">{{ contact_formset.empty_form.DELETE }}</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col-xl-6">
-            <div class="border rounded-3 p-3 h-100 bg-light">
-                <h6 class="text-uppercase small text-muted mb-3">Primary contact</h6>
-                <div class="row g-3">
-                    <div class="col-sm-4">
-                        <label class="form-label">Title</label>
-                        {{ form.contact_title }}
-                        {{ form.contact_title.errors }}
-                    </div>
-                    <div class="col-sm-4">
-                        <label class="form-label">First name</label>
-                        {{ form.contact_first_name }}
-                        {{ form.contact_first_name.errors }}
-                    </div>
-                    <div class="col-sm-4">
-                        <label class="form-label">Surname</label>
-                        {{ form.contact_last_name }}
-                        {{ form.contact_last_name.errors }}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="row g-4 mt-1">
-        <div class="col-lg-8 col-xl-6">
-            <div class="border rounded-3 p-3 h-100 bg-light">
-                <h6 class="text-uppercase small text-muted mb-3">Funding overview</h6>
-                <div class="mb-3">
+
+        <div>
+            <h6 class="text-uppercase small text-muted mb-2">Funding overview</h6>
+            <div class="row g-3 align-items-end">
+                <div class="col-sm-4 col-md-3 col-lg-3">
                     <label class="form-label">Funds allocated</label>
                     {{ form.funds_allocated }}
                     {{ form.funds_allocated.errors }}
                 </div>
-                <div class="row g-3">
-                    <div class="col-sm-6">
-                        <label class="form-label">Start date</label>
-                        {{ form.fund_start_date }}
-                        {{ form.fund_start_date.errors }}
-                    </div>
-                    <div class="col-sm-6">
-                        <label class="form-label">End date</label>
-                        {{ form.fund_end_date }}
-                        {{ form.fund_end_date.errors }}
-                    </div>
+                <div class="col-sm-4 col-md-3 col-lg-3">
+                    <label class="form-label">Start date</label>
+                    {{ form.fund_start_date }}
+                    {{ form.fund_start_date.errors }}
+                </div>
+                <div class="col-sm-4 col-md-3 col-lg-3">
+                    <label class="form-label">End date</label>
+                    {{ form.fund_end_date }}
+                    {{ form.fund_end_date.errors }}
                 </div>
             </div>
         </div>
     </div>
-    <button class="btn btn-primary mt-3">{% if mode == "edit" %}Save changes{% else %}Add funder{% endif %}</button>
-    <a class="btn btn-link" href="{% url 'synopsis:project_hub' project.id %}">Cancel</a>
+    <div class="d-flex gap-3 justify-content-start mt-4 mb-3">
+        <button class="btn btn-primary px-4">{% if mode == "edit" %}Save changes{% else %}Add funder{% endif %}</button>
+        <a class="btn btn-outline-secondary px-4" href="{% url 'synopsis:project_hub' project.id %}">Cancel</a>
+    </div>
 </form>
+<script>
+(function() {
+    const container = document.getElementById("contact-formset");
+    if (!container) return;
+    const addButton = document.getElementById("add-contact-row");
+    const emptyTemplate = document.getElementById(container.dataset.emptyTemplateId);
+    const managementTotal = document.querySelector(`input[name="${container.dataset.prefix}-TOTAL_FORMS"]`);
+    if (!managementTotal) return;
+    const contactItems = container.querySelector(".contact-items");
+
+    function wirePrimaryToggle(formEl) {
+        const primaryInput = formEl.querySelector('input[name$="-is_primary"]');
+        if (!primaryInput) return;
+        primaryInput.addEventListener("change", () => {
+            if (!primaryInput.checked) return;
+            contactItems.querySelectorAll('input[name$="-is_primary"]').forEach((input) => {
+                if (input !== primaryInput) {
+                    input.checked = false;
+                }
+            });
+        });
+    }
+
+    function activeFormCount() {
+        return Array.from(contactItems.querySelectorAll(".contact-form")).filter((el) => {
+            const deleteInput = el.querySelector('input[name$="-DELETE"]');
+            return !el.classList.contains("d-none") && !(deleteInput && deleteInput.checked);
+        }).length;
+    }
+
+    function wireRemove(formEl) {
+        const removeBtn = formEl.querySelector(".remove-contact-btn");
+        const deleteInput = formEl.querySelector('input[name$="-DELETE"]');
+        if (!removeBtn || !deleteInput) return;
+        removeBtn.addEventListener("click", (evt) => {
+            evt.preventDefault();
+            if (activeFormCount() <= 1) {
+                return;
+            }
+            deleteInput.checked = true;
+            formEl.classList.add("d-none");
+            const primaryInput = formEl.querySelector('input[name$="-is_primary"]');
+            if (primaryInput && primaryInput.checked) {
+                const fallback = Array.from(contactItems.querySelectorAll(".contact-form")).find(
+                    (el) => !el.classList.contains("d-none") && el !== formEl
+                );
+                if (fallback) {
+                    const nextPrimary = fallback.querySelector('input[name$="-is_primary"]');
+                    if (nextPrimary) nextPrimary.checked = true;
+                }
+            }
+        });
+    }
+
+    function wireForm(formEl) {
+        wirePrimaryToggle(formEl);
+        wireRemove(formEl);
+    }
+
+    function ensurePrimarySelected() {
+        const active = contactItems.querySelectorAll('input[name$="-is_primary"]:checked:not(:disabled)');
+        if (active.length === 0) {
+            const first = contactItems.querySelector('input[name$="-is_primary"]');
+            if (first) first.checked = true;
+        }
+    }
+
+    contactItems.querySelectorAll(".contact-form").forEach(wireForm);
+    ensurePrimarySelected();
+
+    addButton?.addEventListener("click", function (evt) {
+        evt.preventDefault();
+        const newIndex = parseInt(managementTotal.value || "0", 10);
+        const clone = emptyTemplate.firstElementChild.cloneNode(true);
+        const html = clone.innerHTML.replace(/__prefix__/g, String(newIndex));
+        clone.innerHTML = html;
+        contactItems.appendChild(clone);
+        managementTotal.value = newIndex + 1;
+        wireForm(clone);
+        ensurePrimarySelected();
+    });
+})();
+</script>
 {% endblock %}
