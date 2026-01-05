@@ -45,6 +45,7 @@ from .models import (
 from .forms import (
     AdvisoryMemberCustomDataForm,
     FunderForm,
+    FunderContactFormSet,
     ProjectDeleteForm,
     ProjectSettingsForm,
     ReferenceSummaryUpdateForm,
@@ -728,18 +729,6 @@ class FunderUtilityTests(TestCase):
 
 
 class FunderFormTests(TestCase):
-    def test_requires_identity_when_other_fields_provided(self):
-        form = FunderForm(
-            data={
-                "organisation": "",
-                "contact_title": "Dr",
-                "contact_first_name": "",
-                "contact_last_name": "",
-            }
-        )
-        self.assertFalse(form.is_valid())
-        self.assertIn("Provide an organisation", form.errors.get("__all__")[0])
-
     def test_valid_with_only_organisation(self):
         form = FunderForm(data={"organisation": "Ocean Trust"})
         self.assertTrue(form.is_valid())
@@ -778,6 +767,57 @@ class FunderFormTests(TestCase):
             }
         )
         self.assertTrue(form.is_valid())
+
+
+class FunderContactFormSetTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Project", start_date=date(2025, 1, 1))
+        self.funder = Funder.objects.create(project=self.project, name="Seed")
+
+    def _formset_payload(self, overrides=None):
+        base = {
+            "contacts-TOTAL_FORMS": "1",
+            "contacts-INITIAL_FORMS": "0",
+            "contacts-MIN_NUM_FORMS": "0",
+            "contacts-MAX_NUM_FORMS": "1000",
+            "contacts-0-title": "",
+            "contacts-0-first_name": "Alex",
+            "contacts-0-last_name": "Smith",
+            "contacts-0-email": "",
+            "contacts-0-is_primary": "",
+            "contacts-0-DELETE": "",
+        }
+        if overrides:
+            base.update(overrides)
+        return base
+
+    def test_requires_primary_when_contacts_present(self):
+        payload = self._formset_payload()
+        formset = FunderContactFormSet(
+            data=payload, instance=self.funder, prefix="contacts"
+        )
+        self.assertFalse(formset.is_valid())
+        self.assertIn("Select a primary contact.", formset.non_form_errors())
+
+    def test_primary_contact_requires_email(self):
+        payload = self._formset_payload({"contacts-0-is_primary": "on"})
+        formset = FunderContactFormSet(
+            data=payload, instance=self.funder, prefix="contacts"
+        )
+        self.assertFalse(formset.is_valid())
+        self.assertIn(
+            "Email is required for the primary contact.",
+            formset.forms[0].errors["email"],
+        )
+
+    def test_valid_primary_contact(self):
+        payload = self._formset_payload(
+            {"contacts-0-is_primary": "on", "contacts-0-email": "alex@example.com"}
+        )
+        formset = FunderContactFormSet(
+            data=payload, instance=self.funder, prefix="contacts"
+        )
+        self.assertTrue(formset.is_valid())
 
 
 class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
