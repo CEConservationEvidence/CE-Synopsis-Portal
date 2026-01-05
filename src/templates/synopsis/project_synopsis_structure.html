@@ -199,7 +199,7 @@
                                         <input type="hidden" name="action" value="update-intervention-background">
                                         <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
                                         <textarea name="background_text" class="form-control form-control-sm" rows="3" placeholder="Background (<200 words): describe the intervention, context, related literature/harms.">{{ intervention.background_text }}</textarea>
-                                        <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, pre-search-end).">{{ intervention.background_references }}</textarea>
+                                        <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, published before search end date).">{{ intervention.background_references }}</textarea>
                                         <div class="d-flex justify-content-end">
                                             <button class="btn btn-outline-primary btn-sm">Save background</button>
                                         </div>
