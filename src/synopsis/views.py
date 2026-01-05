@@ -1736,6 +1736,7 @@ def project_create(request):
                     contact_summary = _contact_summary_text(funder.contacts.all())
                     details = (
                         f"Organisation: {_format_value(funder.organisation)}; "
+                        f"Organisation details: {_format_value(funder.organisation_details)}; "
                         f"Primary contact: {_funder_contact_label(primary)}; "
                         f"Contacts: {contact_summary}; "
                         f"Funds allocated: {_format_value(funder.funds_allocated)}; "
@@ -1771,6 +1772,7 @@ def project_create(request):
             contact_entries = _contact_entries_from_formset(contact_formset)
             funder_summary = {
                 "organisation": funder_cleaned.get("organisation"),
+                "organisation_details": funder_cleaned.get("organisation_details"),
                 "funds_allocated": funder_cleaned.get("funds_allocated"),
                 "fund_start_date": funder_cleaned.get("fund_start_date"),
                 "fund_end_date": funder_cleaned.get("fund_end_date"),
@@ -2095,6 +2097,7 @@ def project_funder_add(request, project_id):
                 contact_summary = _contact_summary_text(funder.contacts.all())
                 details = (
                     f"Organisation: {_format_value(funder.organisation)}; "
+                    f"Organisation details: {_format_value(funder.organisation_details)}; "
                     f"Primary contact: {_funder_contact_label(primary)}; "
                     f"Contacts: {contact_summary}; "
                     f"Funds allocated: {_format_value(funder.funds_allocated)}; "
@@ -2145,6 +2148,7 @@ def project_funder_edit(request, project_id, funder_id):
                     field: getattr(funder, field)
                     for field in (
                         "organisation",
+                        "organisation_details",
                         "funds_allocated",
                         "fund_start_date",
                         "fund_end_date",
