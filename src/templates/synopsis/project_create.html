@@ -60,11 +60,13 @@
                     </div>
                     <p class="text-muted small mb-2">Add at least one contact. Mark one as primary.</p>
                     {{ contact_formset.management_form }}
+                    {{ contact_formset.management_form.errors }}
                     {{ contact_formset.non_form_errors }}
                     <div id="contact-formset" data-prefix="{{ contact_formset.prefix }}" data-empty-template-id="contact-empty-form">
                         <div class="contact-items">
                             {% for cform in contact_formset.forms %}
                             <div class="contact-form mb-3">
+                                {{ cform.id }}
                                 {{ cform.non_field_errors }}
                                 <div class="row g-4 align-items-end">
                                     <div class="col-sm-1">
@@ -109,6 +111,7 @@
                     </div>
                     <div id="contact-empty-form" class="d-none">
                         <div class="contact-form mb-3">
+                            {{ contact_formset.empty_form.id }}
                             {{ contact_formset.empty_form.non_field_errors }}
                             <div class="row g-4 align-items-end">
                                 <div class="col-sm-1">
@@ -257,8 +260,7 @@
     ensurePrimarySelected();
     updateRemoveButtons();
 
-    addButton?.addEventListener("click", function (evt) {
-        evt.preventDefault();
+    function addContactForm() {
         const newIndex = parseInt(managementTotal.value || "0", 10);
         const clone = emptyTemplate.firstElementChild.cloneNode(true);
         const html = clone.innerHTML.replace(/__prefix__/g, String(newIndex));
@@ -268,6 +270,15 @@
         wireForm(clone);
         ensurePrimarySelected();
         updateRemoveButtons();
+    }
+
+    if (contactItems.querySelectorAll(".contact-form").length === 0) {
+        addContactForm();
+    }
+
+    addButton?.addEventListener("click", function (evt) {
+        evt.preventDefault();
+        addContactForm();
     });
 })();
 </script>
