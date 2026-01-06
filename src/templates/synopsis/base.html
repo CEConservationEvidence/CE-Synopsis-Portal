@@ -10,11 +10,12 @@
         <nav class="navbar navbar-expand navbar-dark bg-dark mb-4">
             <div class="container">
                 <a class="navbar-brand" href="{% url 'synopsis:dashboard' %}">Conservation Evidence</a>
-                <div class="ms-auto">
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:dashboard' %}">Home</a>
                     {% if user.is_authenticated %}
-                    <a class="btn btn-outline-light btn-sm me-2" href="{% url 'synopsis:project_create' %}">Create New Synopsis</a>
+                    <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:project_create' %}">Create New Synopsis</a>
                     {% if user.is_staff %}
-                    <a class="btn btn-warning btn-sm me-2" href="{% url 'synopsis:manager_dashboard' %}">Manager</a>
+                    <a class="btn btn-warning btn-sm" href="{% url 'synopsis:manager_dashboard' %}">Manager</a>
                     {% endif %}
                     <form method="post" action="{% url 'synopsis:logout' %}" class="d-inline">
                         {% csrf_token %}
