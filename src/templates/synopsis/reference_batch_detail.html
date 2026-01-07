@@ -106,9 +106,9 @@ details.abstract-details[open] .abstract-full {
                 {% endif %}
                 <input type="hidden" name="action" value="bulk-screen">
                 <span class="fw-semibold small text-uppercase text-muted">Bulk</span>
-                <button class="btn btn-success btn-sm" type="submit" name="bulk_action" value="include">Mark as Include</button>
-                <button class="btn btn-outline-danger btn-sm" type="submit" name="bulk_action" value="exclude">Mark as Exclude</button>
-                <button class="btn btn-outline-secondary btn-sm" type="submit" name="bulk_action" value="pending">Reset to Pending</button>
+                <button class="btn btn-success btn-sm bulk-action-btn" type="submit" name="bulk_action" value="include" disabled>Mark as Include</button>
+                <button class="btn btn-outline-danger btn-sm bulk-action-btn" type="submit" name="bulk_action" value="exclude" disabled>Mark as Exclude</button>
+                <button class="btn btn-outline-secondary btn-sm bulk-action-btn" type="submit" name="bulk_action" value="pending" disabled>Reset to Pending</button>
             </form>
         </div>
         <div class="row g-2 align-items-end mt-2">
@@ -505,14 +505,26 @@ details.abstract-details[open] .abstract-full {
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const selectAll = document.getElementById("select-all-references");
+    const bulkCheckboxes = Array.from(document.querySelectorAll(".bulk-reference-checkbox"));
+    const bulkButtons = Array.from(document.querySelectorAll(".bulk-action-btn"));
+    const updateBulkButtons = () => {
+        const anyChecked = bulkCheckboxes.some((checkbox) => checkbox.checked);
+        bulkButtons.forEach((btn) => {
+            btn.disabled = !anyChecked;
+        });
+    };
+    updateBulkButtons();
     if (selectAll) {
-        const checkboxes = document.querySelectorAll(".bulk-reference-checkbox");
         selectAll.addEventListener("change", function () {
-            checkboxes.forEach((checkbox) => {
+            bulkCheckboxes.forEach((checkbox) => {
                 checkbox.checked = selectAll.checked;
             });
+            updateBulkButtons();
         });
     }
+    bulkCheckboxes.forEach((checkbox) => {
+        checkbox.addEventListener("change", updateBulkButtons);
+    });
 
     const input = document.getElementById("batch-filter-input");
     const rows = document.querySelectorAll("table tbody tr");
