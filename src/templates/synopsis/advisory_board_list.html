@@ -3,7 +3,7 @@
 {% load advisory_extras %}
 {% block title %}Advisory Board – {{ project.title }}{% endblock %}
 {% block content %}
-<h1 class="mb-3">Advisory Board – {{ project.title }}</h1>
+<h1 class="mb-3" id="page-top">Advisory Board – {{ project.title }}</h1>
 <style>
     .advisory-board-table {
         --ab-invite-bg: var(--bs-warning-bg-subtle, #fff7d6);
@@ -96,6 +96,12 @@
         font-size: 0.95rem;
         font-weight: 600;
         letter-spacing: 0.04em;
+    }
+
+    .advisory-board-table-wrapper {
+        max-height: 70vh;
+        overflow: auto;
+        scrollbar-gutter: stable both-edges;
     }
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3">
@@ -243,7 +249,7 @@
             </div>
         </div>
         {% if total_member_count %}
-        <div class="table-responsive mt-4">
+        <div class="table-responsive mt-4 advisory-board-table-wrapper">
             <table class="table table-sm align-middle advisory-board-table">
                 
                 <thead class="table-light">
@@ -1198,6 +1204,9 @@
     </div>
     {% endfor %}
 {% endif %}
+<div class="d-flex justify-content-end mt-4">
+    <a class="btn btn-outline-secondary btn-sm" href="#page-top">Back to top</a>
+</div>
 </div>
 </div>
 {% endblock %}
