@@ -50,6 +50,6 @@ Please describe the tests you've performed to verify your changes (e.g. unit tes
 <!-- Optional -->
 _Add screenshots here if needed_
 
-## Notes for reviewers
+## Notes
 <!-- Optional -->
 _E.g. "Please focus on this part of the code ..."_
