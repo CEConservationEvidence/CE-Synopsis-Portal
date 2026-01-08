@@ -52,4 +52,4 @@ _Add screenshots here if needed_
 
 ## Notes
 <!-- Optional -->
-_E.g. "Please focus on this part of the code ..."_
+e.g. additional information, context, or comments for reviewers.
