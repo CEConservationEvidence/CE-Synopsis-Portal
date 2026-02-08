@@ -10,15 +10,15 @@
 </div>
 <div class="card mb-4">
     <div class="card-body">
-        <h4 class="mb-1">{{ reference.title }}</h4>
+        <h4 class="mb-1">{{ reference.canonical.title }}</h4>
         <div class="text-muted mb-2">
-            {% if reference.authors %}{{ reference.authors }}{% else %}Unknown authors{% endif %}
-            {% if reference.publication_year %} · {{ reference.publication_year }}{% endif %}
+            {% if reference.canonical.authors %}{{ reference.canonical.authors }}{% else %}Unknown authors{% endif %}
+            {% if reference.canonical.publication_year %} · {{ reference.canonical.publication_year }}{% endif %}
         </div>
-        {% if reference.abstract %}
+        {% if reference.canonical.abstract %}
         <div class="position-relative">
             <div id="abstract-preview" class="mb-2" style="max-height: 6rem; overflow: hidden;">
-                <p class="mb-0">{{ reference.abstract }}</p>
+                <p class="mb-0">{{ reference.canonical.abstract }}</p>
             </div>
             <button class="btn btn-outline-link btn-sm p-0" type="button" id="toggle-abstract">Show more</button>
         </div>
@@ -130,10 +130,6 @@
                             <div class="col-md-6">
                                 <label class="form-label">Study design</label>
                                 {{ summary_form.study_design }}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Type of study</label>
-                                {{ summary_form.study_type }}
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Number of sites/replications</label>
@@ -370,6 +366,49 @@
                 </form>
             </div>
         </div>
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span>Reference management</span>
+                <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'review' %}text-bg-warning{% elif summary.status == 'draft' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
+                    {{ summary.get_status_display }}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-lg-6">
+                        <form method="post" class="d-flex flex-column gap-3">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="update-status">
+                            <div>
+                                <label class="form-label small">Status</label>
+                                <select name="status" class="form-select form-select-sm">
+                                    {% for code, label in status_choices %}
+                                        <option value="{{ code }}" {% if summary.status == code %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="needs-help" name="needs_help" value="1" {% if summary.needs_help %}checked{% endif %}>
+                                <label class="form-check-label small" for="needs-help">Needs help</label>
+                            </div>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button class="btn btn-primary btn-sm" type="submit">Save status</button>
+                                <button class="btn btn-outline-success btn-sm" type="submit" name="quick_done" value="1">Mark as summarised</button>
+                            </div>
+                        </form>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="row g-2 small">
+                            <div class="col-6">Action summaries: <strong>{{ action_summaries|length }}</strong></div>
+                            <div class="col-6">Outcome rows: <strong>{{ summary.outcome_rows|length }}</strong></div>
+                            <div class="col-6">Comments: <strong>{{ comments|length }}</strong></div>
+                            <div class="col-6">Last updated: <strong>{{ summary.updated_at|date:"Y-m-d H:i" }}</strong></div>
+                            <div class="col-12">Assigned: <strong>{% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}</strong></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -379,7 +418,7 @@
       <div class="modal-header">
         <div>
             <h5 class="modal-title mb-0">Snapshot & comments</h5>
-            <small class="text-muted">{{ reference.title }}</small>
+            <small class="text-muted">{{ reference.canonical.title }}</small>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
@@ -440,25 +479,6 @@
                 {% endif %}
             </div>
             <div class="col-lg-5">
-                <div class="fw-semibold mb-2">Quick updates</div>
-                <form method="post" class="mb-3">
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="update-status">
-                    <div class="mb-2">
-                        <label class="form-label small">Status</label>
-                        <select name="status" class="form-select form-select-sm">
-                            {% for code, label in status_choices %}
-                                <option value="{{ code }}" {% if summary.status == code %}selected{% endif %}>{{ label }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="form-check form-switch mb-2">
-                        <input class="form-check-input" type="checkbox" id="modal-needs-help" name="needs_help" value="1" {% if summary.needs_help %}checked{% endif %}>
-                        <label class="form-check-label small" for="modal-needs-help">Needs help</label>
-                    </div>
-                    <button class="btn btn-outline-primary btn-sm">Save</button>
-                </form>
-
                 <div class="fw-semibold mb-2">Add comment</div>
                 <form method="post" enctype="multipart/form-data" id="comment-form">
                     {% csrf_token %}
