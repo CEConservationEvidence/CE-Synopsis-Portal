@@ -1,0 +1,172 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Reference Library{% endblock %}
+{% block content %}
+<h1 class="mb-2">Reference library</h1>
+<p class="text-muted mb-3">Central pool for all references. Link selected items to a project to start screening.</p>
+{% if selected_project_obj %}
+<div class="alert alert-info py-2 d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <span>Linking into project: <strong>{{ selected_project_obj.title }}</strong>.</span>
+    {% if next_url %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ next_url }}">Back to project references</a>
+    {% endif %}
+</div>
+{% endif %}
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">
+            <form method="get" class="d-flex flex-wrap align-items-end gap-3">
+                <div class="d-flex flex-column gap-1">
+                    <label class="fw-semibold mb-0" for="library-filter">Search</label>
+                    <input type="text" class="form-control form-control-sm" id="library-filter" name="q" placeholder="Search title, author, DOI, journal" style="max-width: 360px;" value="{{ q }}">
+                </div>
+                <div class="d-flex flex-column gap-1">
+                    <label class="fw-semibold mb-0" for="batch-filter">Import batch</label>
+                    <select name="batch" id="batch-filter" class="form-select form-select-sm" style="max-width: 280px;">
+                        <option value="">All batches</option>
+                        {% for batch in batch_options %}
+                        <option value="{{ batch.id }}"{% if selected_batch == batch.id %} selected{% endif %}>
+                            {{ batch.label }} ({{ batch.created_at|date:"Y-m-d" }})
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">Apply</button>
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_library' %}">Clear</a>
+                </div>
+                {% if next_url %}
+                <input type="hidden" name="next" value="{{ next_url }}">
+                {% endif %}
+                {% if selected_project %}
+                <input type="hidden" name="project" value="{{ selected_project }}">
+                {% endif %}
+            </form>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:library_batch_list' %}">View batches</a>
+                <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:library_reference_batch_upload' %}">Upload RIS/XML</a>
+            </div>
+        </div>
+    </div>
+</div>
+<div class="card">
+    <div class="card-body">
+        {% if project_options %}
+        <form method="post" id="bulk-link-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="link-multi">
+            {% if next_url %}
+            <input type="hidden" name="next" value="{{ next_url }}">
+            {% endif %}
+            {% if selected_project %}
+            <input type="hidden" name="project" value="{{ selected_project }}">
+            {% endif %}
+            <div class="d-flex flex-wrap align-items-end gap-3 mb-3">
+                <div class="d-flex flex-column gap-1">
+                    <label class="fw-semibold mb-0" for="target_project">Target project</label>
+                    <select name="target_project" id="target_project" class="form-select form-select-sm" style="max-width: 260px;">
+                        {% for proj in project_options %}
+                        <option value="{{ proj.id }}"{% if selected_project == proj.id %} selected{% endif %}>{{ proj.title }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="d-flex flex-column gap-1">
+                    <label class="fw-semibold mb-0" for="library-folders">Folders (optional)</label>
+                    <select id="library-folders" name="reference_folder" class="form-select form-select-sm" multiple style="max-width: 260px; height: 120px;">
+                        {% for val,label in folder_choices %}
+                        <option value="{{ val }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="d-flex flex-column gap-1">
+                    <span class="small text-muted">Selected: <span id="selected-count">0</span></span>
+                    <button class="btn btn-primary btn-sm" type="submit" id="bulk-link-btn" disabled>Link selected</button>
+                    <span class="small text-muted">Tip: tick rows, then link.</span>
+                </div>
+            </div>
+        {% else %}
+            <span class="text-muted small">No target projects available.</span>
+        {% endif %}
+        <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+            <table class="table table-sm table-hover align-middle mb-0" id="library-table">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 2%;"><input type="checkbox" id="select-all"></th>
+                        <th style="width: 32%">Title</th>
+                        <th>Authors</th>
+                        <th class="text-center" style="width: 7%;">Year</th>
+                        <th>Journal</th>
+                        <th style="width: 18%;">Batch</th>
+                        <th class="text-center" style="width: 7%;">Projects</th>
+                        <th class="text-center" style="width: 9%">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for ref in references %}
+                    <tr class="library-row">
+                        <td class="text-center">
+                            <input type="checkbox" class="library-check" name="selected_refs" value="{{ ref.id }}">
+                        </td>
+                        <td>
+                            <div class="fw-semibold">{{ ref.title }}</div>
+                            <div class="text-muted small">
+                                {% if ref.doi %}DOI: {{ ref.doi }}{% elif ref.url %}<a href="{{ ref.url }}" target="_blank" rel="noopener noreferrer">Open link</a>{% else %}—{% endif %}
+                            </div>
+                        </td>
+                        <td class="small">{{ ref.authors|default:"—" }}</td>
+                        <td class="text-center small">{{ ref.publication_year|default:"—" }}</td>
+                        <td class="small">{{ ref.journal|default:"—" }}</td>
+                        <td class="small">
+                            {% if ref.import_batch %}
+                            <a class="text-decoration-none" href="{% url 'synopsis:library_batch_detail' ref.import_batch.id %}">{{ ref.import_batch.label }}</a>
+                            <div class="text-muted small">{{ ref.import_batch.created_at|date:"Y-m-d" }}</div>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center small"><span class="badge text-bg-light">{{ ref.project_count|default:"0" }}</span></td>
+                        <td class="text-center">
+                            <div class="d-flex flex-wrap justify-content-center gap-2">
+                                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:library_reference_detail' ref.id %}">Edit</a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-center text-muted">No references found.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% if project_options %}
+        </form>
+        {% endif %}
+    </div>
+</div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const selectAll = document.getElementById("select-all");
+    const checks = document.querySelectorAll(".library-check");
+    const countEl = document.getElementById("selected-count");
+    const linkBtn = document.getElementById("bulk-link-btn");
+    const updateCount = () => {
+        if (!countEl || !linkBtn) {
+            return;
+        }
+        const selected = Array.from(checks).filter((c) => c.checked).length;
+        countEl.textContent = selected;
+        linkBtn.disabled = selected === 0;
+    };
+    if (selectAll) {
+        selectAll.addEventListener("change", () => {
+            checks.forEach((c) => c.checked = selectAll.checked);
+            updateCount();
+        });
+    }
+    checks.forEach((check) => {
+        check.addEventListener("change", updateCount);
+    });
+    updateCount();
+});
+</script>
+{% endblock %}

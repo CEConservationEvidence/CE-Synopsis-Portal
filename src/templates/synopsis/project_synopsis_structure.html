@@ -215,7 +215,7 @@
                                         <select id="summary-select-{{ intervention.id }}" name="summary" class="form-select form-select-sm">
                                             <option value="">Select summary…</option>
                                             {% for summary in reference_summaries %}
-                                                <option value="{{ summary.id }}">{{ summary.reference.title }}</option>
+                                        <option value="{{ summary.id }}">{{ summary.reference.canonical.title }}</option>
                                             {% endfor %}
                                         </select>
                                         <button class="btn btn-outline-primary btn-sm">Add</button>
@@ -226,7 +226,7 @@
                                     {% for assignment in intervention.assignments.all %}
                                     <li class="list-group-item d-flex justify-content-between align-items-center" draggable="true" data-assignment-id="{{ assignment.id }}">
                                         <span class="me-2">☰</span>
-                                        <div class="flex-grow-1">{{ assignment.reference_summary.reference.title }}</div>
+                                        <div class="flex-grow-1">{{ assignment.reference_summary.reference.canonical.title }}</div>
                                         <form method="post" class="ms-2">
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="delete-assignment">

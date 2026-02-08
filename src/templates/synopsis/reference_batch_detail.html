@@ -1,6 +1,6 @@
 {% extends "synopsis/base.html" %}
 {% load advisory_extras %}
-{% block title %}Reference Batch – {{ batch.label }}{% endblock %}
+{% block title %}Screening Batch – {{ batch.label }}{% endblock %}
 {% block content %}
 <h1 class="mb-1">{{ batch.label }}</h1>
 <p class="text-muted mb-3">
@@ -72,7 +72,7 @@ details.abstract-details[open] .abstract-full {
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3 align-items-center justify-content-between">
     <div class="d-flex flex-wrap gap-2">
-        <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_list' project.id %}">Back to reference imports</a>
+        <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_list' project.id %}">Back to project references</a>
         <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#batchNotesModal">
             Snapshot &amp; comments
         </button>
@@ -140,17 +140,17 @@ details.abstract-details[open] .abstract-full {
                 </div>
                 <div class="card focus-card">
             <div class="card-body">
-                <h5 class="card-title mb-1">{{ focused_reference.title }}</h5>
+                <h5 class="card-title mb-1">{{ focused_reference.canonical.title }}</h5>
                 <div class="small text-muted mb-2">
-                    {{ focused_reference.authors|default:"—" }}{% if focused_reference.publication_year %} · {{ focused_reference.publication_year }}{% endif %}{% if focused_reference.journal %} · {{ focused_reference.journal }}{% endif %}
+                    {{ focused_reference.canonical.authors|default:"—" }}{% if focused_reference.canonical.publication_year %} · {{ focused_reference.canonical.publication_year }}{% endif %}{% if focused_reference.canonical.journal %} · {{ focused_reference.canonical.journal }}{% endif %}
                 </div>
-                {% if focused_reference.abstract %}
+                {% if focused_reference.canonical.abstract %}
                 <div class="mb-3 small text-muted" style="white-space: pre-wrap;">{{ focused_reference.decoded_abstract }}</div>
                 {% endif %}
                 <div class="mb-3 small text-muted">
-                    {% if focused_reference.doi %}DOI: {{ focused_reference.doi }}{% endif %}
-                    {% if focused_reference.url %}
-                    <div><a href="{{ focused_reference.url }}" target="_blank" rel="noopener noreferrer">Open link</a></div>
+                    {% if focused_reference.canonical.doi %}DOI: {{ focused_reference.canonical.doi }}{% endif %}
+                    {% if focused_reference.canonical.url %}
+                    <div><a href="{{ focused_reference.canonical.url }}" target="_blank" rel="noopener noreferrer">Open link</a></div>
                     {% endif %}
                 </div>
                 <div class="mb-3">
@@ -162,6 +162,29 @@ details.abstract-details[open] .abstract-full {
                     {% if focused_reference.needs_help %}
                     <span class="badge text-bg-warning text-dark ms-2">Needs help</span>
                     {% endif %}
+                    <div class="mt-2">
+                        <label class="form-label small mb-1">Reference folders</label>
+                        <form method="post" class="d-flex flex-wrap gap-2 align-items-center mb-0">
+                            {% csrf_token %}
+                            {% if status_filter %}
+                            <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                            {% endif %}
+                            <input type="hidden" name="focus" value="1">
+                            <input type="hidden" name="focus_ref" value="{{ focused_reference.id }}">
+                            {% if focus_next_id %}
+                            <input type="hidden" name="next_ref_id" value="{{ focus_next_id }}">
+                            {% else %}
+                            <input type="hidden" name="next_ref_id" value="{{ focused_reference.id }}">
+                            {% endif %}
+                            <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
+                            <select name="reference_folder" class="form-select form-select-sm" multiple style="max-width: 320px; height: 150px;">
+                                {% for val,label in folder_choices %}
+                                <option value="{{ val }}" {% if val in focused_reference.reference_folder %}selected{% endif %}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ focused_reference.screening_status }}">Save folders</button>
+                        </form>
+                    </div>
                     <div class="mt-2 d-flex flex-wrap align-items-center gap-2">
                         <button
                             class="btn btn-outline-secondary btn-sm"
@@ -229,7 +252,7 @@ details.abstract-details[open] .abstract-full {
                 </thead>
                 <tbody>
                     {% for ref in references %}
-                    <tr{% if not ref.abstract %} class="table-warning"{% endif %}>
+                    <tr{% if not ref.canonical.abstract %} class="table-warning"{% endif %}>
                         <td class="text-center">
                             <input
                                 class="form-check-input bulk-reference-checkbox"
@@ -237,47 +260,47 @@ details.abstract-details[open] .abstract-full {
                                 name="selected_references"
                                 value="{{ ref.id }}"
                                 form="bulk-screening-form"
-                                aria-label="Select {{ ref.title }}"
+                                aria-label="Select {{ ref.canonical.title }}"
                             >
                         </td>
                         <td>
                             <div class="d-flex flex-wrap align-items-center gap-2">
-                                <strong>{{ ref.title }}</strong>
-                                {% if not ref.abstract %}
+                                <strong>{{ ref.canonical.title }}</strong>
+                                {% if not ref.canonical.abstract %}
                                 <span class="badge text-bg-warning text-dark">No abstract</span>
                                 {% endif %}
                             </div>
-                            {% if ref.abstract %}
+                            {% if ref.canonical.abstract %}
                             <div class="text-muted small mt-1">
                                 {{ ref.decoded_abstract|truncatechars:140 }}
                                 <button
                                     class="btn btn-link btn-sm p-0 ms-1 view-abstract-btn"
                                     type="button"
                                     data-index="{{ forloop.counter0 }}"
-                                    data-title="{{ ref.title|escape }}"
-                                    data-authors="{{ ref.authors|default:'—'|escape }}"
-                                    data-year="{{ ref.publication_year|default:'—' }}"
-                                    data-journal="{{ ref.journal|default:'—'|escape }}"
+                                    data-title="{{ ref.canonical.title|escape }}"
+                                    data-authors="{{ ref.canonical.authors|default:'—'|escape }}"
+                                    data-year="{{ ref.canonical.publication_year|default:'—' }}"
+                                    data-journal="{{ ref.canonical.journal|default:'—'|escape }}"
                                 >
                                     View full abstract
                                 </button>
                                 <span class="abstract-full-data d-none" data-index="{{ forloop.counter0 }}">{{ ref.decoded_abstract }}</span>
                                 <span class="d-none ref-search-text">
-                                    {{ ref.title }} {{ ref.authors }} {{ ref.doi }} {{ ref.publication_year }} {{ ref.journal }}
+                                    {{ ref.canonical.title }} {{ ref.canonical.authors }} {{ ref.canonical.doi }} {{ ref.canonical.publication_year }} {{ ref.canonical.journal }}
                                 </span>
                             </div>
                             {% endif %}
                             <div class="small text-muted mt-1">
-                                {% if ref.doi %}DOI: {{ ref.doi }}{% endif %}
-                {% if ref.url %}
+                                {% if ref.canonical.doi %}DOI: {{ ref.canonical.doi }}{% endif %}
+                {% if ref.canonical.url %}
                                 <br>
-                                <a href="{{ ref.url }}" target="_blank" rel="noopener noreferrer">Open link</a>
+                                <a href="{{ ref.canonical.url }}" target="_blank" rel="noopener noreferrer">Open link</a>
                                 {% endif %}
                             </div>
                         </td>
-                        <td class="small text-center px-3">{{ ref.authors }}</td>
-                        <td class="small text-center px-3">{{ ref.publication_year|default:"—" }}</td>
-                        <td class="small text-center px-3">{{ ref.journal|default:"—" }}</td>
+                        <td class="small text-center px-3">{{ ref.canonical.authors|default:"—" }}</td>
+                        <td class="small text-center px-3">{{ ref.canonical.publication_year|default:"—" }}</td>
+                        <td class="small text-center px-3">{{ ref.canonical.journal|default:"—" }}</td>
                         <td class="text-center px-3">
                             <span class="badge {% if ref.screening_status == 'included' %}text-bg-success{% elif ref.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ ref.get_screening_status_display }}</span>
                             {% if ref.screened_by %}
@@ -296,6 +319,19 @@ details.abstract-details[open] .abstract-full {
                                     Notes
                                 </button>
                             </div>
+                            <form method="post" class="d-flex flex-wrap align-items-center justify-content-center gap-2 mt-2">
+                                {% csrf_token %}
+                                {% if status_filter %}
+                                <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                                {% endif %}
+                                <input type="hidden" name="reference_id" value="{{ ref.id }}">
+                                <select name="reference_folder" class="form-select form-select-sm" multiple style="max-width: 220px; height: 150px;">
+                                    {% for val,label in folder_choices %}
+                                    <option value="{{ val }}" {% if val in ref.reference_folder %}selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ ref.screening_status }}">Save folders</button>
+                            </form>
                         </td>
                         <td class="text-center">
                             <div class="d-flex flex-wrap justify-content-center gap-2">
@@ -345,7 +381,7 @@ details.abstract-details[open] .abstract-full {
       <div class="modal-header">
         <div>
             <h5 class="modal-title mb-0">Notes</h5>
-            <small class="text-muted">{{ ref.title }}</small>
+            <small class="text-muted">{{ ref.canonical.title }}</small>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>

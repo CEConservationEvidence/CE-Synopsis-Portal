@@ -47,11 +47,11 @@
             <div class="card-body">
                 {% if column.items %}
                     {% for summary in column.items %}
-                    <div class="border rounded p-3 mb-3 summary-card" data-search="{{ summary.reference.title }} {{ summary.reference.authors }} {{ summary.reference.publication_year }} {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% endif %}">
-                        <div class="fw-semibold">{{ summary.reference.title }}</div>
+                    <div class="border rounded p-3 mb-3 summary-card" data-search="{{ summary.reference.canonical.title }} {{ summary.reference.canonical.authors }} {{ summary.reference.canonical.publication_year }} {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% endif %}">
+                        <div class="fw-semibold">{{ summary.reference.canonical.title }}</div>
                         <div class="small text-muted">
-                            {% if summary.reference.authors %}{{ summary.reference.authors }}{% else %}Unknown authors{% endif %}
-                            {% if summary.reference.publication_year %} · {{ summary.reference.publication_year }}{% endif %}
+                            {% if summary.reference.canonical.authors %}{{ summary.reference.canonical.authors }}{% else %}Unknown authors{% endif %}
+                            {% if summary.reference.canonical.publication_year %} · {{ summary.reference.canonical.publication_year }}{% endif %}
                         </div>
                         <div class="small mt-2">
                             Assigned to:
@@ -204,10 +204,10 @@ document.addEventListener("DOMContentLoaded", function () {
                         <tr class="dist-row-wrap">
                             <td><input type="checkbox" class="dist-row" name="summary_ids" value="{{ summary.id }}"></td>
                             <td>
-                                <div class="fw-semibold dist-text">{{ summary.reference.title }}</div>
+                                <div class="fw-semibold dist-text">{{ summary.reference.canonical.title }}</div>
                                 <div class="small text-muted dist-text">
-                                    {% if summary.reference.authors %}{{ summary.reference.authors }}{% else %}Unknown authors{% endif %}
-                                    {% if summary.reference.publication_year %} · {{ summary.reference.publication_year }}{% endif %}
+                                    {% if summary.reference.canonical.authors %}{{ summary.reference.canonical.authors }}{% else %}Unknown authors{% endif %}
+                                    {% if summary.reference.canonical.publication_year %} · {{ summary.reference.canonical.publication_year }}{% endif %}
                                 </div>
                             </td>
                             <td><span class="badge text-bg-light">{{ summary.get_status_display }}</span></td>
