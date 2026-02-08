@@ -17,6 +17,7 @@ from .models import (
     Project,
     Protocol,
     Reference,
+    LibraryReference,
     ReferenceSummary,
     ReferenceSourceBatch,
     ReferenceActionSummary,
@@ -1053,6 +1054,13 @@ class ReferenceBatchUploadForm(forms.Form):
         help_text="Internal notes about this batch (optional).",
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        choices = self.fields["source_type"].choices
+        self.fields["source_type"].choices = [
+            choice for choice in choices if choice[0] != "library_link"
+        ]
+
     def clean(self):
         cleaned = super().clean()
         start = cleaned.get("search_date_start")
@@ -1065,11 +1073,25 @@ class ReferenceBatchUploadForm(forms.Form):
         return cleaned
 
 
+class LibraryReferenceBatchUploadForm(ReferenceBatchUploadForm):
+    ris_file = forms.FileField(
+        label="RIS/TXT/XML file",
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        validators=[FileExtensionValidator(["ris", "txt", "xml"])],
+    )
+
+
 class ReferenceScreeningForm(forms.Form):
     reference_id = forms.IntegerField(widget=forms.HiddenInput)
     screening_status = forms.ChoiceField(
         choices=Reference.SCREENING_STATUS_CHOICES,
         widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
+    reference_folder = forms.MultipleChoiceField(
+        choices=Reference.FOLDER_CHOICES,
+        required=False,
+        widget=forms.SelectMultiple(attrs={"class": "form-select form-select-sm", "size": "6"}),
+        label="Reference folders",
     )
     screening_notes = forms.CharField(
         required=False,
@@ -1081,6 +1103,37 @@ class ReferenceScreeningForm(forms.Form):
             }
         ),
     )
+
+
+class LibraryReferenceUpdateForm(forms.ModelForm):
+    class Meta:
+        model = LibraryReference
+        fields = [
+            "title",
+            "authors",
+            "publication_year",
+            "journal",
+            "volume",
+            "issue",
+            "pages",
+            "doi",
+            "url",
+            "language",
+            "abstract",
+        ]
+        widgets = {
+            "title": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
+            "authors": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
+            "publication_year": forms.NumberInput(attrs={"class": "form-control"}),
+            "journal": forms.TextInput(attrs={"class": "form-control"}),
+            "volume": forms.TextInput(attrs={"class": "form-control"}),
+            "issue": forms.TextInput(attrs={"class": "form-control"}),
+            "pages": forms.TextInput(attrs={"class": "form-control"}),
+            "doi": forms.TextInput(attrs={"class": "form-control"}),
+            "url": forms.URLInput(attrs={"class": "form-control"}),
+            "language": forms.TextInput(attrs={"class": "form-control"}),
+            "abstract": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+        }
 
 
 class ActionListFeedbackCloseForm(forms.Form):
@@ -1258,7 +1311,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "reference_label",
             "action_description",
             "study_design",
-            "study_type",
             "sites_replications",
             "year_range",
             "habitat_and_sites",
@@ -1296,7 +1348,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "reference_label": forms.TextInput(attrs={"class": "form-control"}),
             "action_description": forms.TextInput(attrs={"class": "form-control"}),
             "study_design": forms.TextInput(attrs={"class": "form-control"}),
-            "study_type": forms.TextInput(attrs={"class": "form-control"}),
             "sites_replications": forms.TextInput(
                 attrs={
                     "class": "form-control",

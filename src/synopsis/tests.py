@@ -34,6 +34,7 @@ from .models import (
     ActionListFeedback,
     CollaborativeSession,
     UserRole,
+    LibraryReference,
     ReferenceSourceBatch,
     ReferenceSourceBatchNoteHistory,
     Reference,
@@ -1837,8 +1838,12 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
 
         self.assertEqual(Reference.objects.filter(project=self.project).count(), 2)
+        self.assertEqual(LibraryReference.objects.count(), 2)
         batch = ReferenceSourceBatch.objects.get(project=self.project)
         self.assertEqual(batch.record_count, 2)
+        self.assertFalse(
+            Reference.objects.filter(project=self.project, library_reference__isnull=True).exists()
+        )
         titles = set(
             Reference.objects.filter(project=self.project).values_list(
                 "title", flat=True
@@ -1911,6 +1916,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
         refs = Reference.objects.filter(project=self.project)
         self.assertEqual(refs.count(), 1)
         ref = refs.first()
+        self.assertIsNotNone(ref.library_reference)
         self.assertEqual(ref.title, "Example Title")
         self.assertEqual(ref.publication_year, 2021)
         self.assertEqual(ref.journal, "Marine Science Quarterly")

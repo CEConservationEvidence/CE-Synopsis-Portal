@@ -14,7 +14,7 @@ import jwt
 import requests
 import rispy
 import html
-import re
+import xml.etree.ElementTree as ET
 
 from django.conf import settings
 from django.contrib import messages
@@ -26,7 +26,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.db import connection, transaction
 from collections import defaultdict
 
-from django.db.models import Count, Max, Prefetch
+from django.db.models import Count, Max, Prefetch, Q
 from django.http import (
     HttpResponseBadRequest,
     Http404,
@@ -37,6 +37,7 @@ from django.http import (
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
 from django import forms
 from django.views.decorators.csrf import csrf_exempt
@@ -66,7 +67,9 @@ from .forms import (
     ProtocolFeedbackCloseForm,
     ActionListFeedbackCloseForm,
     ReferenceBatchUploadForm,
+    LibraryReferenceBatchUploadForm,
     ReferenceScreeningForm,
+    LibraryReferenceUpdateForm,
     CollaborativeUpdateForm,
     AdvisoryCustomFieldForm,
     AdvisoryCustomFieldPlacementForm,
@@ -100,6 +103,8 @@ from .models import (
     ProjectChangeLog,
     ProtocolFeedback,
     ActionListFeedback,
+    LibraryImportBatch,
+    LibraryReference,
     ReferenceSourceBatch,
     ReferenceSourceBatchNoteHistory,
     Reference,
@@ -170,6 +175,16 @@ def _user_is_manager(user) -> bool:
     if user.is_staff:
         return True
     return user.groups.filter(name="manager").exists()
+
+
+def _user_can_manage_library(user) -> bool:
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if user.is_staff:
+        return True
+    if user.groups.filter(name__in=["manager", "author"]).exists():
+        return True
+    return UserRole.objects.filter(user=user, role__in=["manager", "author"]).exists()
 
 
 def _user_can_edit_project(user, project) -> bool:
@@ -1215,6 +1230,106 @@ def _parse_plaintext_references(payload: str) -> list[dict]:
         )
 
     return parsed
+
+
+def _strip_xml_namespaces(root: ET.Element) -> ET.Element:
+    for elem in root.iter():
+        if "}" in elem.tag:
+            elem.tag = elem.tag.split("}", 1)[1]
+    return root
+
+
+def _parse_endnote_xml(payload: str) -> list[dict]:
+    if not payload or not payload.strip():
+        return []
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError:
+        return []
+
+    _strip_xml_namespaces(root)
+    records = []
+
+    for record in root.findall(".//record"):
+        def find_text(*paths: str) -> str:
+            for path in paths:
+                text = record.findtext(path)
+                if text:
+                    return text.strip()
+            return ""
+
+        authors = [
+            a.text.strip()
+            for a in record.findall(".//contributors/authors/author")
+            if a.text and a.text.strip()
+        ]
+        keywords = [
+            k.text.strip()
+            for k in record.findall(".//keywords/keyword")
+            if k.text and k.text.strip()
+        ]
+
+        record_dict = {
+            "title": find_text(".//titles/title", ".//title"),
+            "journal_name": find_text(".//titles/secondary-title", ".//secondary-title"),
+            "authors": authors,
+            "year": find_text(".//dates/year", ".//year"),
+            "publication_year": find_text(".//dates/year", ".//year"),
+            "volume": find_text(".//volume"),
+            "issue": find_text(".//issue", ".//number"),
+            "pages": find_text(".//pages"),
+            "doi": find_text(".//doi", ".//electronic-resource-num"),
+            "url": find_text(".//urls/related-urls/url", ".//url"),
+            "abstract": find_text(".//abstract"),
+            "language": find_text(".//language"),
+            "keywords": keywords,
+            "_raw_source": ET.tostring(record, encoding="unicode"),
+        }
+        records.append(record_dict)
+
+    return records
+
+
+def _normalise_import_record(record: dict) -> dict | None:
+    title = (
+        _extract_reference_field(record, "primary_title")
+        or _extract_reference_field(record, "title")
+        or _extract_reference_field(record, "secondary_title")
+    )
+    if not title:
+        return None
+
+    authors_list = record.get("authors") or record.get("author") or []
+    if isinstance(authors_list, str):
+        authors_list = [authors_list]
+    authors = "; ".join(str(a) for a in authors_list if a)
+
+    year = _extract_reference_field(record, "year") or _extract_reference_field(
+        record, "publication_year"
+    )
+    doi = _extract_reference_field(record, "doi")
+    publication_year = _coerce_year(year)
+    journal = _extract_reference_field(record, "journal_name") or _extract_reference_field(
+        record, "secondary_title"
+    )
+    pages = _combine_pages(record)
+
+    return {
+        "title": title,
+        "authors": authors,
+        "year": year,
+        "publication_year": publication_year,
+        "journal": journal,
+        "volume": _extract_reference_field(record, "volume"),
+        "issue": _extract_reference_field(record, "issue"),
+        "pages": pages,
+        "doi": doi,
+        "url": _extract_reference_field(record, "url"),
+        "abstract": _extract_reference_field(record, "abstract"),
+        "language": _extract_reference_field(record, "language"),
+        "source_identifier": _extract_reference_field(record, "accession_number")
+        or _extract_reference_field(record, "id"),
+    }
 
 
 def _advisory_board_context(
@@ -4879,6 +4994,7 @@ def reference_batch_list(request, project_id):
             round((screened / total) * 100) if total else 0
         )
 
+    next_batch = next((batch for batch in batches if batch.pending_count), None)
     summary = {
         "total": total_references,
         "screened": screened_count,
@@ -4901,19 +5017,479 @@ def reference_batch_list(request, project_id):
             "project": project,
             "batches": batches,
             "summary": summary,
+            "next_batch": next_batch,
+        },
+    )
+
+
+def _link_library_references_to_project(user, target_project, ref_ids, folder):
+    folder = folder or []
+    batch_label = f"Library link {timezone.now():%Y-%m-%d}"
+    batch, _ = ReferenceSourceBatch.objects.get_or_create(
+        project=target_project,
+        label=batch_label,
+        defaults={
+            "source_type": "library_link",
+            "uploaded_by": user if user.is_authenticated else None,
+            "record_count": 0,
+        },
+    )
+
+    linked = 0
+    reused = 0
+    for rid in ref_ids:
+        lib_ref = LibraryReference.objects.filter(pk=rid).first()
+        if not lib_ref:
+            continue
+        if Reference.objects.filter(
+            project=target_project, library_reference=lib_ref
+        ).exists():
+            reused += 1
+            continue
+
+        hash_key = reference_hash(
+            lib_ref.title,
+            str(lib_ref.publication_year or ""),
+            lib_ref.doi,
+        )
+        if Reference.objects.filter(
+            project=target_project, hash_key=hash_key
+        ).exists():
+            reused += 1
+            continue
+
+        Reference.objects.create(
+            project=target_project,
+            batch=batch,
+            library_reference=lib_ref,
+            hash_key=hash_key,
+            source_identifier=lib_ref.source_identifier,
+            title=lib_ref.title,
+            abstract=lib_ref.abstract,
+            authors=lib_ref.authors,
+            publication_year=lib_ref.publication_year,
+            journal=lib_ref.journal,
+            volume=lib_ref.volume,
+            issue=lib_ref.issue,
+            pages=lib_ref.pages,
+            doi=lib_ref.doi,
+            url=lib_ref.url,
+            language=lib_ref.language,
+            raw_ris=lib_ref.raw_ris or {},
+            reference_document=lib_ref.reference_document,
+            reference_document_uploaded_at=lib_ref.reference_document_uploaded_at,
+            screening_status="pending",
+            reference_folder=folder,
+        )
+        linked += 1
+
+    batch.record_count = batch.references.count()
+    batch.save(update_fields=["record_count"])
+    return linked, reused, batch
+
+
+@login_required
+def reference_library(request):
+    if not _user_can_manage_library(request.user):
+        raise PermissionDenied
+
+    q = (request.GET.get("q") or "").strip()
+    batch_id = request.GET.get("batch")
+    project_id = (request.GET.get("project") or request.POST.get("project") or "").strip()
+    next_url = (request.GET.get("next") or request.POST.get("next") or "").strip()
+    safe_next_url = ""
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        safe_next_url = next_url
+    refs = LibraryReference.objects.select_related("import_batch").order_by("-created_at")
+    if batch_id and batch_id.isdigit():
+        refs = refs.filter(import_batch_id=batch_id)
+    if q:
+        refs = refs.filter(
+            Q(title__icontains=q)
+            | Q(authors__icontains=q)
+            | Q(doi__icontains=q)
+            | Q(journal__icontains=q)
+        )
+    refs = refs.annotate(project_count=Count("project_references", distinct=True))
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action in ["link-to-project", "link-multi"]:
+            target_project_id = request.POST.get("target_project")
+            target_project = get_object_or_404(Project, pk=target_project_id)
+            if not _user_can_edit_project(request.user, target_project):
+                raise PermissionDenied
+
+            ref_ids = []
+            if action == "link-multi":
+                ref_ids = [rid for rid in request.POST.getlist("selected_refs") if rid.isdigit()]
+            else:
+                single_id = request.POST.get("reference_id")
+                if single_id and single_id.isdigit():
+                    ref_ids = [single_id]
+            if not ref_ids:
+                messages.info(request, "Select at least one reference to link.")
+                return redirect("synopsis:reference_library")
+
+            folder = [f for f in request.POST.getlist("reference_folder") if f]
+            linked, reused, batch = _link_library_references_to_project(
+                request.user, target_project, ref_ids, folder
+            )
+
+            if linked or reused:
+                parts = []
+                if linked:
+                    parts.append(f"Linked {linked} reference(s)")
+                if reused:
+                    parts.append(f"Reused {reused} existing reference(s)")
+                msg = " and ".join(parts) + f" into {target_project.title}."
+                messages.success(request, msg)
+            else:
+                messages.info(request, "No references were linked (possible duplicates).")
+            if safe_next_url:
+                return redirect(safe_next_url)
+            return redirect("synopsis:reference_library")
+
+    project_options = (
+        Project.objects.all()
+        if request.user.is_staff
+        else Project.objects.filter(userrole__user=request.user).distinct()
+    )
+    selected_project = None
+    selected_project_obj = None
+    if project_id.isdigit():
+        selected_id = int(project_id)
+        selected_project_obj = project_options.filter(id=selected_id).first()
+        if selected_project_obj:
+            selected_project = selected_id
+    batch_options = LibraryImportBatch.objects.order_by("-created_at")
+
+    return render(
+        request,
+        "synopsis/reference_library.html",
+        {
+            "references": refs,
+            "q": q,
+            "batch_options": batch_options,
+            "selected_batch": int(batch_id) if batch_id and batch_id.isdigit() else None,
+            "project_options": project_options,
+            "selected_project": selected_project,
+            "selected_project_obj": selected_project_obj,
+            "next_url": safe_next_url,
+            "folder_choices": Reference.FOLDER_CHOICES,
+        },
+    )
+
+
+@login_required
+def library_batch_list(request):
+    if not _user_can_manage_library(request.user):
+        raise PermissionDenied
+
+    q = (request.GET.get("q") or "").strip()
+    batches = LibraryImportBatch.objects.order_by("-created_at")
+    if q:
+        batches = batches.filter(
+            Q(label__icontains=q) | Q(original_filename__icontains=q)
+        )
+    batches = batches.annotate(reference_count=Count("references", distinct=True))
+
+    return render(
+        request,
+        "synopsis/library_batch_list.html",
+        {"batches": batches, "q": q},
+    )
+
+
+@login_required
+def library_batch_detail(request, batch_id):
+    if not _user_can_manage_library(request.user):
+        raise PermissionDenied
+
+    batch = get_object_or_404(LibraryImportBatch, pk=batch_id)
+    q = (request.GET.get("q") or "").strip()
+    refs = (
+        batch.references.select_related("import_batch")
+        .order_by("-created_at")
+    )
+    if q:
+        refs = refs.filter(
+            Q(title__icontains=q)
+            | Q(authors__icontains=q)
+            | Q(doi__icontains=q)
+            | Q(journal__icontains=q)
+        )
+    refs = refs.annotate(project_count=Count("project_references", distinct=True))
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "link-multi":
+            target_project_id = request.POST.get("target_project")
+            target_project = get_object_or_404(Project, pk=target_project_id)
+            if not _user_can_edit_project(request.user, target_project):
+                raise PermissionDenied
+
+            ref_ids = [rid for rid in request.POST.getlist("selected_refs") if rid.isdigit()]
+            if not ref_ids:
+                messages.info(request, "Select at least one reference to link.")
+                return redirect("synopsis:library_batch_detail", batch_id=batch.id)
+
+            valid_ids = list(
+                batch.references.filter(id__in=ref_ids).values_list("id", flat=True)
+            )
+            folder = [f for f in request.POST.getlist("reference_folder") if f]
+            linked, reused, _ = _link_library_references_to_project(
+                request.user, target_project, valid_ids, folder
+            )
+            if linked or reused:
+                parts = []
+                if linked:
+                    parts.append(f"Linked {linked} reference(s)")
+                if reused:
+                    parts.append(f"Reused {reused} existing reference(s)")
+                msg = " and ".join(parts) + f" into {target_project.title}."
+                messages.success(request, msg)
+            else:
+                messages.info(request, "No references were linked (possible duplicates).")
+            return redirect("synopsis:library_batch_detail", batch_id=batch.id)
+
+    project_options = (
+        Project.objects.all()
+        if request.user.is_staff
+        else Project.objects.filter(userrole__user=request.user).distinct()
+    )
+
+    return render(
+        request,
+        "synopsis/library_batch_detail.html",
+        {
+            "batch": batch,
+            "references": refs,
+            "q": q,
+            "project_options": project_options,
+            "folder_choices": Reference.FOLDER_CHOICES,
+        },
+    )
+
+
+@login_required
+def library_reference_batch_upload(request):
+    if not _user_can_manage_library(request.user):
+        raise PermissionDenied
+
+    if request.method == "POST":
+        form = LibraryReferenceBatchUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            uploaded_file = form.cleaned_data["ris_file"]
+            raw_bytes = uploaded_file.read()
+            if not raw_bytes.strip():
+                form.add_error("ris_file", "The uploaded file appears to be empty.")
+            else:
+                sha1 = hashlib.sha1(raw_bytes).hexdigest()
+                text_payload = raw_bytes.decode("utf-8", errors="ignore")
+                records = []
+                ris_error = None
+                plaintext_used = False
+                file_ext = os.path.splitext(getattr(uploaded_file, "name", ""))[1].lower()
+
+                if file_ext == ".xml":
+                    records = _parse_endnote_xml(text_payload)
+                else:
+                    try:
+                        records = rispy.loads(text_payload)
+                    except Exception as exc:  # pragma: no cover - parser errors
+                        ris_error = exc
+
+                    if not records:
+                        plaintext_records = _parse_plaintext_references(text_payload)
+                        if plaintext_records:
+                            records = plaintext_records
+                            plaintext_used = True
+
+                if not records:
+                    if ris_error:
+                        form.add_error(
+                            "ris_file",
+                            f"Could not parse RIS content ({ris_error}).",
+                        )
+                    else:
+                        form.add_error(
+                            "ris_file",
+                            "No references were detected. Upload a RIS, XML, or plain text file where each entry is separated by a blank line.",
+                        )
+
+                if records:
+                    with transaction.atomic():
+                        batch = LibraryImportBatch.objects.create(
+                            label=form.cleaned_data["label"],
+                            source_type=form.cleaned_data["source_type"],
+                            search_date_start=form.cleaned_data.get(
+                                "search_date_start"
+                            ),
+                            search_date_end=form.cleaned_data.get(
+                                "search_date_end"
+                            ),
+                            uploaded_by=request.user,
+                            original_filename=getattr(uploaded_file, "name", ""),
+                            record_count=0,
+                            ris_sha1=sha1,
+                            notes=form.cleaned_data.get("notes", ""),
+                        )
+                        imported = 0
+                        duplicates = 0
+                        skipped = 0
+                        for record in records:
+                            data = _normalise_import_record(record)
+                            if not data:
+                                skipped += 1
+                                continue
+
+                            hash_key = reference_hash(
+                                data["title"], data["year"], data["doi"]
+                            )
+                            if LibraryReference.objects.filter(
+                                hash_key=hash_key
+                            ).exists():
+                                duplicates += 1
+                                continue
+
+                            raw_source = record.get("_raw_source", "")
+                            if file_ext == ".xml":
+                                raw_source_format = "endnote_xml"
+                            elif plaintext_used or file_ext == ".txt":
+                                raw_source_format = "plaintext"
+                            else:
+                                raw_source_format = "ris"
+
+                            LibraryReference.objects.create(
+                                import_batch=batch,
+                                hash_key=hash_key,
+                                source_identifier=data["source_identifier"],
+                                title=data["title"],
+                                abstract=data["abstract"],
+                                authors=data["authors"],
+                                publication_year=data["publication_year"],
+                                journal=data["journal"],
+                                volume=data["volume"],
+                                issue=data["issue"],
+                                pages=data["pages"],
+                                doi=data["doi"],
+                                url=data["url"],
+                                language=data["language"],
+                                raw_ris=record,
+                                raw_source=raw_source,
+                                raw_source_format=raw_source_format,
+                            )
+                            imported += 1
+
+                        batch.record_count = imported
+                        batch.save(update_fields=["record_count", "notes"])
+
+                    messages.success(
+                        request,
+                        f"Imported {imported} reference(s) into '{batch.label}'.",
+                    )
+                    if duplicates:
+                        messages.info(
+                            request,
+                            f"Skipped {duplicates} reference(s) already in the library.",
+                        )
+                    if skipped:
+                        messages.info(
+                            request,
+                            f"Skipped {skipped} record(s) with no title.",
+                        )
+                    return redirect("synopsis:reference_library")
+    else:
+        form = LibraryReferenceBatchUploadForm()
+
+    return render(
+        request,
+        "synopsis/library_reference_batch_upload.html",
+        {"form": form},
+    )
+
+
+@login_required
+def library_reference_detail(request, reference_id):
+    if not _user_can_manage_library(request.user):
+        raise PermissionDenied
+
+    library_reference = get_object_or_404(LibraryReference, pk=reference_id)
+    project_options = (
+        Project.objects.all()
+        if request.user.is_staff
+        else Project.objects.filter(userrole__user=request.user).distinct()
+    )
+    link_message = None
+    form = None
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "link-to-project":
+            target_project_id = request.POST.get("target_project")
+            target_project = get_object_or_404(Project, pk=target_project_id)
+            if not _user_can_edit_project(request.user, target_project):
+                raise PermissionDenied
+            folder = [f for f in request.POST.getlist("reference_folder") if f]
+            linked, reused, _ = _link_library_references_to_project(
+                request.user, target_project, [library_reference.id], folder
+            )
+            if linked:
+                messages.success(
+                    request,
+                    f"Linked reference to {target_project.title}.",
+                )
+                return redirect(
+                    "synopsis:library_reference_detail",
+                    reference_id=library_reference.id,
+                )
+            if reused:
+                link_message = "This reference already exists in that project."
+            form = LibraryReferenceUpdateForm(instance=library_reference)
+        else:
+            form = LibraryReferenceUpdateForm(request.POST, instance=library_reference)
+            if form.is_valid():
+                form.save()
+                messages.success(request, "Library reference updated.")
+                return redirect(
+                    "synopsis:library_reference_detail",
+                    reference_id=library_reference.id,
+                )
+            else:
+                messages.error(request, "Unable to update the library reference.")
+    else:
+        form = LibraryReferenceUpdateForm(instance=library_reference)
+
+    if link_message:
+        messages.info(request, link_message)
+
+    return render(
+        request,
+        "synopsis/library_reference_detail.html",
+        {
+            "reference": library_reference,
+            "form": form,
+            "project_options": project_options,
+            "folder_choices": Reference.FOLDER_CHOICES,
         },
     )
 
 
 def _reference_summary_citation(reference):
     parts = []
-    authors = (reference.authors or "").strip()
+    canonical = reference.canonical if hasattr(reference, "canonical") else reference
+    authors = (canonical.authors or "").strip()
     if authors:
         parts.append(authors)
-    year = reference.publication_year
+    year = canonical.publication_year
     if year:
         parts.append(f"({year})")
-    title = (reference.title or "").strip()
+    title = (canonical.title or "").strip()
     if title:
         parts.append(title)
     citation = " ".join(parts).strip()
@@ -5383,7 +5959,9 @@ def reference_summary_detail(request, project_id, summary_id):
             else:
                 messages.error(request, "Could not add comment.")
         if action == "update-status":
-            if request.POST.get("status") in dict(ReferenceSummary.STATUS_CHOICES):
+            if request.POST.get("quick_done") == "1":
+                summary.status = ReferenceSummary.STATUS_DONE
+            elif request.POST.get("status") in dict(ReferenceSummary.STATUS_CHOICES):
                 summary.status = request.POST.get("status")
             summary.needs_help = bool(request.POST.get("needs_help"))
             summary.save(update_fields=["status", "needs_help", "updated_at"])
@@ -5902,7 +6480,7 @@ def _generate_synopsis_docx(project):
                     )
                 for assignment in intervention.assignments.all():
                     summary = assignment.reference_summary
-                    doc.add_heading(summary.reference.title, level=4)
+                    doc.add_heading(summary.reference.canonical.title, level=4)
                     paragraph = _structured_summary_paragraph(summary)
                     if paragraph:
                         doc.add_paragraph(paragraph)
@@ -5952,7 +6530,9 @@ def reference_batch_detail(request, project_id, batch_id):
     project = get_object_or_404(Project, pk=project_id)
     batch = get_object_or_404(ReferenceSourceBatch, pk=batch_id, project=project)
 
-    references = batch.references.select_related("screened_by").order_by("title")
+    references = batch.references.select_related(
+        "screened_by", "library_reference"
+    ).order_by("library_reference__title", "title")
     status_filter = request.GET.get("status")
     if status_filter in dict(Reference.SCREENING_STATUS_CHOICES):
         references = references.filter(screening_status=status_filter)
@@ -5977,7 +6557,9 @@ def reference_batch_detail(request, project_id, batch_id):
         if focus_id not in ordered_ids:
             focus_id = ordered_ids[0]
         focus_index = ordered_ids.index(focus_id)
-        focused_reference = references.filter(pk=focus_id).select_related("screened_by").first()
+        focused_reference = references.filter(pk=focus_id).select_related(
+            "screened_by", "library_reference"
+        ).first()
         if focus_index > 0:
             focus_prev_id = ordered_ids[focus_index - 1]
         if focus_index < len(ordered_ids) - 1:
@@ -6146,21 +6728,26 @@ def reference_batch_detail(request, project_id, batch_id):
             )
             status = form.cleaned_data["screening_status"]
             notes = form.cleaned_data.get("screening_notes") or ""
+            folder = form.cleaned_data.get("reference_folder") or []
             ref.screening_status = status
             ref.screening_notes = notes
+            if "reference_folder" in request.POST:
+                ref.reference_folder = folder
             ref.screening_decision_at = timezone.now()
             ref.screened_by = request.user
             ref.save(
                 update_fields=[
                     "screening_status",
                     "screening_notes",
+                    "reference_folder",
                     "screening_decision_at",
                     "screened_by",
                     "updated_at",
                 ]
             )
             messages.success(
-                request, f"Updated screening status for '{ref.title[:80]}'."
+                request,
+                f"Updated screening status for '{ref.canonical.title[:80]}'.",
             )
             redirect_params = []
             if status_filter:
@@ -6242,9 +6829,11 @@ def reference_batch_detail(request, project_id, batch_id):
 
     # Decode abstracts for clean display
     for ref in references:
-        ref.decoded_abstract = _decode_entities(ref.abstract)
+        ref.decoded_abstract = _decode_entities(ref.canonical.abstract)
     if focused_reference:
-        focused_reference.decoded_abstract = _decode_entities(focused_reference.abstract)
+        focused_reference.decoded_abstract = _decode_entities(
+            focused_reference.canonical.abstract
+        )
 
     # Comments/notes per reference (lightweight counts; tree built only when manageable)
     comment_trees = {}
@@ -6301,6 +6890,7 @@ def reference_batch_detail(request, project_id, batch_id):
             "comment_form": comment_form,
             "comment_trees": comment_trees,
             "comment_counts": comment_counts,
+            "folder_choices": Reference.FOLDER_CHOICES,
         },
     )
 
@@ -6328,7 +6918,7 @@ def reference_delete(request, project_id, reference_id):
         or ""
     )
 
-    title_fragment = reference.title[:80]
+    title_fragment = reference.canonical.title[:80]
     reference.delete()
 
     batch.record_count = batch.references.count()
@@ -6438,31 +7028,14 @@ def reference_batch_upload(request, project_id):
                         imported = 0
                         duplicates = 0
                         for record in records:
-                            title = (
-                                _extract_reference_field(record, "primary_title")
-                                or _extract_reference_field(record, "title")
-                                or _extract_reference_field(
-                                    record, "secondary_title"
-                                )
-                            )
-                            if not title:
+                            data = _normalise_import_record(record)
+                            if not data:
                                 duplicates += 1
                                 continue
 
-                            authors_list = (
-                                record.get("authors") or record.get("author") or []
+                            hash_key = reference_hash(
+                                data["title"], data["year"], data["doi"]
                             )
-                            if isinstance(authors_list, str):
-                                authors_list = [authors_list]
-                            authors = "; ".join(str(a) for a in authors_list if a)
-
-                            year = _extract_reference_field(
-                                record, "year"
-                            ) or _extract_reference_field(
-                                record, "publication_year"
-                            )
-                            doi = _extract_reference_field(record, "doi")
-                            hash_key = reference_hash(title, year, doi)
 
                             if Reference.objects.filter(
                                 project=project, hash_key=hash_key
@@ -6470,33 +7043,46 @@ def reference_batch_upload(request, project_id):
                                 duplicates += 1
                                 continue
 
+                            library_ref = LibraryReference.objects.filter(
+                                hash_key=hash_key
+                            ).first()
+                            if not library_ref:
+                                library_ref = LibraryReference.objects.create(
+                                    hash_key=hash_key,
+                                    source_identifier=data["source_identifier"],
+                                    title=data["title"],
+                                    abstract=data["abstract"],
+                                    authors=data["authors"],
+                                    publication_year=data["publication_year"],
+                                    journal=data["journal"],
+                                    volume=data["volume"],
+                                    issue=data["issue"],
+                                    pages=data["pages"],
+                                    doi=data["doi"],
+                                    url=data["url"],
+                                    language=data["language"],
+                                    raw_ris=record,
+                                )
+
                             Reference.objects.create(
                                 project=project,
                                 batch=batch,
+                                library_reference=library_ref,
                                 hash_key=hash_key,
-                                source_identifier=_extract_reference_field(
-                                    record, "accession_number"
-                                )
-                                or _extract_reference_field(record, "id"),
-                                title=title,
-                                abstract=_extract_reference_field(record, "abstract"),
-                                authors=authors,
-                                publication_year=_coerce_year(year),
-                                journal=_extract_reference_field(
-                                    record, "journal_name"
-                                )
-                                or _extract_reference_field(
-                                    record, "secondary_title"
-                                ),
-                                volume=_extract_reference_field(record, "volume"),
-                                issue=_extract_reference_field(record, "issue"),
-                                pages=_combine_pages(record),
-                                doi=doi,
-                                url=_extract_reference_field(record, "url"),
-                                language=_extract_reference_field(
-                                    record, "language"
-                                ),
+                                source_identifier=data["source_identifier"],
+                                title=data["title"],
+                                abstract=data["abstract"],
+                                authors=data["authors"],
+                                publication_year=data["publication_year"],
+                                journal=data["journal"],
+                                volume=data["volume"],
+                                issue=data["issue"],
+                                pages=data["pages"],
+                                doi=data["doi"],
+                                url=data["url"],
+                                language=data["language"],
                                 raw_ris=record,
+                                reference_folder=[],
                             )
                             imported += 1
 

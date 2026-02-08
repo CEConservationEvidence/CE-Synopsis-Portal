@@ -186,6 +186,31 @@ urlpatterns = [
         name="advisory_action_list_feedback_close",
     ),
     path(
+        "references/library/",
+        views.reference_library,
+        name="reference_library",
+    ),
+    path(
+        "references/library/batches/",
+        views.library_batch_list,
+        name="library_batch_list",
+    ),
+    path(
+        "references/library/batches/<int:batch_id>/",
+        views.library_batch_detail,
+        name="library_batch_detail",
+    ),
+    path(
+        "references/library/upload/",
+        views.library_reference_batch_upload,
+        name="library_reference_batch_upload",
+    ),
+    path(
+        "references/library/<int:reference_id>/",
+        views.library_reference_detail,
+        name="library_reference_detail",
+    ),
+    path(
         "project/<int:project_id>/references/",
         views.reference_batch_list,
         name="reference_batch_list",
