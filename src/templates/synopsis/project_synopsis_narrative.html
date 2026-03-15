@@ -167,4 +167,38 @@
         {% endif %}
     </div>
 </div>
+
+<script>
+    (() => {
+        const filterInput = document.getElementById("narrative-chapter-filter");
+        const navItems = Array.from(document.querySelectorAll(".narrative-nav-item"));
+        const cards = Array.from(document.querySelectorAll(".narrative-chapter-card"));
+        const noMatchNotice = document.getElementById("narrative-no-match");
+
+        const applyFilter = () => {
+            if (!filterInput) return;
+            const q = filterInput.value.trim().toLowerCase();
+            let visibleCount = 0;
+
+            cards.forEach((card) => {
+                const title = (card.dataset.chapterTitle || "").toLowerCase();
+                const show = !q || title.includes(q);
+                card.classList.toggle("hidden-by-filter", !show);
+                if (show) visibleCount += 1;
+            });
+
+            navItems.forEach((item) => {
+                const title = (item.dataset.chapterTitle || "").toLowerCase();
+                const show = !q || title.includes(q);
+                item.classList.toggle("hidden-by-filter", !show);
+            });
+
+            if (noMatchNotice) {
+                noMatchNotice.classList.toggle("d-none", visibleCount > 0 || !q);
+            }
+        };
+
+        filterInput?.addEventListener("input", applyFilter);
+    })();
+</script>
 {% endblock %}
