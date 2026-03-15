@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+import io
 from urllib.parse import urlparse
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -76,6 +77,7 @@ from .views import (
     project_synopsis_structure,
     _intervention_reference_numbering,
     _format_reference_number_ranges,
+    _generate_synopsis_docx,
     _reference_export_citation,
     _structured_summary_paragraph,
 )
@@ -751,6 +753,82 @@ class SynopsisStructureTests(TestCase):
         )
         self.assertIn("(3)", paragraph)
         self.assertNotIn("(X)", paragraph)
+
+    def test_generate_docx_collapses_duplicate_reference_lines_but_keeps_study_paragraphs(self):
+        from docx import Document
+
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        shared_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Shared study paper",
+            authors="Gamma G.",
+            publication_year=2009,
+            hash_key="hash-docx-shared-paper",
+            screening_status="included",
+        )
+        first_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=shared_reference,
+            study_design="replicated, controlled study",
+            year_range="2009",
+            summary_of_results="first finding improved coral cover.",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=shared_reference,
+            study_design="replicated, controlled study",
+            year_range="2010",
+            summary_of_results="second finding improved coral recruitment.",
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=first_summary,
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=second_summary,
+            position=2,
+        )
+
+        payload = _generate_synopsis_docx(self.project)
+        document = Document(io.BytesIO(payload))
+        paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+
+        self.assertTrue(
+            any("(1)" in paragraph and "first finding improved coral cover" in paragraph for paragraph in paragraphs)
+        )
+        self.assertTrue(
+            any("(2)" in paragraph and "second finding improved coral recruitment" in paragraph for paragraph in paragraphs)
+        )
+        collapsed_reference_lines = [
+            paragraph for paragraph in paragraphs if paragraph.startswith("(1-2) ")
+        ]
+        self.assertEqual(len(collapsed_reference_lines), 1)
+        self.assertIn("Shared study paper.", collapsed_reference_lines[0])
+        self.assertFalse(
+            any(
+                paragraph.startswith("(1) Gamma G. (2009) Shared study paper.")
+                or paragraph.startswith("(2) Gamma G. (2009) Shared study paper.")
+                for paragraph in paragraphs
+            )
+        )
 
     def test_workspace_routes_load(self):
         narrative_url = reverse(
