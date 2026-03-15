@@ -2,8 +2,10 @@ from django.contrib import admin
 
 from .models import (
     CollaborativeSession,
+    IUCNCategory,
     LibraryImportBatch,
     LibraryReference,
+    SynopsisInterventionKeyMessage,
     ReferenceSourceBatch,
     Reference,
 )
@@ -87,6 +89,28 @@ class LibraryReferenceAdmin(admin.ModelAdmin):
     )
     list_filter = ("import_batch",)
     search_fields = ("title", "doi", "authors", "journal")
+
+
+@admin.register(IUCNCategory)
+class IUCNCategoryAdmin(admin.ModelAdmin):
+    list_display = ("kind", "code", "name", "is_active", "position")
+    list_filter = ("kind", "is_active")
+    search_fields = ("code", "name")
+    ordering = ("kind", "position", "name")
+
+
+@admin.register(SynopsisInterventionKeyMessage)
+class SynopsisInterventionKeyMessageAdmin(admin.ModelAdmin):
+    list_display = (
+        "intervention",
+        "response_group",
+        "outcome_label",
+        "study_count",
+        "position",
+    )
+    list_filter = ("response_group",)
+    search_fields = ("intervention__title", "outcome_label", "statement")
+    filter_horizontal = ("supporting_summaries",)
 
 
 @admin.register(CollaborativeSession)
