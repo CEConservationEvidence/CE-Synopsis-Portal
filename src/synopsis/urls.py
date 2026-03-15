@@ -256,6 +256,11 @@ urlpatterns = [
         name="project_synopsis_structure",
     ),
     path(
+        "project/<int:project_id>/synopsis/evidence/",
+        views.project_synopsis_evidence,
+        name="project_synopsis_evidence",
+    ),
+    path(
         "project/<int:project_id>/synopsis/export/",
         views.project_synopsis_export_docx,
         name="project_synopsis_export_docx",
