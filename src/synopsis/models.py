@@ -1394,8 +1394,8 @@ class ReferenceSummary(models.Model):
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="reference_summaries"
     )
-    reference = models.OneToOneField(
-        Reference, on_delete=models.CASCADE, related_name="summary"
+    reference = models.ForeignKey(
+        Reference, on_delete=models.CASCADE, related_name="summaries"
     )
     assigned_to = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_summaries"
@@ -1446,10 +1446,31 @@ class ReferenceSummary(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["reference__title"]
+        ordering = ["reference__title", "created_at", "id"]
+
+    @property
+    def explicit_label(self):
+        for value in (
+            self.action_description,
+            self.summary_identifier,
+            self.reference_label,
+        ):
+            if value and value.strip():
+                return value.strip()
+        return ""
+
+    @property
+    def display_label(self):
+        if self.explicit_label:
+            return self.explicit_label
+        return f"Summary #{self.pk}" if self.pk else "Summary"
+
+    @property
+    def choice_label(self):
+        return f"{self.reference.canonical.title} — {self.display_label}"
 
     def __str__(self):
-        return f"Summary for {self.reference.canonical.title[:50]}"
+        return self.choice_label
 
 
 class ReferenceSummaryComment(models.Model):
@@ -1512,11 +1533,52 @@ class ReferenceActionSummary(models.Model):
     def __str__(self):
         return f"{self.reference_summary.reference.canonical.title[:40]} – {self.action_name}"
 
+
+class IUCNCategory(models.Model):
+    KIND_THREAT = "threat"
+    KIND_ACTION = "action"
+    KIND_CHOICES = [
+        (KIND_THREAT, "Direct threat"),
+        (KIND_ACTION, "Conservation action"),
+    ]
+
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+    code = models.CharField(max_length=20, blank=True)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["kind", "position", "name"]
+        unique_together = [("kind", "name")]
+
+    def __str__(self):
+        prefix = "Threat" if self.kind == self.KIND_THREAT else "Action"
+        if self.code:
+            return f"{prefix} {self.code}: {self.name}"
+        return f"{prefix}: {self.name}"
+
+
 class SynopsisChapter(models.Model):
+    TYPE_TEXT = "text"
+    TYPE_EVIDENCE = "evidence"
+    TYPE_APPENDIX = "appendix"
+    TYPE_CHOICES = [
+        (TYPE_TEXT, "Text chapter"),
+        (TYPE_EVIDENCE, "Evidence chapter"),
+        (TYPE_APPENDIX, "Appendix / back matter"),
+    ]
+
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="synopsis_chapters"
     )
     title = models.CharField(max_length=255)
+    chapter_type = models.CharField(
+        max_length=20,
+        choices=TYPE_CHOICES,
+        default=TYPE_EVIDENCE,
+    )
     background_text = models.TextField(blank=True)
     background_references = models.TextField(blank=True)
     position = models.PositiveIntegerField(default=0)
@@ -1528,6 +1590,10 @@ class SynopsisChapter(models.Model):
 
     def __str__(self):
         return f"{self.project.title}: {self.title}"
+
+    @property
+    def supports_evidence_structure(self):
+        return self.chapter_type == self.TYPE_EVIDENCE
 
 
 class SynopsisSubheading(models.Model):
@@ -1547,12 +1613,45 @@ class SynopsisSubheading(models.Model):
 
 
 class SynopsisIntervention(models.Model):
+    EVIDENCE_STATUS_HAS_EVIDENCE = "has_evidence"
+    EVIDENCE_STATUS_NO_STUDIES = "no_studies"
+    EVIDENCE_STATUS_CHOICES = [
+        (EVIDENCE_STATUS_HAS_EVIDENCE, "Has evidence"),
+        (EVIDENCE_STATUS_NO_STUDIES, "No studies found"),
+    ]
+
     subheading = models.ForeignKey(
         SynopsisSubheading, on_delete=models.CASCADE, related_name="interventions"
     )
     title = models.CharField(max_length=255)
+    iucn_category = models.ForeignKey(
+        IUCNCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="interventions",
+    )
+    is_cross_reference = models.BooleanField(
+        default=False,
+        help_text="Mark when evidence is summarized under another intervention and only referenced here.",
+    )
+    primary_intervention = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cross_references",
+        help_text="Main intervention that contains the full evidence summary.",
+    )
     background_text = models.TextField(blank=True)
     background_references = models.TextField(blank=True)
+    ce_action_url = models.URLField(max_length=500, blank=True)
+    evidence_status = models.CharField(
+        max_length=20,
+        choices=EVIDENCE_STATUS_CHOICES,
+        default=EVIDENCE_STATUS_HAS_EVIDENCE,
+    )
+    synthesis_text = models.TextField(blank=True)
     position = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1562,6 +1661,47 @@ class SynopsisIntervention(models.Model):
 
     def __str__(self):
         return f"{self.subheading.title} – {self.title}"
+
+
+class SynopsisInterventionKeyMessage(models.Model):
+    GROUP_COMMUNITY = "community"
+    GROUP_POPULATION = "population"
+    GROUP_BEHAVIOUR = "behaviour"
+    GROUP_RESPONSE = "response"
+    GROUP_CHOICES = [
+        (GROUP_COMMUNITY, "Community response"),
+        (GROUP_POPULATION, "Population response"),
+        (GROUP_BEHAVIOUR, "Behaviour"),
+        (GROUP_RESPONSE, "General response"),
+    ]
+
+    intervention = models.ForeignKey(
+        SynopsisIntervention, on_delete=models.CASCADE, related_name="key_messages"
+    )
+    response_group = models.CharField(
+        max_length=20,
+        choices=GROUP_CHOICES,
+        default=GROUP_RESPONSE,
+    )
+    outcome_label = models.CharField(max_length=255, blank=True)
+    statement = models.TextField()
+    study_count = models.PositiveIntegerField(null=True, blank=True)
+    supporting_summaries = models.ManyToManyField(
+        ReferenceSummary,
+        blank=True,
+        related_name="supporting_key_messages",
+        help_text="Optional subset of assigned study summaries that support this key message.",
+    )
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        label = self.outcome_label or "Key message"
+        return f"{self.intervention.title}: {label}"
 
 
 class SynopsisAssignment(models.Model):
