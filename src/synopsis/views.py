@@ -24,7 +24,7 @@ from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives
 from django.db import connection, transaction
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from django.db.models import Count, Max, Prefetch, Q
 from django.http import (
@@ -83,6 +83,8 @@ from .forms import (
     SynopsisSubheadingForm,
     SynopsisInterventionForm,
     SynopsisBackgroundForm,
+    SynopsisInterventionSynthesisForm,
+    SynopsisKeyMessageForm,
     SynopsisAssignmentForm,
     ReferenceActionSummaryForm,
     FunderContactFormSet,
@@ -118,7 +120,9 @@ from .models import (
     SynopsisChapter,
     SynopsisSubheading,
     SynopsisIntervention,
+    SynopsisInterventionKeyMessage,
     SynopsisAssignment,
+    IUCNCategory,
     SynopsisExportLog,
 )
 from .presets import PRESETS
@@ -5498,21 +5502,252 @@ def _reference_summary_citation(reference):
     return citation
 
 
+def _reference_sort_key(reference):
+    canonical = reference.canonical if hasattr(reference, "canonical") else reference
+    year = canonical.publication_year if canonical.publication_year is not None else 9999
+    title = (canonical.title or "").strip().lower()
+    authors = (canonical.authors or "").strip().lower()
+    return year, title, authors
+
+
+def _reference_export_citation(reference):
+    canonical = reference.canonical if hasattr(reference, "canonical") else reference
+
+    def _clean(value):
+        return (value or "").strip()
+
+    def _doi_url(raw):
+        value = _clean(raw)
+        if not value:
+            return ""
+        lowered = value.lower()
+        for prefix in ("https://doi.org/", "http://doi.org/", "doi.org/"):
+            if lowered.startswith(prefix):
+                value = value[len(prefix):]
+                break
+        if value.lower().startswith("doi:"):
+            value = value[4:]
+        value = value.strip()
+        return f"https://doi.org/{value}" if value else ""
+
+    parts = []
+    authors = _clean(canonical.authors)
+    year = canonical.publication_year
+    if authors and year:
+        parts.append(f"{authors} ({year})")
+    elif authors:
+        parts.append(authors)
+    elif year:
+        parts.append(f"({year})")
+
+    title = _clean(canonical.title)
+    if title:
+        parts.append(f"{title.rstrip('.')}.")
+
+    journal = _clean(canonical.journal)
+    volume = _clean(canonical.volume)
+    issue = _clean(canonical.issue)
+    pages = _clean(canonical.pages)
+    if journal or volume or issue or pages:
+        source_bits = []
+        if journal:
+            source_bits.append(journal)
+        vol_issue = ""
+        if volume and issue:
+            vol_issue = f"{volume}({issue})"
+        elif volume:
+            vol_issue = volume
+        elif issue:
+            vol_issue = f"({issue})"
+        if vol_issue:
+            source_bits.append(vol_issue)
+        if pages:
+            source_bits.append(pages)
+        if source_bits:
+            parts.append(", ".join(source_bits).rstrip(".") + ".")
+
+    doi_url = _doi_url(canonical.doi)
+    source_url = _clean(canonical.url)
+    if doi_url:
+        parts.append(doi_url)
+    elif source_url:
+        parts.append(source_url)
+
+    return " ".join([part for part in parts if part]).strip()
+
+
+def _intervention_reference_numbering(assignments):
+    ranked_assignments = []
+    for assignment in assignments:
+        reference = assignment.reference_summary.reference
+        ranked_assignments.append(
+            (*_reference_sort_key(reference), assignment.position, assignment.id, assignment)
+        )
+    ranked_assignments.sort()
+    ordered_assignments = [entry[-1] for entry in ranked_assignments]
+    summary_numbers = {}
+    grouped_numbers = defaultdict(list)
+    ordered_references = []
+    seen_reference_ids = set()
+    for idx, assignment in enumerate(ordered_assignments, start=1):
+        summary_numbers[assignment.reference_summary_id] = idx
+        reference = assignment.reference_summary.reference
+        grouped_numbers[reference.id].append(idx)
+        if reference.id not in seen_reference_ids:
+            ordered_references.append((grouped_numbers[reference.id], reference))
+            seen_reference_ids.add(reference.id)
+    return ordered_assignments, summary_numbers, ordered_references
+
+
+def _key_message_supporting_numbers(key_message, summary_numbers):
+    numbers = []
+    for summary in key_message.supporting_summaries.all():
+        number = summary_numbers.get(summary.id)
+        if number is not None:
+            numbers.append(number)
+    return sorted(set(numbers))
+
+
+def _format_reference_number_list(numbers):
+    return "; ".join(str(number) for number in numbers)
+
+
+def _format_reference_number_ranges(numbers):
+    unique_numbers = sorted(set(numbers))
+    if not unique_numbers:
+        return ""
+
+    ranges = []
+    start = unique_numbers[0]
+    end = unique_numbers[0]
+
+    for number in unique_numbers[1:]:
+        if number == end + 1:
+            end = number
+            continue
+        ranges.append(str(start) if start == end else f"{start}-{end}")
+        start = end = number
+
+    ranges.append(str(start) if start == end else f"{start}-{end}")
+    return "; ".join(ranges)
+
+
 def _ensure_reference_summaries(project, references):
     ref_ids = [ref.id for ref in references]
-    existing = {
-        summary.reference_id: summary
-        for summary in ReferenceSummary.objects.filter(reference_id__in=ref_ids)
-    }
+    existing_ref_ids = set(
+        ReferenceSummary.objects.filter(reference_id__in=ref_ids).values_list(
+            "reference_id", flat=True
+        )
+    )
     with transaction.atomic():
         for ref in references:
-            if ref.id not in existing:
-                existing[ref.id] = ReferenceSummary.objects.create(
+            if ref.id not in existing_ref_ids:
+                ReferenceSummary.objects.create(
                     project=project,
                     reference=ref,
                     citation=_reference_summary_citation(ref),
                 )
-    return existing
+                existing_ref_ids.add(ref.id)
+    return existing_ref_ids
+
+
+def _reference_summary_display_label(summary, index=None):
+    label = summary.explicit_label
+    if label:
+        return label
+    if index is not None:
+        return f"Summary {index}"
+    return summary.display_label
+
+
+def _reference_summary_tabs(reference, *, active_summary_id=None):
+    summaries = list(
+        reference.summaries.select_related("assigned_to").order_by("created_at", "id")
+    )
+    tab_count = len(summaries)
+    tabs = []
+    for index, item in enumerate(summaries, start=1):
+        tabs.append(
+            {
+                "summary": item,
+                "label": _reference_summary_display_label(item, index),
+                "index": index,
+                "is_active": item.id == active_summary_id,
+                "tab_count": tab_count,
+            }
+        )
+    return tabs
+
+
+def _reference_summary_workspace_groups(reference_summaries):
+    grouped = defaultdict(list)
+    for summary in reference_summaries:
+        grouped[summary.reference_id].append(summary)
+
+    groups = []
+    summary_meta = {}
+    for summaries in grouped.values():
+        reference = summaries[0].reference
+        canonical = reference.canonical
+        paper_title = canonical.title or "Untitled reference"
+        meta_parts = []
+        if canonical.authors:
+            meta_parts.append(canonical.authors)
+        if canonical.publication_year:
+            meta_parts.append(str(canonical.publication_year))
+        paper_meta = " · ".join(meta_parts)
+
+        group_payload = {
+            "reference_id": reference.id,
+            "paper_title": paper_title,
+            "paper_meta": paper_meta,
+            "summaries": [],
+        }
+        for index, summary in enumerate(summaries, start=1):
+            summary_label = _reference_summary_display_label(summary, index)
+            search_text = " ".join(
+                bit
+                for bit in (
+                    paper_title,
+                    paper_meta,
+                    summary_label,
+                    summary.summary_identifier,
+                    summary.action_description,
+                )
+                if bit
+            )
+            summary_meta[summary.id] = {
+                "paper_title": paper_title,
+                "paper_meta": paper_meta,
+                "summary_label": summary_label,
+                "search_text": search_text,
+            }
+            group_payload["summaries"].append(
+                {
+                    "id": summary.id,
+                    "summary_label": summary_label,
+                    "search_text": search_text,
+                }
+            )
+        groups.append(group_payload)
+    return groups, summary_meta
+
+
+def _clone_reference_summary(source_summary, user=None):
+    summary_author = (
+        source_summary.summary_author
+        or (user.get_full_name() or user.username if user and user.is_authenticated else "")
+    )
+    return ReferenceSummary.objects.create(
+        project=source_summary.project,
+        reference=source_summary.reference,
+        assigned_to=source_summary.assigned_to,
+        citation=source_summary.citation or _reference_summary_citation(source_summary.reference),
+        reference_identifier=source_summary.reference_identifier,
+        reference_label=source_summary.reference_label or source_summary.reference.canonical.title,
+        summary_author=summary_author,
+        source_url=source_summary.source_url,
+    )
 
 
 def _next_chapter_position(project):
@@ -5577,6 +5812,20 @@ def _resequence_assignment_positions(intervention):
             assignment.save(update_fields=["position"])
 
 
+def _next_key_message_position(intervention):
+    max_pos = intervention.key_messages.aggregate(Max("position"))["position__max"] or 0
+    return max_pos + 1
+
+
+def _resequence_key_message_positions(intervention):
+    for idx, key_message in enumerate(
+        intervention.key_messages.order_by("position", "id"), start=1
+    ):
+        if key_message.position != idx:
+            key_message.position = idx
+            key_message.save(update_fields=["position"])
+
+
 def _next_action_summary_order(reference_summary):
     max_pos = (
         reference_summary.action_summaries.aggregate(Max("order"))["order__max"]
@@ -5595,7 +5844,9 @@ def _resequence_action_summaries(reference_summary):
             action_summary.save(update_fields=["order"])
 
 
-def _structured_summary_paragraph(summary: ReferenceSummary) -> str:
+def _structured_summary_paragraph(
+    summary: ReferenceSummary, reference_identifier_override: str | None = None
+) -> str:
     """Generate a concise paragraph from structured summary fields."""
 
     def _clean(text):
@@ -5606,7 +5857,9 @@ def _structured_summary_paragraph(summary: ReferenceSummary) -> str:
     year_range = _clean(summary.year_range)
     habitat = _clean(summary.habitat_and_sites)
     location = ", ".join([part for part in [_clean(summary.region), _clean(summary.country)] if part])
-    ref_id = _clean(summary.reference_identifier)
+    ref_id = _clean(reference_identifier_override)
+    if not ref_id:
+        ref_id = _clean(summary.reference_identifier)
     sites = _clean(summary.sites_replications)
     intro_parts = ["A"]
     intro_parts.append(study_design or study_type or "study")
@@ -5811,22 +6064,39 @@ def reference_summary_board(request, project_id):
                 messages.error(request, "Invalid summary status selected.")
         return redirect("synopsis:reference_summary_board", project_id=project.id)
 
-    summaries = ReferenceSummary.objects.filter(
-        project=project,
-        reference__screening_status="included",
-    ).select_related("reference", "assigned_to")
-    author_options = project.author_users.order_by("first_name", "last_name")
+    summaries = list(
+        ReferenceSummary.objects.filter(
+            project=project,
+            reference__screening_status="included",
+        )
+        .select_related("reference", "assigned_to")
+        .order_by("reference__title", "created_at", "id")
+    )
+    summary_groups = defaultdict(list)
+    for item in summaries:
+        summary_groups[item.reference_id].append(item)
+    for group in summary_groups.values():
+        group_size = len(group)
+        for index, item in enumerate(group, start=1):
+            item.variant_label = _reference_summary_display_label(item, index)
+            item.variant_count = group_size
+
+    author_options = list(project.author_users.order_by("first_name", "last_name"))
     workload = []
     for author in author_options:
         workload.append(
             {
                 "author": author,
-                "assigned": summaries.filter(assigned_to=author).count(),
-                "needs_help": summaries.filter(assigned_to=author, needs_help=True).count(),
+                "assigned": sum(1 for item in summaries if item.assigned_to_id == author.id),
+                "needs_help": sum(
+                    1
+                    for item in summaries
+                    if item.assigned_to_id == author.id and item.needs_help
+                ),
             }
         )
-    unassigned_count = summaries.filter(assigned_to__isnull=True).count()
-    needs_help_count = summaries.filter(needs_help=True).count()
+    unassigned_count = sum(1 for item in summaries if item.assigned_to_id is None)
+    needs_help_count = sum(1 for item in summaries if item.needs_help)
 
     status_map = {
         code: {"label": label, "items": []}
@@ -5845,9 +6115,10 @@ def reference_summary_board(request, project_id):
         for code, label in ReferenceSummary.STATUS_CHOICES
     ]
 
+    total_summaries = len(summaries)
     total_included = len(included_references)
     completed = len(status_map.get(ReferenceSummary.STATUS_DONE, {}).get("items", []))
-    progress = int((completed / total_included) * 100) if total_included else 0
+    progress = int((completed / total_summaries) * 100) if total_summaries else 0
 
     return render(
         request,
@@ -5855,15 +6126,28 @@ def reference_summary_board(request, project_id):
         {
             "project": project,
             "columns": columns,
-            "total_included": total_included,
+            "total_included": total_summaries,
             "completed": completed,
             "progress": progress,
             "author_options": author_options,
             "status_choices": ReferenceSummary.STATUS_CHOICES,
             "reference_count": total_included,
+            "summary_count": total_summaries,
             "workload": workload,
             "unassigned_count": unassigned_count,
-            "summaries": summaries.order_by("status", "assigned_to__first_name", "reference__title"),
+            "summaries": sorted(
+                summaries,
+                key=lambda item: (
+                    item.status,
+                    (
+                        item.assigned_to.first_name.lower()
+                        if item.assigned_to and item.assigned_to.first_name
+                        else ""
+                    ),
+                    item.reference.canonical.title.lower(),
+                    item.id,
+                ),
+            ),
             "needs_help_count": needs_help_count,
         },
     )
@@ -5881,7 +6165,11 @@ def reference_summary_detail(request, project_id, summary_id):
         project=project,
     )
 
-    summary_form = ReferenceSummaryUpdateForm(request.POST or None, instance=summary)
+    active_action = request.POST.get("action") if request.method == "POST" else None
+    summary_form = ReferenceSummaryUpdateForm(
+        request.POST if active_action == "save-summary" else None,
+        instance=summary,
+    )
     assignment_initial = {
         "assigned_to": summary.assigned_to_id,
         "needs_help": summary.needs_help,
@@ -5896,7 +6184,18 @@ def reference_summary_detail(request, project_id, summary_id):
     action_summary_form = ReferenceActionSummaryForm()
 
     if request.method == "POST":
-        action = request.POST.get("action")
+        action = active_action
+        if action == "create-summary-tab":
+            new_summary = _clone_reference_summary(summary, request.user)
+            messages.success(
+                request,
+                "New summary tab created for this reference. Use it for a distinct intervention or study summary.",
+            )
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=new_summary.id,
+            )
         if action == "save-summary" and summary_form.is_valid():
             summary = summary_form.save(commit=False)
             if not summary.summary_author:
@@ -6041,6 +6340,9 @@ def reference_summary_detail(request, project_id, summary_id):
     comments = summary.comments.select_related("author")
     action_summaries = summary.action_summaries.order_by("order", "id")
     generated_summary = _structured_summary_paragraph(summary)
+    summary_tabs = _reference_summary_tabs(
+        summary.reference, active_summary_id=summary.id
+    )
     comment_children = defaultdict(list)
     for c in comments:
         comment_children[c.parent_id].append(c)
@@ -6055,6 +6357,7 @@ def reference_summary_detail(request, project_id, summary_id):
             "project": project,
             "summary": summary,
             "reference": summary.reference,
+            "summary_tabs": summary_tabs,
             "summary_form": summary_form,
             "assignment_form": assignment_form,
             "comment_form": comment_form,
@@ -6090,22 +6393,46 @@ def reference_document_inline(request, project_id, reference_id):
     return response
 
 
-@login_required
-def project_synopsis_structure(request, project_id):
+def _project_synopsis_workspace(
+    request,
+    project_id,
+    *,
+    workspace_mode="evidence",
+    redirect_name="project_synopsis_structure",
+    template_name="synopsis/project_synopsis_structure.html",
+):
     project = get_object_or_404(Project, pk=project_id)
     if not _user_can_edit_project(request.user, project):
         raise PermissionDenied
+    if workspace_mode not in {"evidence", "narrative"}:
+        workspace_mode = "evidence"
     chapter_form = SynopsisChapterForm()
+    if workspace_mode == "narrative":
+        chapter_form.fields["chapter_type"].initial = SynopsisChapter.TYPE_TEXT
+    else:
+        chapter_form.fields["chapter_type"].initial = SynopsisChapter.TYPE_EVIDENCE
     subheading_form = SynopsisSubheadingForm()
-    intervention_form = SynopsisInterventionForm()
+    intervention_form = SynopsisInterventionForm(project=project)
+    intervention_synthesis_form = SynopsisInterventionSynthesisForm()
+    key_message_form = SynopsisKeyMessageForm()
     assignment_form = SynopsisAssignmentForm(project=project)
     redirect_url = reverse(
-        "synopsis:project_synopsis_structure", kwargs={"project_id": project.id}
+        f"synopsis:{redirect_name}", kwargs={"project_id": project.id}
     )
 
     interventions_prefetch = Prefetch(
         "interventions",
-        queryset=SynopsisIntervention.objects.order_by("position", "id").prefetch_related(
+        queryset=SynopsisIntervention.objects.select_related(
+            "iucn_category", "primary_intervention"
+        )
+        .order_by("position", "id")
+        .prefetch_related(
+            Prefetch(
+                "key_messages",
+                queryset=SynopsisInterventionKeyMessage.objects.order_by(
+                    "position", "id"
+                ).prefetch_related("supporting_summaries"),
+            ),
             Prefetch(
                 "assignments",
                 queryset=SynopsisAssignment.objects.select_related(
@@ -6129,6 +6456,8 @@ def project_synopsis_structure(request, project_id):
         )
 
     def _ensure_default_subheading(chapter):
+        if not chapter.supports_evidence_structure:
+            return
         if chapter.subheadings.exists():
             return
         SynopsisSubheading.objects.create(
@@ -6159,13 +6488,23 @@ def project_synopsis_structure(request, project_id):
             )
             return intervention
 
+        def _key_message_from_post():
+            key_message = get_object_or_404(
+                SynopsisInterventionKeyMessage,
+                pk=request.POST.get("key_message_id"),
+                intervention__subheading__chapter__project=project,
+            )
+            return key_message
+
         if action == "create-chapter":
             chapter_form = SynopsisChapterForm(request.POST)
             if chapter_form.is_valid():
                 title = chapter_form.cleaned_data["title"] or "Untitled chapter"
+                chapter_type = chapter_form.cleaned_data["chapter_type"]
                 SynopsisChapter.objects.create(
                     project=project,
                     title=title,
+                    chapter_type=chapter_type,
                     position=_next_chapter_position(project),
                 )
                 messages.success(request, f"Added chapter “{title}”.")
@@ -6190,6 +6529,27 @@ def project_synopsis_structure(request, project_id):
             else:
                 messages.error(request, "Please check the background fields.")
             return redirect(redirect_url)
+        elif action == "update-chapter-type":
+            chapter = _chapter_from_post()
+            chapter_type = (request.POST.get("chapter_type") or "").strip()
+            allowed_types = {choice[0] for choice in SynopsisChapter.TYPE_CHOICES}
+            if chapter_type not in allowed_types:
+                messages.error(request, "Invalid chapter type selected.")
+                return redirect(redirect_url)
+            if (
+                chapter.chapter_type != chapter_type
+                and chapter_type != SynopsisChapter.TYPE_EVIDENCE
+                and chapter.subheadings.exists()
+            ):
+                messages.error(
+                    request,
+                    "Remove subheadings and interventions before changing this chapter to text-only mode.",
+                )
+                return redirect(redirect_url)
+            chapter.chapter_type = chapter_type
+            chapter.save(update_fields=["chapter_type", "updated_at"])
+            messages.success(request, "Chapter type updated.")
+            return redirect(redirect_url)
         elif action == "move-chapter":
             chapter = _chapter_from_post()
             direction = request.POST.get("direction")
@@ -6211,6 +6571,11 @@ def project_synopsis_structure(request, project_id):
             return redirect(redirect_url)
         elif action == "create-subheading":
             chapter = _chapter_from_post()
+            if not chapter.supports_evidence_structure:
+                messages.error(
+                    request, "Subheadings are available only for evidence chapters."
+                )
+                return redirect(redirect_url)
             subheading_form = SynopsisSubheadingForm(request.POST)
             if subheading_form.is_valid():
                 title = subheading_form.cleaned_data["title"] or "Untitled subheading"
@@ -6251,16 +6616,37 @@ def project_synopsis_structure(request, project_id):
             subheading_id = request.POST.get("subheading_id")
             if subheading_id:
                 subheading = _subheading_from_post()
+                if not subheading.chapter.supports_evidence_structure:
+                    messages.error(
+                        request,
+                        "Interventions are available only for evidence chapters.",
+                    )
+                    return redirect(redirect_url)
             else:
                 chapter = _chapter_from_post()
+                if not chapter.supports_evidence_structure:
+                    messages.error(
+                        request,
+                        "Interventions are available only for evidence chapters.",
+                    )
+                    return redirect(redirect_url)
                 _ensure_default_subheading(chapter)
                 subheading = chapter.subheadings.first()
-            intervention_form = SynopsisInterventionForm(request.POST)
+            intervention_form = SynopsisInterventionForm(
+                request.POST, project=project
+            )
             if intervention_form.is_valid():
                 title = intervention_form.cleaned_data["title"] or "Untitled intervention"
                 SynopsisIntervention.objects.create(
                     subheading=subheading,
                     title=title,
+                    iucn_category=intervention_form.cleaned_data.get("iucn_category"),
+                    is_cross_reference=intervention_form.cleaned_data.get(
+                        "is_cross_reference", False
+                    ),
+                    primary_intervention=intervention_form.cleaned_data.get(
+                        "primary_intervention"
+                    ),
                     position=_next_intervention_position(subheading),
                 )
                 messages.success(request, "Intervention added.")
@@ -6306,6 +6692,171 @@ def project_synopsis_structure(request, project_id):
             else:
                 messages.error(request, "Please check the background fields.")
             return redirect(redirect_url)
+        elif action == "update-intervention-synthesis":
+            intervention = _intervention_from_post()
+            synthesis_form = SynopsisInterventionSynthesisForm(request.POST)
+            if synthesis_form.is_valid():
+                intervention.ce_action_url = (
+                    synthesis_form.cleaned_data.get("ce_action_url", "") or ""
+                )
+                intervention.evidence_status = synthesis_form.cleaned_data[
+                    "evidence_status"
+                ]
+                intervention.synthesis_text = (
+                    synthesis_form.cleaned_data.get("synthesis_text", "") or ""
+                )
+                intervention.save(
+                    update_fields=[
+                        "ce_action_url",
+                        "evidence_status",
+                        "synthesis_text",
+                        "updated_at",
+                    ]
+                )
+                messages.success(request, "Intervention synthesis saved.")
+            else:
+                messages.error(request, "Please check the synthesis fields.")
+            return redirect(redirect_url)
+        elif action == "add-key-message":
+            intervention = _intervention_from_post()
+            key_message_form = SynopsisKeyMessageForm(
+                request.POST, intervention=intervention
+            )
+            if key_message_form.is_valid():
+                key_message = SynopsisInterventionKeyMessage.objects.create(
+                    intervention=intervention,
+                    response_group=key_message_form.cleaned_data["response_group"],
+                    outcome_label=key_message_form.cleaned_data.get("outcome_label", "")
+                    or "",
+                    statement=key_message_form.cleaned_data["statement"],
+                    study_count=key_message_form.cleaned_data.get("study_count"),
+                    position=_next_key_message_position(intervention),
+                )
+                key_message.supporting_summaries.set(
+                    key_message_form.cleaned_data.get("supporting_summaries")
+                )
+                messages.success(request, "Key message added.")
+            else:
+                messages.error(request, "Could not add key message.")
+            return redirect(redirect_url)
+        elif action == "update-key-message":
+            key_message = _key_message_from_post()
+            key_message_form = SynopsisKeyMessageForm(
+                request.POST, intervention=key_message.intervention
+            )
+            if key_message_form.is_valid():
+                key_message.response_group = key_message_form.cleaned_data[
+                    "response_group"
+                ]
+                key_message.outcome_label = (
+                    key_message_form.cleaned_data.get("outcome_label", "") or ""
+                )
+                key_message.statement = key_message_form.cleaned_data["statement"]
+                key_message.study_count = key_message_form.cleaned_data.get(
+                    "study_count"
+                )
+                key_message.save(
+                    update_fields=[
+                        "response_group",
+                        "outcome_label",
+                        "statement",
+                        "study_count",
+                        "updated_at",
+                    ]
+                )
+                key_message.supporting_summaries.set(
+                    key_message_form.cleaned_data.get("supporting_summaries")
+                )
+                messages.success(request, "Key message updated.")
+            else:
+                messages.error(request, "Could not update key message.")
+            return redirect(redirect_url)
+        elif action == "move-key-message":
+            key_message = _key_message_from_post()
+            intervention = key_message.intervention
+            direction = request.POST.get("direction")
+            siblings = intervention.key_messages.order_by("position", "id")
+            if direction == "up":
+                swap = (
+                    siblings.filter(position__lt=key_message.position)
+                    .order_by("-position")
+                    .first()
+                )
+            elif direction == "down":
+                swap = (
+                    siblings.filter(position__gt=key_message.position)
+                    .order_by("position")
+                    .first()
+                )
+            else:
+                swap = None
+            if swap:
+                key_message.position, swap.position = swap.position, key_message.position
+                key_message.save(update_fields=["position"])
+                swap.save(update_fields=["position"])
+                messages.success(request, "Key message reordered.")
+            else:
+                messages.info(request, "Already at the edge.")
+            return redirect(redirect_url)
+        elif action == "delete-key-message":
+            key_message = _key_message_from_post()
+            intervention = key_message.intervention
+            key_message.delete()
+            _resequence_key_message_positions(intervention)
+            messages.success(request, "Key message removed.")
+            return redirect(redirect_url)
+        elif action == "update-intervention-metadata":
+            intervention = _intervention_from_post()
+            category = None
+            category_id = (request.POST.get("iucn_category") or "").strip()
+            if category_id:
+                category = IUCNCategory.objects.filter(
+                    pk=category_id, is_active=True
+                ).first()
+                if not category:
+                    messages.error(request, "Invalid IUCN category selected.")
+                    return redirect(redirect_url)
+
+            primary = None
+            primary_id = (request.POST.get("primary_intervention") or "").strip()
+            if primary_id:
+                primary = SynopsisIntervention.objects.filter(
+                    pk=primary_id,
+                    subheading__chapter__project=project,
+                ).first()
+                if not primary:
+                    messages.error(request, "Invalid primary intervention selected.")
+                    return redirect(redirect_url)
+                if primary.id == intervention.id:
+                    messages.error(
+                        request,
+                        "An intervention cannot cross-reference itself.",
+                    )
+                    return redirect(redirect_url)
+
+            is_cross_reference = bool(request.POST.get("is_cross_reference"))
+            if primary and not is_cross_reference:
+                is_cross_reference = True
+            if is_cross_reference and not primary:
+                messages.error(
+                    request,
+                    "Cross-reference interventions must point to a primary intervention.",
+                )
+                return redirect(redirect_url)
+
+            intervention.iucn_category = category
+            intervention.is_cross_reference = is_cross_reference
+            intervention.primary_intervention = primary
+            intervention.save(
+                update_fields=[
+                    "iucn_category",
+                    "is_cross_reference",
+                    "primary_intervention",
+                    "updated_at",
+                ]
+            )
+            messages.success(request, "Intervention metadata saved.")
+            return redirect(redirect_url)
         elif action == "add-assignment":
             intervention = _intervention_from_post()
             assignment_form = SynopsisAssignmentForm(request.POST, project=project)
@@ -6330,7 +6881,10 @@ def project_synopsis_structure(request, project_id):
                 intervention__subheading__chapter__project=project,
             )
             intervention = assignment.intervention
+            removed_summary = assignment.reference_summary
             assignment.delete()
+            for key_message in intervention.key_messages.all():
+                key_message.supporting_summaries.remove(removed_summary)
             _resequence_assignment_positions(intervention)
             messages.success(request, "Removed summary from intervention.")
             return redirect(redirect_url)
@@ -6363,12 +6917,19 @@ def project_synopsis_structure(request, project_id):
             if SynopsisChapter.objects.filter(project=project).exists():
                 messages.error(request, "Presets can only be applied to an empty outline.")
                 return redirect(redirect_url)
+            allowed_chapter_types = {choice[0] for choice in SynopsisChapter.TYPE_CHOICES}
 
             chapter_pos = 1
             for chapter_data in preset.chapters:
+                chapter_type = (
+                    chapter_data.get("chapter_type") or SynopsisChapter.TYPE_EVIDENCE
+                )
+                if chapter_type not in allowed_chapter_types:
+                    chapter_type = SynopsisChapter.TYPE_EVIDENCE
                 chapter = SynopsisChapter.objects.create(
                     project=project,
                     title=chapter_data.get("title") or "Untitled chapter",
+                    chapter_type=chapter_type,
                     position=chapter_pos,
                 )
                 chapter_pos += 1
@@ -6409,24 +6970,213 @@ def project_synopsis_structure(request, project_id):
     chapters = list(_chapter_qs())
     reference_summaries = (
         project.reference_summaries.select_related("reference")
-        .order_by("reference__title")
+        .order_by("reference__title", "created_at", "id")
         .all()
     )
+    reference_summary_groups, summary_ui_meta = _reference_summary_workspace_groups(
+        reference_summaries
+    )
+
+    for chapter in chapters:
+        chapter.subheading_total = 0
+        chapter.intervention_total = 0
+        chapter.assignment_total = 0
+        if not chapter.supports_evidence_structure:
+            continue
+        subheadings = list(chapter.subheadings.all())
+        chapter.subheading_total = len(subheadings)
+        for subheading in subheadings:
+            interventions = list(subheading.interventions.all())
+            subheading.intervention_total = len(interventions)
+            chapter.intervention_total += subheading.intervention_total
+            for intervention in interventions:
+                assignments = list(intervention.assignments.all())
+                (
+                    _,
+                    summary_numbers,
+                    ordered_references,
+                ) = _intervention_reference_numbering(assignments)
+                reference_counts = Counter(
+                    assignment.reference_summary.reference_id for assignment in assignments
+                )
+                reference_number_labels = {
+                    reference.id: _format_reference_number_ranges(numbers)
+                    for numbers, reference in ordered_references
+                }
+                for assignment in assignments:
+                    meta = summary_ui_meta.get(assignment.reference_summary_id, {})
+                    assignment.ce_reference_number = summary_numbers.get(
+                        assignment.reference_summary_id
+                    )
+                    assignment.paper_title = meta.get(
+                        "paper_title",
+                        assignment.reference_summary.reference.canonical.title,
+                    )
+                    assignment.paper_meta = meta.get("paper_meta", "")
+                    assignment.summary_label = meta.get(
+                        "summary_label", assignment.reference_summary.display_label
+                    )
+                    assignment.duplicate_reference_assignment = (
+                        reference_counts.get(
+                            assignment.reference_summary.reference_id, 0
+                        )
+                        > 1
+                    )
+                    assignment.reference_line_number_label = reference_number_labels.get(
+                        assignment.reference_summary.reference_id,
+                        (
+                            str(assignment.ce_reference_number)
+                            if assignment.ce_reference_number is not None
+                            else ""
+                        ),
+                    )
+                intervention.supporting_summary_options = [
+                    {
+                        "id": assignment.reference_summary_id,
+                        "number": assignment.ce_reference_number,
+                        "paper_title": assignment.paper_title,
+                        "summary_label": assignment.summary_label,
+                    }
+                    for assignment in assignments
+                ]
+                intervention.compilation_preview = {
+                    "study_paragraph_count": len(assignments),
+                    "reference_line_count": len(ordered_references),
+                    "shared_source_count": sum(
+                        1 for numbers, _reference in ordered_references if len(numbers) > 1
+                    ),
+                    "reference_lines": [
+                        {
+                            "number_label": _format_reference_number_ranges(numbers),
+                            "paper_title": reference.canonical.title,
+                            "paper_meta": " · ".join(
+                                [
+                                    bit
+                                    for bit in (
+                                        reference.canonical.authors,
+                                        (
+                                            str(reference.canonical.publication_year)
+                                            if reference.canonical.publication_year
+                                            else ""
+                                        ),
+                                    )
+                                    if bit
+                                ]
+                            ),
+                            "study_count": len(numbers),
+                            "is_shared": len(numbers) > 1,
+                        }
+                        for numbers, reference in ordered_references
+                    ],
+                }
+                key_messages = list(intervention.key_messages.all())
+                for key_message in key_messages:
+                    supporting_ids = {
+                        summary.id for summary in key_message.supporting_summaries.all()
+                    }
+                    key_message.supporting_summary_ids = supporting_ids
+                    key_message.ce_supporting_numbers = _key_message_supporting_numbers(
+                        key_message, summary_numbers
+                    )
+                intervention.assignment_total = len(assignments)
+                intervention.key_message_total = len(key_messages)
+                chapter.assignment_total += intervention.assignment_total
+
+    text_chapters = [
+        chapter for chapter in chapters if chapter.chapter_type == SynopsisChapter.TYPE_TEXT
+    ]
+    evidence_chapters = [
+        chapter
+        for chapter in chapters
+        if chapter.chapter_type == SynopsisChapter.TYPE_EVIDENCE
+    ]
+    appendix_chapters = [
+        chapter
+        for chapter in chapters
+        if chapter.chapter_type == SynopsisChapter.TYPE_APPENDIX
+    ]
+    evidence_intervention_total = sum(
+        chapter.intervention_total for chapter in evidence_chapters
+    )
+    evidence_assignment_total = sum(
+        chapter.assignment_total for chapter in evidence_chapters
+    )
+    narrative_total = len(text_chapters) + len(appendix_chapters)
+    iucn_categories = IUCNCategory.objects.filter(is_active=True).order_by(
+        "kind", "position", "name"
+    )
+    all_interventions = (
+        SynopsisIntervention.objects.filter(subheading__chapter__project=project)
+        .select_related("subheading__chapter")
+        .order_by("title")
+    )
     last_export = SynopsisExportLog.objects.filter(project=project).first()
+
     return render(
         request,
-        "synopsis/project_synopsis_structure.html",
+        template_name,
         {
             "project": project,
             "chapters": chapters,
             "chapter_form": chapter_form,
             "subheading_form": subheading_form,
             "intervention_form": intervention_form,
+            "intervention_synthesis_form": intervention_synthesis_form,
+            "key_message_form": key_message_form,
             "assignment_form": assignment_form,
             "reference_summaries": reference_summaries,
+            "reference_summary_groups": reference_summary_groups,
+            "text_chapters": text_chapters,
+            "evidence_chapters": evidence_chapters,
+            "appendix_chapters": appendix_chapters,
+            "narrative_total": narrative_total,
+            "evidence_intervention_total": evidence_intervention_total,
+            "evidence_assignment_total": evidence_assignment_total,
+            "iucn_categories": iucn_categories,
+            "all_interventions": all_interventions,
             "last_exported": last_export.exported_at if last_export else None,
             "presets": PRESETS.values(),
+            "workspace_mode": workspace_mode,
+            "workspace_narrative_url": reverse(
+                "synopsis:project_synopsis_narrative", kwargs={"project_id": project.id}
+            ),
+            "workspace_evidence_url": reverse(
+                "synopsis:project_synopsis_evidence", kwargs={"project_id": project.id}
+            ),
         },
+    )
+
+
+@login_required
+def project_synopsis_structure(request, project_id):
+    return _project_synopsis_workspace(
+        request,
+        project_id,
+        workspace_mode="evidence",
+        redirect_name="project_synopsis_structure",
+        template_name="synopsis/project_synopsis_structure.html",
+    )
+
+
+@login_required
+def project_synopsis_evidence(request, project_id):
+    return _project_synopsis_workspace(
+        request,
+        project_id,
+        workspace_mode="evidence",
+        redirect_name="project_synopsis_evidence",
+        template_name="synopsis/project_synopsis_structure.html",
+    )
+
+
+@login_required
+def project_synopsis_narrative(request, project_id):
+    return _project_synopsis_workspace(
+        request,
+        project_id,
+        workspace_mode="narrative",
+        redirect_name="project_synopsis_narrative",
+        template_name="synopsis/project_synopsis_narrative.html",
     )
 
 
@@ -6440,11 +7190,17 @@ def _generate_synopsis_docx(project):
         "interventions",
         queryset=SynopsisIntervention.objects.order_by("position", "id").prefetch_related(
             Prefetch(
+                "key_messages",
+                queryset=SynopsisInterventionKeyMessage.objects.order_by(
+                    "position", "id"
+                ).prefetch_related("supporting_summaries"),
+            ),
+            Prefetch(
                 "assignments",
                 queryset=SynopsisAssignment.objects.select_related(
                     "reference_summary__reference"
                 ).order_by("position", "id"),
-            )
+            ),
         ),
     )
     subheading_prefetch = Prefetch(
@@ -6468,24 +7224,102 @@ def _generate_synopsis_docx(project):
             doc.add_paragraph(chapter.background_text)
         if chapter.background_references:
             doc.add_paragraph(f"Background references: {chapter.background_references}")
+        if not chapter.supports_evidence_structure:
+            return
         for subheading in chapter.subheadings.all():
             doc.add_heading(subheading.title or "Untitled subheading", level=2)
             for intervention in subheading.interventions.all():
                 doc.add_heading(intervention.title or "Untitled intervention", level=3)
+                if intervention.ce_action_url:
+                    doc.add_paragraph(f"Conservation Evidence action: {intervention.ce_action_url}")
                 if intervention.background_text:
                     doc.add_paragraph(intervention.background_text)
                 if intervention.background_references:
                     doc.add_paragraph(
                         f"Background references: {intervention.background_references}"
                     )
-                for assignment in intervention.assignments.all():
+
+                if intervention.is_cross_reference and intervention.primary_intervention:
+                    doc.add_paragraph(
+                        f"Cross-reference: Evidence is summarized under "
+                        f"“{intervention.primary_intervention.title}”."
+                    )
+                    continue
+
+                assignments = list(intervention.assignments.all())
+                (
+                    ordered_assignments,
+                    summary_numbers,
+                    ordered_references,
+                ) = _intervention_reference_numbering(assignments)
+
+                key_messages = list(intervention.key_messages.all())
+                if key_messages:
+                    doc.add_paragraph("Key messages")
+                    for message in key_messages:
+                        prefix = message.get_response_group_display()
+                        study_count = (
+                            f" ({message.study_count} studies)"
+                            if message.study_count is not None
+                            else ""
+                        )
+                        label = (
+                            f"{message.outcome_label}{study_count}: "
+                            if message.outcome_label
+                            else ""
+                        )
+                        text = f"{prefix}: {label}{message.statement}".strip()
+                        supporting_numbers = _key_message_supporting_numbers(
+                            message, summary_numbers
+                        )
+                        if supporting_numbers:
+                            text = (
+                                f"{text} ({_format_reference_number_list(supporting_numbers)})"
+                            )
+                        doc.add_paragraph(text, style="List Bullet")
+
+                if (
+                    intervention.evidence_status
+                    == SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES
+                ):
+                    doc.add_paragraph(
+                        "We found no studies that evaluated the effects of this intervention."
+                    )
+
+                if intervention.synthesis_text:
+                    doc.add_paragraph(intervention.synthesis_text)
+
+                for assignment in ordered_assignments:
                     summary = assignment.reference_summary
-                    doc.add_heading(summary.reference.canonical.title, level=4)
-                    paragraph = _structured_summary_paragraph(summary)
+                    reference_number = summary_numbers.get(summary.id)
+                    paragraph = _structured_summary_paragraph(
+                        summary,
+                        reference_identifier_override=(
+                            str(reference_number) if reference_number else None
+                        ),
+                    )
                     if paragraph:
                         doc.add_paragraph(paragraph)
+                    elif summary.reference.canonical.title:
+                        if reference_number:
+                            doc.add_paragraph(
+                                f"({reference_number}) {summary.reference.canonical.title}."
+                            )
+                        else:
+                            doc.add_paragraph(summary.reference.canonical.title)
                     if summary.cost_summary:
                         doc.add_paragraph(f"Costs: {summary.cost_summary}")
+
+                if ordered_references:
+                    doc.add_paragraph("References")
+                    for numbers, ref in ordered_references:
+                        citation = (
+                            _reference_export_citation(ref)
+                            or _reference_summary_citation(ref)
+                            or (ref.canonical.title if hasattr(ref, "canonical") else ref.title)
+                        )
+                        number_label = _format_reference_number_ranges(numbers)
+                        doc.add_paragraph(f"({number_label}) {citation}")
 
     for chapter in chapters:
         _render_chapter(chapter)
@@ -6505,7 +7339,7 @@ def project_synopsis_export_docx(request, project_id):
         payload = _generate_synopsis_docx(project)
     except ImportError as exc:
         messages.error(request, str(exc))
-        return redirect("synopsis:project_synopsis_structure", project_id=project.id)
+        return redirect("synopsis:project_synopsis_evidence", project_id=project.id)
     filename = slugify(f"{project.title}-synopsis").replace(" ", "-") + ".docx"
     log = SynopsisExportLog.objects.create(
         project=project,
