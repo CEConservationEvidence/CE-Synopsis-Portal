@@ -249,7 +249,10 @@
                 {% else %}
                 <p class="text-muted small mb-2">No synopsis structure defined yet.</p>
                 {% endif %}
-                <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_synopsis_structure' project.id %}">Open synopsis structure</a>
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_synopsis_narrative' project.id %}">Narrative workspace</a>
+                    <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_synopsis_evidence' project.id %}">Evidence workspace</a>
+                </div>
             </div>
         </div>
     </div>
