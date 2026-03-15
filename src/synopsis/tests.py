@@ -42,6 +42,8 @@ from .models import (
     SynopsisChapter,
     SynopsisSubheading,
     SynopsisIntervention,
+    SynopsisInterventionKeyMessage,
+    SynopsisAssignment,
 )
 from .forms import (
     AdvisoryMemberCustomDataForm,
@@ -72,6 +74,10 @@ from .views import (
     action_list_delete_revision,
     _parse_plaintext_references,
     project_synopsis_structure,
+    _intervention_reference_numbering,
+    _format_reference_number_ranges,
+    _reference_export_citation,
+    _structured_summary_paragraph,
 )
 
 # TODO: #25 Clean up tests.py and see if some tests can be split into separate files.
@@ -240,6 +246,17 @@ class SynopsisStructureTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(SynopsisChapter.objects.filter(project=self.project).exists())
+        front_chapter = SynopsisChapter.objects.get(
+            project=self.project, title="Advisory Board"
+        )
+        self.assertEqual(front_chapter.chapter_type, SynopsisChapter.TYPE_TEXT)
+        evidence_chapter = SynopsisChapter.objects.get(
+            project=self.project,
+            title="2. Threat: Residential and commercial development",
+        )
+        self.assertEqual(
+            evidence_chapter.chapter_type, SynopsisChapter.TYPE_EVIDENCE
+        )
         count_after_first = SynopsisChapter.objects.filter(project=self.project).count()
         # Second apply should be blocked because outline is not empty
         response = self.client.post(
@@ -275,6 +292,495 @@ class SynopsisStructureTests(TestCase):
             SynopsisIntervention.objects.filter(subheading__chapter=chapter).values_list("title", flat=True)
         )
         self.assertIn("Intervention A", intervention_titles)
+
+    def test_text_chapter_blocks_subheading_and_intervention(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        text_chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+        response = self.client.post(
+            url,
+            {
+                "action": "create-subheading",
+                "chapter_id": text_chapter.id,
+                "title": "Should fail",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(SynopsisSubheading.objects.filter(chapter=text_chapter).exists())
+        response = self.client.post(
+            url,
+            {
+                "action": "create-intervention",
+                "chapter_id": text_chapter.id,
+                "title": "Should also fail",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(
+            SynopsisIntervention.objects.filter(subheading__chapter=text_chapter).exists()
+        )
+
+    def test_update_intervention_synthesis_fields(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-intervention-synthesis",
+                "intervention_id": intervention.id,
+                "ce_action_url": "https://www.conservationevidence.com/actions/4018",
+                "evidence_status": SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES,
+                "synthesis_text": "No direct studies were identified in the searched evidence base.",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        intervention.refresh_from_db()
+        self.assertEqual(
+            intervention.ce_action_url,
+            "https://www.conservationevidence.com/actions/4018",
+        )
+        self.assertEqual(
+            intervention.evidence_status,
+            SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES,
+        )
+        self.assertIn("No direct studies", intervention.synthesis_text)
+
+    def test_add_and_update_key_message(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Second test ref",
+            hash_key="hash-second-test-ref",
+            screening_status="included",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project, reference=second_reference
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=second_summary,
+            position=2,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "add-key-message",
+                "intervention_id": intervention.id,
+                "response_group": SynopsisInterventionKeyMessage.GROUP_POPULATION,
+                "outcome_label": "Abundance/Cover",
+                "study_count": 3,
+                "statement": "Three studies found increased coral cover after intervention.",
+                "supporting_summaries": [str(self.summary.id)],
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        key_message = intervention.key_messages.first()
+        self.assertIsNotNone(key_message)
+        self.assertEqual(key_message.study_count, 3)
+        self.assertEqual(
+            list(
+                key_message.supporting_summaries.order_by("id").values_list("id", flat=True)
+            ),
+            [self.summary.id],
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-key-message",
+                "intervention_id": intervention.id,
+                "key_message_id": key_message.id,
+                "response_group": SynopsisInterventionKeyMessage.GROUP_COMMUNITY,
+                "outcome_label": "Richness/diversity",
+                "study_count": 5,
+                "statement": "Five studies found no clear community-level change.",
+                "supporting_summaries": [str(second_summary.id), str(self.summary.id)],
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        key_message.refresh_from_db()
+        self.assertEqual(
+            key_message.response_group,
+            SynopsisInterventionKeyMessage.GROUP_COMMUNITY,
+        )
+        self.assertEqual(key_message.outcome_label, "Richness/diversity")
+        self.assertEqual(key_message.study_count, 5)
+        self.assertEqual(
+            list(
+                key_message.supporting_summaries.order_by("id").values_list("id", flat=True)
+            ),
+            sorted([self.summary.id, second_summary.id]),
+        )
+
+    def test_intervention_reference_numbering_uses_oldest_first_order(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        older_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Older study",
+            authors="Alpha A.",
+            publication_year=2001,
+            hash_key="hash-old-study",
+            screening_status="included",
+        )
+        newer_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Newer study",
+            authors="Beta B.",
+            publication_year=2018,
+            hash_key="hash-new-study",
+            screening_status="included",
+        )
+        older_summary = ReferenceSummary.objects.create(
+            project=self.project, reference=older_reference
+        )
+        newer_summary = ReferenceSummary.objects.create(
+            project=self.project, reference=newer_reference
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention, reference_summary=newer_summary, position=1
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention, reference_summary=older_summary, position=2
+        )
+
+        assignments = list(intervention.assignments.all())
+        ordered_assignments, summary_numbers, ordered_references = (
+            _intervention_reference_numbering(assignments)
+        )
+
+        self.assertEqual(
+            [assignment.reference_summary_id for assignment in ordered_assignments],
+            [older_summary.id, newer_summary.id],
+        )
+        self.assertEqual(summary_numbers[older_summary.id], 1)
+        self.assertEqual(summary_numbers[newer_summary.id], 2)
+        self.assertEqual(
+            [reference.id for _, reference in ordered_references],
+            [older_reference.id, newer_reference.id],
+        )
+        self.assertEqual(
+            [numbers for numbers, _ in ordered_references],
+            [[1], [2]],
+        )
+
+    def test_intervention_reference_numbering_groups_duplicate_references(self):
+        intervention = SynopsisIntervention.objects.create(
+            subheading=self.subheading,
+            title="2.1 Group duplicate paper studies",
+            position=2,
+        )
+        shared_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Shared study paper",
+            authors="Gamma G.",
+            publication_year=2009,
+            hash_key="hash-shared-study-paper",
+            screening_status="included",
+        )
+        first_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=shared_reference,
+            action_description="Study A",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=shared_reference,
+            action_description="Study B",
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention, reference_summary=first_summary, position=1
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention, reference_summary=second_summary, position=2
+        )
+
+        assignments = list(intervention.assignments.all())
+        ordered_assignments, summary_numbers, ordered_references = (
+            _intervention_reference_numbering(assignments)
+        )
+
+        self.assertEqual(
+            [assignment.reference_summary_id for assignment in ordered_assignments],
+            [first_summary.id, second_summary.id],
+        )
+        self.assertEqual(summary_numbers[first_summary.id], 1)
+        self.assertEqual(summary_numbers[second_summary.id], 2)
+        self.assertEqual(len(ordered_references), 1)
+        self.assertEqual(ordered_references[0][1].id, shared_reference.id)
+        self.assertEqual(ordered_references[0][0], [1, 2])
+        self.assertEqual(_format_reference_number_ranges([1, 2]), "1-2")
+
+    def test_key_message_rejects_unassigned_supporting_summary(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        outside_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Outside intervention summary",
+            hash_key="hash-outside-summary",
+            screening_status="included",
+        )
+        outside_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=outside_reference,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "add-key-message",
+                "intervention_id": intervention.id,
+                "response_group": SynopsisInterventionKeyMessage.GROUP_RESPONSE,
+                "statement": "Message with invalid supporting study link.",
+                "supporting_summaries": [str(outside_summary.id)],
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(intervention.key_messages.exists())
+
+    def test_evidence_page_groups_summary_tabs_under_reference(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        alt_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            action_description="Study B",
+        )
+        self.summary.action_description = "Study A"
+        self.summary.save(update_fields=["action_description"])
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=alt_summary,
+            position=2,
+        )
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        grouped = response.context["reference_summary_groups"]
+        self.assertEqual(len(grouped), 1)
+        self.assertEqual(grouped[0]["paper_title"], "Test ref")
+        self.assertEqual(
+            [item["summary_label"] for item in grouped[0]["summaries"]],
+            ["Study A", "Study B"],
+        )
+        self.assertContains(response, "Assign summary tabs, not whole papers.")
+        self.assertContains(response, "Study A")
+        self.assertContains(response, "Study B")
+        self.assertContains(response, "Same source paper")
+        self.assertContains(response, "shared reference line (1-2)")
+        self.assertContains(response, "Compilation preview")
+        self.assertContains(response, "2 study paragraphs")
+        self.assertContains(response, "1 source paper")
+        self.assertContains(response, "2 summary tabs from the same paper")
+
+    def test_delete_assignment_removes_supporting_links_from_key_messages(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        assignment = SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        key_message = SynopsisInterventionKeyMessage.objects.create(
+            intervention=intervention,
+            response_group=SynopsisInterventionKeyMessage.GROUP_RESPONSE,
+            statement="Linked message",
+            position=1,
+        )
+        key_message.supporting_summaries.add(self.summary)
+
+        response = self.client.post(
+            url,
+            {
+                "action": "delete-assignment",
+                "assignment_id": assignment.id,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        key_message.refresh_from_db()
+        self.assertFalse(key_message.supporting_summaries.exists())
+
+    def test_export_citation_and_reference_identifier_override(self):
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Corallivorous snail removal",
+            authors="Miller M.",
+            publication_year=2001,
+            journal="Coral Reefs",
+            volume="19",
+            pages="293-295",
+            doi="10.1007/PL00006963",
+            hash_key="hash-citation-study",
+            screening_status="included",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            study_design="replicated, controlled study",
+            year_range="1999",
+            summary_of_results="snail removal reduced live tissue loss.",
+            reference_identifier="X",
+        )
+
+        citation = _reference_export_citation(reference)
+        self.assertIn("Miller M. (2001)", citation)
+        self.assertIn("Corallivorous snail removal.", citation)
+        self.assertIn("Coral Reefs, 19, 293-295.", citation)
+        self.assertIn("https://doi.org/10.1007/PL00006963", citation)
+
+        paragraph = _structured_summary_paragraph(
+            summary, reference_identifier_override="3"
+        )
+        self.assertIn("(3)", paragraph)
+        self.assertNotIn("(X)", paragraph)
+
+    def test_workspace_routes_load(self):
+        narrative_url = reverse(
+            "synopsis:project_synopsis_narrative", args=[self.project.id]
+        )
+        evidence_url = reverse(
+            "synopsis:project_synopsis_evidence", args=[self.project.id]
+        )
+        structure_url = reverse(
+            "synopsis:project_synopsis_structure", args=[self.project.id]
+        )
+        self.assertEqual(self.client.get(narrative_url).status_code, 200)
+        self.assertEqual(self.client.get(evidence_url).status_code, 200)
+        self.assertEqual(self.client.get(structure_url).status_code, 200)
+
+    def test_narrative_workspace_post_redirects_to_narrative_route(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        response = self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "Advisory Board",
+                "chapter_type": SynopsisChapter.TYPE_TEXT,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            urlparse(response["Location"]).path,
+            urlparse(url).path,
+        )
 
 
 @override_settings(DEFAULT_FROM_EMAIL="reminders@example.com")
@@ -2282,6 +2788,44 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertEqual(len(cleaned), 1)
         self.assertEqual(cleaned[0]["outcome"], "Outcome")
 
+    def test_quality_scores_accept_boundary_values(self):
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "benefits_score": "0",
+                "harms_score": "100",
+                "reliability_score": "0.0",
+                "relevance_score": "1.0",
+            }
+        )
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["benefits_score"], 0.0)
+        self.assertEqual(form.cleaned_data["harms_score"], 100.0)
+        self.assertEqual(form.cleaned_data["reliability_score"], 0.0)
+        self.assertEqual(form.cleaned_data["relevance_score"], 1.0)
+
+    def test_quality_scores_reject_values_outside_ranges(self):
+        invalid_cases = [
+            ("benefits_score", "-0.1"),
+            ("benefits_score", "100.1"),
+            ("harms_score", "-1"),
+            ("harms_score", "101"),
+            ("reliability_score", "-0.01"),
+            ("reliability_score", "1.01"),
+            ("relevance_score", "-0.5"),
+            ("relevance_score", "2"),
+        ]
+        for field_name, value in invalid_cases:
+            with self.subTest(field_name=field_name, value=value):
+                form = ReferenceSummaryUpdateForm(
+                    data={
+                        "status": ReferenceSummary.STATUS_TODO,
+                        field_name: value,
+                    }
+                )
+                self.assertFalse(form.is_valid())
+                self.assertIn(field_name, form.errors)
+
 
 class ReferenceSummaryDetailViewTests(TestCase):
     def setUp(self):
@@ -2322,3 +2866,73 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.summary.habitat_and_sites, "New habitat info")
         messages = list(get_messages(resp.wsgi_request))
         self.assertTrue(any("Summary updated" in str(m) for m in messages))
+
+    def test_create_summary_tab_adds_second_summary_for_same_reference(self):
+        self.summary.assigned_to = self.user
+        self.summary.reference_identifier = "REF-12"
+        self.summary.reference_label = "Test reference label"
+        self.summary.summary_author = "Existing Author"
+        self.summary.citation = "Author (2024)"
+        self.summary.save()
+
+        self.client.login(username="author", password="pass123")
+        url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        resp = self.client.post(
+            url,
+            {"action": "create-summary-tab"},
+            follow=False,
+        )
+
+        self.assertEqual(
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            ).count(),
+            2,
+        )
+        new_summary = (
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            )
+            .exclude(pk=self.summary.id)
+            .get()
+        )
+        self.assertRedirects(
+            resp,
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, new_summary.id],
+            ),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(new_summary.assigned_to, self.user)
+        self.assertEqual(new_summary.reference_identifier, "REF-12")
+        self.assertEqual(new_summary.reference_label, "Test reference label")
+        self.assertEqual(new_summary.summary_author, "Existing Author")
+        self.assertEqual(new_summary.citation, "Author (2024)")
+
+    def test_board_still_creates_only_one_default_summary_per_included_reference(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status"])
+        self.client.login(username="author", password="pass123")
+        extra_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            citation="Alt citation",
+        )
+
+        resp = self.client.get(
+            reverse("synopsis:reference_summary_board", args=[self.project.id])
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            ).count(),
+            2,
+        )
+        self.assertContains(resp, "multiple summary tabs per reference", status_code=200)
+        self.assertContains(resp, "Summary 2")
