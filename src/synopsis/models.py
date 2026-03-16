@@ -607,7 +607,7 @@ class AdvisoryBoardMember(models.Model):
     last_name = models.CharField(max_length=100, blank=True)
     organisation = models.CharField(max_length=255, blank=True)
     email = models.EmailField()
-    location = models.CharField(max_length=100, blank=True)
+    country = models.CharField(max_length=100, blank=True)
     continent = models.CharField(max_length=100, blank=True)
     notes = models.TextField(blank=True)
 

@@ -236,7 +236,7 @@ class AdvisoryBoardMemberForm(forms.ModelForm):
             "last_name",
             "organisation",
             "email",
-            "location",
+            "country",
             "continent",
             "notes",
         ]
@@ -246,7 +246,7 @@ class AdvisoryBoardMemberForm(forms.ModelForm):
             "last_name": forms.TextInput(attrs={"class": "form-control"}),
             "organisation": forms.TextInput(attrs={"class": "form-control"}),
             "email": forms.EmailInput(attrs={"class": "form-control"}),
-            "location": forms.TextInput(attrs={"class": "form-control"}),
+            "country": forms.TextInput(attrs={"class": "form-control"}),
             "continent": forms.TextInput(attrs={"class": "form-control"}),
             "notes": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
         }
