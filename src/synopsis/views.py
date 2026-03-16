@@ -14,7 +14,7 @@ import jwt
 import requests
 import rispy
 import html
-import xml.etree.ElementTree as ET
+from defusedxml import ElementTree as ET
 
 from django.conf import settings
 from django.contrib import messages
@@ -1236,7 +1236,7 @@ def _parse_plaintext_references(payload: str) -> list[dict]:
     return parsed
 
 
-def _strip_xml_namespaces(root: ET.Element) -> ET.Element:
+def _strip_xml_namespaces(root):
     for elem in root.iter():
         if "}" in elem.tag:
             elem.tag = elem.tag.split("}", 1)[1]
