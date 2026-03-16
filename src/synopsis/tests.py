@@ -3252,3 +3252,33 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
         self.assertContains(resp, "multiple summary tabs per reference", status_code=200)
         self.assertContains(resp, "Summary 2")
+
+    def test_board_and_detail_use_library_reference_metadata(self):
+        canonical = LibraryReference.objects.create(
+            title="Canonical library title",
+            authors="Smith, Jane",
+            publication_year=2024,
+        )
+        self.reference.library_reference = canonical
+        self.reference.title = "Project-local title"
+        self.reference.screening_status = "included"
+        self.reference.save(
+            update_fields=["library_reference", "title", "screening_status", "updated_at"]
+        )
+
+        self.client.login(username="author", password="pass123")
+
+        board_response = self.client.get(
+            reverse("synopsis:reference_summary_board", args=[self.project.id])
+        )
+        detail_response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(board_response, "Canonical library title")
+        self.assertContains(board_response, "Smith, Jane")
+        self.assertContains(detail_response, "Canonical library title")
+        self.assertContains(detail_response, "Smith, Jane")
