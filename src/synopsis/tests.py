@@ -2747,6 +2747,48 @@ class ReferenceBatchUploadParsingTests(TestCase):
             self.assertEqual(ref.screened_by, self.user)
             self.assertIsNotNone(ref.screening_decision_at)
 
+    def test_single_screening_update_filters_blank_reference_folder_values(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Single screening batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        ref = batch.references.order_by("id").first()
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+
+        response = self.client.post(
+            detail_url,
+            {
+                "reference_id": ref.id,
+                "screening_status": "included",
+                "screening_notes": "Relevant to the topic.",
+                "reference_folder": ["", "3"],
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+        )
+        ref.refresh_from_db()
+        self.assertEqual(ref.screening_status, "included")
+        self.assertEqual(ref.reference_folder, ["3"])
+
     def test_bulk_action_requires_selection(self):
         upload = SimpleUploadedFile(
             "references.txt",
