@@ -216,8 +216,8 @@
                         {{ form.email }}
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">Location</label>
-                        {{ form.location }}
+                        <label class="form-label">Country</label>
+                        {{ form.country }}
                     </div>
                     <div class="col-md-6">
                         <label class="form-label">Continent</label>
@@ -286,7 +286,7 @@
                         <th class="text-center" scope="col">NAME 3</th>
                         <th class="text-center" scope="col">ORGANISATION</th>
                         <th class="text-center" scope="col">EMAIL</th>
-                        <th class="text-center" scope="col">LOCATION</th>
+                        <th class="text-center" scope="col">COUNTRY</th>
                         <th class="text-center" scope="col">CONTINENT</th>
                         <th class="text-center" scope="col">NOTES</th>
                         {% for field in combined_fields_by_group.personal %}
@@ -393,7 +393,7 @@
                                         <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
-                                    <td>{{ m.location|default:"—" }}</td>
+                                    <td>{{ m.country|default:"—" }}</td>
                                     <td>{{ m.get_continent_display|default:"—" }}</td>
                                     <td>{{ m.notes|linebreaksbr|default:"—" }}</td>
                                     {% for field in combined_fields_by_group.personal %}
