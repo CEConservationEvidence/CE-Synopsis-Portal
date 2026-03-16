@@ -1172,7 +1172,7 @@ class MemberReminderUpdateTests(TestCase):
             "last_name": "Thornton",
             "organisation": "Updated Org",
             "email": "rebecca@example.com",
-            "location": "London",
+            "country": "United Kingdom",
             "continent": "Europe",
             "notes": "Updated notes",
         }
@@ -1186,9 +1186,9 @@ class MemberReminderUpdateTests(TestCase):
         self.assertRedirects(response, self.board_url)
         member.refresh_from_db()
         self.assertEqual(member.title, "Prof")
-        self.assertEqual(member.last_name, "Jones")
+        self.assertEqual(member.last_name, "Thornton")
         self.assertEqual(member.organisation, "Updated Org")
-        self.assertEqual(member.location, "London")
+        self.assertEqual(member.country, "United Kingdom")
         self.assertTrue(
             ProjectChangeLog.objects.filter(
                 project=self.project,
