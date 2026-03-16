@@ -76,6 +76,7 @@ from .views import (
     protocol_delete_revision,
     action_list_delete_revision,
     _parse_plaintext_references,
+    _parse_endnote_xml,
     project_synopsis_structure,
     _intervention_reference_numbering,
     _format_reference_number_ranges,
@@ -2380,6 +2381,56 @@ class PlainTextReferenceParserTests(TestCase):
     def test_returns_empty_list_for_blank_payload(self):
         self.assertEqual(_parse_plaintext_references(""), [])
         self.assertEqual(_parse_plaintext_references("   "), [])
+
+
+class EndNoteXmlParserTests(TestCase):
+    def test_parses_endnote_xml_record(self):
+        payload = textwrap.dedent(
+            """
+            <xml>
+              <records>
+                <record>
+                  <titles>
+                    <title>Coral restoration methods</title>
+                    <secondary-title>Marine Ecology</secondary-title>
+                  </titles>
+                  <contributors>
+                    <authors>
+                      <author>Smith, Jane</author>
+                      <author>Doe, Alex</author>
+                    </authors>
+                  </contributors>
+                  <dates>
+                    <year>2023</year>
+                  </dates>
+                  <volume>12</volume>
+                  <number>4</number>
+                  <pages>101-110</pages>
+                  <abstract>Summary text.</abstract>
+                  <electronic-resource-num>10.1234/example</electronic-resource-num>
+                  <urls>
+                    <related-urls>
+                      <url>https://example.com/article</url>
+                    </related-urls>
+                  </urls>
+                </record>
+              </records>
+            </xml>
+            """
+        ).strip()
+
+        parsed = _parse_endnote_xml(payload)
+
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["title"], "Coral restoration methods")
+        self.assertEqual(parsed[0]["journal_name"], "Marine Ecology")
+        self.assertEqual(parsed[0]["authors"], ["Smith, Jane", "Doe, Alex"])
+        self.assertEqual(parsed[0]["publication_year"], "2023")
+        self.assertEqual(parsed[0]["doi"], "10.1234/example")
+        self.assertEqual(parsed[0]["url"], "https://example.com/article")
+
+    def test_returns_empty_list_for_invalid_xml(self):
+        self.assertEqual(_parse_endnote_xml("<xml><records>"), [])
 
 
 class ReferenceBatchUploadParsingTests(TestCase):
