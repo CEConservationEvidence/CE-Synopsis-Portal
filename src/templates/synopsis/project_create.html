@@ -25,12 +25,7 @@
     <div class="card mb-3">
         <div class="card-body">
             <h5 class="mb-3">Authors</h5>
-            <div class="mb-2">
-                <label class="form-label">Assign authors</label>
-                {{ authors_form.authors }}
-                {{ authors_form.authors.errors }}
-                <div class="form-text">Hold Ctrl/Cmd to select multiple.</div>
-            </div>
+            {% include "synopsis/includes/author_selection_field.html" with field=authors_form.authors %}
         </div>
     </div>
     <div class="card mb-3">

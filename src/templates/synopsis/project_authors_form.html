@@ -11,10 +11,17 @@
     {% csrf_token %}
     {{ form.non_field_errors }}
     <div class="mb-3">
-        <label class="form-label">Authors</label>
-        {{ form.authors }}
-        {{ form.authors.errors }}
-        <div class="form-text">Hold Ctrl/Cmd to select multiple authors.</div>
+        {% if current_authors %}
+        <div class="mb-3">
+            <div class="small text-uppercase text-muted fw-semibold mb-2">Currently assigned</div>
+            <div class="d-flex flex-wrap gap-2">
+                {% for author in current_authors %}
+                <span class="badge text-bg-light">{{ author.get_full_name|default:author.username }}</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% include "synopsis/includes/author_selection_field.html" with field=form.authors %}
     </div>
     <button class="btn btn-primary">Save changes</button>
     <a class="btn btn-link" href="{% url 'synopsis:project_hub' project.id %}">Cancel</a>
