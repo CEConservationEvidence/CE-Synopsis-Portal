@@ -7863,10 +7863,11 @@ def reference_batch_upload(request, project_id):
                         )
                         imported = 0
                         duplicates = 0
+                        skipped = 0
                         for record in records:
                             data = _normalise_import_record(record)
                             if not data:
-                                duplicates += 1
+                                skipped += 1
                                 continue
 
                             hash_key = reference_hash(
@@ -7934,6 +7935,10 @@ def reference_batch_upload(request, project_id):
                             request,
                             f"Skipped {duplicates} record(s) already present in this project.",
                         )
+                    if skipped:
+                        messages.info(
+                            request,
+                            f"Skipped {skipped} record(s) with no title.",
                     return redirect(
                         "synopsis:reference_batch_list", project_id=project.id
                     )
