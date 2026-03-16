@@ -1159,19 +1159,19 @@ class MemberReminderUpdateTests(TestCase):
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
             title="Dr",
-            first_name="Casey",
+            first_name="Rebecca",
             last_name="Smith",
-            email="casey@example.com",
+            email="rebecca@example.com",
             organisation="Org",
         )
 
         payload = {
             "title": "Prof",
-            "first_name": "Casey",
+            "first_name": "Rebecca",
             "middle_name": "A",
-            "last_name": "Jones",
+            "last_name": "Thornton",
             "organisation": "Updated Org",
-            "email": "casey@example.com",
+            "email": "rebecca@example.com",
             "location": "London",
             "continent": "Europe",
             "notes": "Updated notes",
@@ -1307,12 +1307,12 @@ class AdvisoryInviteFlowTests(TestCase):
 
 class FunderUtilityTests(TestCase):
     def test_build_display_name_prefers_organisation(self):
-        name = Funder.build_display_name("Org Inc", "Dr", "Ann", "Lee")
+        name = Funder.build_display_name("Org Inc", "Dr", "Ann", "Thornton")
         self.assertEqual(name, "Org Inc")
 
     def test_build_display_name_from_names(self):
-        name = Funder.build_display_name(None, "Dr", "Ann", "Lee")
-        self.assertEqual(name, "Dr Ann Lee")
+        name = Funder.build_display_name(None, "Dr", "Ann", "Thornton")
+        self.assertEqual(name, "Dr Ann Thornton")
 
     def test_build_display_name_default(self):
         self.assertEqual(Funder.build_display_name(None, None, None, None), "(Funder)")
@@ -1376,8 +1376,8 @@ class FunderContactFormSetTests(TestCase):
             "contacts-MIN_NUM_FORMS": "0",
             "contacts-MAX_NUM_FORMS": "1000",
             "contacts-0-title": "",
-            "contacts-0-first_name": "Alex",
-            "contacts-0-last_name": "Smith",
+            "contacts-0-first_name": "Will",
+            "contacts-0-last_name": "Morgan",
             "contacts-0-email": "",
             "contacts-0-is_primary": "",
             "contacts-0-DELETE": "",
@@ -1404,7 +1404,7 @@ class FunderContactFormSetTests(TestCase):
 
     def test_valid_primary_contact(self):
         payload = self._formset_payload(
-            {"contacts-0-is_primary": "on", "contacts-0-email": "alex@example.com"}
+            {"contacts-0-is_primary": "on", "contacts-0-email": "will@example.com"}
         )
         formset = FunderContactFormSet(
             data=payload, instance=self.funder, prefix="contacts"
@@ -1418,14 +1418,14 @@ class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
         self.editor = User.objects.create_user(username="editor")
         self.accepted = AdvisoryBoardMember.objects.create(
             project=self.project,
-            first_name="Ada",
-            email="ada@example.com",
+            first_name="Ann",
+            email="ann@example.com",
             response="Y",
         )
         self.pending = AdvisoryBoardMember.objects.create(
             project=self.project,
-            first_name="Ben",
-            email="ben@example.com",
+            first_name="Vanessa",
+            email="vanessa@example.com",
             response="",
         )
         self.general_field = AdvisoryBoardCustomField.objects.create(
@@ -1921,14 +1921,14 @@ class AdvisoryBoardCustomColumnsTests(TestCase):
         self.editor = User.objects.create_user(username="editor-secondary")
         self.accepted = AdvisoryBoardMember.objects.create(
             project=self.project,
-            first_name="Ada",
-            email="ada@example.com",
+            first_name="Ann",
+            email="ann@example.com",
             response="Y",
         )
         self.pending = AdvisoryBoardMember.objects.create(
             project=self.project,
-            first_name="Ben",
-            email="ben@example.com",
+            first_name="Vanessa",
+            email="vanessa@example.com",
             response="",
         )
         self.general_field = AdvisoryBoardCustomField.objects.create(
