@@ -1063,8 +1063,8 @@ class MemberReminderUpdateTests(TestCase):
         )
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
-            first_name="Alex",
-            email="alex@example.com",
+            first_name="Vanessa",
+            email="vanessa@example.com",
             response="Y",
             sent_action_list_at=timezone.now(),
             action_list_reminder_sent=True,
@@ -2269,7 +2269,7 @@ class ViewHelperTests(TestCase):
         self.assertEqual(_format_value(42), "42")
 
     def test_funder_contact_label(self):
-        self.assertEqual(_funder_contact_label("Ann", "Lee"), "Ann Lee")
+        self.assertEqual(_funder_contact_label("Ann", "Thornton"), "Ann Thornton")
         self.assertEqual(_funder_contact_label("", ""), "—")
 
     def test_format_deadline_formats_timezone(self):
@@ -2346,7 +2346,7 @@ class PlainTextReferenceParserTests(TestCase):
 
             This entry is invalid and should be skipped.
 
-            Sample, S. and Example, E. (2018). Another example of parsing. Ecology Letters 11: 9-12.
+            Morgan, W. and Thornton, A. (2018). Another example of parsing. Ecology Letters 11: 9-12.
             Full abstract text including doi:10.5678/example and https://example.com/article for reference.
             """
         ).strip()
@@ -2375,7 +2375,7 @@ class PlainTextReferenceParserTests(TestCase):
         self.assertEqual(second["volume"], "11")
         self.assertFalse(second["issue"])
         self.assertEqual(second["pages"], "9-12")
-        self.assertEqual(second["authors"], ["Sample, S", "Example, E"])
+        self.assertEqual(second["authors"], ["Morgan, W", "Thornton, A"])
         self.assertEqual(second["doi"], "10.5678/example")
         self.assertEqual(second["url"], "https://example.com/article")
 
@@ -2397,8 +2397,8 @@ class EndNoteXmlParserTests(TestCase):
                   </titles>
                   <contributors>
                     <authors>
-                      <author>Smith, Jane</author>
-                      <author>Doe, Alex</author>
+                      <author>Alhas, Ibrahim</author>
+                      <author>Morgan, Will</author>
                     </authors>
                   </contributors>
                   <dates>
@@ -2425,7 +2425,7 @@ class EndNoteXmlParserTests(TestCase):
         self.assertEqual(len(parsed), 1)
         self.assertEqual(parsed[0]["title"], "Coral restoration methods")
         self.assertEqual(parsed[0]["journal_name"], "Marine Ecology")
-        self.assertEqual(parsed[0]["authors"], ["Smith, Jane", "Doe, Alex"])
+        self.assertEqual(parsed[0]["authors"], ["Alhas, Ibrahim", "Morgan, Will"])
         self.assertEqual(parsed[0]["publication_year"], "2023")
         self.assertEqual(parsed[0]["doi"], "10.1234/example")
         self.assertEqual(parsed[0]["url"], "https://example.com/article")
@@ -2448,7 +2448,7 @@ class LibraryReferenceBatchUploadTests(TestCase):
             Angel, D. L.; et al. (2002). "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture." Hydrobiologia 469(1): 1-10.
             Net pen fish farms generally enrich the surrounding waters and the underlying sediments with nutrients and organic matter.
 
-            Sample, S. and Example, E. (2018). Another example of parsing. Ecology Letters 11: 9-12.
+            Morgan, W. and Thornton, A. (2018). Another example of parsing. Ecology Letters 11: 9-12.
             Full abstract text including doi:10.5678/example and https://example.com/article for reference.
             """
         ).strip()
@@ -2509,7 +2509,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
             Angel, D. L.; et al. (2002). "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture." Hydrobiologia 469(1): 1-10.
             Net pen fish farms generally enrich the surrounding waters and the underlying sediments with nutrients and organic matter.
 
-            Sample, S. and Example, E. (2018). Another example of parsing. Ecology Letters 11: 9-12.
+            Morgan, W. and Thornton, A. (2018). Another example of parsing. Ecology Letters 11: 9-12.
             Full abstract text including doi:10.5678/example and https://example.com/article for reference.
             """
         ).strip()
@@ -2580,7 +2580,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
             """
             TY  - JOUR
             TI  - Example Title
-            AU  - Doe, Jane
+            AU  - Thornton, Ann
             PY  - 2021
             JO  - Marine Science Quarterly
             VL  - 12
@@ -3396,7 +3396,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
     def test_board_and_detail_use_library_reference_metadata(self):
         canonical = LibraryReference.objects.create(
             title="Canonical library title",
-            authors="Smith, Jane",
+            authors="Alhas, Ibrahim",
             publication_year=2024,
         )
         self.reference.library_reference = canonical
@@ -3419,9 +3419,9 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
 
         self.assertContains(board_response, "Canonical library title")
-        self.assertContains(board_response, "Ibrahim, Julius")
+        self.assertContains(board_response, "Alhas, Ibrahim")
         self.assertContains(detail_response, "Canonical library title")
-        self.assertContains(detail_response, "Caesar, William")
+        self.assertContains(detail_response, "Alhas, Ibrahim")
 
     def test_board_context_workload_counts_are_aggregated_correctly(self):
         other_author = User.objects.create_user(
@@ -3510,12 +3510,14 @@ class ProjectAuthorSelectionUiTests(TestCase):
         self.other_user = User.objects.create_user(
             username="ibrahim",
             password="pass123",
-            first_name="ibrahim",
-            last_name="alhas",
+            first_name="Ibrahim",
+            last_name="Alhas",
         )
         self.third_user = User.objects.create_user(
             username="will",
             password="pass123",
+            first_name="Will",
+            last_name="Morgan",
         )
 
     def test_project_create_uses_readable_author_picker(self):
@@ -3527,7 +3529,8 @@ class ProjectAuthorSelectionUiTests(TestCase):
         self.assertContains(response, "Filter authors by name or username")
         self.assertContains(
             response,
+            "no Ctrl/Cmd multi-select is needed",
             html=False,
         )
-        self.assertContains(response, "ibrahim Alhas (ibrahim)")
-        self.assertContains(response, "will")
+        self.assertContains(response, "Ibrahim Alhas (ibrahim)")
+        self.assertContains(response, "Will Morgan (will)")
