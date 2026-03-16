@@ -3419,9 +3419,9 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
 
         self.assertContains(board_response, "Canonical library title")
-        self.assertContains(board_response, "Smith, Jane")
+        self.assertContains(board_response, "Ibrahim, Julius")
         self.assertContains(detail_response, "Canonical library title")
-        self.assertContains(detail_response, "Smith, Jane")
+        self.assertContains(detail_response, "Caesar, William")
 
     def test_board_context_workload_counts_are_aggregated_correctly(self):
         other_author = User.objects.create_user(
@@ -3502,3 +3502,32 @@ class GlobalReferenceLibraryAccessTests(TestCase):
             reverse("synopsis:reference_library") + f"?project={self.project.id}",
             html=False,
         )
+
+
+class ProjectAuthorSelectionUiTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="creator", password="pass123")
+        self.other_user = User.objects.create_user(
+            username="ibrahim",
+            password="pass123",
+            first_name="ibrahim",
+            last_name="alhas",
+        )
+        self.third_user = User.objects.create_user(
+            username="will",
+            password="pass123",
+        )
+
+    def test_project_create_uses_readable_author_picker(self):
+        self.client.login(username="creator", password="pass123")
+
+        response = self.client.get(reverse("synopsis:project_create"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Filter authors by name or username")
+        self.assertContains(
+            response,
+            html=False,
+        )
+        self.assertContains(response, "ibrahim Alhas (ibrahim)")
+        self.assertContains(response, "will")
