@@ -6083,22 +6083,30 @@ def reference_summary_board(request, project_id):
             item.variant_label = _reference_summary_display_label(item, index)
             item.variant_count = group_size
 
+    assigned_counts = Counter()
+    needs_help_by_author = Counter()
+    unassigned_count = 0
+    needs_help_count = 0
+    for item in summaries:
+        if item.assigned_to_id is None:
+            unassigned_count += 1
+        else:
+            assigned_counts[item.assigned_to_id] += 1
+            if item.needs_help:
+                needs_help_by_author[item.assigned_to_id] += 1
+        if item.needs_help:
+            needs_help_count += 1
+
     author_options = list(project.author_users.order_by("first_name", "last_name"))
     workload = []
     for author in author_options:
         workload.append(
             {
                 "author": author,
-                "assigned": sum(1 for item in summaries if item.assigned_to_id == author.id),
-                "needs_help": sum(
-                    1
-                    for item in summaries
-                    if item.assigned_to_id == author.id and item.needs_help
-                ),
+                "assigned": assigned_counts.get(author.id, 0),
+                "needs_help": needs_help_by_author.get(author.id, 0),
             }
         )
-    unassigned_count = sum(1 for item in summaries if item.assigned_to_id is None)
-    needs_help_count = sum(1 for item in summaries if item.needs_help)
 
     status_map = {
         code: {"label": label, "items": []}

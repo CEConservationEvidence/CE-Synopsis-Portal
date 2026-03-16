@@ -3282,3 +3282,59 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(board_response, "Smith, Jane")
         self.assertContains(detail_response, "Canonical library title")
         self.assertContains(detail_response, "Smith, Jane")
+
+    def test_board_context_workload_counts_are_aggregated_correctly(self):
+        other_author = User.objects.create_user(
+            username="coauthor",
+            password="pass123",
+            first_name="Co",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status"])
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+            screening_status="included",
+        )
+        third_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="c" * 40,
+            title="Third reference",
+            screening_status="included",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            assigned_to=self.user,
+            needs_help=True,
+        )
+        third_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=third_reference,
+            assigned_to=other_author,
+            needs_help=False,
+        )
+        self.summary.assigned_to = self.user
+        self.summary.needs_help = False
+        self.summary.save(update_fields=["assigned_to", "needs_help", "updated_at"])
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse("synopsis:reference_summary_board", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        workload = {
+            row["author"].id: {"assigned": row["assigned"], "needs_help": row["needs_help"]}
+            for row in response.context["workload"]
+        }
+        self.assertEqual(workload[self.user.id], {"assigned": 2, "needs_help": 1})
+        self.assertEqual(workload[other_author.id], {"assigned": 1, "needs_help": 0})
+        self.assertEqual(response.context["unassigned_count"], 0)
+        self.assertEqual(response.context["needs_help_count"], 1)
