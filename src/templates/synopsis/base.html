@@ -13,6 +13,8 @@
                 <div class="ms-auto d-flex align-items-center gap-2">
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:dashboard' %}">Home</a>
                     {% if user.is_authenticated %}
+                    {# TODO: keep Reference Database entry points restricted to authenticated users. #}
+                    <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:reference_library' %}">Reference Database</a>
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:project_create' %}">Create New Synopsis</a>
                     {% if user.is_staff %}
                     <a class="btn btn-warning btn-sm" href="{% url 'synopsis:manager_dashboard' %}">Manager</a>
