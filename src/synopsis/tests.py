@@ -78,6 +78,7 @@ from .views import (
     _intervention_reference_numbering,
     _format_reference_number_ranges,
     _generate_synopsis_docx,
+    _link_library_references_to_project,
     _reference_export_citation,
     _structured_summary_paragraph,
 )
@@ -2838,6 +2839,94 @@ class ReferenceBatchUploadParsingTests(TestCase):
         latest = history.first()
         self.assertEqual(latest.previous_notes, "Initial notes")
         self.assertEqual(latest.new_notes, "Updated notes")
+
+
+class LibraryLinkBatchTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Library Link Project")
+        self.user = User.objects.create_user(username="linker", password="pw")
+
+    def test_linking_on_separate_operations_creates_distinct_library_batches(self):
+        first_lib_ref = LibraryReference.objects.create(
+            title="Library reference one",
+            publication_year=2020,
+            doi="10.1000/one",
+            hash_key="lib-hash-one",
+        )
+        second_lib_ref = LibraryReference.objects.create(
+            title="Library reference two",
+            publication_year=2021,
+            doi="10.1000/two",
+            hash_key="lib-hash-two",
+        )
+
+        linked_one, reused_one, batch_one = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [first_lib_ref.id],
+            ["15"],
+        )
+        linked_two, reused_two, batch_two = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [second_lib_ref.id],
+            ["15"],
+        )
+
+        self.assertEqual((linked_one, reused_one), (1, 0))
+        self.assertEqual((linked_two, reused_two), (1, 0))
+        self.assertIsNotNone(batch_one)
+        self.assertIsNotNone(batch_two)
+        self.assertNotEqual(batch_one.id, batch_two.id)
+        self.assertNotEqual(batch_one.label, batch_two.label)
+        self.assertEqual(batch_one.source_type, "library_link")
+        self.assertEqual(batch_two.source_type, "library_link")
+        self.assertEqual(batch_one.record_count, 1)
+        self.assertEqual(batch_two.record_count, 1)
+        self.assertEqual(
+            Reference.objects.filter(project=self.project, batch=batch_one).count(), 1
+        )
+        self.assertEqual(
+            Reference.objects.filter(project=self.project, batch=batch_two).count(), 1
+        )
+
+    def test_duplicate_only_link_does_not_create_empty_library_batch(self):
+        lib_ref = LibraryReference.objects.create(
+            title="Duplicate library reference",
+            publication_year=2022,
+            doi="10.1000/duplicate",
+            hash_key="lib-hash-duplicate",
+        )
+        linked, reused, initial_batch = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [lib_ref.id],
+            ["15"],
+        )
+        self.assertEqual((linked, reused), (1, 0))
+        self.assertIsNotNone(initial_batch)
+
+        batch_count_before = ReferenceSourceBatch.objects.filter(
+            project=self.project,
+            source_type="library_link",
+        ).count()
+
+        linked_again, reused_again, duplicate_batch = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [lib_ref.id],
+            ["15"],
+        )
+
+        self.assertEqual((linked_again, reused_again), (0, 1))
+        self.assertIsNone(duplicate_batch)
+        self.assertEqual(
+            ReferenceSourceBatch.objects.filter(
+                project=self.project,
+                source_type="library_link",
+            ).count(),
+            batch_count_before,
+        )
 
 
 class ReferenceSummaryFormTests(TestCase):
