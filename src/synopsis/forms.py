@@ -678,11 +678,28 @@ class SynopsisAssignmentForm(forms.Form):
 
 class AssignAuthorsForm(forms.Form):
     authors = forms.ModelMultipleChoiceField(
-        queryset=User.objects.order_by("username"),
+        queryset=User.objects.none(),
         required=False,
-        widget=forms.SelectMultiple(attrs={"class": "form-select", "size": 8}),
-        help_text="Select users to assign as authors for this project.",
+        widget=forms.CheckboxSelectMultiple(
+            attrs={"class": "form-check-input"}
+        ),
+        label="Synopsis authors",
+        help_text="Select the users who should be included as authors for this synopsis.",
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["authors"].queryset = User.objects.order_by(
+            "first_name", "last_name", "username"
+        )
+        self.fields["authors"].label_from_instance = self._author_label
+
+    @staticmethod
+    def _author_label(user):
+        full_name = user.get_full_name().strip()
+        if full_name and user.username:
+            return f"{full_name} ({user.username})"
+        return full_name or user.username or str(user.pk)
 
 
 class FunderForm(forms.ModelForm):
