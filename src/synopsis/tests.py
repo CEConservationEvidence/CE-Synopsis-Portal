@@ -59,6 +59,7 @@ from .utils import (
     GLOBAL_GROUPS,
     email_subject,
     ensure_global_groups,
+    reference_hash,
     reply_to_list,
 )
 from .views import (
@@ -68,6 +69,7 @@ from .views import (
     _format_value,
     _funder_contact_label,
     _log_project_change,
+    _normalise_import_record,
     _user_can_confirm_phase,
     _user_is_manager,
     _user_can_edit_project,
@@ -2550,6 +2552,60 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         self.assertIsNotNone(latest_batch)
         self.assertEqual(latest_batch.record_count, 0)
+
+    def test_reports_invalid_rows_separately_from_duplicates(self):
+        existing_hash = reference_hash(
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            "2002",
+            "",
+        )
+        Reference.objects.create(
+            project=self.project,
+            batch=ReferenceSourceBatch.objects.create(
+                project=self.project,
+                label="Existing refs",
+                source_type="manual_upload",
+                uploaded_by=self.user,
+            ),
+            hash_key=existing_hash,
+            title="In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            publication_year=2002,
+        )
+
+        original_normalise = _normalise_import_record
+
+        def fake_normalise(record):
+            if record.get("title") == "Another example of parsing":
+                return None
+            return original_normalise(record)
+
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+
+        with patch("synopsis.views._normalise_import_record", side_effect=fake_normalise):
+            response = self.client.post(
+                self.url,
+                {
+                    "label": "Mixed skip batch",
+                    "source_type": "journal_search",
+                    "ris_file": upload,
+                },
+                follow=True,
+            )
+
+        messages = [str(message) for message in get_messages(response.wsgi_request)]
+        self.assertTrue(
+            any("Imported 0 reference(s) into 'Mixed skip batch'." in message for message in messages)
+        )
+        self.assertTrue(
+            any("Skipped 1 record(s) already present in this project." in message for message in messages)
+        )
+        self.assertTrue(
+            any("Skipped 1 record(s) with no title." in message for message in messages)
+        )
 
     def test_can_delete_reference_from_batch(self):
         upload = SimpleUploadedFile(
