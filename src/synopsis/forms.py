@@ -17,10 +17,14 @@ from .models import (
     Project,
     Protocol,
     Reference,
+    LibraryReference,
     ReferenceSummary,
     ReferenceSourceBatch,
     ReferenceActionSummary,
+    IUCNCategory,
     SynopsisChapter,
+    SynopsisIntervention,
+    SynopsisInterventionKeyMessage,
     UserRole,
 )
 
@@ -452,6 +456,12 @@ class SynopsisChapterForm(forms.Form):
         widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Chapter title"}),
         label="Chapter title",
     )
+    chapter_type = forms.ChoiceField(
+        choices=SynopsisChapter.TYPE_CHOICES,
+        initial=SynopsisChapter.TYPE_EVIDENCE,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Chapter type",
+    )
 
     def clean_title(self):
         return (self.cleaned_data.get("title") or "").strip()
@@ -460,8 +470,13 @@ class SynopsisChapterForm(forms.Form):
 class SynopsisSubheadingForm(forms.Form):
     title = forms.CharField(
         max_length=255,
-        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Subheading"}),
-        label="Subheading",
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "Intervention group (e.g. Oil and gas drilling)",
+            }
+        ),
+        label="Intervention group (subheading)",
     )
 
     def clean_title(self):
@@ -474,9 +489,55 @@ class SynopsisInterventionForm(forms.Form):
         widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Intervention"}),
         label="Intervention",
     )
+    iucn_category = forms.ModelChoiceField(
+        queryset=IUCNCategory.objects.none(),
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="IUCN category",
+    )
+    is_cross_reference = forms.BooleanField(
+        required=False,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        label="Cross-reference only",
+    )
+    primary_intervention = forms.ModelChoiceField(
+        queryset=SynopsisIntervention.objects.none(),
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Primary intervention",
+    )
+
+    def __init__(self, *args, project=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["iucn_category"].queryset = IUCNCategory.objects.filter(
+            is_active=True
+        ).order_by("kind", "position", "name")
+        interventions = SynopsisIntervention.objects.none()
+        if project:
+            interventions = (
+                SynopsisIntervention.objects.filter(
+                    subheading__chapter__project=project
+                )
+                .select_related("subheading__chapter")
+                .order_by("title")
+            )
+        self.fields["primary_intervention"].queryset = interventions
 
     def clean_title(self):
         return (self.cleaned_data.get("title") or "").strip()
+
+    def clean(self):
+        cleaned = super().clean()
+        is_cross_ref = cleaned.get("is_cross_reference")
+        primary = cleaned.get("primary_intervention")
+        if is_cross_ref and not primary:
+            self.add_error(
+                "primary_intervention",
+                "Select the main intervention that holds the full evidence summary.",
+            )
+        if primary and not is_cross_ref:
+            cleaned["is_cross_reference"] = True
+        return cleaned
 
 
 class SynopsisBackgroundForm(forms.Form):
@@ -504,6 +565,100 @@ class SynopsisBackgroundForm(forms.Form):
     )
 
 
+class SynopsisInterventionSynthesisForm(forms.Form):
+    ce_action_url = forms.URLField(
+        required=False,
+        widget=forms.URLInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "https://www.conservationevidence.com/actions/...",
+            }
+        ),
+        label="Conservation Evidence action URL",
+    )
+    evidence_status = forms.ChoiceField(
+        choices=SynopsisIntervention.EVIDENCE_STATUS_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Evidence status",
+    )
+    synthesis_text = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 5,
+                "placeholder": "Intervention-level evidence synthesis text used in compilation/export.",
+            }
+        ),
+        label="Synthesis text",
+    )
+
+
+class SynopsisKeyMessageForm(forms.Form):
+    response_group = forms.ChoiceField(
+        choices=SynopsisInterventionKeyMessage.GROUP_CHOICES,
+        widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+        label="Response group",
+    )
+    outcome_label = forms.CharField(
+        max_length=255,
+        required=False,
+        widget=forms.TextInput(
+            attrs={"class": "form-control form-control-sm", "placeholder": "Outcome label"}
+        ),
+        label="Outcome label",
+    )
+    study_count = forms.IntegerField(
+        required=False,
+        min_value=0,
+        widget=forms.NumberInput(
+            attrs={"class": "form-control form-control-sm", "placeholder": "Study count"}
+        ),
+        label="Study count",
+    )
+    statement = forms.CharField(
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control form-control-sm",
+                "rows": 3,
+                "placeholder": "Key message statement.",
+            }
+        ),
+        label="Statement",
+    )
+    supporting_summaries = forms.ModelMultipleChoiceField(
+        queryset=ReferenceSummary.objects.none(),
+        required=False,
+        widget=forms.SelectMultiple(
+            attrs={"class": "form-select form-select-sm", "size": 5}
+        ),
+        label="Supporting studies",
+    )
+
+    def __init__(self, *args, intervention=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        queryset = ReferenceSummary.objects.none()
+        if intervention is not None:
+            queryset = (
+                ReferenceSummary.objects.filter(
+                    synopsis_assignments__intervention=intervention
+                )
+                .select_related("reference")
+                .order_by("synopsis_assignments__position", "reference__title")
+                .distinct()
+            )
+        self.fields["supporting_summaries"].queryset = queryset
+        self.fields["supporting_summaries"].label_from_instance = (
+            lambda summary: summary.choice_label
+        )
+
+    def clean_outcome_label(self):
+        return (self.cleaned_data.get("outcome_label") or "").strip()
+
+    def clean_statement(self):
+        return (self.cleaned_data.get("statement") or "").strip()
+
+
 class SynopsisAssignmentForm(forms.Form):
     summary = forms.ModelChoiceField(
         queryset=ReferenceSummary.objects.none(),
@@ -516,9 +671,10 @@ class SynopsisAssignmentForm(forms.Form):
         qs = ReferenceSummary.objects.none()
         if project:
             qs = project.reference_summaries.select_related("reference").order_by(
-                "reference__title"
+                "reference__title", "created_at", "id"
             )
         self.fields["summary"].queryset = qs
+        self.fields["summary"].label_from_instance = lambda summary: summary.choice_label
 
 class AssignAuthorsForm(forms.Form):
     authors = forms.ModelMultipleChoiceField(
@@ -1053,6 +1209,13 @@ class ReferenceBatchUploadForm(forms.Form):
         help_text="Internal notes about this batch (optional).",
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        choices = self.fields["source_type"].choices
+        self.fields["source_type"].choices = [
+            choice for choice in choices if choice[0] != "library_link"
+        ]
+
     def clean(self):
         cleaned = super().clean()
         start = cleaned.get("search_date_start")
@@ -1065,11 +1228,25 @@ class ReferenceBatchUploadForm(forms.Form):
         return cleaned
 
 
+class LibraryReferenceBatchUploadForm(ReferenceBatchUploadForm):
+    ris_file = forms.FileField(
+        label="RIS/TXT/XML file",
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        validators=[FileExtensionValidator(["ris", "txt", "xml"])],
+    )
+
+
 class ReferenceScreeningForm(forms.Form):
     reference_id = forms.IntegerField(widget=forms.HiddenInput)
     screening_status = forms.ChoiceField(
         choices=Reference.SCREENING_STATUS_CHOICES,
         widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
+    )
+    reference_folder = forms.MultipleChoiceField(
+        choices=Reference.FOLDER_CHOICES,
+        required=False,
+        widget=forms.SelectMultiple(attrs={"class": "form-select form-select-sm", "size": "6"}),
+        label="Reference folders",
     )
     screening_notes = forms.CharField(
         required=False,
@@ -1081,6 +1258,37 @@ class ReferenceScreeningForm(forms.Form):
             }
         ),
     )
+
+
+class LibraryReferenceUpdateForm(forms.ModelForm):
+    class Meta:
+        model = LibraryReference
+        fields = [
+            "title",
+            "authors",
+            "publication_year",
+            "journal",
+            "volume",
+            "issue",
+            "pages",
+            "doi",
+            "url",
+            "language",
+            "abstract",
+        ]
+        widgets = {
+            "title": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
+            "authors": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
+            "publication_year": forms.NumberInput(attrs={"class": "form-control"}),
+            "journal": forms.TextInput(attrs={"class": "form-control"}),
+            "volume": forms.TextInput(attrs={"class": "form-control"}),
+            "issue": forms.TextInput(attrs={"class": "form-control"}),
+            "pages": forms.TextInput(attrs={"class": "form-control"}),
+            "doi": forms.TextInput(attrs={"class": "form-control"}),
+            "url": forms.URLInput(attrs={"class": "form-control"}),
+            "language": forms.TextInput(attrs={"class": "form-control"}),
+            "abstract": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
+        }
 
 
 class ActionListFeedbackCloseForm(forms.Form):
@@ -1223,6 +1431,12 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         widget=forms.Select(attrs={"class": "form-select"}),
         label="Research design",
     )
+    QUALITY_SCORE_RANGES = {
+        "benefits_score": (0, 100, "1"),
+        "harms_score": (0, 100, "1"),
+        "reliability_score": (0.0, 1.0, "0.01"),
+        "relevance_score": (0.0, 1.0, "0.01"),
+    }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1248,6 +1462,19 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                 if any(part.strip() for part in parts):
                     lines.append(" | ".join(parts).strip())
             self.fields["outcomes_raw"].initial = "\n".join([line for line in lines if line.strip()])
+        for field_name, (min_value, max_value, step) in self.QUALITY_SCORE_RANGES.items():
+            field = self.fields.get(field_name)
+            if not field:
+                continue
+            field.min_value = min_value
+            field.max_value = max_value
+            field.widget.attrs.update(
+                {
+                    "min": min_value,
+                    "max": max_value,
+                    "step": step,
+                }
+            )
 
     class Meta:
         model = ReferenceSummary
@@ -1258,7 +1485,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "reference_label",
             "action_description",
             "study_design",
-            "study_type",
             "sites_replications",
             "year_range",
             "habitat_and_sites",
@@ -1296,7 +1522,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "reference_label": forms.TextInput(attrs={"class": "form-control"}),
             "action_description": forms.TextInput(attrs={"class": "form-control"}),
             "study_design": forms.TextInput(attrs={"class": "form-control"}),
-            "study_type": forms.TextInput(attrs={"class": "form-control"}),
             "sites_replications": forms.TextInput(
                 attrs={
                     "class": "form-control",
@@ -1410,6 +1635,27 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                     }
                 )
         return parsed
+
+    def _clean_score_in_range(self, field_name):
+        value = self.cleaned_data.get(field_name)
+        if value in (None, ""):
+            return value
+        min_value, max_value, _ = self.QUALITY_SCORE_RANGES[field_name]
+        if not (min_value <= value <= max_value):
+            raise forms.ValidationError(f"Enter a value between {min_value} and {max_value}.")
+        return value
+
+    def clean_benefits_score(self):
+        return self._clean_score_in_range("benefits_score")
+
+    def clean_harms_score(self):
+        return self._clean_score_in_range("harms_score")
+
+    def clean_reliability_score(self):
+        return self._clean_score_in_range("reliability_score")
+
+    def clean_relevance_score(self):
+        return self._clean_score_in_range("relevance_score")
 
     def save(self, commit=True):
         instance = super().save(commit=False)

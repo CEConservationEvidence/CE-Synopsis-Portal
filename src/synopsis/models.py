@@ -1071,6 +1071,7 @@ class ReferenceSourceBatch(models.Model):
         ("grey_literature", "Grey literature search"),
         ("non_english", "Non-English search"),
         ("manual_upload", "Manual upload"),
+        ("library_link", "Library link"),
         ("legacy", "Legacy import"),
     ]  # TODO: Other teams may want to drop or modify these choices. Also most likely it should be simplified to journal search or manual upload.
 
@@ -1134,6 +1135,103 @@ class ReferenceSourceBatchNoteHistory(models.Model):
         return f"Notes update for {self.batch} at {self.changed_at:%Y-%m-%d %H:%M}"
 
 
+class LibraryImportBatch(models.Model):
+    """Represents one RIS (or similar) import event into the central library."""
+
+    SOURCE_TYPE_CHOICES = ReferenceSourceBatch.SOURCE_TYPE_CHOICES
+
+    label = models.CharField(
+        max_length=255,
+        help_text="Short identifier shown to authors (e.g. 'EndNote 2018-2024').",
+    )
+    source_type = models.CharField(max_length=40, choices=SOURCE_TYPE_CHOICES)
+    search_date_start = models.DateField(null=True, blank=True)
+    search_date_end = models.DateField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    uploaded_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploaded_library_batches",
+    )
+    original_filename = models.CharField(max_length=255, blank=True)
+    record_count = models.PositiveIntegerField(default=0)
+    ris_sha1 = models.CharField(
+        max_length=40,
+        blank=True,
+        help_text="SHA1 fingerprint of the original RIS payload for deduplication.",
+    )
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        verbose_name = "library batch"
+        verbose_name_plural = "library batches"
+
+    def __str__(self):
+        return self.label
+
+
+class LibraryReference(models.Model):
+    """Canonical reference record stored in the central library."""
+
+    import_batch = models.ForeignKey(
+        LibraryImportBatch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="references",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    hash_key = models.CharField(
+        max_length=40,
+        unique=True,
+        help_text="HASH used to detect duplicates within the library.",
+    )
+    source_identifier = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Identifier from the source import (e.g. RefID or Accession number).",
+    )
+    title = models.TextField()
+    abstract = models.TextField(blank=True)
+    authors = models.TextField(blank=True)
+    publication_year = models.PositiveIntegerField(null=True, blank=True)
+    journal = models.CharField(max_length=255, blank=True)
+    volume = models.CharField(max_length=50, blank=True)
+    issue = models.CharField(max_length=50, blank=True)
+    pages = models.CharField(max_length=50, blank=True)
+    doi = models.CharField(max_length=255, blank=True)
+    url = models.URLField(blank=True)
+    language = models.CharField(max_length=50, blank=True)
+    raw_ris = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Original import key/value pairs for full fidelity storage.",
+    )
+    raw_source = models.TextField(
+        blank=True,
+        help_text="Original raw record payload (e.g. EndNote XML).",
+    )
+    raw_source_format = models.CharField(max_length=50, blank=True)
+    reference_document = models.FileField(
+        upload_to="reference_documents/%Y/%m/%d",
+        blank=True,
+        null=True,
+        validators=[FileExtensionValidator(["pdf"])],
+        help_text="Optional uploaded PDF of the reference.",
+    )
+    reference_document_uploaded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["title"]
+
+    def __str__(self):
+        return self.title[:120]
+
+
 class Reference(models.Model):
     """A single bibliographic record imported from a batch."""
 
@@ -1142,9 +1240,49 @@ class Reference(models.Model):
         ("included", "Include"),
         ("excluded", "Exclude"),
     ]
+    FOLDER_CHOICES = [
+        ("", "—"),
+        ("1", "1. Amphibians"),
+        ("2", "2. Birds"),
+        ("3", "3. Fish"),
+        ("4", "4. Terrestrial invertebrates"),
+        ("5", "5. Marine invertebrates"),
+        ("6", "6. Mammals"),
+        ("7", "7. Reptiles"),
+        ("8", "8. Animals ex-situ"),
+        ("9", "9. Individual plant/algae populations"),
+        ("10", "10. Plants/algae ex situ"),
+        ("11", "11. Fungi"),
+        ("12", "12. Bacteria/other living agents"),
+        ("13", "13. Coastal (plants/algae communities)"),
+        ("14", "14. Farmland (plants/algae communities)"),
+        ("15", "15. Forests/Woodland"),
+        ("16", "16. Rivers, lakes and lagoons"),
+        ("17", "17. Grassland/Savanna"),
+        ("18", "18. Marine (plants/algae communities)"),
+        ("19", "19. Shrubland"),
+        ("20", "20. Wetlands"),
+        ("21", "21. Invasive/problem amphibians"),
+        ("22", "22. Invasive/problem birds"),
+        ("23", "23. Invasive/problem fish"),
+        ("24", "24. Invasive/problem invertebrates"),
+        ("25", "25. Invasive/problem mammals"),
+        ("26", "26. Invasive/problem reptiles"),
+        ("27", "27. Invasive/problem plants/algae"),
+        ("28", "28. Invasive/problem fungi"),
+        ("29", "29. Invasive/problem bacteria/agents"),
+        ("30", "30. Behaviour change"),
+    ]
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="references"
+    )
+    library_reference = models.ForeignKey(
+        LibraryReference,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="project_references",
     )
     batch = models.ForeignKey(
         ReferenceSourceBatch,
@@ -1177,7 +1315,7 @@ class Reference(models.Model):
     raw_ris = models.JSONField(
         default=dict,
         blank=True,
-        help_text="Original RIS key/value pairs for full fidelity storage.",
+        help_text="Original import key/value pairs for full fidelity storage.",
     )
     reference_document = models.FileField(
         upload_to="reference_documents/%Y/%m/%d",
@@ -1191,6 +1329,11 @@ class Reference(models.Model):
         max_length=40,
         choices=SCREENING_STATUS_CHOICES,
         default="pending",
+    )
+    reference_folder = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of CE subject folders assigned to this reference.",
     )
     screening_notes = models.TextField(blank=True)
     screening_decision_at = models.DateTimeField(null=True, blank=True)
@@ -1209,6 +1352,10 @@ class Reference(models.Model):
 
     def __str__(self):
         return self.title[:120]
+
+    @property
+    def canonical(self):
+        return self.library_reference or self
 
     def mark_screened(self, status: str, user: User | None = None, notes: str = ""):
         """Convenience helper to update screening info consistently."""
@@ -1247,8 +1394,8 @@ class ReferenceSummary(models.Model):
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="reference_summaries"
     )
-    reference = models.OneToOneField(
-        Reference, on_delete=models.CASCADE, related_name="summary"
+    reference = models.ForeignKey(
+        Reference, on_delete=models.CASCADE, related_name="summaries"
     )
     assigned_to = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_summaries"
@@ -1299,10 +1446,31 @@ class ReferenceSummary(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ["reference__title"]
+        ordering = ["reference__title", "created_at", "id"]
+
+    @property
+    def explicit_label(self):
+        for value in (
+            self.action_description,
+            self.summary_identifier,
+            self.reference_label,
+        ):
+            if value and value.strip():
+                return value.strip()
+        return ""
+
+    @property
+    def display_label(self):
+        if self.explicit_label:
+            return self.explicit_label
+        return f"Summary #{self.pk}" if self.pk else "Summary"
+
+    @property
+    def choice_label(self):
+        return f"{self.reference.canonical.title} — {self.display_label}"
 
     def __str__(self):
-        return f"Summary for {self.reference.title[:50]}"
+        return self.choice_label
 
 
 class ReferenceSummaryComment(models.Model):
@@ -1363,13 +1531,54 @@ class ReferenceActionSummary(models.Model):
         ordering = ["order", "id"]
 
     def __str__(self):
-        return f"{self.reference_summary.reference.title[:40]} – {self.action_name}"
+        return f"{self.reference_summary.reference.canonical.title[:40]} – {self.action_name}"
+
+
+class IUCNCategory(models.Model):
+    KIND_THREAT = "threat"
+    KIND_ACTION = "action"
+    KIND_CHOICES = [
+        (KIND_THREAT, "Direct threat"),
+        (KIND_ACTION, "Conservation action"),
+    ]
+
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+    code = models.CharField(max_length=20, blank=True)
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["kind", "position", "name"]
+        unique_together = [("kind", "name")]
+
+    def __str__(self):
+        prefix = "Threat" if self.kind == self.KIND_THREAT else "Action"
+        if self.code:
+            return f"{prefix} {self.code}: {self.name}"
+        return f"{prefix}: {self.name}"
+
 
 class SynopsisChapter(models.Model):
+    TYPE_TEXT = "text"
+    TYPE_EVIDENCE = "evidence"
+    TYPE_APPENDIX = "appendix"
+    TYPE_CHOICES = [
+        (TYPE_TEXT, "Text chapter"),
+        (TYPE_EVIDENCE, "Evidence chapter"),
+        (TYPE_APPENDIX, "Appendix / back matter"),
+    ]
+
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="synopsis_chapters"
     )
     title = models.CharField(max_length=255)
+    chapter_type = models.CharField(
+        max_length=20,
+        choices=TYPE_CHOICES,
+        default=TYPE_EVIDENCE,
+    )
     background_text = models.TextField(blank=True)
     background_references = models.TextField(blank=True)
     position = models.PositiveIntegerField(default=0)
@@ -1381,6 +1590,10 @@ class SynopsisChapter(models.Model):
 
     def __str__(self):
         return f"{self.project.title}: {self.title}"
+
+    @property
+    def supports_evidence_structure(self):
+        return self.chapter_type == self.TYPE_EVIDENCE
 
 
 class SynopsisSubheading(models.Model):
@@ -1400,12 +1613,45 @@ class SynopsisSubheading(models.Model):
 
 
 class SynopsisIntervention(models.Model):
+    EVIDENCE_STATUS_HAS_EVIDENCE = "has_evidence"
+    EVIDENCE_STATUS_NO_STUDIES = "no_studies"
+    EVIDENCE_STATUS_CHOICES = [
+        (EVIDENCE_STATUS_HAS_EVIDENCE, "Has evidence"),
+        (EVIDENCE_STATUS_NO_STUDIES, "No studies found"),
+    ]
+
     subheading = models.ForeignKey(
         SynopsisSubheading, on_delete=models.CASCADE, related_name="interventions"
     )
     title = models.CharField(max_length=255)
+    iucn_category = models.ForeignKey(
+        IUCNCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="interventions",
+    )
+    is_cross_reference = models.BooleanField(
+        default=False,
+        help_text="Mark when evidence is summarized under another intervention and only referenced here.",
+    )
+    primary_intervention = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cross_references",
+        help_text="Main intervention that contains the full evidence summary.",
+    )
     background_text = models.TextField(blank=True)
     background_references = models.TextField(blank=True)
+    ce_action_url = models.URLField(max_length=500, blank=True)
+    evidence_status = models.CharField(
+        max_length=20,
+        choices=EVIDENCE_STATUS_CHOICES,
+        default=EVIDENCE_STATUS_HAS_EVIDENCE,
+    )
+    synthesis_text = models.TextField(blank=True)
     position = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -1415,6 +1661,47 @@ class SynopsisIntervention(models.Model):
 
     def __str__(self):
         return f"{self.subheading.title} – {self.title}"
+
+
+class SynopsisInterventionKeyMessage(models.Model):
+    GROUP_COMMUNITY = "community"
+    GROUP_POPULATION = "population"
+    GROUP_BEHAVIOUR = "behaviour"
+    GROUP_RESPONSE = "response"
+    GROUP_CHOICES = [
+        (GROUP_COMMUNITY, "Community response"),
+        (GROUP_POPULATION, "Population response"),
+        (GROUP_BEHAVIOUR, "Behaviour"),
+        (GROUP_RESPONSE, "General response"),
+    ]
+
+    intervention = models.ForeignKey(
+        SynopsisIntervention, on_delete=models.CASCADE, related_name="key_messages"
+    )
+    response_group = models.CharField(
+        max_length=20,
+        choices=GROUP_CHOICES,
+        default=GROUP_RESPONSE,
+    )
+    outcome_label = models.CharField(max_length=255, blank=True)
+    statement = models.TextField()
+    study_count = models.PositiveIntegerField(null=True, blank=True)
+    supporting_summaries = models.ManyToManyField(
+        ReferenceSummary,
+        blank=True,
+        related_name="supporting_key_messages",
+        help_text="Optional subset of assigned study summaries that support this key message.",
+    )
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self):
+        label = self.outcome_label or "Key message"
+        return f"{self.intervention.title}: {label}"
 
 
 class SynopsisAssignment(models.Model):

@@ -1,0 +1,204 @@
+{% extends "synopsis/base.html" %}
+
+{% block title %}{{ project.title }} — Narrative chapters{% endblock %}
+
+{% block content %}
+<style>
+    .synopsis-sidebar {
+        position: sticky;
+        top: 1rem;
+    }
+    .hidden-by-filter {
+        display: none !important;
+    }
+</style>
+
+<div class="bg-white p-4 rounded shadow-sm mb-3">
+    <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
+        <div>
+            <p class="text-uppercase text-muted small mb-1">Synopsis workspace</p>
+            <h1 class="h3 mb-0">{{ project.title }}</h1>
+            <div class="small text-muted">Narrative chapters (front matter and back matter)</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
+            <a class="btn btn-outline-primary btn-sm active" href="{{ workspace_narrative_url }}">Narrative workspace</a>
+            <a class="btn btn-outline-primary btn-sm" href="{{ workspace_evidence_url }}">Evidence workspace</a>
+            <a class="btn btn-success btn-sm" href="{% url 'synopsis:project_synopsis_export_docx' project.id %}">Export to DOCX</a>
+        </div>
+    </div>
+</div>
+
+<div class="row g-3">
+    <div class="col-lg-4">
+        <div class="synopsis-sidebar">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6 text-uppercase text-muted mb-2">Narrative overview</h2>
+                    <div class="small d-flex justify-content-between">
+                        <span>Total narrative chapters</span>
+                        <strong>{{ narrative_total }}</strong>
+                    </div>
+                    <div class="small d-flex justify-content-between">
+                        <span>Front text</span>
+                        <strong>{{ text_chapters|length }}</strong>
+                    </div>
+                    <div class="small d-flex justify-content-between">
+                        <span>Appendix / back matter</span>
+                        <strong>{{ appendix_chapters|length }}</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6 text-uppercase text-muted mb-3">Add chapter</h2>
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create-chapter">
+                        <div class="mb-2">{{ chapter_form.title.label_tag }}{{ chapter_form.title }}</div>
+                        <div class="mb-2">{{ chapter_form.chapter_type.label_tag }}{{ chapter_form.chapter_type }}</div>
+                        <button type="submit" class="btn btn-primary btn-sm w-100">Create chapter</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="h6 text-uppercase text-muted mb-2">Narrative map</h2>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1" for="narrative-chapter-filter">Find narrative chapter</label>
+                        <input id="narrative-chapter-filter" class="form-control form-control-sm" type="text" placeholder="Type chapter name">
+                    </div>
+                    <div class="small text-muted text-uppercase mb-1">Front text ({{ text_chapters|length }})</div>
+                    <div class="list-group mb-3">
+                        {% for chapter in text_chapters %}
+                        <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center narrative-nav-item" data-chapter-title="{{ chapter.title|lower }}" href="#chapter-{{ chapter.id }}">
+                            <span>{{ chapter.title }}</span>
+                            <span class="badge text-bg-light">Text</span>
+                        </a>
+                        {% empty %}
+                        <div class="text-muted small">No front text chapters.</div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="small text-muted text-uppercase mb-1">Appendix / back matter ({{ appendix_chapters|length }})</div>
+                    <div class="list-group mb-3">
+                        {% for chapter in appendix_chapters %}
+                        <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center narrative-nav-item" data-chapter-title="{{ chapter.title|lower }}" href="#chapter-{{ chapter.id }}">
+                            <span>{{ chapter.title }}</span>
+                            <span class="badge text-bg-light">Appendix</span>
+                        </a>
+                        {% empty %}
+                        <div class="text-muted small">No appendix chapters.</div>
+                        {% endfor %}
+                    </div>
+                    <div class="small text-danger d-none" id="narrative-no-match">No narrative chapter matches that search.</div>
+
+                    <div class="small text-muted mt-2">Need interventions and summary mapping? Use the Evidence workspace.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-lg-8" id="narrative-pane">
+        {% for chapter in chapters %}
+            {% if not chapter.supports_evidence_structure %}
+            <div class="card mb-3 narrative-chapter-card" data-chapter-title="{{ chapter.title|lower }}" id="chapter-{{ chapter.id }}">
+                <div class="card-header d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-2">
+                    <div>
+                        <div class="fw-semibold">{{ chapter.title }}</div>
+                        <span class="badge text-bg-light">{{ chapter.get_chapter_type_display }}</span>
+                    </div>
+                    <form method="post" class="d-flex align-items-center gap-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="update-chapter-type">
+                        <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+                        <select name="chapter_type" class="form-select form-select-sm">
+                            {% for value, label in chapter_form.chapter_type.field.choices %}
+                            <option value="{{ value }}" {% if chapter.chapter_type == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-outline-primary btn-sm">Save type</button>
+                    </form>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+                        <form method="post" class="d-inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="move-chapter">
+                            <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+                            <input type="hidden" name="direction" value="up">
+                            <button class="btn btn-outline-secondary btn-sm">Move up</button>
+                        </form>
+                        <form method="post" class="d-inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="move-chapter">
+                            <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+                            <input type="hidden" name="direction" value="down">
+                            <button class="btn btn-outline-secondary btn-sm">Move down</button>
+                        </form>
+                        <form method="post" class="d-inline ms-auto">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="delete-chapter">
+                            <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+                            <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this chapter?')">Delete chapter</button>
+                        </form>
+                    </div>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="update-chapter-background">
+                        <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+                        <div class="mb-2">
+                            <textarea name="background_text" class="form-control form-control-sm" rows="10" placeholder="Plain authored chapter text for this section.">{{ chapter.background_text }}</textarea>
+                        </div>
+                        <input type="hidden" name="background_references" value="{{ chapter.background_references }}">
+                        <button class="btn btn-outline-primary btn-sm">Save chapter text</button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+        {% empty %}
+        <div class="alert alert-secondary">No chapters yet.</div>
+        {% endfor %}
+
+        {% if not text_chapters and not appendix_chapters %}
+        <div class="alert alert-info">No narrative chapters yet. Add text or appendix chapters from the form on the left.</div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    (() => {
+        const filterInput = document.getElementById("narrative-chapter-filter");
+        const navItems = Array.from(document.querySelectorAll(".narrative-nav-item"));
+        const cards = Array.from(document.querySelectorAll(".narrative-chapter-card"));
+        const noMatchNotice = document.getElementById("narrative-no-match");
+
+        const applyFilter = () => {
+            if (!filterInput) return;
+            const q = filterInput.value.trim().toLowerCase();
+            let visibleCount = 0;
+
+            cards.forEach((card) => {
+                const title = (card.dataset.chapterTitle || "").toLowerCase();
+                const show = !q || title.includes(q);
+                card.classList.toggle("hidden-by-filter", !show);
+                if (show) visibleCount += 1;
+            });
+
+            navItems.forEach((item) => {
+                const title = (item.dataset.chapterTitle || "").toLowerCase();
+                const show = !q || title.includes(q);
+                item.classList.toggle("hidden-by-filter", !show);
+            });
+
+            if (noMatchNotice) {
+                noMatchNotice.classList.toggle("d-none", visibleCount > 0 || !q);
+            }
+        };
+
+        filterInput?.addEventListener("input", applyFilter);
+    })();
+</script>
+{% endblock %}

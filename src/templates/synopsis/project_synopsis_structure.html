@@ -3,114 +3,232 @@
 {% block title %}{{ project.title }} — Synopsis structure{% endblock %}
 
 {% block content %}
+<style>
+    .synopsis-sidebar {
+        position: sticky;
+        top: 1rem;
+    }
+    .synopsis-chapter > summary,
+    .synopsis-subheading > summary,
+    .synopsis-intervention > summary {
+        list-style: none;
+        cursor: pointer;
+    }
+    .synopsis-chapter > summary::-webkit-details-marker,
+    .synopsis-subheading > summary::-webkit-details-marker,
+    .synopsis-intervention > summary::-webkit-details-marker {
+        display: none;
+    }
+    .synopsis-chapter > summary {
+        background: #f8f9fa;
+    }
+    .hidden-by-filter {
+        display: none !important;
+    }
+</style>
+
 <div class="bg-white p-4 rounded shadow-sm mb-3">
     <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-3">
         <div>
             <p class="text-uppercase text-muted small mb-1">Synopsis structure</p>
             <h1 class="h3 mb-0">{{ project.title }}</h1>
-            <div class="small text-muted">Last exported: {{ last_exported|default:"—" }}</div>
+            <div class="small text-muted">Evidence workspace • Last exported: {{ last_exported|default:"—" }}</div>
         </div>
         <div class="d-flex flex-wrap gap-2">
             <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_summary_board' project.id %}">Back to summary workspace</a>
+            <a class="btn btn-outline-primary btn-sm" href="{{ workspace_narrative_url }}">Narrative workspace</a>
+            <a class="btn btn-outline-primary btn-sm active" href="{{ workspace_evidence_url }}">Evidence workspace</a>
             <a class="btn btn-success btn-sm" href="{% url 'synopsis:project_synopsis_export_docx' project.id %}">Export to DOCX</a>
         </div>
     </div>
-    <p class="text-muted small mb-0">Chapters → subheadings → interventions. Drop in summaries, reorder, then export to OnlyOffice.</p>
+    <p class="text-muted small mb-0">Workflow: write chapter narrative text, group interventions using intervention groups (subheadings), then assign study summaries and compile intervention synthesis.</p>
 </div>
 
 <div class="row g-3">
     <div class="col-lg-4">
-        <div class="card mb-3">
-            <div class="card-body">
-                <h2 class="h6 text-uppercase text-muted mb-3">Add a chapter</h2>
-                <form method="post" novalidate>
-                    {% csrf_token %}
-                    <input type="hidden" name="action" value="create-chapter">
-                    <div class="mb-2">{{ chapter_form.title.label_tag }}{{ chapter_form.title }}</div>
-                    <button type="submit" class="btn btn-primary w-100 btn-sm">Create chapter</button>
-                </form>
-            </div>
-        </div>
-        <div class="card">
-            <div class="card-body">
-                <h2 class="h6 text-uppercase text-muted mb-2">Chapters</h2>
-                <div class="mb-3">
-                    <form method="post" class="d-flex gap-2 align-items-center">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="apply-preset">
-                        <select name="preset_key" class="form-select form-select-sm">
-                            {% for preset in presets %}
-                                <option value="{{ preset.key }}">{{ preset.label }}</option>
-                            {% endfor %}
-                        </select>
-                        <button class="btn btn-outline-primary btn-sm" {% if chapters %}disabled{% endif %}>Apply</button>
-                    </form>
-                    <form method="post" class="mt-2">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="reset-structure">
-                        <button class="btn btn-outline-danger btn-sm" {% if not chapters %}disabled{% endif %} onclick="return confirm('Clear all chapters and start over?')">Remove preset / clear outline</button>
-                    </form>
-                    <div class="small text-muted mt-1">Presets can be applied only when the outline is empty.</div>
+        <div class="synopsis-sidebar">
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6 text-uppercase text-muted mb-2">Evidence overview</h2>
+                    <div class="small d-flex justify-content-between">
+                        <span>Evidence chapters</span>
+                        <strong>{{ evidence_chapters|length }}</strong>
+                    </div>
+                    <div class="small d-flex justify-content-between">
+                        <span>Interventions</span>
+                        <strong>{{ evidence_intervention_total }}</strong>
+                    </div>
+                    <div class="small d-flex justify-content-between">
+                        <span>Assigned summaries</span>
+                        <strong>{{ evidence_assignment_total }}</strong>
+                    </div>
                 </div>
-                <div class="list-group">
-                    {% for chapter in chapters %}
-                        <a class="list-group-item list-group-item-action" href="#chapter-{{ chapter.id }}">{{ chapter.title }}</a>
-                    {% empty %}
-                        <div class="text-muted small">No chapters yet.</div>
-                    {% endfor %}
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6 text-uppercase text-muted mb-2">How This Compiles</h2>
+                    <div class="small mb-1"><strong>Chapter background</strong> appears once at the start of each chapter.</div>
+                    <div class="small mb-1"><strong>Intervention group (subheading)</strong> is a level-2 heading used to organize interventions.</div>
+                    <div class="small mb-1"><strong>Intervention background + synthesis</strong> appears before intervention evidence.</div>
+                    <div class="small mb-1"><strong>Assigned summaries</strong> compile into numbered study paragraphs and intervention references.</div>
+                    <div class="small mb-2"><strong>Key message supporting studies</strong> compile as numbered citations such as <code>(1; 3)</code>.</div>
+                    <div class="small text-muted border-top pt-2">
+                        Output order: Chapter -> Intervention group -> Intervention -> Key messages -> Study paragraphs -> References
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-3">
+                <div class="card-body">
+                    <h2 class="h6 text-uppercase text-muted mb-3">Add a chapter</h2>
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="create-chapter">
+                        <div class="mb-2">{{ chapter_form.title.label_tag }}{{ chapter_form.title }}</div>
+                        <div class="mb-2">{{ chapter_form.chapter_type.label_tag }}{{ chapter_form.chapter_type }}</div>
+                        <button type="submit" class="btn btn-primary w-100 btn-sm">Create chapter</button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="h6 text-uppercase text-muted mb-2">Outline map</h2>
+                    <div class="mb-2">
+                        <label class="form-label small mb-1" for="evidence-chapter-filter">Find evidence chapter</label>
+                        <input id="evidence-chapter-filter" class="form-control form-control-sm" type="text" placeholder="Type chapter name">
+                    </div>
+                    <div class="d-flex gap-2 mb-3">
+                        <button type="button" class="btn btn-outline-secondary btn-sm w-50" id="expand-all-evidence">Expand all</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm w-50" id="collapse-all-evidence">Collapse all</button>
+                    </div>
+                    <div class="mb-3">
+                        <form method="post" class="d-flex gap-2 align-items-center">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="apply-preset">
+                            <select name="preset_key" class="form-select form-select-sm">
+                                {% for preset in presets %}
+                                    <option value="{{ preset.key }}">{{ preset.label }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn btn-outline-primary btn-sm" {% if chapters %}disabled{% endif %}>Apply</button>
+                        </form>
+                        <form method="post" class="mt-2">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="reset-structure">
+                            <button class="btn btn-outline-danger btn-sm" {% if not chapters %}disabled{% endif %} onclick="return confirm('Clear all chapters and start over?')">Clear outline</button>
+                        </form>
+                        <div class="small text-muted mt-1">Presets can be applied only when the outline is empty.</div>
+                    </div>
+
+                    <div class="small text-muted text-uppercase mb-1">Evidence ({{ evidence_chapters|length }})</div>
+                    <div class="list-group mb-3">
+                        {% for chapter in evidence_chapters %}
+                            <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center evidence-nav-item" data-chapter-title="{{ chapter.title|lower }}" href="#chapter-{{ chapter.id }}">
+                                <span class="me-2">{{ chapter.title }}</span>
+                                <span class="badge text-bg-secondary">{{ chapter.intervention_total }} interventions</span>
+                            </a>
+                        {% empty %}
+                            <div class="text-muted small">No evidence chapters.</div>
+                        {% endfor %}
+                    </div>
+                    <div class="small text-danger d-none" id="evidence-no-match">No evidence chapter matches that search.</div>
+
+                    <div class="small text-muted text-uppercase mb-1">Front/appendix chapters</div>
+                    <div class="small text-muted mb-1">Narrative: {{ text_chapters|length }} | Appendix: {{ appendix_chapters|length }}</div>
+                    <a class="btn btn-outline-primary btn-sm w-100" href="{{ workspace_narrative_url }}">Go to narrative workspace</a>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="col-lg-8">
-        {% for chapter in chapters %}
-        <div class="card mb-3" id="chapter-{{ chapter.id }}">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <div class="fw-semibold">{{ chapter.title }}</div>
-                <div class="btn-group btn-group-sm" role="group">
+    <div class="col-lg-8" id="evidence-pane">
+        {% for chapter in evidence_chapters %}
+        <details class="card mb-3 synopsis-chapter evidence-chapter-card" data-chapter-title="{{ chapter.title|lower }}" id="chapter-{{ chapter.id }}" {% if forloop.first %}open{% endif %}>
+            <summary class="card-header d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-2">
+                <div>
+                    <div class="fw-semibold">{{ chapter.title }}</div>
+                    <span class="badge text-bg-light">{{ chapter.get_chapter_type_display }}</span>
+                </div>
+                {% if chapter.supports_evidence_structure %}
+                <div class="small text-muted">
+                    {{ chapter.subheading_total }} intervention groups | {{ chapter.intervention_total }} interventions | {{ chapter.assignment_total }} summaries
+                </div>
+                {% else %}
+                <div class="small text-muted">Narrative section</div>
+                {% endif %}
+            </summary>
+
+            <div class="card-body">
+                <div class="d-flex flex-wrap gap-2 align-items-center mb-3 pb-2 border-bottom">
+                    <form method="post" class="d-flex align-items-center gap-2">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="update-chapter-type">
+                        <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
+                        <select name="chapter_type" class="form-select form-select-sm">
+                            {% for value, label in chapter_form.chapter_type.field.choices %}
+                            <option value="{{ value }}" {% if chapter.chapter_type == value %}selected{% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                        <button class="btn btn-outline-primary btn-sm">Save type</button>
+                    </form>
                     <form method="post" class="d-inline">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="move-chapter">
                         <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
                         <input type="hidden" name="direction" value="up">
-                        <button class="btn btn-outline-secondary" title="Move up">↑</button>
+                        <button class="btn btn-outline-secondary btn-sm">Move up</button>
                     </form>
                     <form method="post" class="d-inline">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="move-chapter">
                         <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
                         <input type="hidden" name="direction" value="down">
-                        <button class="btn btn-outline-secondary" title="Move down">↓</button>
+                        <button class="btn btn-outline-secondary btn-sm">Move down</button>
                     </form>
-                    <form method="post" class="d-inline">
+                    <form method="post" class="d-inline ms-auto">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="delete-chapter">
                         <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
-                        <button class="btn btn-outline-danger" title="Delete" onclick="return confirm('Delete this chapter and everything inside it?')">✕</button>
+                        <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this chapter and everything inside it?')">Delete chapter</button>
                     </form>
                 </div>
-            </div>
-            <div class="card-body">
-                <div class="mb-3">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <span class="text-muted small text-uppercase">Chapter background</span>
+
+                <div class="border rounded p-2 mb-3 bg-light">
+                    <div class="text-muted small text-uppercase mb-2">
+                        {% if chapter.supports_evidence_structure %}Chapter background{% else %}Chapter text{% endif %}
                     </div>
-                    <form method="post" class="mt-2">
+                    <div class="small text-muted mb-2">
+                        {% if chapter.supports_evidence_structure %}
+                        Appears once at the start of this chapter in export.
+                        {% else %}
+                        Plain authored narrative text section.
+                        {% endif %}
+                    </div>
+                    <form method="post">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="update-chapter-background">
                         <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
                         <div class="mb-2">
-                            <textarea name="background_text" class="form-control form-control-sm" rows="3" placeholder="Brief background (<200 words): describe intervention scope, context, key literature/harms.">{{ chapter.background_text }}</textarea>
+                            <textarea name="background_text" class="form-control form-control-sm" rows="{% if chapter.supports_evidence_structure %}3{% else %}8{% endif %}" placeholder="{% if chapter.supports_evidence_structure %}Brief background (<200 words): describe intervention scope, context, key literature/harms.{% else %}Plain authored chapter text for this section.{% endif %}">{{ chapter.background_text }}</textarea>
                         </div>
-                        <div class="mb-2">
-                            <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, published before search end date).">{{ chapter.background_references }}</textarea>
-                        </div>
-                        <button class="btn btn-outline-primary btn-sm">Save background</button>
+                        {% if chapter.supports_evidence_structure %}
+                            <div class="mb-2">
+                                <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, published before search end date).">{{ chapter.background_references }}</textarea>
+                            </div>
+                            <button class="btn btn-outline-primary btn-sm">Save background</button>
+                        {% else %}
+                            <input type="hidden" name="background_references" value="{{ chapter.background_references }}">
+                            <button class="btn btn-outline-primary btn-sm">Save chapter text</button>
+                        {% endif %}
                     </form>
                 </div>
-                <h6 class="text-muted text-uppercase small mb-2">Subheadings</h6>
-                <div class="mb-2">
+
+                {% if chapter.supports_evidence_structure %}
+                <div class="border rounded p-2 mb-3">
+                    <div class="text-muted small text-uppercase mb-2">Add intervention group (subheading)</div>
+                    <div class="small text-muted mb-2">Use groups to organize related interventions (for example, <em>General</em>, <em>Oil and gas drilling</em>, <em>Aquaculture</em>).</div>
                     <form method="post" class="row g-2 align-items-center">
                         {% csrf_token %}
                         <input type="hidden" name="action" value="create-subheading">
@@ -125,86 +243,292 @@
                 </div>
 
                 {% for subheading in chapter.subheadings.all %}
-                <div class="border rounded p-2 mb-2">
-                    <div class="d-flex justify-content-between align-items-center">
+                <details class="border rounded mb-2 synopsis-subheading" {% if forloop.first %}open{% endif %}>
+                    <summary class="p-2 d-flex justify-content-between align-items-center gap-2">
                         <div class="fw-semibold">{{ subheading.title }}</div>
-                        <div class="btn-group btn-group-sm">
+                        <span class="badge text-bg-light">{{ subheading.intervention_total|default:0 }} interventions</span>
+                    </summary>
+                    <div class="p-2 border-top">
+                        <div class="small text-muted mb-2">Intervention group heading (level 2) in export.</div>
+                        <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
                             <form method="post" class="d-inline">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="move-subheading">
                                 <input type="hidden" name="subheading_id" value="{{ subheading.id }}">
                                 <input type="hidden" name="direction" value="up">
-                                <button class="btn btn-outline-secondary">↑</button>
+                                <button class="btn btn-outline-secondary btn-sm">Move up</button>
                             </form>
                             <form method="post" class="d-inline">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="move-subheading">
                                 <input type="hidden" name="subheading_id" value="{{ subheading.id }}">
                                 <input type="hidden" name="direction" value="down">
-                                <button class="btn btn-outline-secondary">↓</button>
+                                <button class="btn btn-outline-secondary btn-sm">Move down</button>
                             </form>
-                            <form method="post" class="d-inline">
+                            <form method="post" class="d-inline ms-auto">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="delete-subheading">
                                 <input type="hidden" name="subheading_id" value="{{ subheading.id }}">
-                                <button class="btn btn-outline-danger" onclick="return confirm('Delete this subheading and its interventions?')">✕</button>
+                                <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this intervention group and its interventions?')">Delete group</button>
                             </form>
                         </div>
-                    </div>
 
-                    <div class="mt-2 ms-2">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <span class="text-muted small text-uppercase">Interventions</span>
-                            <form method="post" class="d-inline-flex gap-2">
+                        <div class="border rounded p-2 mb-2 bg-light">
+                            <div class="text-muted small text-uppercase mb-2">Add intervention</div>
+                            <div class="small text-muted mb-2">Intervention entries compile to full evidence sections.</div>
+                            <form method="post" class="row g-2 align-items-end">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="create-intervention">
                                 <input type="hidden" name="subheading_id" value="{{ subheading.id }}">
-                                {{ intervention_form.title }}
-                                <button class="btn btn-outline-primary btn-sm">Add</button>
+                                <div class="col-12 col-xl-7">
+                                    {{ intervention_form.title }}
+                                </div>
+                                <div class="col-12 col-xl-3">
+                                    {{ intervention_form.iucn_category }}
+                                </div>
+                                <div class="col-12 col-xl-2">
+                                    <button class="btn btn-outline-primary btn-sm w-100">Add</button>
+                                </div>
                             </form>
+                            <div class="small text-muted mt-1">Set cross-reference options after creating the intervention.</div>
                         </div>
 
                         {% for intervention in subheading.interventions.all %}
-                        <div class="border rounded p-2 mb-2">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div class="fw-semibold">{{ intervention.title }}</div>
-                                <div class="btn-group btn-group-sm">
+                        <details class="border rounded mb-2 synopsis-intervention">
+                            <summary class="p-2 d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-2">
+                                <div>
+                                    <div class="fw-semibold">{{ intervention.title }}</div>
+                                    <div class="small text-muted d-flex flex-wrap gap-2 mt-1">
+                                        {% if intervention.iucn_category %}
+                                        <span class="badge text-bg-light">{{ intervention.iucn_category }}</span>
+                                        {% endif %}
+                                        {% if intervention.is_cross_reference %}
+                                        <span class="badge text-bg-warning text-dark">Cross-reference{% if intervention.primary_intervention %}: {{ intervention.primary_intervention.title }}{% endif %}</span>
+                                        {% endif %}
+                                        {% if intervention.evidence_status == "no_studies" %}
+                                        <span class="badge text-bg-secondary">No studies found</span>
+                                        {% else %}
+                                        <span class="badge text-bg-success">Has evidence</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="d-flex flex-column align-items-lg-end gap-1">
+                                    <span class="badge text-bg-secondary">{{ intervention.assignment_total|default:0 }} summaries</span>
+                                    <span class="badge text-bg-light">{{ intervention.key_message_total|default:0 }} key messages</span>
+                                </div>
+                            </summary>
+                            <div class="p-2 border-top">
+                                <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
                                     <form method="post" class="d-inline">
                                         {% csrf_token %}
                                         <input type="hidden" name="action" value="move-intervention">
                                         <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
                                         <input type="hidden" name="direction" value="up">
-                                        <button class="btn btn-outline-secondary">↑</button>
+                                        <button class="btn btn-outline-secondary btn-sm">Move up</button>
                                     </form>
                                     <form method="post" class="d-inline">
                                         {% csrf_token %}
                                         <input type="hidden" name="action" value="move-intervention">
                                         <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
                                         <input type="hidden" name="direction" value="down">
-                                        <button class="btn btn-outline-secondary">↓</button>
+                                        <button class="btn btn-outline-secondary btn-sm">Move down</button>
                                     </form>
-                                    <form method="post" class="d-inline">
+                                    <form method="post" class="d-inline ms-auto">
                                         {% csrf_token %}
                                         <input type="hidden" name="action" value="delete-intervention">
                                         <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
-                                        <button class="btn btn-outline-danger" onclick="return confirm('Delete this intervention and its summaries?')">✕</button>
+                                        <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this intervention and its summaries?')">Delete intervention</button>
                                     </form>
                                 </div>
-                            </div>
 
-                            <div class="mt-2">
-                                <div class="mb-2">
-                                    <form method="post" class="d-flex flex-column gap-2">
-                                        {% csrf_token %}
-                                        <input type="hidden" name="action" value="update-intervention-background">
-                                        <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
-                                        <textarea name="background_text" class="form-control form-control-sm" rows="3" placeholder="Background (<200 words): describe the intervention, context, related literature/harms.">{{ intervention.background_text }}</textarea>
-                                        <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, published before search end date).">{{ intervention.background_references }}</textarea>
-                                        <div class="d-flex justify-content-end">
-                                            <button class="btn btn-outline-primary btn-sm">Save background</button>
+                                <details class="mb-2">
+                                    <summary class="small text-muted">Edit metadata and background</summary>
+                                    <div class="mt-2">
+                                        <form method="post" class="row g-2 align-items-end mb-2">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="action" value="update-intervention-metadata">
+                                            <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                            <div class="col-12 col-lg-4">
+                                                <label class="form-label small text-muted mb-1">IUCN category</label>
+                                                <select name="iucn_category" class="form-select form-select-sm">
+                                                    <option value="">Choose...</option>
+                                                    {% for category in iucn_categories %}
+                                                    <option value="{{ category.id }}" {% if intervention.iucn_category_id == category.id %}selected{% endif %}>{{ category }}</option>
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div class="col-12 col-lg-4">
+                                                <label class="form-label small text-muted mb-1">Primary intervention</label>
+                                                <select name="primary_intervention" class="form-select form-select-sm">
+                                                    <option value="">None</option>
+                                                    {% for existing in all_interventions %}
+                                                    {% if existing.id != intervention.id %}
+                                                    <option value="{{ existing.id }}" {% if intervention.primary_intervention_id == existing.id %}selected{% endif %}>{{ existing.title }}</option>
+                                                    {% endif %}
+                                                    {% endfor %}
+                                                </select>
+                                            </div>
+                                            <div class="col-12 col-lg-2 d-flex align-items-center">
+                                                <div class="form-check mt-3">
+                                                    <input class="form-check-input" type="checkbox" name="is_cross_reference" value="1" id="cross-ref-{{ intervention.id }}" {% if intervention.is_cross_reference %}checked{% endif %}>
+                                                    <label class="form-check-label small" for="cross-ref-{{ intervention.id }}">Cross-ref</label>
+                                                </div>
+                                            </div>
+                                            <div class="col-12 col-lg-2">
+                                                <button class="btn btn-outline-primary btn-sm w-100">Save</button>
+                                            </div>
+                                        </form>
+
+                                        <form method="post" class="d-flex flex-column gap-2">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="action" value="update-intervention-background">
+                                            <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                            <div class="small text-muted">Appears before key messages/studies in the intervention section.</div>
+                                            <textarea name="background_text" class="form-control form-control-sm" rows="3" placeholder="Background (<200 words): describe the intervention, context, related literature/harms.">{{ intervention.background_text }}</textarea>
+                                            <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, published before search end date).">{{ intervention.background_references }}</textarea>
+                                            <div class="d-flex justify-content-end">
+                                                <button class="btn btn-outline-primary btn-sm">Save background</button>
+                                            </div>
+                                        </form>
+
+                                        <hr>
+                                        <form method="post" class="d-flex flex-column gap-2">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="action" value="update-intervention-synthesis">
+                                            <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                            <div class="small text-muted">Main compiled narrative for this intervention.</div>
+                                            <div class="row g-2">
+                                                <div class="col-12 col-lg-6">
+                                                    <label class="form-label small text-muted mb-1">Conservation Evidence action URL</label>
+                                                    <input type="url" name="ce_action_url" class="form-control form-control-sm" placeholder="https://www.conservationevidence.com/actions/..." value="{{ intervention.ce_action_url }}">
+                                                </div>
+                                                <div class="col-12 col-lg-3">
+                                                    <label class="form-label small text-muted mb-1">Evidence status</label>
+                                                    <select name="evidence_status" class="form-select form-select-sm">
+                                                        {% for code, label in intervention_synthesis_form.evidence_status.field.choices %}
+                                                        <option value="{{ code }}" {% if intervention.evidence_status == code %}selected{% endif %}>{{ label }}</option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                            <label class="form-label small text-muted mb-1">Intervention synthesis text</label>
+                                            <textarea name="synthesis_text" class="form-control form-control-sm" rows="4" placeholder="Compiled intervention narrative for export/compilation.">{{ intervention.synthesis_text }}</textarea>
+                                            <div class="d-flex justify-content-end">
+                                                <button class="btn btn-outline-primary btn-sm">Save synthesis</button>
+                                            </div>
+                                        </form>
+
+                                        <hr>
+                                        <div class="d-flex flex-column gap-2">
+                                            <div class="small text-muted text-uppercase">Key messages</div>
+                                            <div class="small text-muted">Compiled before study paragraphs. Link supporting studies to generate numbered citations.</div>
+                                            {% for key_message in intervention.key_messages.all %}
+                                            <div class="border rounded p-2 bg-white">
+                                                <form method="post" class="d-flex flex-column gap-2">
+                                                    {% csrf_token %}
+                                                    <input type="hidden" name="action" value="update-key-message">
+                                                    <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                                    <input type="hidden" name="key_message_id" value="{{ key_message.id }}">
+                                                    <div class="row g-2">
+                                                        <div class="col-12 col-lg-4">
+                                                            <select name="response_group" class="form-select form-select-sm">
+                                                                {% for code, label in key_message_form.response_group.field.choices %}
+                                                                <option value="{{ code }}" {% if key_message.response_group == code %}selected{% endif %}>{{ label }}</option>
+                                                                {% endfor %}
+                                                            </select>
+                                                        </div>
+                                                        <div class="col-12 col-lg-4">
+                                                            <input type="text" name="outcome_label" class="form-control form-control-sm" placeholder="Outcome label" value="{{ key_message.outcome_label }}">
+                                                        </div>
+                                                        <div class="col-12 col-lg-2">
+                                                            <input type="number" min="0" name="study_count" class="form-control form-control-sm" placeholder="Studies" value="{{ key_message.study_count|default_if_none:'' }}">
+                                                        </div>
+                                                        <div class="col-12 col-lg-2 d-flex gap-1">
+                                                            <button class="btn btn-outline-primary btn-sm w-100">Save</button>
+                                                        </div>
+                                                    </div>
+                                                    <textarea name="statement" class="form-control form-control-sm" rows="2" placeholder="Key message">{{ key_message.statement }}</textarea>
+                                                    <div>
+                                                        <label class="form-label small text-muted mb-1">Supporting studies (optional)</label>
+                                                        <select name="supporting_summaries" class="form-select form-select-sm" multiple size="4">
+                                                            {% for option in intervention.supporting_summary_options %}
+                                                            <option value="{{ option.id }}" {% if option.id in key_message.supporting_summary_ids %}selected{% endif %}>
+                                                                {% if option.number %}({{ option.number }}) {% endif %}{{ option.title }}
+                                                            </option>
+                                                            {% endfor %}
+                                                        </select>
+                                                        <div class="small text-muted mt-1">Only summaries assigned to this intervention can be linked.</div>
+                                                        {% if key_message.ce_supporting_numbers %}
+                                                        <div class="small text-muted mt-1">Linked citations: ({{ key_message.ce_supporting_numbers|join:"; " }})</div>
+                                                        {% endif %}
+                                                    </div>
+                                                </form>
+                                                <div class="d-flex gap-2 mt-2">
+                                                    <form method="post">
+                                                        {% csrf_token %}
+                                                        <input type="hidden" name="action" value="move-key-message">
+                                                        <input type="hidden" name="key_message_id" value="{{ key_message.id }}">
+                                                        <input type="hidden" name="direction" value="up">
+                                                        <button class="btn btn-outline-secondary btn-sm">Up</button>
+                                                    </form>
+                                                    <form method="post">
+                                                        {% csrf_token %}
+                                                        <input type="hidden" name="action" value="move-key-message">
+                                                        <input type="hidden" name="key_message_id" value="{{ key_message.id }}">
+                                                        <input type="hidden" name="direction" value="down">
+                                                        <button class="btn btn-outline-secondary btn-sm">Down</button>
+                                                    </form>
+                                                    <form method="post" class="ms-auto">
+                                                        {% csrf_token %}
+                                                        <input type="hidden" name="action" value="delete-key-message">
+                                                        <input type="hidden" name="key_message_id" value="{{ key_message.id }}">
+                                                        <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this key message?')">Delete</button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                            {% empty %}
+                                            <div class="text-muted small">No key messages yet.</div>
+                                            {% endfor %}
+
+                                            <form method="post" class="border rounded p-2 bg-white">
+                                                {% csrf_token %}
+                                                <input type="hidden" name="action" value="add-key-message">
+                                                <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                                <div class="row g-2 mb-2">
+                                                    <div class="col-12 col-lg-4">
+                                                        <select name="response_group" class="form-select form-select-sm">
+                                                            {% for code, label in key_message_form.response_group.field.choices %}
+                                                            <option value="{{ code }}">{{ label }}</option>
+                                                            {% endfor %}
+                                                        </select>
+                                                    </div>
+                                                    <div class="col-12 col-lg-4">
+                                                        <input type="text" name="outcome_label" class="form-control form-control-sm" placeholder="Outcome label">
+                                                    </div>
+                                                    <div class="col-12 col-lg-2">
+                                                        <input type="number" min="0" name="study_count" class="form-control form-control-sm" placeholder="Studies">
+                                                    </div>
+                                                    <div class="col-12 col-lg-2">
+                                                        <button class="btn btn-outline-primary btn-sm w-100">Add</button>
+                                                    </div>
+                                                </div>
+                                                <textarea name="statement" class="form-control form-control-sm" rows="2" placeholder="Key message statement"></textarea>
+                                                <div>
+                                                    <label class="form-label small text-muted mb-1">Supporting studies (optional)</label>
+                                                    <select name="supporting_summaries" class="form-select form-select-sm" multiple size="4">
+                                                        {% for option in intervention.supporting_summary_options %}
+                                                        <option value="{{ option.id }}">
+                                                            {% if option.number %}({{ option.number }}) {% endif %}{{ option.summary_label }} — {{ option.paper_title }}
+                                                        </option>
+                                                        {% endfor %}
+                                                    </select>
+                                                    <div class="small text-muted mt-1">Linked studies are rendered as numbered citations in export.</div>
+                                                </div>
+                                            </form>
                                         </div>
-                                    </form>
-                                </div>
+                                    </div>
+                                </details>
+
                                 <div class="d-flex justify-content-between align-items-center mb-1">
                                     <span class="text-muted small text-uppercase">Assigned summaries</span>
                                     <form method="post" class="d-inline-flex gap-2 align-items-center">
@@ -214,19 +538,75 @@
                                         <input type="text" class="form-control form-control-sm summary-filter" data-target="summary-select-{{ intervention.id }}" placeholder="Filter">
                                         <select id="summary-select-{{ intervention.id }}" name="summary" class="form-select form-select-sm">
                                             <option value="">Select summary…</option>
-                                            {% for summary in reference_summaries %}
-                                                <option value="{{ summary.id }}">{{ summary.reference.title }}</option>
+                                            {% for group in reference_summary_groups %}
+                                            <optgroup label="{{ group.paper_title }}{% if group.paper_meta %} — {{ group.paper_meta }}{% endif %}">
+                                                {% for summary in group.summaries %}
+                                                <option value="{{ summary.id }}" data-search="{{ summary.search_text }}">{{ summary.summary_label }}</option>
+                                                {% endfor %}
+                                            </optgroup>
                                             {% endfor %}
                                         </select>
                                         <button class="btn btn-outline-primary btn-sm">Add</button>
                                     </form>
                                 </div>
+                                <div class="small text-muted mb-2">Assign summary tabs, not whole papers. Each assigned tab becomes one study paragraph in export. Numbering is automatic (oldest publication first). If multiple tabs come from the same paper, export keeps the study paragraphs separate but collapses the final reference list to one citation line.</div>
+
+                                {% if intervention.compilation_preview.study_paragraph_count %}
+                                <div class="border rounded bg-light-subtle p-2 mb-2 small">
+                                    <div class="fw-semibold mb-1">Compilation preview</div>
+                                    <div class="text-muted mb-2">
+                                        This intervention will export
+                                        <strong>{{ intervention.compilation_preview.study_paragraph_count }}</strong>
+                                        study paragraph{{ intervention.compilation_preview.study_paragraph_count|pluralize }}
+                                        from
+                                        <strong>{{ intervention.compilation_preview.reference_line_count }}</strong>
+                                        source paper{{ intervention.compilation_preview.reference_line_count|pluralize }}.
+                                        {% if intervention.compilation_preview.shared_source_count %}
+                                        <span class="d-inline-block mt-1">
+                                            {{ intervention.compilation_preview.shared_source_count }}
+                                            source paper{{ intervention.compilation_preview.shared_source_count|pluralize }}
+                                            will collapse into shared reference line{{ intervention.compilation_preview.shared_source_count|pluralize }}.
+                                        </span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="text-uppercase text-muted small fw-semibold mb-1">Reference lines in export</div>
+                                    <ul class="mb-0 ps-3">
+                                        {% for line in intervention.compilation_preview.reference_lines %}
+                                        <li>
+                                            <strong>({{ line.number_label }})</strong>
+                                            {{ line.paper_title }}
+                                            {% if line.paper_meta %}<span class="text-muted"> · {{ line.paper_meta }}</span>{% endif %}
+                                            {% if line.is_shared %}
+                                            <span class="text-muted"> — {{ line.study_count }} summary tabs from the same paper</span>
+                                            {% endif %}
+                                        </li>
+                                        {% endfor %}
+                                    </ul>
+                                </div>
+                                {% endif %}
 
                                 <ul class="list-group assignment-list" data-intervention="{{ intervention.id }}">
                                     {% for assignment in intervention.assignments.all %}
                                     <li class="list-group-item d-flex justify-content-between align-items-center" draggable="true" data-assignment-id="{{ assignment.id }}">
                                         <span class="me-2">☰</span>
-                                        <div class="flex-grow-1">{{ assignment.reference_summary.reference.title }}</div>
+                                        <div class="flex-grow-1">
+                                            {% if assignment.ce_reference_number %}
+                                            <span class="badge text-bg-light me-2">({{ assignment.ce_reference_number }})</span>
+                                            {% endif %}
+                                            <div class="fw-semibold">{{ assignment.paper_title }}</div>
+                                            <div class="small text-muted">
+                                                {{ assignment.summary_label }}
+                                                {% if assignment.paper_meta %} · {{ assignment.paper_meta }}{% endif %}
+                                                {% if assignment.duplicate_reference_assignment %}
+                                                <span class="badge text-bg-secondary ms-2">Same source paper</span>
+                                                {% endif %}
+                                            </div>
+                                            {% if assignment.ce_reference_number %}
+                                            <div class="small text-muted">
+                                                Export: study paragraph ({{ assignment.ce_reference_number }}); {% if assignment.duplicate_reference_assignment %}shared {% endif %}reference line ({{ assignment.reference_line_number_label }})
+                                            </div>
+                                            {% endif %}
+                                        </div>
                                         <form method="post" class="ms-2">
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="delete-assignment">
@@ -239,19 +619,24 @@
                                     {% endfor %}
                                 </ul>
                             </div>
-                        </div>
+                        </details>
                         {% empty %}
-                        <div class="text-muted small ms-2">No interventions yet.</div>
+                        <div class="text-muted small">No interventions yet.</div>
                         {% endfor %}
                     </div>
-                </div>
+                </details>
                 {% empty %}
                 <div class="text-muted small">No subheadings yet.</div>
                 {% endfor %}
+                {% else %}
+                <div class="alert alert-light border small mb-0">
+                    This chapter is text-only. It does not contain subheadings, interventions, or assigned summaries.
+                </div>
+                {% endif %}
             </div>
-        </div>
+        </details>
         {% empty %}
-        <div class="alert alert-secondary">No chapters yet. Use the form on the left to add one.</div>
+        <div class="alert alert-secondary">No evidence chapters yet. Add one from the left panel or convert an existing chapter to “Evidence chapter”.</div>
         {% endfor %}
     </div>
 </div>
@@ -273,8 +658,62 @@
                 const q = input.value.toLowerCase();
                 Array.from(target.options).forEach((opt, idx) => {
                     if (idx === 0) return;
-                    opt.hidden = q && !opt.textContent.toLowerCase().includes(q);
+                    const haystack = (
+                        opt.dataset.search ||
+                        opt.textContent ||
+                        ""
+                    ).toLowerCase();
+                    opt.hidden = q && !haystack.includes(q);
                 });
+                Array.from(target.querySelectorAll("optgroup")).forEach((group) => {
+                    const hasVisibleOption = Array.from(group.querySelectorAll("option")).some(
+                        (opt) => !opt.hidden
+                    );
+                    group.hidden = q && !hasVisibleOption;
+                });
+            });
+        });
+
+        const chapterFilterInput = document.getElementById("evidence-chapter-filter");
+        const chapterCards = Array.from(document.querySelectorAll(".evidence-chapter-card"));
+        const chapterNavItems = Array.from(document.querySelectorAll(".evidence-nav-item"));
+        const noMatchNotice = document.getElementById("evidence-no-match");
+        const pane = document.getElementById("evidence-pane");
+
+        const applyChapterFilter = () => {
+            if (!chapterFilterInput) return;
+            const q = chapterFilterInput.value.trim().toLowerCase();
+            let visibleCount = 0;
+
+            chapterCards.forEach((card) => {
+                const title = (card.dataset.chapterTitle || "").toLowerCase();
+                const show = !q || title.includes(q);
+                card.classList.toggle("hidden-by-filter", !show);
+                if (show) visibleCount += 1;
+            });
+
+            chapterNavItems.forEach((item) => {
+                const title = (item.dataset.chapterTitle || "").toLowerCase();
+                const show = !q || title.includes(q);
+                item.classList.toggle("hidden-by-filter", !show);
+            });
+
+            if (noMatchNotice) {
+                noMatchNotice.classList.toggle("d-none", visibleCount > 0 || !q);
+            }
+        };
+
+        chapterFilterInput?.addEventListener("input", applyChapterFilter);
+
+        document.getElementById("expand-all-evidence")?.addEventListener("click", () => {
+            pane?.querySelectorAll("details").forEach((el) => {
+                el.open = true;
+            });
+        });
+
+        document.getElementById("collapse-all-evidence")?.addEventListener("click", () => {
+            pane?.querySelectorAll("details").forEach((el) => {
+                el.open = false;
             });
         });
 

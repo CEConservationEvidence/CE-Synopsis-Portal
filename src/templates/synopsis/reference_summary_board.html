@@ -4,7 +4,7 @@
 <h1 class="mb-3">Reference summaries – {{ project.title }}</h1>
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
-    <a class="btn btn-outline-success" href="{% url 'synopsis:project_synopsis_structure' project.id %}">Manage synopsis structure</a>
+    <a class="btn btn-outline-success" href="{% url 'synopsis:project_synopsis_evidence' project.id %}">Manage evidence structure</a>
     <div class="ms-auto">
         <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#distribution-modal">Distribution view</button>
     </div>
@@ -14,8 +14,8 @@
     <div class="card-body d-flex flex-column flex-md-row justify-content-between gap-3 align-items-start align-items-md-center">
         <div>
             <h5 class="mb-1">Progress</h5>
-            <div class="display-6">{{ completed }} / {{ total_included }}</div>
-            <div class="small text-muted">Summaries marked as “Summarised”</div>
+            <div class="display-6">{{ completed }} / {{ summary_count }}</div>
+            <div class="small text-muted">Summary records marked as “Summarised” across {{ reference_count }} included reference{{ reference_count|pluralize }}</div>
         </div>
         <div class="flex-grow-1">
             <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ progress }}">
@@ -27,6 +27,11 @@
 </div>
 {% else %}
 <div class="alert alert-info">No references have been included yet. Complete screening to start summarising.</div>
+{% endif %}
+{% if summary_count and summary_count != reference_count %}
+<div class="alert alert-secondary small">
+    This workspace now supports multiple summary tabs per reference. Each card below is one full summary record, so the same paper can appear more than once when authors create additional tabs for different interventions or studies.
+</div>
 {% endif %}
 <div class="card mb-3">
     <div class="card-body">
@@ -47,11 +52,17 @@
             <div class="card-body">
                 {% if column.items %}
                     {% for summary in column.items %}
-                    <div class="border rounded p-3 mb-3 summary-card" data-search="{{ summary.reference.title }} {{ summary.reference.authors }} {{ summary.reference.publication_year }} {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% endif %}">
-                        <div class="fw-semibold">{{ summary.reference.title }}</div>
+                    <div class="border rounded p-3 mb-3 summary-card" data-search="{{ summary.reference.canonical.title }} {{ summary.reference.canonical.authors }} {{ summary.reference.canonical.publication_year }} {{ summary.variant_label }} {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% endif %}">
+                        <div class="fw-semibold">{{ summary.reference.canonical.title }}</div>
                         <div class="small text-muted">
-                            {% if summary.reference.authors %}{{ summary.reference.authors }}{% else %}Unknown authors{% endif %}
-                            {% if summary.reference.publication_year %} · {{ summary.reference.publication_year }}{% endif %}
+                            {% if summary.reference.canonical.authors %}{{ summary.reference.canonical.authors }}{% else %}Unknown authors{% endif %}
+                            {% if summary.reference.canonical.publication_year %} · {{ summary.reference.canonical.publication_year }}{% endif %}
+                        </div>
+                        <div class="small mt-2">
+                            <span class="badge text-bg-light">{{ summary.variant_label }}</span>
+                            {% if summary.variant_count > 1 %}
+                                <span class="text-muted">of {{ summary.variant_count }} summary tabs for this reference</span>
+                            {% endif %}
                         </div>
                         <div class="small mt-2">
                             Assigned to:
@@ -204,10 +215,13 @@ document.addEventListener("DOMContentLoaded", function () {
                         <tr class="dist-row-wrap">
                             <td><input type="checkbox" class="dist-row" name="summary_ids" value="{{ summary.id }}"></td>
                             <td>
-                                <div class="fw-semibold dist-text">{{ summary.reference.title }}</div>
+                                <div class="fw-semibold dist-text">{{ summary.reference.canonical.title }}</div>
                                 <div class="small text-muted dist-text">
-                                    {% if summary.reference.authors %}{{ summary.reference.authors }}{% else %}Unknown authors{% endif %}
-                                    {% if summary.reference.publication_year %} · {{ summary.reference.publication_year }}{% endif %}
+                                    {% if summary.reference.canonical.authors %}{{ summary.reference.canonical.authors }}{% else %}Unknown authors{% endif %}
+                                    {% if summary.reference.canonical.publication_year %} · {{ summary.reference.canonical.publication_year }}{% endif %}
+                                </div>
+                                <div class="small mt-1">
+                                    <span class="badge text-bg-light">{{ summary.variant_label }}</span>
                                 </div>
                             </td>
                             <td><span class="badge text-bg-light">{{ summary.get_status_display }}</span></td>

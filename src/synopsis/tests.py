@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta
+import io
 from urllib.parse import urlparse
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -34,6 +35,8 @@ from .models import (
     ActionListFeedback,
     CollaborativeSession,
     UserRole,
+    LibraryReference,
+    LibraryImportBatch,
     ReferenceSourceBatch,
     ReferenceSourceBatchNoteHistory,
     Reference,
@@ -41,6 +44,8 @@ from .models import (
     SynopsisChapter,
     SynopsisSubheading,
     SynopsisIntervention,
+    SynopsisInterventionKeyMessage,
+    SynopsisAssignment,
 )
 from .forms import (
     AdvisoryMemberCustomDataForm,
@@ -55,6 +60,7 @@ from .utils import (
     GLOBAL_GROUPS,
     email_subject,
     ensure_global_groups,
+    reference_hash,
     reply_to_list,
 )
 from .views import (
@@ -64,13 +70,21 @@ from .views import (
     _format_value,
     _funder_contact_label,
     _log_project_change,
+    _normalise_import_record,
     _user_can_confirm_phase,
     _user_is_manager,
     _user_can_edit_project,
     protocol_delete_revision,
     action_list_delete_revision,
     _parse_plaintext_references,
+    _parse_endnote_xml,
     project_synopsis_structure,
+    _intervention_reference_numbering,
+    _format_reference_number_ranges,
+    _generate_synopsis_docx,
+    _link_library_references_to_project,
+    _reference_export_citation,
+    _structured_summary_paragraph,
 )
 
 # TODO: #25 Clean up tests.py and see if some tests can be split into separate files.
@@ -239,6 +253,17 @@ class SynopsisStructureTests(TestCase):
         )
         self.assertEqual(response.status_code, 302)
         self.assertTrue(SynopsisChapter.objects.filter(project=self.project).exists())
+        front_chapter = SynopsisChapter.objects.get(
+            project=self.project, title="Advisory Board"
+        )
+        self.assertEqual(front_chapter.chapter_type, SynopsisChapter.TYPE_TEXT)
+        evidence_chapter = SynopsisChapter.objects.get(
+            project=self.project,
+            title="2. Threat: Residential and commercial development",
+        )
+        self.assertEqual(
+            evidence_chapter.chapter_type, SynopsisChapter.TYPE_EVIDENCE
+        )
         count_after_first = SynopsisChapter.objects.filter(project=self.project).count()
         # Second apply should be blocked because outline is not empty
         response = self.client.post(
@@ -274,6 +299,571 @@ class SynopsisStructureTests(TestCase):
             SynopsisIntervention.objects.filter(subheading__chapter=chapter).values_list("title", flat=True)
         )
         self.assertIn("Intervention A", intervention_titles)
+
+    def test_text_chapter_blocks_subheading_and_intervention(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        text_chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+        response = self.client.post(
+            url,
+            {
+                "action": "create-subheading",
+                "chapter_id": text_chapter.id,
+                "title": "Should fail",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(SynopsisSubheading.objects.filter(chapter=text_chapter).exists())
+        response = self.client.post(
+            url,
+            {
+                "action": "create-intervention",
+                "chapter_id": text_chapter.id,
+                "title": "Should also fail",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(
+            SynopsisIntervention.objects.filter(subheading__chapter=text_chapter).exists()
+        )
+
+    def test_update_intervention_synthesis_fields(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-intervention-synthesis",
+                "intervention_id": intervention.id,
+                "ce_action_url": "https://www.conservationevidence.com/actions/4018",
+                "evidence_status": SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES,
+                "synthesis_text": "No direct studies were identified in the searched evidence base.",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        intervention.refresh_from_db()
+        self.assertEqual(
+            intervention.ce_action_url,
+            "https://www.conservationevidence.com/actions/4018",
+        )
+        self.assertEqual(
+            intervention.evidence_status,
+            SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES,
+        )
+        self.assertIn("No direct studies", intervention.synthesis_text)
+
+    def test_add_and_update_key_message(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Second test ref",
+            hash_key="hash-second-test-ref",
+            screening_status="included",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project, reference=second_reference
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=second_summary,
+            position=2,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "add-key-message",
+                "intervention_id": intervention.id,
+                "response_group": SynopsisInterventionKeyMessage.GROUP_POPULATION,
+                "outcome_label": "Abundance/Cover",
+                "study_count": 3,
+                "statement": "Three studies found increased coral cover after intervention.",
+                "supporting_summaries": [str(self.summary.id)],
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        key_message = intervention.key_messages.first()
+        self.assertIsNotNone(key_message)
+        self.assertEqual(key_message.study_count, 3)
+        self.assertEqual(
+            list(
+                key_message.supporting_summaries.order_by("id").values_list("id", flat=True)
+            ),
+            [self.summary.id],
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-key-message",
+                "intervention_id": intervention.id,
+                "key_message_id": key_message.id,
+                "response_group": SynopsisInterventionKeyMessage.GROUP_COMMUNITY,
+                "outcome_label": "Richness/diversity",
+                "study_count": 5,
+                "statement": "Five studies found no clear community-level change.",
+                "supporting_summaries": [str(second_summary.id), str(self.summary.id)],
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        key_message.refresh_from_db()
+        self.assertEqual(
+            key_message.response_group,
+            SynopsisInterventionKeyMessage.GROUP_COMMUNITY,
+        )
+        self.assertEqual(key_message.outcome_label, "Richness/diversity")
+        self.assertEqual(key_message.study_count, 5)
+        self.assertEqual(
+            list(
+                key_message.supporting_summaries.order_by("id").values_list("id", flat=True)
+            ),
+            sorted([self.summary.id, second_summary.id]),
+        )
+
+    def test_intervention_reference_numbering_uses_oldest_first_order(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        older_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Older study",
+            authors="Alpha A.",
+            publication_year=2001,
+            hash_key="hash-old-study",
+            screening_status="included",
+        )
+        newer_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Newer study",
+            authors="Beta B.",
+            publication_year=2018,
+            hash_key="hash-new-study",
+            screening_status="included",
+        )
+        older_summary = ReferenceSummary.objects.create(
+            project=self.project, reference=older_reference
+        )
+        newer_summary = ReferenceSummary.objects.create(
+            project=self.project, reference=newer_reference
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention, reference_summary=newer_summary, position=1
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention, reference_summary=older_summary, position=2
+        )
+
+        assignments = list(intervention.assignments.all())
+        ordered_assignments, summary_numbers, ordered_references = (
+            _intervention_reference_numbering(assignments)
+        )
+
+        self.assertEqual(
+            [assignment.reference_summary_id for assignment in ordered_assignments],
+            [older_summary.id, newer_summary.id],
+        )
+        self.assertEqual(summary_numbers[older_summary.id], 1)
+        self.assertEqual(summary_numbers[newer_summary.id], 2)
+        self.assertEqual(
+            [reference.id for _, reference in ordered_references],
+            [older_reference.id, newer_reference.id],
+        )
+        self.assertEqual(
+            [numbers for numbers, _ in ordered_references],
+            [[1], [2]],
+        )
+
+    def test_intervention_reference_numbering_groups_duplicate_references(self):
+        intervention = SynopsisIntervention.objects.create(
+            subheading=self.subheading,
+            title="2.1 Group duplicate paper studies",
+            position=2,
+        )
+        shared_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Shared study paper",
+            authors="Gamma G.",
+            publication_year=2009,
+            hash_key="hash-shared-study-paper",
+            screening_status="included",
+        )
+        first_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=shared_reference,
+            action_description="Study A",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=shared_reference,
+            action_description="Study B",
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention, reference_summary=first_summary, position=1
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention, reference_summary=second_summary, position=2
+        )
+
+        assignments = list(intervention.assignments.all())
+        ordered_assignments, summary_numbers, ordered_references = (
+            _intervention_reference_numbering(assignments)
+        )
+
+        self.assertEqual(
+            [assignment.reference_summary_id for assignment in ordered_assignments],
+            [first_summary.id, second_summary.id],
+        )
+        self.assertEqual(summary_numbers[first_summary.id], 1)
+        self.assertEqual(summary_numbers[second_summary.id], 2)
+        self.assertEqual(len(ordered_references), 1)
+        self.assertEqual(ordered_references[0][1].id, shared_reference.id)
+        self.assertEqual(ordered_references[0][0], [1, 2])
+        self.assertEqual(_format_reference_number_ranges([1, 2]), "1-2")
+
+    def test_key_message_rejects_unassigned_supporting_summary(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        outside_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Outside intervention summary",
+            hash_key="hash-outside-summary",
+            screening_status="included",
+        )
+        outside_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=outside_reference,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "add-key-message",
+                "intervention_id": intervention.id,
+                "response_group": SynopsisInterventionKeyMessage.GROUP_RESPONSE,
+                "statement": "Message with invalid supporting study link.",
+                "supporting_summaries": [str(outside_summary.id)],
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(intervention.key_messages.exists())
+
+    def test_evidence_page_groups_summary_tabs_under_reference(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        alt_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            action_description="Study B",
+        )
+        self.summary.action_description = "Study A"
+        self.summary.save(update_fields=["action_description"])
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=alt_summary,
+            position=2,
+        )
+
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        grouped = response.context["reference_summary_groups"]
+        self.assertEqual(len(grouped), 1)
+        self.assertEqual(grouped[0]["paper_title"], "Test ref")
+        self.assertEqual(
+            [item["summary_label"] for item in grouped[0]["summaries"]],
+            ["Study A", "Study B"],
+        )
+        self.assertContains(response, "Assign summary tabs, not whole papers.")
+        self.assertContains(response, "Study A")
+        self.assertContains(response, "Study B")
+        self.assertContains(response, "Same source paper")
+        self.assertContains(response, "shared reference line (1-2)")
+        self.assertContains(response, "Compilation preview")
+        self.assertContains(response, "2 study paragraphs")
+        self.assertContains(response, "1 source paper")
+        self.assertContains(response, "2 summary tabs from the same paper")
+
+    def test_delete_assignment_removes_supporting_links_from_key_messages(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        assignment = SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        key_message = SynopsisInterventionKeyMessage.objects.create(
+            intervention=intervention,
+            response_group=SynopsisInterventionKeyMessage.GROUP_RESPONSE,
+            statement="Linked message",
+            position=1,
+        )
+        key_message.supporting_summaries.add(self.summary)
+
+        response = self.client.post(
+            url,
+            {
+                "action": "delete-assignment",
+                "assignment_id": assignment.id,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        key_message.refresh_from_db()
+        self.assertFalse(key_message.supporting_summaries.exists())
+
+    def test_export_citation_and_reference_identifier_override(self):
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Corallivorous snail removal",
+            authors="Miller M.",
+            publication_year=2001,
+            journal="Coral Reefs",
+            volume="19",
+            pages="293-295",
+            doi="10.1007/PL00006963",
+            hash_key="hash-citation-study",
+            screening_status="included",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            study_design="replicated, controlled study",
+            year_range="1999",
+            summary_of_results="snail removal reduced live tissue loss.",
+            reference_identifier="X",
+        )
+
+        citation = _reference_export_citation(reference)
+        self.assertIn("Miller M. (2001)", citation)
+        self.assertIn("Corallivorous snail removal.", citation)
+        self.assertIn("Coral Reefs, 19, 293-295.", citation)
+        self.assertIn("https://doi.org/10.1007/PL00006963", citation)
+
+        paragraph = _structured_summary_paragraph(
+            summary, reference_identifier_override="3"
+        )
+        self.assertIn("(3)", paragraph)
+        self.assertNotIn("(X)", paragraph)
+
+    def test_generate_docx_collapses_duplicate_reference_lines_but_keeps_study_paragraphs(self):
+        from docx import Document
+
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        shared_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Shared study paper",
+            authors="Gamma G.",
+            publication_year=2009,
+            hash_key="hash-docx-shared-paper",
+            screening_status="included",
+        )
+        first_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=shared_reference,
+            study_design="replicated, controlled study",
+            year_range="2009",
+            summary_of_results="first finding improved coral cover.",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=shared_reference,
+            study_design="replicated, controlled study",
+            year_range="2010",
+            summary_of_results="second finding improved coral recruitment.",
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=first_summary,
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=second_summary,
+            position=2,
+        )
+
+        payload = _generate_synopsis_docx(self.project)
+        document = Document(io.BytesIO(payload))
+        paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+
+        self.assertTrue(
+            any("(1)" in paragraph and "first finding improved coral cover" in paragraph for paragraph in paragraphs)
+        )
+        self.assertTrue(
+            any("(2)" in paragraph and "second finding improved coral recruitment" in paragraph for paragraph in paragraphs)
+        )
+        collapsed_reference_lines = [
+            paragraph for paragraph in paragraphs if paragraph.startswith("(1-2) ")
+        ]
+        self.assertEqual(len(collapsed_reference_lines), 1)
+        self.assertIn("Shared study paper.", collapsed_reference_lines[0])
+        self.assertFalse(
+            any(
+                paragraph.startswith("(1) Gamma G. (2009) Shared study paper.")
+                or paragraph.startswith("(2) Gamma G. (2009) Shared study paper.")
+                for paragraph in paragraphs
+            )
+        )
+
+    def test_workspace_routes_load(self):
+        narrative_url = reverse(
+            "synopsis:project_synopsis_narrative", args=[self.project.id]
+        )
+        evidence_url = reverse(
+            "synopsis:project_synopsis_evidence", args=[self.project.id]
+        )
+        structure_url = reverse(
+            "synopsis:project_synopsis_structure", args=[self.project.id]
+        )
+        self.assertEqual(self.client.get(narrative_url).status_code, 200)
+        self.assertEqual(self.client.get(evidence_url).status_code, 200)
+        self.assertEqual(self.client.get(structure_url).status_code, 200)
+
+    def test_narrative_workspace_post_redirects_to_narrative_route(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        response = self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "Advisory Board",
+                "chapter_type": SynopsisChapter.TYPE_TEXT,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            urlparse(response["Location"]).path,
+            urlparse(url).path,
+        )
 
 
 @override_settings(DEFAULT_FROM_EMAIL="reminders@example.com")
@@ -1794,6 +2384,115 @@ class PlainTextReferenceParserTests(TestCase):
         self.assertEqual(_parse_plaintext_references("   "), [])
 
 
+class EndNoteXmlParserTests(TestCase):
+    def test_parses_endnote_xml_record(self):
+        payload = textwrap.dedent(
+            """
+            <xml>
+              <records>
+                <record>
+                  <titles>
+                    <title>Coral restoration methods</title>
+                    <secondary-title>Marine Ecology</secondary-title>
+                  </titles>
+                  <contributors>
+                    <authors>
+                      <author>Smith, Jane</author>
+                      <author>Doe, Alex</author>
+                    </authors>
+                  </contributors>
+                  <dates>
+                    <year>2023</year>
+                  </dates>
+                  <volume>12</volume>
+                  <number>4</number>
+                  <pages>101-110</pages>
+                  <abstract>Summary text.</abstract>
+                  <electronic-resource-num>10.1234/example</electronic-resource-num>
+                  <urls>
+                    <related-urls>
+                      <url>https://example.com/article</url>
+                    </related-urls>
+                  </urls>
+                </record>
+              </records>
+            </xml>
+            """
+        ).strip()
+
+        parsed = _parse_endnote_xml(payload)
+
+        self.assertEqual(len(parsed), 1)
+        self.assertEqual(parsed[0]["title"], "Coral restoration methods")
+        self.assertEqual(parsed[0]["journal_name"], "Marine Ecology")
+        self.assertEqual(parsed[0]["authors"], ["Smith, Jane", "Doe, Alex"])
+        self.assertEqual(parsed[0]["publication_year"], "2023")
+        self.assertEqual(parsed[0]["doi"], "10.1234/example")
+        self.assertEqual(parsed[0]["url"], "https://example.com/article")
+
+    def test_returns_empty_list_for_invalid_xml(self):
+        self.assertEqual(_parse_endnote_xml("<xml><records>"), [])
+
+
+class LibraryReferenceBatchUploadTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Library Upload Project")
+        self.user = User.objects.create_user(username="libraryuploader", password="pw")
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.client.force_login(self.user)
+        self.url = reverse("synopsis:library_reference_batch_upload")
+
+    def _plaintext_payload(self):
+        return textwrap.dedent(
+            """
+            Angel, D. L.; et al. (2002). "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture." Hydrobiologia 469(1): 1-10.
+            Net pen fish farms generally enrich the surrounding waters and the underlying sediments with nutrients and organic matter.
+
+            Sample, S. and Example, E. (2018). Another example of parsing. Ecology Letters 11: 9-12.
+            Full abstract text including doi:10.5678/example and https://example.com/article for reference.
+            """
+        ).strip()
+
+    def test_skips_existing_library_reference_hashes(self):
+        existing_hash = reference_hash(
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            "2002",
+            "",
+        )
+        existing = LibraryReference.objects.create(
+            hash_key=existing_hash,
+            title="In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            publication_year=2002,
+        )
+
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        response = self.client.post(
+            self.url,
+            {
+                "label": "Library batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(LibraryReference.objects.count(), 2)
+        self.assertTrue(LibraryReference.objects.filter(pk=existing.pk).exists())
+        batch = LibraryImportBatch.objects.get(label="Library batch")
+        self.assertEqual(batch.record_count, 1)
+        messages = [str(message) for message in get_messages(response.wsgi_request)]
+        self.assertTrue(
+            any("Imported 1 reference(s) into 'Library batch'." in message for message in messages)
+        )
+        self.assertTrue(
+            any("Skipped 1 reference(s) already in the library." in message for message in messages)
+        )
+
+
 class ReferenceBatchUploadParsingTests(TestCase):
     def setUp(self):
         self.project = Project.objects.create(title="Reference Upload Project")
@@ -1837,8 +2536,12 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
 
         self.assertEqual(Reference.objects.filter(project=self.project).count(), 2)
+        self.assertEqual(LibraryReference.objects.count(), 2)
         batch = ReferenceSourceBatch.objects.get(project=self.project)
         self.assertEqual(batch.record_count, 2)
+        self.assertFalse(
+            Reference.objects.filter(project=self.project, library_reference__isnull=True).exists()
+        )
         titles = set(
             Reference.objects.filter(project=self.project).values_list(
                 "title", flat=True
@@ -1911,6 +2614,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
         refs = Reference.objects.filter(project=self.project)
         self.assertEqual(refs.count(), 1)
         ref = refs.first()
+        self.assertIsNotNone(ref.library_reference)
         self.assertEqual(ref.title, "Example Title")
         self.assertEqual(ref.publication_year, 2021)
         self.assertEqual(ref.journal, "Marine Science Quarterly")
@@ -1959,6 +2663,97 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         self.assertIsNotNone(latest_batch)
         self.assertEqual(latest_batch.record_count, 0)
+
+    def test_reports_invalid_rows_separately_from_duplicates(self):
+        existing_hash = reference_hash(
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            "2002",
+            "",
+        )
+        Reference.objects.create(
+            project=self.project,
+            batch=ReferenceSourceBatch.objects.create(
+                project=self.project,
+                label="Existing refs",
+                source_type="manual_upload",
+                uploaded_by=self.user,
+            ),
+            hash_key=existing_hash,
+            title="In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            publication_year=2002,
+        )
+
+        original_normalise = _normalise_import_record
+
+        def fake_normalise(record):
+            if record.get("title") == "Another example of parsing":
+                return None
+            return original_normalise(record)
+
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+
+        with patch("synopsis.views._normalise_import_record", side_effect=fake_normalise):
+            response = self.client.post(
+                self.url,
+                {
+                    "label": "Mixed skip batch",
+                    "source_type": "journal_search",
+                    "ris_file": upload,
+                },
+                follow=True,
+            )
+
+        messages = [str(message) for message in get_messages(response.wsgi_request)]
+        self.assertTrue(
+            any("Imported 0 reference(s) into 'Mixed skip batch'." in message for message in messages)
+        )
+        self.assertTrue(
+            any("Skipped 1 record(s) already present in this project." in message for message in messages)
+        )
+        self.assertTrue(
+            any("Skipped 1 record(s) with no title." in message for message in messages)
+        )
+
+    def test_reuses_existing_library_reference_by_hash(self):
+        existing_hash = reference_hash(
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            "2002",
+            "",
+        )
+        existing_library_ref = LibraryReference.objects.create(
+            hash_key=existing_hash,
+            title="Existing canonical title",
+            publication_year=2002,
+        )
+
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        response = self.client.post(
+            self.url,
+            {
+                "label": "Reuse library ref batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:reference_batch_list", args=[self.project.id]),
+        )
+        self.assertEqual(LibraryReference.objects.count(), 2)
+        project_ref = Reference.objects.get(
+            project=self.project,
+            hash_key=existing_hash,
+        )
+        self.assertEqual(project_ref.library_reference_id, existing_library_ref.id)
 
     def test_can_delete_reference_from_batch(self):
         upload = SimpleUploadedFile(
@@ -2099,6 +2894,91 @@ class ReferenceBatchUploadParsingTests(TestCase):
             self.assertEqual(ref.screening_status, "included")
             self.assertEqual(ref.screened_by, self.user)
             self.assertIsNotNone(ref.screening_decision_at)
+
+    def test_single_screening_update_filters_blank_reference_folder_values(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Single screening batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        ref = batch.references.order_by("id").first()
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+
+        response = self.client.post(
+            detail_url,
+            {
+                "reference_id": ref.id,
+                "screening_status": "included",
+                "screening_notes": "Relevant to the topic.",
+                "reference_folder": ["", "3"],
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+        )
+        ref.refresh_from_db()
+        self.assertEqual(ref.screening_status, "included")
+        self.assertEqual(ref.reference_folder, ["3"])
+
+    def test_save_folders_preserves_existing_screening_notes(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Folder notes batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        ref = batch.references.order_by("id").first()
+        ref.screening_notes = "Keep these notes."
+        ref.save(update_fields=["screening_notes", "updated_at"])
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+
+        response = self.client.post(
+            detail_url,
+            {
+                "reference_id": ref.id,
+                "screening_status": ref.screening_status,
+                "reference_folder": ["15"],
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+        )
+        ref.refresh_from_db()
+        self.assertEqual(ref.reference_folder, ["15"])
+        self.assertEqual(ref.screening_notes, "Keep these notes.")
 
     def test_bulk_action_requires_selection(self):
         upload = SimpleUploadedFile(
@@ -2250,6 +3130,94 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertEqual(latest.new_notes, "Updated notes")
 
 
+class LibraryLinkBatchTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Library Link Project")
+        self.user = User.objects.create_user(username="linker", password="pw")
+
+    def test_linking_on_separate_operations_creates_distinct_library_batches(self):
+        first_lib_ref = LibraryReference.objects.create(
+            title="Library reference one",
+            publication_year=2020,
+            doi="10.1000/one",
+            hash_key="lib-hash-one",
+        )
+        second_lib_ref = LibraryReference.objects.create(
+            title="Library reference two",
+            publication_year=2021,
+            doi="10.1000/two",
+            hash_key="lib-hash-two",
+        )
+
+        linked_one, reused_one, batch_one = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [first_lib_ref.id],
+            ["15"],
+        )
+        linked_two, reused_two, batch_two = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [second_lib_ref.id],
+            ["15"],
+        )
+
+        self.assertEqual((linked_one, reused_one), (1, 0))
+        self.assertEqual((linked_two, reused_two), (1, 0))
+        self.assertIsNotNone(batch_one)
+        self.assertIsNotNone(batch_two)
+        self.assertNotEqual(batch_one.id, batch_two.id)
+        self.assertNotEqual(batch_one.label, batch_two.label)
+        self.assertEqual(batch_one.source_type, "library_link")
+        self.assertEqual(batch_two.source_type, "library_link")
+        self.assertEqual(batch_one.record_count, 1)
+        self.assertEqual(batch_two.record_count, 1)
+        self.assertEqual(
+            Reference.objects.filter(project=self.project, batch=batch_one).count(), 1
+        )
+        self.assertEqual(
+            Reference.objects.filter(project=self.project, batch=batch_two).count(), 1
+        )
+
+    def test_duplicate_only_link_does_not_create_empty_library_batch(self):
+        lib_ref = LibraryReference.objects.create(
+            title="Duplicate library reference",
+            publication_year=2022,
+            doi="10.1000/duplicate",
+            hash_key="lib-hash-duplicate",
+        )
+        linked, reused, initial_batch = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [lib_ref.id],
+            ["15"],
+        )
+        self.assertEqual((linked, reused), (1, 0))
+        self.assertIsNotNone(initial_batch)
+
+        batch_count_before = ReferenceSourceBatch.objects.filter(
+            project=self.project,
+            source_type="library_link",
+        ).count()
+
+        linked_again, reused_again, duplicate_batch = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [lib_ref.id],
+            ["15"],
+        )
+
+        self.assertEqual((linked_again, reused_again), (0, 1))
+        self.assertIsNone(duplicate_batch)
+        self.assertEqual(
+            ReferenceSourceBatch.objects.filter(
+                project=self.project,
+                source_type="library_link",
+            ).count(),
+            batch_count_before,
+        )
+
+
 class ReferenceSummaryFormTests(TestCase):
     def test_location_tags_accepts_place_and_coords(self):
         form = ReferenceSummaryUpdateForm(
@@ -2275,6 +3243,44 @@ class ReferenceSummaryFormTests(TestCase):
         cleaned = form.cleaned_data["outcomes_raw"]
         self.assertEqual(len(cleaned), 1)
         self.assertEqual(cleaned[0]["outcome"], "Outcome")
+
+    def test_quality_scores_accept_boundary_values(self):
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "benefits_score": "0",
+                "harms_score": "100",
+                "reliability_score": "0.0",
+                "relevance_score": "1.0",
+            }
+        )
+        self.assertTrue(form.is_valid())
+        self.assertEqual(form.cleaned_data["benefits_score"], 0.0)
+        self.assertEqual(form.cleaned_data["harms_score"], 100.0)
+        self.assertEqual(form.cleaned_data["reliability_score"], 0.0)
+        self.assertEqual(form.cleaned_data["relevance_score"], 1.0)
+
+    def test_quality_scores_reject_values_outside_ranges(self):
+        invalid_cases = [
+            ("benefits_score", "-0.1"),
+            ("benefits_score", "100.1"),
+            ("harms_score", "-1"),
+            ("harms_score", "101"),
+            ("reliability_score", "-0.01"),
+            ("reliability_score", "1.01"),
+            ("relevance_score", "-0.5"),
+            ("relevance_score", "2"),
+        ]
+        for field_name, value in invalid_cases:
+            with self.subTest(field_name=field_name, value=value):
+                form = ReferenceSummaryUpdateForm(
+                    data={
+                        "status": ReferenceSummary.STATUS_TODO,
+                        field_name: value,
+                    }
+                )
+                self.assertFalse(form.is_valid())
+                self.assertIn(field_name, form.errors)
 
 
 class ReferenceSummaryDetailViewTests(TestCase):
@@ -2316,3 +3322,159 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.summary.habitat_and_sites, "New habitat info")
         messages = list(get_messages(resp.wsgi_request))
         self.assertTrue(any("Summary updated" in str(m) for m in messages))
+
+    def test_create_summary_tab_adds_second_summary_for_same_reference(self):
+        self.summary.assigned_to = self.user
+        self.summary.reference_identifier = "REF-12"
+        self.summary.reference_label = "Test reference label"
+        self.summary.summary_author = "Existing Author"
+        self.summary.citation = "Author (2024)"
+        self.summary.save()
+
+        self.client.login(username="author", password="pass123")
+        url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        resp = self.client.post(
+            url,
+            {"action": "create-summary-tab"},
+            follow=False,
+        )
+
+        self.assertEqual(
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            ).count(),
+            2,
+        )
+        new_summary = (
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            )
+            .exclude(pk=self.summary.id)
+            .get()
+        )
+        self.assertRedirects(
+            resp,
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, new_summary.id],
+            ),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(new_summary.assigned_to, self.user)
+        self.assertEqual(new_summary.reference_identifier, "REF-12")
+        self.assertEqual(new_summary.reference_label, "Test reference label")
+        self.assertEqual(new_summary.summary_author, "Existing Author")
+        self.assertEqual(new_summary.citation, "Author (2024)")
+
+    def test_board_still_creates_only_one_default_summary_per_included_reference(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status"])
+        self.client.login(username="author", password="pass123")
+        extra_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            citation="Alt citation",
+        )
+
+        resp = self.client.get(
+            reverse("synopsis:reference_summary_board", args=[self.project.id])
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            ).count(),
+            2,
+        )
+        self.assertContains(resp, "multiple summary tabs per reference", status_code=200)
+        self.assertContains(resp, "Summary 2")
+
+    def test_board_and_detail_use_library_reference_metadata(self):
+        canonical = LibraryReference.objects.create(
+            title="Canonical library title",
+            authors="Smith, Jane",
+            publication_year=2024,
+        )
+        self.reference.library_reference = canonical
+        self.reference.title = "Project-local title"
+        self.reference.screening_status = "included"
+        self.reference.save(
+            update_fields=["library_reference", "title", "screening_status", "updated_at"]
+        )
+
+        self.client.login(username="author", password="pass123")
+
+        board_response = self.client.get(
+            reverse("synopsis:reference_summary_board", args=[self.project.id])
+        )
+        detail_response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(board_response, "Canonical library title")
+        self.assertContains(board_response, "Smith, Jane")
+        self.assertContains(detail_response, "Canonical library title")
+        self.assertContains(detail_response, "Smith, Jane")
+
+    def test_board_context_workload_counts_are_aggregated_correctly(self):
+        other_author = User.objects.create_user(
+            username="coauthor",
+            password="pass123",
+            first_name="Co",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status"])
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+            screening_status="included",
+        )
+        third_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="c" * 40,
+            title="Third reference",
+            screening_status="included",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            assigned_to=self.user,
+            needs_help=True,
+        )
+        third_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=third_reference,
+            assigned_to=other_author,
+            needs_help=False,
+        )
+        self.summary.assigned_to = self.user
+        self.summary.needs_help = False
+        self.summary.save(update_fields=["assigned_to", "needs_help", "updated_at"])
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse("synopsis:reference_summary_board", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        workload = {
+            row["author"].id: {"assigned": row["assigned"], "needs_help": row["needs_help"]}
+            for row in response.context["workload"]
+        }
+        self.assertEqual(workload[self.user.id], {"assigned": 2, "needs_help": 1})
+        self.assertEqual(workload[other_author.id], {"assigned": 1, "needs_help": 0})
+        self.assertEqual(response.context["unassigned_count"], 0)
+        self.assertEqual(response.context["needs_help_count"], 1)

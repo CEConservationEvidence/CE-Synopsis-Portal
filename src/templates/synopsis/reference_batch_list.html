@@ -1,17 +1,43 @@
 {% extends "synopsis/base.html" %}
-{% block title %}Reference Imports – {{ project.title }}{% endblock %}
+{% block title %}Project References – {{ project.title }}{% endblock %}
 {% block content %}
-<h1 class="mb-3">Reference imports – {{ project.title }}</h1>
+<h1 class="mb-2">Project references</h1>
+<p class="text-muted mb-3">
+    Step 1: add references from the library or import a RIS file. Step 2: screen references. Step 3: summarise included studies.
+</p>
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
-    <a class="btn btn-primary" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload RIS file</a>
+    <a class="btn btn-primary" href="{% url 'synopsis:reference_library' %}?project={{ project.id }}&next={% url 'synopsis:reference_batch_list' project.id %}">Link from library</a>
+    <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_upload' project.id %}">Import RIS</a>
+    <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_library' %}">Browse library</a>
 </div>
 <div class="row g-3 mb-4">
-    <div class="col-lg-12">
+    <div class="col-lg-6">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="mb-2">What to do next</h5>
+                <div class="small text-muted mb-3">
+                    Add references first, then screen them inside each batch.
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:reference_library' %}?project={{ project.id }}&next={% url 'synopsis:reference_batch_list' project.id %}">Add from library</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_batch_upload' project.id %}">Import RIS</a>
+                </div>
+                {% if next_batch %}
+                <div class="mt-3 small text-muted">
+                    Next screening batch: <a href="{% url 'synopsis:reference_batch_detail' project.id next_batch.id %}">{{ next_batch.label }}</a> · {{ next_batch.pending_count }} pending
+                </div>
+                {% else %}
+                <div class="mt-3 small text-muted">No pending references to screen.</div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
         <div class="card h-100">
             <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h5 class="mb-0">Overall screening progress</h5>
+                    <h5 class="mb-0">Screening progress</h5>
                     <span class="badge {% if summary.completion_percent == 100 %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ summary.completion_percent }}%</span>
                 </div>
                 <div class="display-6 mb-1">{{ summary.screened }} / {{ summary.total }}</div>
@@ -32,6 +58,7 @@
 </div>
 <div class="card">
     <div class="card-body">
+        <h5 class="mb-3">Imports &amp; linked batches</h5>
         {% if batches %}
         <div class="table-responsive">
             <table class="table table-sm align-middle">
@@ -44,7 +71,7 @@
                         <th>Imported</th>
                         <th>Uploaded by</th>
                         <th>Uploaded at</th>
-                        <th style="width: 120px;">Actions</th>
+                        <th style="width: 160px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -88,16 +115,19 @@
                         </td>
                         <td>{{ batch.created_at|date:"Y-m-d H:i" }}</td>
                         <td>
-                            <form method="post" action="{% url 'synopsis:reference_batch_delete' project.id batch.id %}">
-                                {% csrf_token %}
-                                <button
-                                    type="submit"
-                                    class="btn btn-outline-danger btn-sm w-100"
-                                    onclick="return confirm('Delete this batch and all imported references?');"
-                                >
-                                    Delete
-                                </button>
-                            </form>
+                            <div class="d-grid gap-2">
+                                <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}">Screen</a>
+                                <form method="post" action="{% url 'synopsis:reference_batch_delete' project.id batch.id %}">
+                                    {% csrf_token %}
+                                    <button
+                                        type="submit"
+                                        class="btn btn-outline-danger btn-sm w-100"
+                                        onclick="return confirm('Delete this batch and all imported references?');"
+                                    >
+                                        Delete
+                                    </button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
