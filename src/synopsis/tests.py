@@ -3478,3 +3478,27 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(workload[other_author.id], {"assigned": 1, "needs_help": 0})
         self.assertEqual(response.context["unassigned_count"], 0)
         self.assertEqual(response.context["needs_help_count"], 1)
+
+
+class GlobalReferenceLibraryAccessTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="authorlib", password="pass123")
+        self.project = Project.objects.create(title="Coral Project")
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+
+    def test_author_sees_global_library_entry_points(self):
+        self.client.login(username="authorlib", password="pass123")
+
+        dashboard_response = self.client.get(reverse("synopsis:dashboard"))
+        project_response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertContains(dashboard_response, "Open Reference Database")
+        self.assertContains(dashboard_response, "Reference Database")
+        self.assertContains(project_response, "Browse Reference Database")
+        self.assertContains(
+            project_response,
+            reverse("synopsis:reference_library") + f"?project={self.project.id}",
+            html=False,
+        )
