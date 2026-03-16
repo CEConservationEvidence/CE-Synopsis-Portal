@@ -206,6 +206,9 @@
                 {% endif %}
                 <div class="d-flex flex-wrap gap-2">
                     <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:reference_batch_list' project.id %}">View batches</a>
+                    {% if user.is_authenticated %}
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_library' %}?project={{ project.id }}">Browse Reference Database</a>
+                    {% endif %}
                     <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_batch_upload' project.id %}">Upload RIS</a>
                 </div>
             </div>
