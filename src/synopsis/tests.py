@@ -36,6 +36,7 @@ from .models import (
     CollaborativeSession,
     UserRole,
     LibraryReference,
+    LibraryImportBatch,
     ReferenceSourceBatch,
     ReferenceSourceBatchNoteHistory,
     Reference,
@@ -2433,6 +2434,65 @@ class EndNoteXmlParserTests(TestCase):
         self.assertEqual(_parse_endnote_xml("<xml><records>"), [])
 
 
+class LibraryReferenceBatchUploadTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Library Upload Project")
+        self.user = User.objects.create_user(username="libraryuploader", password="pw")
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.client.force_login(self.user)
+        self.url = reverse("synopsis:library_reference_batch_upload")
+
+    def _plaintext_payload(self):
+        return textwrap.dedent(
+            """
+            Angel, D. L.; et al. (2002). "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture." Hydrobiologia 469(1): 1-10.
+            Net pen fish farms generally enrich the surrounding waters and the underlying sediments with nutrients and organic matter.
+
+            Sample, S. and Example, E. (2018). Another example of parsing. Ecology Letters 11: 9-12.
+            Full abstract text including doi:10.5678/example and https://example.com/article for reference.
+            """
+        ).strip()
+
+    def test_skips_existing_library_reference_hashes(self):
+        existing_hash = reference_hash(
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            "2002",
+            "",
+        )
+        existing = LibraryReference.objects.create(
+            hash_key=existing_hash,
+            title="In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            publication_year=2002,
+        )
+
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        response = self.client.post(
+            self.url,
+            {
+                "label": "Library batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(LibraryReference.objects.count(), 2)
+        self.assertTrue(LibraryReference.objects.filter(pk=existing.pk).exists())
+        batch = LibraryImportBatch.objects.get(label="Library batch")
+        self.assertEqual(batch.record_count, 1)
+        messages = [str(message) for message in get_messages(response.wsgi_request)]
+        self.assertTrue(
+            any("Imported 1 reference(s) into 'Library batch'." in message for message in messages)
+        )
+        self.assertTrue(
+            any("Skipped 1 reference(s) already in the library." in message for message in messages)
+        )
+
+
 class ReferenceBatchUploadParsingTests(TestCase):
     def setUp(self):
         self.project = Project.objects.create(title="Reference Upload Project")
@@ -2657,6 +2717,43 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertTrue(
             any("Skipped 1 record(s) with no title." in message for message in messages)
         )
+
+    def test_reuses_existing_library_reference_by_hash(self):
+        existing_hash = reference_hash(
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            "2002",
+            "",
+        )
+        existing_library_ref = LibraryReference.objects.create(
+            hash_key=existing_hash,
+            title="Existing canonical title",
+            publication_year=2002,
+        )
+
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        response = self.client.post(
+            self.url,
+            {
+                "label": "Reuse library ref batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:reference_batch_list", args=[self.project.id]),
+        )
+        self.assertEqual(LibraryReference.objects.count(), 2)
+        project_ref = Reference.objects.get(
+            project=self.project,
+            hash_key=existing_hash,
+        )
+        self.assertEqual(project_ref.library_reference_id, existing_library_ref.id)
 
     def test_can_delete_reference_from_batch(self):
         upload = SimpleUploadedFile(

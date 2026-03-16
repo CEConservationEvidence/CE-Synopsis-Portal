@@ -1187,7 +1187,7 @@ class LibraryReference(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     hash_key = models.CharField(
         max_length=40,
-        db_index=True,
+        unique=True,
         help_text="HASH used to detect duplicates within the library.",
     )
     source_identifier = models.CharField(

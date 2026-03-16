@@ -5357,12 +5357,6 @@ def library_reference_batch_upload(request):
                             hash_key = reference_hash(
                                 data["title"], data["year"], data["doi"]
                             )
-                            if LibraryReference.objects.filter(
-                                hash_key=hash_key
-                            ).exists():
-                                duplicates += 1
-                                continue
-
                             raw_source = record.get("_raw_source", "")
                             if file_ext == ".xml":
                                 raw_source_format = "endnote_xml"
@@ -5371,25 +5365,30 @@ def library_reference_batch_upload(request):
                             else:
                                 raw_source_format = "ris"
 
-                            LibraryReference.objects.create(
-                                import_batch=batch,
+                            _, created = LibraryReference.objects.get_or_create(
                                 hash_key=hash_key,
-                                source_identifier=data["source_identifier"],
-                                title=data["title"],
-                                abstract=data["abstract"],
-                                authors=data["authors"],
-                                publication_year=data["publication_year"],
-                                journal=data["journal"],
-                                volume=data["volume"],
-                                issue=data["issue"],
-                                pages=data["pages"],
-                                doi=data["doi"],
-                                url=data["url"],
-                                language=data["language"],
-                                raw_ris=record,
-                                raw_source=raw_source,
-                                raw_source_format=raw_source_format,
+                                defaults={
+                                    "import_batch": batch,
+                                    "source_identifier": data["source_identifier"],
+                                    "title": data["title"],
+                                    "abstract": data["abstract"],
+                                    "authors": data["authors"],
+                                    "publication_year": data["publication_year"],
+                                    "journal": data["journal"],
+                                    "volume": data["volume"],
+                                    "issue": data["issue"],
+                                    "pages": data["pages"],
+                                    "doi": data["doi"],
+                                    "url": data["url"],
+                                    "language": data["language"],
+                                    "raw_ris": record,
+                                    "raw_source": raw_source,
+                                    "raw_source_format": raw_source_format,
+                                },
                             )
+                            if not created:
+                                duplicates += 1
+                                continue
                             imported += 1
 
                         batch.record_count = imported
@@ -7891,26 +7890,24 @@ def reference_batch_upload(request, project_id):
                                 duplicates += 1
                                 continue
 
-                            library_ref = LibraryReference.objects.filter(
-                                hash_key=hash_key
-                            ).first()
-                            if not library_ref:
-                                library_ref = LibraryReference.objects.create(
-                                    hash_key=hash_key,
-                                    source_identifier=data["source_identifier"],
-                                    title=data["title"],
-                                    abstract=data["abstract"],
-                                    authors=data["authors"],
-                                    publication_year=data["publication_year"],
-                                    journal=data["journal"],
-                                    volume=data["volume"],
-                                    issue=data["issue"],
-                                    pages=data["pages"],
-                                    doi=data["doi"],
-                                    url=data["url"],
-                                    language=data["language"],
-                                    raw_ris=record,
-                                )
+                            library_ref, _ = LibraryReference.objects.get_or_create(
+                                hash_key=hash_key,
+                                defaults={
+                                    "source_identifier": data["source_identifier"],
+                                    "title": data["title"],
+                                    "abstract": data["abstract"],
+                                    "authors": data["authors"],
+                                    "publication_year": data["publication_year"],
+                                    "journal": data["journal"],
+                                    "volume": data["volume"],
+                                    "issue": data["issue"],
+                                    "pages": data["pages"],
+                                    "doi": data["doi"],
+                                    "url": data["url"],
+                                    "language": data["language"],
+                                    "raw_ris": record,
+                                },
+                            )
 
                             Reference.objects.create(
                                 project=project,
