@@ -1,210 +1,189 @@
-# CE Synopsis Portal*
+# CE Synopsis Portal
 
-_*Working title — final name to be agreed with the Conservation Evidence (CE) team._
+_Working title. Final product name to be agreed with the Conservation Evidence team._
 
-A unified, open-source workspace to **plan, search, screen, summarise, review, assemble, and publish** Conservation Evidence synopses — with one source of truth, clear roles, and minimal copy–paste. This repository is self-contained and houses both the documentation and the codebase.
-
----
-
-TODO: #14 cleanup and reorganize readme.md content.
-
-## Getting Started
-
-TODO: WIP.
-
-- [Installation](./installation.md)
-- [Quick Start Guide](./quick-start.md)
-
-## Features
-
-TODO: WIP.
-
-- [Features](./features.md) (drafting)
-- [Roadmap](./docs/roadmap.md/) (done)
-
-## Documentation
-
-TODO: WIP.
-
-- [User Guide](./user-guide/index.md) (for end users)
-- [API Reference](./api/index.md)
-- [Tutorials](./tutorials/index.md)
-- [FAQ](./faq.md)
+A Django-based workspace for planning, screening, summarising, compiling, and exporting Conservation Evidence synopses from a single system instead of scattered Word, Excel, and manual website workflows.
 
 ## Purpose & Users
 
-**This system is being built originally for the Conservation Evidence team, but may be adopted by other related teams in the future.**
+This system is being built originally for the Conservation Evidence team, but the structure is intended to be reusable for other evidence-synthesis teams later.
 
-Create a single, central tool that replaces scattered Word/Excel files and manual CMS steps. This tool will (eventually) make it **faster, clearer, and less error‑prone** for the CE team to produce synopses, while remaining flexible enough to reuse for other “living evidence” topics. 
+The aim is to replace scattered Word/Excel files and manual assembly steps with one system that keeps references, summaries, synopsis structure, and exportable content in one place.
 
-- **Authors** – import/search, screen, write approx. 200-word summaries, tag studies, update records and metadata on website for public consumption.
-- **Project Manager** – draft synopsis protocol document, invite advisory board members, oversee synopsis and team progress, review/approve, manage timelines.
-- **Data Manager** – manage imports, vocabularies, consistency checks (role will likely become redundant).
-- **Advisory Board** – accepts official invitation to participate in a synopsis, view protocols, comment on scope/actions; provide their input directly on the draft synopsis document.
+Primary users:
+- **Authors**: import/search, screen, write structured study summaries, and help assemble synopsis content
+- **Project managers**: draft protocols, manage projects and authors, oversee progress, and review output
+- **Advisory board members**: review protocol/action-list material and provide feedback
+- **Administrators**: manage users, permissions, and operational setup
 
----
+## Core Expectations
 
-## Core Expectations (high‑level, v1, subject to change)
+These remain the main product expectations, even where implementation is still incomplete:
 
 1. **Single source of truth**
-   - All references, summaries, tags, backgrounds, key messages, actions, and search logs live in the database.
-   - No hard-coded domain lists (e.g., species); use editable controlled vocabularies.
+   - References, summaries, synopsis structure, and supporting metadata should live in the database rather than separate files.
 
 2. **End-to-end workflow**
-   - Plan & protocol: draft, version, share with the board.
-   - Import & screen: ingest RIS, detect duplicates, include/exclude with reasons; update database efficiently.
-   - Summarise & tag: rich editor with approx. 200‑word guardrails and structured fields.
-   - Review & approve: role‑based workflows, comments, change requests and final approval.
-   - Assemble & publish: compile chapters/actions systematically, generate final synopsis PDF document, publish to main CE Website.
-   - Automatically upload synopsis-related data to CE website via API integration, bypassing manual copy and pasting of data by authors.
+   - The system should cover planning, protocol drafting, screening, summary writing, synopsis assembly, review, and export/publication handoff.
 
 3. **Zero duplicate data entry**
-   - Data entered once is reused everywhere (exports, PDFs, website, etc.).
+   - Data entered once should be reused across screening, summary authoring, synopsis compilation, and export.
 
-4. **Version control & audit trail**
-   - Track who changed what and when; recover earlier versions where needed (and handle database migrations).
+4. **Version control and auditability**
+   - Changes should be attributable and recoverable where appropriate.
 
-5. **Dashboards & alerts**
-   - Role-specific views of progress, blockers and upcoming tasks, with notifications. A clean and informative dashboard for each role.
+5. **Clear roles and review flow**
+   - Different users should see the right tools and responsibilities for their part of the process.
 
-6. **Accessibility & usability**
-   - Clear, consistent UI, keyboard-friendly, supports non-English references.
+6. **Usable authoring experience**
+   - The interface should reduce ambiguity and make compilation behavior understandable to authors.
 
-7. **Data quality & integrity**
-   - Validation on import (e.g., titles, authors, special characters), required fields at the right steps, duplicate detection, and merge tools.
+7. **Data quality and integrity**
+   - Import validation, duplicate detection, and consistency rules should protect the underlying data.
 
-8. **Interoperability**
-   - Clean exports (PDF, CSV/Excel, JSON/API) for CE website and reporting.
+8. **Export and interoperability**
+   - The system should support clean exports and, eventually, website/API integration.
 
-9. **Open-source & community-driven**
-   - Built with open‑source tools, extensible by the community, with clear contribution guidelines.
-   - Documentation and codebase in a single repository for easy access.
-   - Transparent development process with regular updates and community feedback.
-  
-10. **Scalability & maintainability**
-    - Modular architecture to support future features (e.g., advanced search, AI‑assisted tagging).
-    - Clear code structure, documentation, and testing to ensure long‑term sustainability, with a focus on reducing technical debt.
+## Current Status
 
-11. **Security & privacy**
-    - Secure user authentication and role-based access control.
+The project is already beyond the initial prototype stage for several core author workflows.
 
-## Minimum Viable Product (MVP)
+Implemented now:
+- protocol drafting and revision workflow
+- advisory board invitations and feedback workflow
+- library and project reference import
+- reference screening and batch review
+- summary workspace, including multiple summaries per reference
+- synopsis evidence authoring and compilation
+- DOCX export of compiled synopsis content
 
-- Protocol drafting + board feedback (basic version history).
-- RIS import with validation, de-duplication and (initial) basic screening UI.
-- Summary editor with required metadata for CE (action, threat, taxon, species, habitat, location, research design).
-- Review/approval workflow (submit → review → approve/revise) with authors and synopsis manager.
-- Chapter/action assembly page + one-click PDF of final synopsis document for website upload.
-- Manager dashboard with high-level progress and task list.
-- Automatic synopsis data upload to CE website via API integration.
-- Comprehensive testing and validation of all features, as well as documentation and user guides.
+Still in progress:
+- final publication PDF workflow with CE-controlled styling/fonts
+- API/website integration
+- richer dashboards and notifications
+- broader documentation, QA, and launch/cutover work
 
----
+See [docs/roadmap.md](docs/roadmap.md) for the current roadmap.
 
-## Ultimate Outcome (what “good” looks like to the CE team)
+## What The System Covers
 
-- **A single, reliable platform** used by the CE team for all new synopses.
-- **No manual copy–paste** to build the final PDF or website entries.
-- **Consistent summaries and tags**, enforceable by templates and vocabularies.
-- **Clear accountability** via roles, reviews, and auditable history.
-- **Portable design** that can be reused for other “living evidence” domains.
-- **Easy‑to‑use interface** enabled by sound UI/UX design and implementation choices.
-- **Open‑source codebase** that the community can contribute to and extend.
+Current workflow coverage:
+- manage projects, users, and roles
+- draft synopsis protocols
+- invite and track advisory board participation
+- import references into a central library
+- link/import references into project batches
+- screen references for inclusion/exclusion
+- write structured study summaries
+- assign summaries to synopsis interventions
+- compile intervention evidence into exportable synopsis structure
+
+## Minimum Viable Product Direction
+
+The MVP is still centered on these capabilities:
+- protocol drafting plus advisory workflow
+- library/project reference import with validation and de-duplication
+- screening workflow
+- structured summary editor with CE-oriented metadata
+- synopsis chapter/intervention assembly
+- exportable compiled synopsis output
+
+## Ultimate Outcome
+
+What “good” looks like for the CE team:
+- a single reliable platform used for new synopses
+- far less manual copy-paste during synopsis assembly
+- clearer consistency in summaries and compilation structure
+- better accountability through structured workflows and stored history
+- a system that other evidence-synthesis teams could adapt later
 
 ## Roles & Permissions
 
-Note: This is a first draft and will be refined with the CE team.
-- **Author**: create/edit summaries; propose tags; submit for review.
-- **CE Manager**: approve/reject; edit; assign tasks; see all dashboards.
-- **Data Manager**: manage imports; vocabularies; data validation (this role will become redundant as automation is implemented).
-- **Advisory Board**: comment/approve protocol and actions; read-only summaries.
-- **Admin**: user management; configuration; environment settings.
-- **External Guest**: to be defined, likely read-only access to specific summaries or protocols.
+Current role model in broad terms:
+- **Author**: create/edit summaries and synopsis content within project scope
+- **Manager**: oversee projects, assign work, and access broader management actions
+- **Advisory board**: review and respond to protocol/action-list related requests
+- **Admin/staff**: broader operational and system-level access
 
-## Technical Stack
+## Tech Stack
 
-This project is built entirely with open-source, mature, and well-supported tools designed to be maintainable, secure, and easy to contribute to. Note that 'x' for version numbers indicates the latest compatible release.
+What is actually in the repo today:
+- Python 3.12
+- Django 5.2
+- PostgreSQL
+- Django REST Framework
+- Celery and Redis dependencies
+- WeasyPrint and `python-docx` dependencies for export/output work
+- OnlyOffice configuration hooks for collaborative editing
 
-### Main
-- **Python 3.12.x+**
-  - Modern and widely supported programming language.
-  - All backend logic is written in Python.
+The main application code lives in:
+- [src/synopsis](src/synopsis)
+- [src/ce_portal](src/ce_portal)
 
-- **Django 5.2.x (LTS)**
-  - Core backend framework.
-  - Handles user permissions, data models, workflows, and the admin dashboard.
-  - Long-Term Support release with stability until at least April 2026.
+## Local Setup
 
-- **PostgreSQL 16**
-  - Robust, relational database system.
-  - Stores all data including references, summaries, tags, workflows, and users.
-  - Chosen for reliability, scalability, and Django compatibility.
+Prerequisites:
+- Python 3.12+
+- PostgreSQL
+- a virtual environment
 
-- **Django REST Framework 5.2.x (LTS)**
-  - Used to expose data through a clean, maintainable JSON API.
-  - Allows the CE website to pull public data directly (e.g. summaries, chapters).
+Setup:
 
-- **Celery 5.5.x & Redis 6.4.x**
-  - Task queue system for background jobs.
-  - Used for long-running tasks like RIS file imports, PDF generation, and data exports.
+```bash
+cp .env.template .env
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cd src
+python manage.py migrate
+python manage.py runserver
+```
 
-- **WeasyPrint 66.x**
-  - Converts final synopses (HTML) into high-quality PDFs for uploading to main CE Website.
-  - Converts the Synopsis Protocol documents into a high-quality PDF for uploading to main CE Website, namely the Synopses page (under 'View protocols for upcoming synopses').
-  - Supports custom styling, date stamps, and inclusion of advisory board info.
+Then open `http://127.0.0.1:8000/`.
 
-- **Wagtail 6.3.x (LTS)**
-  - Rich-text editing layer for authors, including support for templates and custom styling.
-  - Provides a user-friendly interface for narrative sections like protocols, backgrounds."
-  - Used internally — not for rendering the public site (however, it may possibly replace the current main CE website later so there is potential for public use).
+Notes:
+- database credentials are read from `.env`
+- the default database backend is PostgreSQL
+- email is configured to the console backend in development
 
-- **psycopg 3.2.x**
-  - PostgreSQL driver used by Django to connect to the database.
- 
-- **OnlyOffice (Community Edition)**
-  - Collaborative document server and handler (open-source, free for up to 20 users) used for collaboration between CE team and Advisory Board members.
+## Running Checks
 
-### Development & Maintenance
-- **GitHub**
-  - Used for version control, collaboration, and issue tracking.
-  - GitHub Actions for CI/CD pipelines.
-  - GitHub Pages for documentation hosting.
-  - GitHub Discussions for community engagement and support.
+```bash
+source .venv/bin/activate
+cd src
+python manage.py check
+python manage.py test
+```
 
-- **Docker**
-  - Standardises development and deployment environments.
-  - Will just run Postgres, Redis, and the Django app with a single command.
-  - Simplifies the setup process for new developers and collaborators.
+## Repository Layout
 
-### (Local Dev Setup)
+```text
+.
+├── docs/
+│   └── roadmap.md
+├── src/
+│   ├── ce_portal/
+│   ├── synopsis/
+│   └── manage.py
+├── requirements.txt
+└── README.md
+```
 
-1. Duplicate `.env.template` and rename it to `.env`
-2. Edit `.env` and insert your actual PostgreSQL credentials (full instructions in `.env.template`).
-3. Create and activate your virtual environment.
-4. Install the dependencies.
-5. Run the database migrations.
+## Documentation
 
----
+Current project docs in this repo:
+- [Roadmap](docs/roadmap.md)
 
-## Roadmap
+Additional user and technical documentation still needs to be formalized.
 
-Roadmap - see `docs/roadmap.md` for details.
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License
 
-MIT License — see `LICENSE` for details.
+MIT License. See [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-Maintainer and main developer: **Ibrahim Alhas** (alhasacademy@gmail.com).
-
----
-
-# Contributing
-
-Please read the [Contributing Guidelines](CONTRIBUTING.md) before making a pull request.
-
-# Project-wide TODOs
-
-- TODO: #23 Project-wide: Refactor and modularize codebase for better maintainability and scalability.
-- TODO: #24 Project-wide: Organize project files and directories for improved clarity and navigation.
+Maintainer and main developer: Ibrahim Alhas.
