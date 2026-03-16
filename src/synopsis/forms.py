@@ -222,7 +222,7 @@ class AssignRoleForm(forms.Form):
 class AdvisoryBoardMemberForm(forms.ModelForm):
     title = forms.ChoiceField(
         choices=FUNDER_TITLE_CHOICES,
-        required=True,
+        required=False,
         widget=forms.Select(attrs={"class": "form-select"}),
         label="Title",
     )
@@ -256,6 +256,19 @@ class AdvisoryBoardMemberForm(forms.ModelForm):
         # Always capture core identity information when creating or editing a member.
         for field_name in ("first_name", "last_name", "email"):
             self.fields[field_name].required = True
+        self.fields["first_name"].widget.attrs["autofocus"] = True
+        placeholders = {
+            "first_name": "First name (required)",
+            "middle_name": "Middle name (optional)",
+            "last_name": "Last name (required)",
+            "organisation": "Organisation (optional)",
+            "email": "Email address (required)",
+            "country": "Country (optional)",
+            "continent": "Continent (optional)",
+            "notes": "Notes for this member (optional)",
+        }
+        for field_name, placeholder in placeholders.items():
+            self.fields[field_name].widget.attrs["placeholder"] = placeholder
 
 
 class ParticipationDeclineForm(forms.Form):

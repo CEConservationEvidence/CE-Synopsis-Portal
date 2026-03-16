@@ -181,7 +181,7 @@
 </div>
 
 <div class="modal fade" id="addMemberModal" tabindex="-1" aria-labelledby="addMemberModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="addMemberModalLabel">Add advisory board member</h5>
@@ -191,44 +191,66 @@
                 <form method="post" class="row g-3">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="add_member">
-                    <div class="col-md-4">
-                        <label class="form-label">Title</label>
-                        {{ form.title }}
+                    <div class="col-12">
+                        <div class="small text-muted">
+                            Add the core contact details first. Only first name, last name and email are required.
+                            Optional details can be added now or later.
+                        </div>
                     </div>
-                    <div class="col-md-4">
-                        <label class="form-label">First name</label>
+                    <div class="col-12">
+                        <h6 class="mb-1">Required to add member</h6>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">First name <span class="text-danger">*</span></label>
                         {{ form.first_name }}
+                        {{ form.first_name.errors }}
                     </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Middle name</label>
-                        {{ form.middle_name }}
-                    </div>
-                    <div class="col-md-4">
-                        <label class="form-label">Last name</label>
+                    <div class="col-md-6">
+                        <label class="form-label">Last name <span class="text-danger">*</span></label>
                         {{ form.last_name }}
+                        {{ form.last_name.errors }}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Email <span class="text-danger">*</span></label>
+                        {{ form.email }}
+                        {{ form.email.errors }}
+                    </div>
+                    <div class="col-12">
+                        <hr class="my-1">
+                        <h6 class="mb-1">Optional details</h6>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Title <span class="text-muted small">(optional)</span></label>
+                        {{ form.title }}
+                        {{ form.title.errors }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Middle name <span class="text-muted small">(optional)</span></label>
+                        {{ form.middle_name }}
+                        {{ form.middle_name.errors }}
                     </div>
                     <div class="col-md-8">
-                        <label class="form-label">Organisation</label>
+                        <label class="form-label">Organisation <span class="text-muted small">(optional)</span></label>
                         {{ form.organisation }}
-                    </div>
-                    <div class="col-12">
-                        <label class="form-label">Email</label>
-                        {{ form.email }}
+                        {{ form.organisation.errors }}
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">Country</label>
+                        <label class="form-label">Country <span class="text-muted small">(optional)</span></label>
                         {{ form.country }}
+                        {{ form.country.errors }}
                     </div>
                     <div class="col-md-6">
-                        <label class="form-label">Continent</label>
+                        <label class="form-label">Continent <span class="text-muted small">(optional)</span></label>
                         {{ form.continent }}
+                        {{ form.continent.errors }}
                     </div>
                     <div class="col-12">
-                        <label class="form-label">Notes</label>
+                        <label class="form-label">Notes <span class="text-muted small">(optional)</span></label>
                         {{ form.notes }}
+                        {{ form.notes.errors }}
                     </div>
                     <div class="col-12">
-                        <button class="btn btn-primary">Add member</button>
+                        <button class="btn btn-primary">Review member details</button>
                     </div>
                 </form>
             </div>
@@ -1209,4 +1231,14 @@
 </div>
 </div>
 </div>
+{% if form.errors %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var modalElement = document.getElementById("addMemberModal");
+    if (modalElement && window.bootstrap) {
+        window.bootstrap.Modal.getOrCreateInstance(modalElement).show();
+    }
+});
+</script>
+{% endif %}
 {% endblock %}
