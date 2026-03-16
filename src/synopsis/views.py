@@ -7564,7 +7564,8 @@ def reference_batch_detail(request, project_id, batch_id):
             )
             status = form.cleaned_data["screening_status"]
             notes = form.cleaned_data.get("screening_notes") or ""
-            folder = form.cleaned_data.get("reference_folder") or []
+            raw_folder = form.cleaned_data.get("reference_folder") or []
+            folder = [value for value in raw_folder if value]
             ref.screening_status = status
             ref.screening_notes = notes
             if "reference_folder" in request.POST:
