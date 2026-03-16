@@ -6071,7 +6071,7 @@ def reference_summary_board(request, project_id):
             project=project,
             reference__screening_status="included",
         )
-        .select_related("reference", "assigned_to")
+        .select_related("reference", "reference__library_reference", "assigned_to")
         .order_by("reference__title", "created_at", "id")
     )
     summary_groups = defaultdict(list)
@@ -6162,7 +6162,9 @@ def reference_summary_detail(request, project_id, summary_id):
         raise PermissionDenied
 
     summary = get_object_or_404(
-        ReferenceSummary.objects.select_related("reference", "assigned_to"),
+        ReferenceSummary.objects.select_related(
+            "reference", "reference__library_reference", "assigned_to"
+        ),
         pk=summary_id,
         project=project,
     )
