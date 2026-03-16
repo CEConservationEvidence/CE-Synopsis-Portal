@@ -5028,16 +5028,7 @@ def reference_batch_list(request, project_id):
 
 def _link_library_references_to_project(user, target_project, ref_ids, folder):
     folder = folder or []
-    batch_label = f"Library link {timezone.now():%Y-%m-%d}"
-    batch, _ = ReferenceSourceBatch.objects.get_or_create(
-        project=target_project,
-        label=batch_label,
-        defaults={
-            "source_type": "library_link",
-            "uploaded_by": user if user.is_authenticated else None,
-            "record_count": 0,
-        },
-    )
+    batch = None
 
     linked = 0
     reused = 0
@@ -5061,6 +5052,16 @@ def _link_library_references_to_project(user, target_project, ref_ids, folder):
         ).exists():
             reused += 1
             continue
+
+        if batch is None:
+            now = timezone.now()
+            batch = ReferenceSourceBatch.objects.create(
+                project=target_project,
+                label=f"Library link {now:%Y-%m-%d %H:%M:%S} {uuid.uuid4().hex[:8]}",
+                source_type="library_link",
+                uploaded_by=user if user.is_authenticated else None,
+                record_count=0,
+            )
 
         Reference.objects.create(
             project=target_project,
@@ -5087,8 +5088,9 @@ def _link_library_references_to_project(user, target_project, ref_ids, folder):
         )
         linked += 1
 
-    batch.record_count = batch.references.count()
-    batch.save(update_fields=["record_count"])
+    if batch is not None:
+        batch.record_count = batch.references.count()
+        batch.save(update_fields=["record_count"])
     return linked, reused, batch
 
 
