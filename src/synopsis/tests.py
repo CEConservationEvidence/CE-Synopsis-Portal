@@ -48,6 +48,7 @@ from .models import (
     SynopsisAssignment,
 )
 from .forms import (
+    AdvisoryBoardMemberForm,
     AdvisoryMemberCustomDataForm,
     FunderForm,
     FunderContactFormSet,
@@ -137,6 +138,70 @@ class EmailSubjectTests(TestCase):
             subject,
             f"[Action requested] Protocol for review — {self.project.title}",
         )
+
+
+class AdvisoryBoardMemberFormTests(TestCase):
+    def test_add_member_form_marks_core_fields_and_placeholders(self):
+        form = AdvisoryBoardMemberForm()
+
+        self.assertFalse(form.fields["title"].required)
+        self.assertTrue(form.fields["first_name"].required)
+        self.assertTrue(form.fields["last_name"].required)
+        self.assertTrue(form.fields["email"].required)
+        self.assertEqual(
+            form.fields["first_name"].widget.attrs["placeholder"],
+            "First name (required)",
+        )
+        self.assertEqual(
+            form.fields["country"].widget.attrs["placeholder"],
+            "Country (optional)",
+        )
+        self.assertEqual(
+            form.fields["notes"].widget.attrs["placeholder"],
+            "Notes for this member (optional)",
+        )
+
+
+class AdvisoryBoardMemberAddUiTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Advisory UX")
+        self.user = User.objects.create_user(username="advisor-owner", password="pw")
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.client.force_login(self.user)
+        self.url = reverse("synopsis:advisory_board_list", args=[self.project.id])
+
+    def test_board_page_explains_required_fields_and_review_step(self):
+        response = self.client.get(self.url)
+
+        self.assertContains(
+            response,
+            "Only first name, last name and email are required.",
+        )
+        self.assertContains(response, "Required to add member")
+        self.assertContains(response, "Optional details")
+        self.assertContains(response, "Review member details")
+
+    def test_invalid_add_member_reopens_modal_with_error_guidance(self):
+        response = self.client.post(
+            self.url,
+            {
+                "action": "add_member",
+                "title": "",
+                "first_name": "",
+                "middle_name": "",
+                "last_name": "",
+                "organisation": "",
+                "email": "",
+                "country": "",
+                "continent": "",
+                "notes": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="addMemberModal"')
+        self.assertContains(response, 'window.bootstrap.Modal.getOrCreateInstance')
+        self.assertContains(response, "This field is required.")
 
 
 class ReplyToListTests(TestCase):
