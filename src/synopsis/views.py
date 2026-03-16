@@ -7572,25 +7572,24 @@ def reference_batch_detail(request, project_id, batch_id):
                 project=project,
             )
             status = form.cleaned_data["screening_status"]
-            notes = form.cleaned_data.get("screening_notes") or ""
             raw_folder = form.cleaned_data.get("reference_folder") or []
             folder = [value for value in raw_folder if value]
             ref.screening_status = status
-            ref.screening_notes = notes
+            update_fields = [
+                "screening_status",
+                "screening_decision_at",
+                "screened_by",
+                "updated_at",
+            ]
+            if "screening_notes" in request.POST:
+                ref.screening_notes = form.cleaned_data.get("screening_notes") or ""
+                update_fields.append("screening_notes")
             if "reference_folder" in request.POST:
                 ref.reference_folder = folder
+                update_fields.append("reference_folder")
             ref.screening_decision_at = timezone.now()
             ref.screened_by = request.user
-            ref.save(
-                update_fields=[
-                    "screening_status",
-                    "screening_notes",
-                    "reference_folder",
-                    "screening_decision_at",
-                    "screened_by",
-                    "updated_at",
-                ]
-            )
+            ref.save(update_fields=update_fields)
             messages.success(
                 request,
                 f"Updated screening status for '{ref.canonical.title[:80]}'.",

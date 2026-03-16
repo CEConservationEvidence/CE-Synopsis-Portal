@@ -2937,6 +2937,49 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertEqual(ref.screening_status, "included")
         self.assertEqual(ref.reference_folder, ["3"])
 
+    def test_save_folders_preserves_existing_screening_notes(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Folder notes batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        ref = batch.references.order_by("id").first()
+        ref.screening_notes = "Keep these notes."
+        ref.save(update_fields=["screening_notes", "updated_at"])
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+
+        response = self.client.post(
+            detail_url,
+            {
+                "reference_id": ref.id,
+                "screening_status": ref.screening_status,
+                "reference_folder": ["15"],
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+        )
+        ref.refresh_from_db()
+        self.assertEqual(ref.reference_folder, ["15"])
+        self.assertEqual(ref.screening_notes, "Keep these notes.")
+
     def test_bulk_action_requires_selection(self):
         upload = SimpleUploadedFile(
             "references.txt",
