@@ -7939,6 +7939,7 @@ def reference_batch_upload(request, project_id):
                         messages.info(
                             request,
                             f"Skipped {skipped} record(s) with no title.",
+                        )
                     return redirect(
                         "synopsis:reference_batch_list", project_id=project.id
                     )
