@@ -3351,7 +3351,7 @@ class ReferenceSummaryFormTests(TestCase):
 class ReferenceSummaryDetailViewTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="author", password="pass123")
-        self.project = Project.objects.create(title="Summary Project")
+        self.project = Project.objects.create(title="Coral Reefs Synopsis")
         UserRole.objects.create(user=self.user, project=self.project, role="author")
         self.batch = ReferenceSourceBatch.objects.create(
             project=self.project,
@@ -3430,9 +3430,9 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
         self.summary.refresh_from_db()
         self.assertEqual(new_summary.assigned_to, self.user)
-        self.assertEqual(self.summary.reference_identifier, f"REF-{self.reference.id}")
+        self.assertEqual(self.summary.reference_identifier, "CR1000")
         self.assertEqual(self.summary.summary_identifier, "Summary 1")
-        self.assertEqual(new_summary.reference_identifier, f"REF-{self.reference.id}")
+        self.assertEqual(new_summary.reference_identifier, "CR1000")
         self.assertEqual(new_summary.summary_identifier, "Summary 2")
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.citation, "Author (2024)")
@@ -3446,9 +3446,34 @@ class ReferenceSummaryDetailViewTests(TestCase):
             )
         )
 
-        self.assertContains(response, f'value="REF-{self.reference.id}"')
+        self.assertContains(response, 'value="CR1000"')
         self.assertContains(response, 'value="Summary 1"')
         self.assertContains(response, 'value="Test reference"')
+
+    def test_second_reference_in_project_gets_next_generated_reference_id(self):
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, second_summary.id],
+            )
+        )
+
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+        self.assertContains(response, 'value="CR1001"')
 
     def test_board_still_creates_only_one_default_summary_per_included_reference(self):
         self.reference.screening_status = "included"

@@ -5652,8 +5652,38 @@ def _ensure_reference_summaries(project, references):
     return existing_ref_ids
 
 
+_REFERENCE_ID_STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "book",
+    "for",
+    "in",
+    "of",
+    "on",
+    "project",
+    "synopsis",
+    "the",
+    "to",
+}
+
+
+def _project_reference_prefix(project):
+    words = re.findall(r"[A-Za-z0-9]+", project.title or "")
+    initials = [
+        word[0].upper()
+        for word in words
+        if word and word.lower() not in _REFERENCE_ID_STOP_WORDS
+    ]
+    return "".join(initials[:6]) or "REF"
+
+
 def _generated_reference_identifier(reference):
-    return f"REF-{reference.id}"
+    sequence = 1000 + Reference.objects.filter(
+        project=reference.project,
+        id__lt=reference.id,
+    ).count()
+    return f"{_project_reference_prefix(reference.project)}{sequence}"
 
 
 def _generated_summary_identifier(index):
