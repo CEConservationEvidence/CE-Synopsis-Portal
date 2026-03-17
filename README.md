@@ -102,7 +102,7 @@ What “good” looks like for the CE team:
 Current role model in broad terms:
 - **Author**: create/edit summaries and synopsis content within project scope
 - **Manager**: oversee projects, assign work, and access broader management actions
-- **Advisory board**: review and respond to protocol/action-list related requests
+- **Advisory board**: review and respond to protocol/action-list/synopsis related requests
 - **Admin/staff**: broader operational and system-level access
 
 ## Tech Stack
@@ -173,6 +173,7 @@ python manage.py test
 
 Current project docs in this repo:
 - [Roadmap](docs/roadmap.md)
+- For a very detailed overview of the system, see the [project wiki](https://deepwiki.com/CEConservationEvidence/CE-Synopsis-Portal/1-overview). Do note that the wiki is a living document and may not always reflect the current state of the system, but it contains a lot of useful information about the design and rationale behind various features.
 
 Additional user and technical documentation still needs to be formalized.
 

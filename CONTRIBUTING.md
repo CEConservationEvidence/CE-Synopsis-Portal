@@ -10,6 +10,10 @@ We welcome all kinds of contributions — bug reports, feature requests, documen
 
 ---
 
+## First Things First
+- Please read the [README](README.md) for setup instructions and project overview.
+- Then, please read the technical documentation in the [project wiki](https://deepwiki.com/CEConservationEvidence/CE-Synopsis-Portal/1-overview) for a deeper understanding of the system’s architecture and design rationale. This will help you make informed contributions that align with the project’s goals and standards.
+
 ## Reporting Issues
 - Before opening a new issue, **search the issue tracker** to see if it’s already reported.  
 - Use the **issue template** (already provided) to ensure we get all necessary details.  
