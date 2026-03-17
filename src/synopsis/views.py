@@ -5686,8 +5686,18 @@ def _generated_reference_identifier(reference):
     return f"{_project_reference_prefix(reference.project)}{sequence}"
 
 
-def _generated_summary_identifier(index):
-    return f"Summary {index}"
+def _alphabetical_suffix(index):
+    index = max(index, 1)
+    letters = []
+    while index > 0:
+        index -= 1
+        index, remainder = divmod(index, 26)
+        letters.append(chr(ord("a") + remainder))
+    return "".join(reversed(letters))
+
+
+def _generated_summary_identifier(reference_identifier, index):
+    return f"{reference_identifier}.{_alphabetical_suffix(index)}"
 
 
 def _sync_reference_summary_identifiers_for_reference(reference, *, save=False):
