@@ -1510,9 +1510,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         model = ReferenceSummary
         fields = [
             "status",
-            "reference_identifier",
-            "summary_identifier",
-            "reference_label",
             "action_description",
             "study_design",
             "sites_replications",
@@ -1547,9 +1544,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         ]
         widgets = {
             "status": forms.Select(attrs={"class": "form-select"}),
-            "reference_identifier": forms.TextInput(attrs={"class": "form-control"}),
-            "summary_identifier": forms.TextInput(attrs={"class": "form-control"}),
-            "reference_label": forms.TextInput(attrs={"class": "form-control"}),
             "action_description": forms.TextInput(attrs={"class": "form-control"}),
             "study_design": forms.TextInput(attrs={"class": "form-control"}),
             "sites_replications": forms.TextInput(
