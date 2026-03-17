@@ -1,4 +1,3 @@
-// TODO: #76 implement automatic reference IDs and summary (tab) IDs that are generated sequentially for each reference, so that users don't have to manually input these identifiers. For example, when a user creates a new summary tab for a reference, the system could automatically assign it the next available summary ID (e.g., Summary 1, Summary 2, etc.) and pre-fill the Reference ID based on the reference's unique identifier.
 // TODO: #77 allow authors to delete summary tabs for flexibility and to keep the interface clean, especially if they accidentally create extra tabs or want to remove outdated ones. Implementing a delete function with a confirmation step can help prevent accidental deletions.
 // TODO: #78 improve the PDF viewer by adding open sourced advanced features such as annotation and highlighting (this would require audit trailing and perhaps a new model to store annotations linked to users and timestamps, but the original PDF file could remain unchanged and the annotations could be rendered as an overlay in the viewer).
 
@@ -69,7 +68,7 @@
             {% endfor %}
         </div>
         <div class="small text-muted">
-            Tab names come from the Action field or Summary ID once you fill them in. Until then, the system labels them as Summary 1, Summary 2, and so on.
+            Tab names come from the Action field when you add one. Otherwise, the system uses the generated Summary ID (Summary 1, Summary 2, and so on).
         </div>
     </div>
 </div>
@@ -154,12 +153,13 @@
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Reference ID</label>
-                                {{ summary_form.reference_identifier }}
+                                <input type="text" class="form-control" value="{{ generated_reference_id }}" readonly>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Summary ID</label>
-                                {{ summary_form.summary_identifier }}
+                                <input type="text" class="form-control" value="{{ generated_summary_id }}" readonly>
                             </div>
+
                         </div>
                     </div>
                     <div>
@@ -167,7 +167,7 @@
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Reference</label>
-                                {{ summary_form.reference_label }}
+                                <input type="text" class="form-control" value="{{ generated_reference_title }}" readonly>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Action</label>
@@ -408,8 +408,8 @@
         <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
             <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'in_progress' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">{{ summary.get_status_display }}</span>
             {% if summary.needs_help %}<span class="badge text-bg-warning text-dark">Needs help</span>{% endif %}
-            <span class="badge text-bg-light">Ref ID: {{ summary.reference_identifier|default:"—" }}</span>
-            <span class="badge text-bg-light">Summary ID: {{ summary.summary_identifier|default:"—" }}</span>
+            <span class="badge text-bg-light">Ref ID: {{ generated_reference_id }}</span>
+            <span class="badge text-bg-light">Summary ID: {{ generated_summary_id }}</span>
             <span class="badge text-bg-light">Last updated: {{ summary.updated_at|date:"Y-m-d H:i" }}</span>
             <span class="badge text-bg-light">Assigned: {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}</span>
             <button class="btn btn-outline-secondary btn-sm ms-auto" type="button" id="copy-snapshot">Copy snapshot</button>
@@ -549,7 +549,7 @@
         const syncHeights = () => {
             const summaryHeight = summaryCard.getBoundingClientRect().height;
             if (!summaryHeight) return;
-            const viewportAllowance = Math.max(window.innerHeight - 32, 320); // keep visible while sticky
+            const viewportAllowance = Math.max(window.innerHeight - 32, 320); // keep visible while sticky - not sure why 32px is needed but seems to help prevent some edge cases of the PDF viewer disappearing ( DO NOT DELETE!!)
             const targetHeight = Math.min(summaryHeight, viewportAllowance);
             pdfCard.style.height = `${targetHeight}px`;
             pdfCard.style.maxHeight = `${targetHeight}px`;
@@ -611,8 +611,8 @@
             "Status: {{ summary.get_status_display }}",
             "Needs help: {% if summary.needs_help %}Yes{% else %}No{% endif %}",
             "Assigned: {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}",
-            "Ref ID: {{ summary.reference_identifier|default:'—' }}",
-            "Summary ID: {{ summary.summary_identifier|default:'—' }}",
+            "Ref ID: {{ generated_reference_id }}",
+            "Summary ID: {{ generated_summary_id }}",
             "Last updated: {{ summary.updated_at|date:'Y-m-d H:i' }}",
         ].join(" | ");
         const fallbackCopy = (text) => {
