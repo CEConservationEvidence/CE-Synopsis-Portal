@@ -3390,7 +3390,8 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
     def test_create_summary_tab_adds_second_summary_for_same_reference(self):
         self.summary.assigned_to = self.user
-        self.summary.reference_identifier = "REF-12"
+        self.summary.reference_identifier = "manual-ref"
+        self.summary.summary_identifier = "manual-summary"
         self.summary.reference_label = "Test reference label"
         self.summary.summary_author = "Existing Author"
         self.summary.citation = "Author (2024)"
@@ -3427,11 +3428,27 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ),
             fetch_redirect_response=False,
         )
+        self.summary.refresh_from_db()
         self.assertEqual(new_summary.assigned_to, self.user)
-        self.assertEqual(new_summary.reference_identifier, "REF-12")
-        self.assertEqual(new_summary.reference_label, "Test reference label")
+        self.assertEqual(self.summary.reference_identifier, f"REF-{self.reference.id}")
+        self.assertEqual(self.summary.summary_identifier, "Summary 1")
+        self.assertEqual(new_summary.reference_identifier, f"REF-{self.reference.id}")
+        self.assertEqual(new_summary.summary_identifier, "Summary 2")
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.citation, "Author (2024)")
+
+    def test_detail_page_shows_generated_identifiers_and_reference_title(self):
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, f'value="REF-{self.reference.id}"')
+        self.assertContains(response, 'value="Summary 1"')
+        self.assertContains(response, 'value="Test reference"')
 
     def test_board_still_creates_only_one_default_summary_per_included_reference(self):
         self.reference.screening_status = "included"
