@@ -9,14 +9,13 @@ from django.utils import timezone
 
 """
 TODO: #16 Cleanup models.py by modularising models into separate files for organization and maintainability. Also add docstring comments (AI generated but reviewed) to explain purpose and usage.
-TODO: Modularise models into synopsis/models/* (project.py, funding.py, protocol.py, etc.)
+TODO: #59 Modularise models into synopsis/models/* (project.py, funding.py, protocol.py, etc.)
       once the schema stabilises. Everything is in one file for development but this should be made modular for other living evidence teams to easily adapt to their workflows.
-TODO: Add permissions to restrict access based on user roles.
-TODO: Add signals to notify users of changes in project status or roles.
-TODO: Add versioning to protocol model to track changes over time. Furthermore, this should be extended to other models like the draft final synopsis document, summaries, actions, etc.
-TODO: Add audit trails to track changes made to critical fields in models (define the data model for this).
-TODO: Add comments to models where necessary to explain their purpose and usage (for other teams adapting this).
-TODO: Add ability to modify already added AB member information via form.
+TODO: #60 Add permissions to restrict access based on user roles.
+TODO: #61 Add signals to notify users of changes in project status or roles.
+TODO: #62 Add versioning to protocol model to track changes over time. Furthermore, this should be extended to other models like the draft final synopsis document, summaries, actions, etc.
+TODO: #63 Add audit trails to track changes made to critical fields in models (define the data model for this).
+TODO: #64 Add comments to models where necessary to explain their purpose and usage (for other teams adapting this).
 """
 
 
