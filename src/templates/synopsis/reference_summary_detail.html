@@ -166,16 +166,15 @@
                                 <label class="form-label">Summary ID</label>
                                 <input type="text" class="form-control generated-readonly" value="{{ generated_summary_id }}" readonly>
                             </div>
-
+                            <div class="col-12">
+                                <label class="form-label">Reference</label>
+                                <input type="text" class="form-control generated-readonly" value="{{ generated_reference_title }}" readonly>
+                            </div>
                         </div>
                     </div>
                     <div>
                         <div class="text-uppercase text-muted small fw-semibold mb-2">Study overview</div>
                         <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Reference</label>
-                                <input type="text" class="form-control generated-readonly" value="{{ generated_reference_title }}" readonly>
-                            </div>
                             <div class="col-md-6">
                                 <label class="form-label">Action</label>
                                 {{ summary_form.action_description }}
