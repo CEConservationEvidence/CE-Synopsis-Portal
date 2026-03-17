@@ -5,6 +5,13 @@
 {% block title %}Reference summary – {{ project.title }}{% endblock %}
 {% block content %}
 {{ summary_form.media }}
+<style>
+    .generated-readonly {
+        background-color: #f3f4f6;
+        border-color: #d5d9de;
+        color: #5f6872;
+    }
+</style>
 <h1 class="mb-3">Reference summary</h1>
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_summary_board' project.id %}">Back to summaries</a>
@@ -153,11 +160,11 @@
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Reference ID</label>
-                                <input type="text" class="form-control" value="{{ generated_reference_id }}" readonly>
+                                <input type="text" class="form-control generated-readonly" value="{{ generated_reference_id }}" readonly>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Summary ID</label>
-                                <input type="text" class="form-control" value="{{ generated_summary_id }}" readonly>
+                                <input type="text" class="form-control generated-readonly" value="{{ generated_summary_id }}" readonly>
                             </div>
 
                         </div>
@@ -167,7 +174,7 @@
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Reference</label>
-                                <input type="text" class="form-control" value="{{ generated_reference_title }}" readonly>
+                                <input type="text" class="form-control generated-readonly" value="{{ generated_reference_title }}" readonly>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Action</label>
