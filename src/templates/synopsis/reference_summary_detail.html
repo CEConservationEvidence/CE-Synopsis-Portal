@@ -1,5 +1,6 @@
 // TODO: #76 implement automatic reference IDs and summary (tab) IDs that are generated sequentially for each reference, so that users don't have to manually input these identifiers. For example, when a user creates a new summary tab for a reference, the system could automatically assign it the next available summary ID (e.g., Summary 1, Summary 2, etc.) and pre-fill the Reference ID based on the reference's unique identifier.
 // TODO: #77 allow authors to delete summary tabs for flexibility and to keep the interface clean, especially if they accidentally create extra tabs or want to remove outdated ones. Implementing a delete function with a confirmation step can help prevent accidental deletions.
+// TODO: #78 improve the PDF viewer by adding open sourced advanced features such as annotation and highlighting (this would require audit trailing and perhaps a new model to store annotations linked to users and timestamps, but the original PDF file could remain unchanged and the annotations could be rendered as an overlay in the viewer).
 
 {% extends "synopsis/base.html" %}
 {% block title %}Reference summary – {{ project.title }}{% endblock %}
