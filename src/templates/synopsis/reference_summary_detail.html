@@ -35,15 +35,6 @@
         {% else %}
         <p class="text-muted mb-0">No abstract available.</p>
         {% endif %}
-        <div class="mt-3 small text-muted">
-            Active summary tab:
-            <strong>
-                {% for tab in summary_tabs %}
-                    {% if tab.is_active %}{{ tab.label }}{% endif %}
-                {% endfor %}
-            </strong>
-            · Use one tab per distinct intervention/study summary from this paper.
-        </div>
     </div>
 </div>
 <div class="card mb-4 shadow-sm">
