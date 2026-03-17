@@ -3431,9 +3431,9 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.summary.refresh_from_db()
         self.assertEqual(new_summary.assigned_to, self.user)
         self.assertEqual(self.summary.reference_identifier, "CR1000")
-        self.assertEqual(self.summary.summary_identifier, "Summary 1")
+        self.assertEqual(self.summary.summary_identifier, "CR1000.a")
         self.assertEqual(new_summary.reference_identifier, "CR1000")
-        self.assertEqual(new_summary.summary_identifier, "Summary 2")
+        self.assertEqual(new_summary.summary_identifier, "CR1000.b")
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.citation, "Author (2024)")
 
@@ -3447,7 +3447,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
 
         self.assertContains(response, 'value="CR1000"')
-        self.assertContains(response, 'value="Summary 1"')
+        self.assertContains(response, 'value="CR1000.a"')
         self.assertContains(response, 'value="Test reference"')
 
     def test_second_reference_in_project_gets_next_generated_reference_id(self):
@@ -3473,7 +3473,9 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         second_summary.refresh_from_db()
         self.assertEqual(second_summary.reference_identifier, "CR1001")
+        self.assertEqual(second_summary.summary_identifier, "CR1001.a")
         self.assertContains(response, 'value="CR1001"')
+        self.assertContains(response, 'value="CR1001.a"')
 
     def test_board_still_creates_only_one_default_summary_per_included_reference(self):
         self.reference.screening_status = "included"
@@ -3498,7 +3500,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             2,
         )
         self.assertContains(resp, "multiple summary tabs per reference", status_code=200)
-        self.assertContains(resp, "Summary 2")
+        self.assertContains(resp, "CR1000.b")
 
     def test_board_and_detail_use_library_reference_metadata(self):
         canonical = LibraryReference.objects.create(
