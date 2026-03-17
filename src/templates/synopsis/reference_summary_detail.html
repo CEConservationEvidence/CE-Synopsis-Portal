@@ -1,6 +1,9 @@
 // TODO: #77 allow authors to delete summary tabs for flexibility and to keep the interface clean, especially if they accidentally create extra tabs or want to remove outdated ones. Implementing a delete function with a confirmation step can help prevent accidental deletions.
 // TODO: #78 improve the PDF viewer by adding open sourced advanced features such as annotation and highlighting (this would require audit trailing and perhaps a new model to store annotations linked to users and timestamps, but the original PDF file could remain unchanged and the annotations could be rendered as an overlay in the viewer).
 // TODO: #81 might be a good idea adding a feature to export the summary details and PDF together in a structured format (e.g. JSON or XML) for easy sharing with collaborators or importing into other tools. This could include all the structured fields from the summary form as well as metadata about the reference and summary status.
+// TODO: #82 make the automatically generated summary paragraph editable directly in the interface, allowing users to make quick adjustments without having to copy and paste it into the main summary field. This could be implemented with a simple "Edit generated summary" button that toggles the paragraph into an editable textarea, and saving changes would update the main summary field accordingly.
+// TODO: #83 remove the quality scores from the main form and create a separate "Quality assessment" section that can be filled in after the initial summary is complete. This would help streamline the main summary form and allow users to focus on the core details first, while still providing a structured way to capture quality assessments later on.
+
 {% extends "synopsis/base.html" %}
 {% block title %}Reference summary – {{ project.title }}{% endblock %}
 {% block content %}
