@@ -5704,7 +5704,7 @@ def _sync_reference_summary_identifiers_for_reference(reference, *, save=False):
     summaries = list(reference.summaries.order_by("created_at", "id"))
     reference_identifier = _generated_reference_identifier(reference)
     for index, summary in enumerate(summaries, start=1):
-        summary_identifier = _generated_summary_identifier(index)
+        summary_identifier = _generated_summary_identifier(reference_identifier, index)
         changed_fields = []
         if summary.reference_identifier != reference_identifier:
             summary.reference_identifier = reference_identifier
@@ -6440,7 +6440,10 @@ def reference_summary_detail(request, project_id, summary_id):
             "reference": summary.reference,
             "generated_reference_id": _generated_reference_identifier(summary.reference),
             "generated_summary_id": summary.summary_identifier
-            or _generated_summary_identifier(1),
+            or _generated_summary_identifier(
+                _generated_reference_identifier(summary.reference),
+                1,
+            ),
             "generated_reference_title": summary.reference.canonical.title
             or summary.reference.title,
             "summary_tabs": summary_tabs,
