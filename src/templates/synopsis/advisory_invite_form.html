@@ -1,3 +1,5 @@
+// TODO: #66 The form could be cleaned up to make it easier for authors to send invitations without needing to understand the underlying data model. For example, instead of showing checkboxes for including the action list and collaborative editor link, we could show a single "Include project resources" checkbox that includes both if selected. We could also automatically include the collaborative editor link if the project has an active editor, without showing an explicit option for it in the form.
+
 {% extends "synopsis/base.html" %}
 {% block title %}Invite Advisory Member – {{ project.title }}{% endblock %}
 {% block content %}
