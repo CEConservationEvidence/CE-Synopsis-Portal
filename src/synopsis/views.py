@@ -5652,6 +5652,31 @@ def _ensure_reference_summaries(project, references):
     return existing_ref_ids
 
 
+def _generated_reference_identifier(reference):
+    return f"REF-{reference.id}"
+
+
+def _generated_summary_identifier(index):
+    return f"Summary {index}"
+
+
+def _sync_reference_summary_identifiers_for_reference(reference, *, save=False):
+    summaries = list(reference.summaries.order_by("created_at", "id"))
+    reference_identifier = _generated_reference_identifier(reference)
+    for index, summary in enumerate(summaries, start=1):
+        summary_identifier = _generated_summary_identifier(index)
+        changed_fields = []
+        if summary.reference_identifier != reference_identifier:
+            summary.reference_identifier = reference_identifier
+            changed_fields.append("reference_identifier")
+        if summary.summary_identifier != summary_identifier:
+            summary.summary_identifier = summary_identifier
+            changed_fields.append("summary_identifier")
+        if save and changed_fields:
+            summary.save(update_fields=changed_fields + ["updated_at"])
+    return summaries
+
+
 def _reference_summary_display_label(summary, index=None):
     label = summary.explicit_label
     if label:
@@ -5662,9 +5687,7 @@ def _reference_summary_display_label(summary, index=None):
 
 
 def _reference_summary_tabs(reference, *, active_summary_id=None):
-    summaries = list(
-        reference.summaries.select_related("assigned_to").order_by("created_at", "id")
-    )
+    summaries = _sync_reference_summary_identifiers_for_reference(reference, save=False)
     tab_count = len(summaries)
     tabs = []
     for index, item in enumerate(summaries, start=1):
@@ -5739,16 +5762,18 @@ def _clone_reference_summary(source_summary, user=None):
         source_summary.summary_author
         or (user.get_full_name() or user.username if user and user.is_authenticated else "")
     )
-    return ReferenceSummary.objects.create(
+    new_summary = ReferenceSummary.objects.create(
         project=source_summary.project,
         reference=source_summary.reference,
         assigned_to=source_summary.assigned_to,
         citation=source_summary.citation or _reference_summary_citation(source_summary.reference),
-        reference_identifier=source_summary.reference_identifier,
-        reference_label=source_summary.reference_label or source_summary.reference.canonical.title,
         summary_author=summary_author,
         source_url=source_summary.source_url,
     )
+    synced = _sync_reference_summary_identifiers_for_reference(
+        source_summary.reference, save=True
+    )
+    return next((item for item in synced if item.id == new_summary.id), new_summary)
 
 
 def _next_chapter_position(project):
@@ -5860,7 +5885,7 @@ def _structured_summary_paragraph(
     location = ", ".join([part for part in [_clean(summary.region), _clean(summary.country)] if part])
     ref_id = _clean(reference_identifier_override)
     if not ref_id:
-        ref_id = _clean(summary.reference_identifier)
+        ref_id = _generated_reference_identifier(summary.reference)
     sites = _clean(summary.sites_replications)
     intro_parts = ["A"]
     intro_parts.append(study_design or study_type or "study")
@@ -6175,6 +6200,10 @@ def reference_summary_detail(request, project_id, summary_id):
         pk=summary_id,
         project=project,
     )
+    synced_summaries = _sync_reference_summary_identifiers_for_reference(
+        summary.reference, save=True
+    )
+    summary = next((item for item in synced_summaries if item.id == summary.id), summary)
 
     active_action = request.POST.get("action") if request.method == "POST" else None
     summary_form = ReferenceSummaryUpdateForm(
@@ -6214,6 +6243,7 @@ def reference_summary_detail(request, project_id, summary_id):
                     request.user.get_full_name() or request.user.username
                 )
             summary.save()
+            _sync_reference_summary_identifiers_for_reference(summary.reference, save=True)
             summary_form.save_m2m()
             messages.success(request, "Summary updated.")
             return redirect(
@@ -6368,6 +6398,11 @@ def reference_summary_detail(request, project_id, summary_id):
             "project": project,
             "summary": summary,
             "reference": summary.reference,
+            "generated_reference_id": _generated_reference_identifier(summary.reference),
+            "generated_summary_id": summary.summary_identifier
+            or _generated_summary_identifier(1),
+            "generated_reference_title": summary.reference.canonical.title
+            or summary.reference.title,
             "summary_tabs": summary_tabs,
             "summary_form": summary_form,
             "assignment_form": assignment_form,
