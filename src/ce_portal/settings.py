@@ -136,7 +136,7 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-# TODO: IMPORTANT!Change this in production to a real email address.
+# TODO: IMPORTANT!Change this in post-production to a real email address.
 DEFAULT_FROM_EMAIL = "CE Synopsis Portal <ce-portal@localhost>"
 
 # Advisory board response windows
