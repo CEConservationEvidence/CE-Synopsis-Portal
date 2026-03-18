@@ -1,7 +1,5 @@
 // TODO: #73 Add filtering and sorting options to the advisory board member list table, so it is easier for authors to filter members based on various criteria (e.g., accepted vs pending vs declined, country, organisation) and to sort by different columns (e.g., name, response date). This will improve the usability of the table, especially as the number of members grows. Could also consider adding a search function to quickly find specific members by name or email.
 // TODO: #74 low priority but pagination could be added to the advisory board member list if there are a large number of members, to improve page load times and make it easier to navigate the list.
-// TODO: #75 make the column headers stick when scrolling the table for better readability and context when viewing large lists of members and their details.
-
 {# templates/synopsis/advisory_board_list.html #}
 {% extends "synopsis/base.html" %}
 {% load advisory_extras %}
@@ -26,6 +24,25 @@
 
     .advisory-board-table thead th {
         white-space: nowrap;
+        position: sticky;
+        background-color: var(--bs-table-bg, #f8f9fa);
+        background-clip: padding-box;
+        box-shadow: inset 0 -1px 0 var(--bs-border-color, #dee2e6);
+    }
+
+    .advisory-board-table thead tr:first-child th {
+        top: 0;
+        z-index: 4;
+    }
+
+    .advisory-board-table thead tr:nth-child(2) th {
+        top: 2.5rem;
+        z-index: 3;
+    }
+
+    .advisory-board-table thead th[rowspan="2"] {
+        top: 0;
+        z-index: 5;
     }
 
     .advisory-board-table :is(th, td).ab-status-invite {
