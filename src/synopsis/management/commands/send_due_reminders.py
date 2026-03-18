@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import timedelta
@@ -28,8 +29,12 @@ def format_deadline(dt_value):
     return aware.strftime("%d %b %Y %H:%M")
 
 
+def reminder_lead_business_days():
+    return getattr(settings, "ADVISORY_REMINDER_LEAD_BUSINESS_DAYS", 2)
+
+
 class Command(BaseCommand):
-    help = "Email reminders 2 working days before a member's response_date."
+    help = "Email reminders a configured number of working days before member deadlines."
 
     def handle(self, *args, **kwargs):
         today = timezone.localdate()
@@ -38,7 +43,10 @@ class Command(BaseCommand):
             response_date__isnull=False,
             reminder_sent=False,
         ).exclude(response="N")
-        to_remind = [m for m in qs if minus_business_days(m.response_date, 2) == today]
+        lead_days = reminder_lead_business_days()
+        to_remind = [
+            m for m in qs if minus_business_days(m.response_date, lead_days) == today
+        ]
         for m in to_remind:
             subj = email_subject("invite_reminder", m.project, m.response_date)
             body = (
@@ -65,7 +73,7 @@ class Command(BaseCommand):
             deadline = m.feedback_on_protocol_deadline
             if not deadline:
                 continue
-            if minus_business_days(deadline, 2) == today:
+            if minus_business_days(deadline, lead_days) == today:
                 proto_to_remind.append(m)
         for m in proto_to_remind:
             subj = email_subject(
@@ -97,7 +105,7 @@ class Command(BaseCommand):
             deadline = m.feedback_on_action_list_deadline
             if not deadline:
                 continue
-            if minus_business_days(deadline, 2) == today:
+            if minus_business_days(deadline, lead_days) == today:
                 action_to_remind.append(m)
         for m in action_to_remind:
             subj = email_subject(

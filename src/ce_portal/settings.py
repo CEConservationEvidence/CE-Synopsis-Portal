@@ -139,6 +139,11 @@ EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 # TODO: IMPORTANT!Change this in production to a real email address.
 DEFAULT_FROM_EMAIL = "CE Synopsis Portal <ce-portal@localhost>"
 
+# Advisory board response windows
+ADVISORY_INVITE_RESPONSE_WINDOW_DAYS = 10
+ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS = 10
+ADVISORY_REMINDER_LEAD_BUSINESS_DAYS = 2
+
 
 # OnlyOffice Document Server configuration (collaborative editing)
 ONLYOFFICE = {
