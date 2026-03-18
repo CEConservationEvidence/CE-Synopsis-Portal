@@ -1,5 +1,5 @@
-// TODO: #73 Add filtering and sorting options to the advisory board member list table, so it is easier for authors to filter members based on various criteria (e.g., accepted vs pending vs declined, country, organisation) and to sort by different columns (e.g., name, response date). This will improve the usability of the table, especially as the number of members grows. Could also consider adding a search function to quickly find specific members by name or email.
-// TODO: #74 low priority but pagination could be added to the advisory board member list if there are a large number of members, to improve page load times and make it easier to navigate the list.
+{# TODO: #73 Add filtering and sorting options to the advisory board member list table, so it is easier for authors to filter members based on various criteria (e.g., accepted vs pending vs declined, country, organisation) and to sort by different columns (e.g., name, response date). This will improve the usability of the table, especially as the number of members grows. Could also consider adding a search function to quickly find specific members by name or email. #}
+{# TODO: #74 low priority but pagination could be added to the advisory board member list if there are a large number of members, to improve page load times and make it easier to navigate the list. #}
 {# templates/synopsis/advisory_board_list.html #}
 {% extends "synopsis/base.html" %}
 {% load advisory_extras %}
@@ -1040,7 +1040,11 @@
                                         class="form-select form-select-sm w-auto"
                                     >
                                         {% for value, label in custom_field_group_choices %}
-                                        <option value="{{ value }}"{% if field.display_group == value %} selected{% endif %}>{{ label }}</option>
+                                            {% if field.display_group == value %}
+                                                <option value="{{ value }}" selected>{{ label }}</option>
+                                            {% else %}
+                                                <option value="{{ value }}">{{ label }}</option>
+                                            {% endif %}
                                         {% endfor %}
                                     </select>
                                     <button class="btn btn-outline-secondary btn-sm">Move</button>
