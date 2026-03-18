@@ -5727,6 +5727,11 @@ def _reference_summary_display_label(summary, index=None):
             or _generated_reference_identifier(summary.reference)
         )
         return _generated_summary_identifier(reference_identifier, index)
+    if summary.reference_id:
+        reference_identifier = (
+            (summary.reference_identifier or "").strip()
+            or _generated_reference_identifier(summary.reference)
+        )
     return summary.display_label
 
 
