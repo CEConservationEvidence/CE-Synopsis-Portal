@@ -165,6 +165,7 @@ document.addEventListener("DOMContentLoaded", function () {
                         <th>Author</th>
                         <th class="text-end">Assigned</th>
                         <th class="text-end">Summarised</th>
+                        <th class="text-end">Summarised %</th>
                         <th class="text-end">Needs help</th>
                     </tr>
                 </thead>
@@ -174,10 +175,11 @@ document.addEventListener("DOMContentLoaded", function () {
                         <td>{{ item.author.get_full_name|default:item.author.username }}</td>
                         <td class="text-end">{{ item.assigned }}</td>
                         <td class="text-end">{{ item.summarised }}</td>
+                        <td class="text-end">{{ item.summarised_percent }}%</td>
                         <td class="text-end">{{ item.needs_help }}</td>
                     </tr>
                     {% empty %}
-                    <tr><td colspan="4" class="text-muted text-center">No authors</td></tr>
+                    <tr><td colspan="5" class="text-muted text-center">No authors</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
