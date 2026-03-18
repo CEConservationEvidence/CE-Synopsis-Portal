@@ -151,3 +151,4 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8000",
     "http://host.docker.internal:8000",
 ]
+# TODO: get django settings and onlyoffice injection ready for the online pilot (for docker compose too).
