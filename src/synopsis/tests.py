@@ -693,6 +693,9 @@ class SynopsisStructureTests(TestCase):
 
     def test_evidence_page_groups_summary_tabs_under_reference(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        self.reference.authors = "Rebecca Smith"
+        self.reference.publication_year = 2024
+        self.reference.save(update_fields=["authors", "publication_year", "updated_at"])
         chapter = SynopsisChapter.objects.create(
             project=self.project,
             title="2. Threat: Demo",
@@ -732,14 +735,21 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(response.status_code, 200)
         grouped = response.context["reference_summary_groups"]
         self.assertEqual(len(grouped), 1)
-        self.assertEqual(grouped[0]["paper_title"], "Test ref")
+        self.assertEqual(grouped[0]["reference_heading"], "Rebecca Smith · 2024")
+        self.assertEqual(grouped[0]["reference_context"], "Test ref")
         self.assertEqual(
-            [item["summary_label"] for item in grouped[0]["summaries"]],
-            ["Study A", "Study B"],
+            [item["summary_display"] for item in grouped[0]["summaries"]],
+            ["SD1000.a — Study A", "SD1000.b — Study B"],
         )
         self.assertContains(response, "Assign summary tabs, not whole papers.")
-        self.assertContains(response, "Study A")
-        self.assertContains(response, "Study B")
+        self.assertContains(response, "Grouped by reference author.")
+        self.assertContains(
+            response,
+            "Choose a summary tab to preview its reference and tab label.",
+        )
+        self.assertContains(response, "Rebecca Smith · 2024")
+        self.assertContains(response, "SD1000.a — Study A")
+        self.assertContains(response, "SD1000.b — Study B")
         self.assertContains(response, "Same source paper")
         self.assertContains(response, "shared reference line (1-2)")
         self.assertContains(response, "Compilation preview")
