@@ -208,16 +208,36 @@
                     <a class="btn btn-outline-secondary btn-sm" href="{{ current_revision_download_url }}" download>Download</a>
                     {% endif %}
                     {% if protocol.document %}
-                    <form method="post" action="{% url 'synopsis:protocol_delete_file' project.id %}" class="d-inline">
-                        {% csrf_token %}
-                        <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Remove the uploaded protocol file?');">Delete file</button>
-                    </form>
+                    <button
+                        class="btn btn-outline-danger btn-sm ms-md-auto"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#protocolDangerZone"
+                        aria-expanded="false"
+                        aria-controls="protocolDangerZone"
+                    >
+                        Danger zone
+                    </button>
                     {% endif %}
-                    <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}" class="d-inline">
-                        {% csrf_token %}
-                        <button class="btn btn-danger btn-sm" onclick="return confirm('Delete the entire protocol (file and text)? This cannot be undone.');">Delete protocol</button>
-                    </form>
                 </div>
+                {% if protocol.document %}
+                <div class="collapse mt-3" id="protocolDangerZone">
+                    <div class="border border-danger-subtle rounded p-3 bg-body-tertiary">
+                        <div class="fw-semibold text-danger mb-1">Danger zone</div>
+                        <div class="small text-muted mb-3">Delete actions are placed here to reduce accidental clicks.</div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <form method="post" action="{% url 'synopsis:protocol_delete_file' project.id %}" class="d-inline">
+                                {% csrf_token %}
+                                <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Remove the uploaded protocol file?');">Delete file</button>
+                            </form>
+                            <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}" class="d-inline">
+                                {% csrf_token %}
+                                <button class="btn btn-danger btn-sm" onclick="return confirm('Delete the entire protocol (file and text)? This cannot be undone.');">Delete protocol</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
                 <div class="small text-muted mt-2">
                     Version uploaded {{ current_revision_entry.revision.uploaded_at|date:"Y-m-d H:i" }}
                     {% if current_revision_entry.revision.uploaded_by %}
@@ -228,10 +248,26 @@
                 <p class="mt-2 text-muted">Protocol record exists but no revision metadata was captured. Upload a new version so the revision timeline can start tracking changes.</p>
                 <div class="mt-2 d-flex flex-wrap gap-2">
                     <a class="btn btn-outline-secondary btn-sm" href="{{ protocol.document.url }}" download>Download</a>
-                    <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}" class="d-inline">
-                        {% csrf_token %}
-                        <button class="btn btn-danger btn-sm" onclick="return confirm('Delete the entire protocol (file and text)? This cannot be undone.');">Delete protocol</button>
-                    </form>
+                    <button
+                        class="btn btn-outline-danger btn-sm ms-md-auto"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#protocolDangerZoneFallback"
+                        aria-expanded="false"
+                        aria-controls="protocolDangerZoneFallback"
+                    >
+                        Danger zone
+                    </button>
+                </div>
+                <div class="collapse mt-3" id="protocolDangerZoneFallback">
+                    <div class="border border-danger-subtle rounded p-3 bg-body-tertiary">
+                        <div class="fw-semibold text-danger mb-1">Danger zone</div>
+                        <div class="small text-muted mb-3">Delete actions are placed here to reduce accidental clicks.</div>
+                        <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}" class="d-inline">
+                            {% csrf_token %}
+                            <button class="btn btn-danger btn-sm" onclick="return confirm('Delete the entire protocol (file and text)? This cannot be undone.');">Delete protocol</button>
+                        </form>
+                    </div>
                 </div>
                 {% elif protocol %}
                 <p class="mt-2 text-muted">No protocol file is active right now. Restore an earlier revision or upload a new version.</p>
