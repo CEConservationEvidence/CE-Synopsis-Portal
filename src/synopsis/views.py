@@ -5737,6 +5737,17 @@ def _reference_summary_workspace_heading(reference):
 def _reference_summary_workspace_context(reference):
     return reference.canonical.title or "Untitled reference"
 
+
+def _reference_summary_workspace_label(summary, index=None):
+    label = _reference_summary_display_label(summary, index)
+    summary_identifier = (summary.summary_identifier or "").strip()
+    if summary_identifier and label and label != summary_identifier:
+        return f"{summary_identifier} — {label}"
+    if summary_identifier:
+        return summary_identifier
+    return label
+
+
 def _reference_summary_tabs(reference, *, active_summary_id=None):
     summaries = _sync_reference_summary_identifiers_for_reference(reference, save=False)
     tab_count = len(summaries)
@@ -5764,6 +5775,7 @@ def _reference_summary_workspace_groups(reference_summaries):
     for summaries in grouped.values():
         reference = summaries[0].reference
         canonical = reference.canonical
+        reference_heading = _reference_summary_workspace_heading(reference)
         reference_context = _reference_summary_workspace_context(reference)
         paper_title = canonical.title or "Untitled reference"
         meta_parts = []
@@ -5775,6 +5787,7 @@ def _reference_summary_workspace_groups(reference_summaries):
 
         group_payload = {
             "reference_id": reference.id,
+            "reference_heading": reference_heading,
             "reference_context": reference_context,
             "paper_title": paper_title,
             "paper_meta": paper_meta,
@@ -5782,28 +5795,35 @@ def _reference_summary_workspace_groups(reference_summaries):
         }
         for index, summary in enumerate(summaries, start=1):
             summary_label = _reference_summary_display_label(summary, index)
+            summary_display = _reference_summary_workspace_label(summary, index)
             search_text = " ".join(
                 bit
                 for bit in (
+                    reference_heading,
+                    reference_context,
                     paper_title,
                     paper_meta,
                     summary_label,
+                    summary_display,
                     summary.summary_identifier,
                     summary.action_description,
                 )
                 if bit
             )
             summary_meta[summary.id] = {
+                "reference_heading": reference_heading,
                 "reference_context": reference_context,
                 "paper_title": paper_title,
                 "paper_meta": paper_meta,
                 "summary_label": summary_label,
+                "summary_display": summary_display,
                 "search_text": search_text,
             }
             group_payload["summaries"].append(
                 {
                     "id": summary.id,
                     "summary_label": summary_label,
+                    "summary_display": summary_display,
                     "search_text": search_text,
                 }
             )
