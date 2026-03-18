@@ -581,6 +581,24 @@ def _default_document_feedback_due_date():
     return timezone.localdate() + dt.timedelta(days=_document_feedback_window_days())
 
 
+def _default_document_feedback_deadline():
+    return _end_of_day_datetime(_default_document_feedback_due_date())
+
+
+def _resolve_invite_due_date(override=None, member=None):
+    return override or getattr(member, "response_date", None) or _default_invite_due_date()
+
+
+def _resolve_document_feedback_deadline(override_due_date=None, current_deadline=None):
+    if override_due_date:
+        return _end_of_day_datetime(override_due_date)
+    return current_deadline or _default_document_feedback_deadline()
+
+
+def _minimum_allowed_deadline_date():
+    return timezone.localdate() + dt.timedelta(days=1)
+
+
 def _format_file_size(size_bytes):
     try:
         size = int(size_bytes)
