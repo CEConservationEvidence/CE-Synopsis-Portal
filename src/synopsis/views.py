@@ -8363,6 +8363,8 @@ def advisory_invite_create(request, project_id, member_id=None):
         initial["email"] = member.email
         if member.response_date:
             initial["due_date"] = member.response_date
+    if "due_date" not in initial:
+        initial["due_date"] = _default_invite_due_date()
 
     form = None
     if request.method == "POST":
@@ -8386,7 +8388,10 @@ def advisory_invite_create(request, project_id, member_id=None):
 
     if request.method == "POST" and form.is_valid():
             email = form.cleaned_data["email"].strip()
-            due_date = form.cleaned_data.get("due_date")
+            due_date = _resolve_invite_due_date(
+                form.cleaned_data.get("due_date"),
+                member=member,
+            )
             message_body = form.cleaned_data.get("message") or ""
 
             inv = AdvisoryBoardInvitation.objects.create(
@@ -8471,7 +8476,7 @@ def advisory_invite_create(request, project_id, member_id=None):
                 member.invite_sent = True
                 member.invite_sent_at = timezone.now()
                 update_fields = {"invite_sent", "invite_sent_at"}
-                if due_date and member.response_date != due_date:
+                if member.response_date != due_date:
                     member.response_date = due_date
                     member.reminder_sent = False
                     member.reminder_sent_at = None
@@ -8672,7 +8677,14 @@ def advisory_invite_update_due_date(request, project_id, invitation_id):
         return HttpResponseBadRequest("POST required")
 
     date_str = (request.POST.get("due_date") or "").strip()
-    inv.due_date = dt.date.fromisoformat(date_str) if date_str else None
+    new_due_date = dt.date.fromisoformat(date_str) if date_str else None
+    if new_due_date and new_due_date < _minimum_allowed_deadline_date():
+        messages.error(
+            request,
+            "Response date must be at least one day in the future.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    inv.due_date = new_due_date
     inv.save(update_fields=["due_date"])
     messages.success(request, f"Response date updated for {inv.email}.")
     return redirect("synopsis:advisory_board_list", project_id=project.id)
@@ -8749,7 +8761,7 @@ def advisory_send_invites_bulk(request, project_id):
     if request.method == "POST":
         form = AdvisoryBulkInviteForm(request.POST)
     else:
-        form = AdvisoryBulkInviteForm()
+        form = AdvisoryBulkInviteForm(initial={"due_date": _default_invite_due_date()})
 
     if not action_document_available:
         form.fields["include_action_list"].disabled = True
@@ -8794,7 +8806,7 @@ def advisory_send_invites_bulk(request, project_id):
 
         sent = 0
         for member in members:
-            due_date = bulk_due_date or member.response_date
+            due_date = _resolve_invite_due_date(bulk_due_date, member=member)
             inv = AdvisoryBoardInvitation.objects.create(
                 project=project,
                 member=member,
@@ -8868,7 +8880,7 @@ def advisory_send_invites_bulk(request, project_id):
             member.invite_sent = True
             member.invite_sent_at = timezone.now()
             update_fields = {"invite_sent", "invite_sent_at"}
-            if due_date and member.response_date != due_date:
+            if member.response_date != due_date:
                 member.response_date = due_date
                 member.reminder_sent = False
                 member.reminder_sent_at = None
