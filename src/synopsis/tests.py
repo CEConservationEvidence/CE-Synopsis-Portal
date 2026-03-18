@@ -3514,6 +3514,20 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, 'value="CR1000.a"')
         self.assertContains(response, 'value="Test reference"')
 
+    def test_single_summary_tab_defaults_to_generated_summary_identifier_label(self):
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        tabs = response.context["summary_tabs"]
+        self.assertEqual(len(tabs), 1)
+        self.assertEqual(tabs[0]["label"], "CR1000.a")
+
     def test_second_reference_in_project_gets_next_generated_reference_id(self):
         second_reference = Reference.objects.create(
             project=self.project,
