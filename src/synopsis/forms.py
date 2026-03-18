@@ -7,6 +7,19 @@ from django.forms.models import BaseInlineFormSet, inlineformset_factory
 from django.utils.text import slugify
 
 MAX_LOCATION_LINE_LENGTH = 200
+def _validate_not_same_day_datetime(value, field_label):
+    if not value:
+        return value
+    try:
+        local_value = timezone.localtime(value)
+    except (ValueError, TypeError):
+        local_value = value
+    minimum_date = _minimum_allowed_deadline_date()
+    if local_value.date() < minimum_date:
+        raise forms.ValidationError(
+            f"{field_label} must be at least one day in the future."
+        )
+    return value
 
 from .models import (
     ActionList,
