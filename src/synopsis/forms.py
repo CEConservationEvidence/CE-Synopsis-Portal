@@ -26,6 +26,26 @@ def _minimum_allowed_deadline_date_str():
     return _minimum_allowed_deadline_date().isoformat()
 
 
+def _minimum_allowed_deadline_datetime_local_str():
+    return f"{_minimum_allowed_deadline_date().isoformat()}T00:00"
+
+
+def _set_min_date_attr(field):
+    field.widget.attrs["min"] = _minimum_allowed_deadline_date_str()
+
+
+def _set_min_datetime_attr(field):
+    field.widget.attrs["min"] = _minimum_allowed_deadline_datetime_local_str()
+
+
+def _validate_not_same_day_date(value, field_label):
+    if not value:
+        return value
+    minimum_date = _minimum_allowed_deadline_date()
+    if value < minimum_date:
+        raise forms.ValidationError(
+            f"{field_label} must be at least one day in the future."
+        )
 def _validate_not_same_day_datetime(value, field_label):
     if not value:
         return value
