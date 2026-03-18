@@ -3616,16 +3616,21 @@ class ReferenceSummaryDetailViewTests(TestCase):
             reference=second_reference,
             assigned_to=self.user,
             needs_help=True,
+            status=ReferenceSummary.STATUS_DONE,
         )
         third_summary = ReferenceSummary.objects.create(
             project=self.project,
             reference=third_reference,
             assigned_to=other_author,
             needs_help=False,
+            status=ReferenceSummary.STATUS_DRAFT,
         )
         self.summary.assigned_to = self.user
         self.summary.needs_help = False
-        self.summary.save(update_fields=["assigned_to", "needs_help", "updated_at"])
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.save(
+            update_fields=["assigned_to", "needs_help", "status", "updated_at"]
+        )
 
         self.client.login(username="author", password="pass123")
         response = self.client.get(
@@ -3634,11 +3639,32 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         workload = {
-            row["author"].id: {"assigned": row["assigned"], "needs_help": row["needs_help"]}
+            row["author"].id: {
+                "assigned": row["assigned"],
+                "summarised": row["summarised"],
+                "summarised_percent": row["summarised_percent"],
+                "needs_help": row["needs_help"],
+            }
             for row in response.context["workload"]
         }
-        self.assertEqual(workload[self.user.id], {"assigned": 2, "needs_help": 1})
-        self.assertEqual(workload[other_author.id], {"assigned": 1, "needs_help": 0})
+        self.assertEqual(
+            workload[self.user.id],
+            {
+                "assigned": 2,
+                "summarised": 2,
+                "summarised_percent": 100,
+                "needs_help": 1,
+            },
+        )
+        self.assertEqual(
+            workload[other_author.id],
+            {
+                "assigned": 1,
+                "summarised": 0,
+                "summarised_percent": 0,
+                "needs_help": 0,
+            },
+        )
         self.assertEqual(response.context["unassigned_count"], 0)
         self.assertEqual(response.context["needs_help_count"], 1)
 
