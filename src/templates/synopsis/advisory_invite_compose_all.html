@@ -34,7 +34,7 @@
             <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title">Include with each email</h5>
-                    <p class="text-muted small mb-3">These resources are added for every member who receives the invitation. Disabled options become available once the document or editor is ready.</p>
+                    <p class="text-muted small mb-3">These resources are optional for invitations. You can send the invite without selecting either option. Disabled options become available once the document or editor is ready.</p>
                     <div class="form-check mb-3">
                         {{ form.include_action_list }}
                         <label class="form-check-label{% if form.include_action_list.field.disabled %} text-muted{% endif %}" for="{{ form.include_action_list.id_for_label }}">Attach action list document</label>

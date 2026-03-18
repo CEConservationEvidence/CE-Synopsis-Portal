@@ -46,7 +46,8 @@
             <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title">Include with each email</h5>
-                    <p class="text-muted small mb-3">These resources are added for every member who receives the invitation. Disabled options become available once the document or editor is ready.</p>
+                    <p class="text-muted small mb-2">At least one resource must be selected before sending protocol emails.</p>
+                    <p class="text-muted small mb-3">Choose the protocol document, the collaborative editor link, or both. Disabled options become available once the document or editor is ready.</p>
                     <div class="form-check mb-3">
                         {{ form.include_protocol_document }}
                         <label class="form-check-label{% if form.include_protocol_document.field.disabled %} text-muted{% endif %}" for="{{ form.include_protocol_document.id_for_label }}">Attach protocol document</label>
