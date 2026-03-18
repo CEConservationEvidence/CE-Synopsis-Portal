@@ -560,6 +560,12 @@ def _format_deadline(deadline):
     return aware.strftime("%d %b %Y %H:%M")
 
 
+def _invite_response_window_days():
+    return getattr(settings, "ADVISORY_INVITE_RESPONSE_WINDOW_DAYS", 10)
+
+
+def _document_feedback_window_days():
+    return getattr(settings, "ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS", 10)
 def _format_file_size(size_bytes):
     try:
         size = int(size_bytes)
