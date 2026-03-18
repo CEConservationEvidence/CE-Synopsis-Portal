@@ -5732,6 +5732,11 @@ def _reference_summary_workspace_heading(reference):
     if canonical.publication_year:
         author_bits.append(str(canonical.publication_year))
     return " · ".join(author_bits)
+
+
+def _reference_summary_workspace_context(reference):
+    return reference.canonical.title or "Untitled reference"
+
 def _reference_summary_tabs(reference, *, active_summary_id=None):
     summaries = _sync_reference_summary_identifiers_for_reference(reference, save=False)
     tab_count = len(summaries)
@@ -5759,6 +5764,7 @@ def _reference_summary_workspace_groups(reference_summaries):
     for summaries in grouped.values():
         reference = summaries[0].reference
         canonical = reference.canonical
+        reference_context = _reference_summary_workspace_context(reference)
         paper_title = canonical.title or "Untitled reference"
         meta_parts = []
         if canonical.authors:
@@ -5769,6 +5775,7 @@ def _reference_summary_workspace_groups(reference_summaries):
 
         group_payload = {
             "reference_id": reference.id,
+            "reference_context": reference_context,
             "paper_title": paper_title,
             "paper_meta": paper_meta,
             "summaries": [],
@@ -5787,6 +5794,7 @@ def _reference_summary_workspace_groups(reference_summaries):
                 if bit
             )
             summary_meta[summary.id] = {
+                "reference_context": reference_context,
                 "paper_title": paper_title,
                 "paper_meta": paper_meta,
                 "summary_label": summary_label,
