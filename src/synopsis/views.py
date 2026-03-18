@@ -9139,14 +9139,6 @@ def advisory_send_protocol_compose_all(request, project_id):
                 "include_protocol_document"
             )
             due_date = form.cleaned_data.get("due_date")
-            deadline_dt = None
-            if due_date:
-                combined = dt.datetime.combine(due_date, dt.time(23, 59))
-                deadline_dt = (
-                    timezone.make_aware(combined)
-                    if timezone.is_naive(combined)
-                    else combined
-                )
             proto_url = (
                 request.build_absolute_uri(proto_doc.url)
                 if include_document and proto_doc
@@ -9159,9 +9151,13 @@ def advisory_send_protocol_compose_all(request, project_id):
             for m in members:
                 member_deadline = m.feedback_on_protocol_deadline
                 deadline_changed = False
-                if deadline_dt:
-                    member_deadline = deadline_dt
-                    m.feedback_on_protocol_deadline = deadline_dt
+                resolved_deadline = _resolve_document_feedback_deadline(
+                    due_date,
+                    current_deadline=member_deadline,
+                )
+                if member_deadline != resolved_deadline:
+                    member_deadline = resolved_deadline
+                    m.feedback_on_protocol_deadline = resolved_deadline
                     m.protocol_reminder_sent = False
                     m.protocol_reminder_sent_at = None
                     deadline_changed = True
@@ -9234,6 +9230,7 @@ def advisory_send_protocol_compose_all(request, project_id):
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         form = ProtocolSendForm(
+            initial={"due_date": _default_document_feedback_due_date()},
             collaborative_enabled=collaborative_enabled,
             document_available=protocol_document_available,
         )
@@ -9282,20 +9279,15 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             include_document = protocol_document_available and form.cleaned_data.get(
                 "include_protocol_document"
             )
-            due_date = form.cleaned_data.get("due_date")
-            deadline_dt = None
-            if due_date:
-                combined = dt.datetime.combine(due_date, dt.time(23, 59))
-                deadline_dt = (
-                    timezone.make_aware(combined)
-                    if timezone.is_naive(combined)
-                    else combined
-                )
             member_deadline = m.feedback_on_protocol_deadline
             deadline_changed = False
-            if deadline_dt:
-                member_deadline = deadline_dt
-                m.feedback_on_protocol_deadline = deadline_dt
+            resolved_deadline = _resolve_document_feedback_deadline(
+                form.cleaned_data.get("due_date"),
+                current_deadline=member_deadline,
+            )
+            if member_deadline != resolved_deadline:
+                member_deadline = resolved_deadline
+                m.feedback_on_protocol_deadline = resolved_deadline
                 m.protocol_reminder_sent = False
                 m.protocol_reminder_sent_at = None
                 deadline_changed = True
@@ -9376,6 +9368,8 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
         if m.feedback_on_protocol_deadline:
             local_deadline = timezone.localtime(m.feedback_on_protocol_deadline)
             deadline_initial = local_deadline.date()
+        else:
+            deadline_initial = _default_document_feedback_due_date()
         form = ProtocolSendForm(
             initial={
                 "due_date": deadline_initial,
@@ -9439,15 +9433,6 @@ def advisory_send_action_list_compose_all(request, project_id):
             include_collab = collaborative_enabled and form.cleaned_data.get(
                 "include_collaborative_link"
             )
-            due_date = form.cleaned_data.get("due_date")
-            deadline_dt = None
-            if due_date:
-                combined = dt.datetime.combine(due_date, dt.time(23, 59))
-                deadline_dt = (
-                    timezone.make_aware(combined)
-                    if timezone.is_naive(combined)
-                    else combined
-                )
             doc_url = (
                 request.build_absolute_uri(action_list.document.url)
                 if include_document and action_document_available
@@ -9460,9 +9445,13 @@ def advisory_send_action_list_compose_all(request, project_id):
             for m in members:
                 member_deadline = m.feedback_on_action_list_deadline
                 deadline_changed = False
-                if deadline_dt:
-                    member_deadline = deadline_dt
-                    m.feedback_on_action_list_deadline = deadline_dt
+                resolved_deadline = _resolve_document_feedback_deadline(
+                    form.cleaned_data.get("due_date"),
+                    current_deadline=member_deadline,
+                )
+                if member_deadline != resolved_deadline:
+                    member_deadline = resolved_deadline
+                    m.feedback_on_action_list_deadline = resolved_deadline
                     m.action_list_reminder_sent = False
                     m.action_list_reminder_sent_at = None
                     deadline_changed = True
@@ -9534,6 +9523,7 @@ def advisory_send_action_list_compose_all(request, project_id):
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         form = ActionListSendForm(
+            initial={"due_date": _default_document_feedback_due_date()},
             collaborative_enabled=collaborative_enabled,
             document_available=action_document_available,
         )
@@ -9588,20 +9578,15 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             include_collab = collaborative_enabled and form.cleaned_data.get(
                 "include_collaborative_link"
             )
-            due_date = form.cleaned_data.get("due_date")
-            deadline_dt = None
-            if due_date:
-                combined = dt.datetime.combine(due_date, dt.time(23, 59))
-                deadline_dt = (
-                    timezone.make_aware(combined)
-                    if timezone.is_naive(combined)
-                    else combined
-                )
             member_deadline = member.feedback_on_action_list_deadline
             deadline_changed = False
-            if deadline_dt:
-                member_deadline = deadline_dt
-                member.feedback_on_action_list_deadline = deadline_dt
+            resolved_deadline = _resolve_document_feedback_deadline(
+                form.cleaned_data.get("due_date"),
+                current_deadline=member_deadline,
+            )
+            if member_deadline != resolved_deadline:
+                member_deadline = resolved_deadline
+                member.feedback_on_action_list_deadline = resolved_deadline
                 member.action_list_reminder_sent = False
                 member.action_list_reminder_sent_at = None
                 deadline_changed = True
@@ -9684,6 +9669,8 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
         if member.feedback_on_action_list_deadline:
             local_deadline = timezone.localtime(member.feedback_on_action_list_deadline)
             deadline_initial = local_deadline.date()
+        else:
+            deadline_initial = _default_document_feedback_due_date()
         form = ActionListSendForm(
             initial={
                 "due_date": deadline_initial,
@@ -10134,12 +10121,13 @@ def advisory_send_invite_member(request, project_id, member_id):
         messages.error(request, "This member has no email.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
+    due_date = _resolve_invite_due_date(member=m)
     inv = AdvisoryBoardInvitation.objects.create(
         project=project,
         member=m,
         email=m.email,
         invited_by=request.user,
-        due_date=m.response_date,
+        due_date=due_date,
     )
     yes_url = request.build_absolute_uri(
         reverse("synopsis:advisory_invite_reply", args=[inv.token, "yes"])
@@ -10147,9 +10135,9 @@ def advisory_send_invite_member(request, project_id, member_id):
     no_url = request.build_absolute_uri(
         reverse("synopsis:advisory_invite_reply", args=[inv.token, "no"])
     )
-    deadline_txt = m.response_date.strftime("%d %b %Y") if m.response_date else "—"
+    deadline_txt = due_date.strftime("%d %b %Y") if due_date else "—"
 
-    subject = email_subject("invite", project, m.response_date)
+    subject = email_subject("invite", project, due_date)
     text = (
         f"Dear {m.first_name or 'colleague'},\n\n"
         f"You are invited to advise on '{project.title}'.\n"
@@ -10178,7 +10166,21 @@ def advisory_send_invite_member(request, project_id, member_id):
 
     m.invite_sent = True
     m.invite_sent_at = timezone.now()
-    m.save(update_fields=["invite_sent", "invite_sent_at"])
+    if m.response_date != due_date:
+        m.response_date = due_date
+        m.reminder_sent = False
+        m.reminder_sent_at = None
+        m.save(
+            update_fields=[
+                "invite_sent",
+                "invite_sent_at",
+                "response_date",
+                "reminder_sent",
+                "reminder_sent_at",
+            ]
+        )
+    else:
+        m.save(update_fields=["invite_sent", "invite_sent_at"])
 
     messages.success(request, f"Invitation sent to {m.email}.")
     return redirect("synopsis:advisory_board_list", project_id=project.id)
