@@ -3437,6 +3437,60 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.citation, "Author (2024)")
 
+    def test_delete_summary_tab_removes_extra_tab_and_redirects_to_remaining_tab(self):
+        extra_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            status=ReferenceSummary.STATUS_DRAFT,
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, extra_summary.id],
+            ),
+            {"action": "delete-summary-tab"},
+            follow=False,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            fetch_redirect_response=False,
+        )
+        self.assertFalse(
+            ReferenceSummary.objects.filter(pk=extra_summary.id).exists()
+        )
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.summary_identifier, "CR1000.a")
+
+    def test_delete_summary_tab_is_blocked_for_only_summary(self):
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {"action": "delete-summary-tab"},
+            follow=True,
+        )
+
+        self.assertEqual(
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            ).count(),
+            1,
+        )
+        messages = list(get_messages(response.wsgi_request))
+        self.assertTrue(
+            any("only summary tab" in str(message) for message in messages)
+        )
+
     def test_detail_page_shows_generated_identifiers_and_reference_title(self):
         self.client.login(username="author", password="pass123")
         response = self.client.get(
