@@ -7167,9 +7167,25 @@ def _project_synopsis_workspace(
                         "paper_title",
                         assignment.reference_summary.reference.canonical.title,
                     )
+                    assignment.reference_heading = meta.get(
+                        "reference_heading",
+                        _reference_summary_workspace_heading(
+                            assignment.reference_summary.reference
+                        ),
+                    )
+                    assignment.reference_context = meta.get(
+                        "reference_context",
+                        _reference_summary_workspace_context(
+                            assignment.reference_summary.reference
+                        ),
+                    )
                     assignment.paper_meta = meta.get("paper_meta", "")
                     assignment.summary_label = meta.get(
                         "summary_label", assignment.reference_summary.display_label
+                    )
+                    assignment.summary_display = meta.get(
+                        "summary_display",
+                        _reference_summary_workspace_label(assignment.reference_summary),
                     )
                     assignment.duplicate_reference_assignment = (
                         reference_counts.get(
@@ -7189,8 +7205,11 @@ def _project_synopsis_workspace(
                     {
                         "id": assignment.reference_summary_id,
                         "number": assignment.ce_reference_number,
+                        "reference_heading": assignment.reference_heading,
+                        "reference_context": assignment.reference_context,
                         "paper_title": assignment.paper_title,
                         "summary_label": assignment.summary_label,
+                        "summary_display": assignment.summary_display,
                     }
                     for assignment in assignments
                 ]
