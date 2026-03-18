@@ -46,6 +46,9 @@ def _validate_not_same_day_date(value, field_label):
         raise forms.ValidationError(
             f"{field_label} must be at least one day in the future."
         )
+    return value
+
+
 def _validate_not_same_day_datetime(value, field_label):
     if not value:
         return value
