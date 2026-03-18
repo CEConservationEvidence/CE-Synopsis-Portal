@@ -1,12 +1,31 @@
 import re
+from datetime import timedelta
 
 from django import forms
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.validators import FileExtensionValidator
 from django.forms.models import BaseInlineFormSet, inlineformset_factory
+from django.utils import timezone
 from django.utils.text import slugify
 
 MAX_LOCATION_LINE_LENGTH = 200
+ADVISORY_INVITE_RESPONSE_WINDOW_DAYS = getattr(
+    settings, "ADVISORY_INVITE_RESPONSE_WINDOW_DAYS", 10
+)
+ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS = getattr(
+    settings, "ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS", 10
+)
+
+
+def _minimum_allowed_deadline_date():
+    return timezone.localdate() + timedelta(days=1)
+
+
+def _minimum_allowed_deadline_date_str():
+    return _minimum_allowed_deadline_date().isoformat()
+
+
 def _validate_not_same_day_datetime(value, field_label):
     if not value:
         return value
