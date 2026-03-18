@@ -6,7 +6,7 @@ from django.core.mail import EmailMultiAlternatives
 from synopsis.utils import email_subject, reply_to_list
 
 # TODO: #26 Need to consider using a library for business days calculations if there are any for send_due_reminders.py. Also, need to handle holidays and abroad if applicable.
-
+# TODO: #86 modify the code so reminders and deadlines are streamlined and coherent with project timeline and flow. Currently, its a mess.
 
 def minus_business_days(d, n):
     if hasattr(d, "date"):
