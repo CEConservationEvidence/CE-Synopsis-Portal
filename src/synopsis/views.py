@@ -1497,6 +1497,8 @@ def _advisory_board_context(
         reminder_initial = {}
         if pending_reminder_dates:
             reminder_initial["reminder_date"] = pending_reminder_dates[0]
+        else:
+            reminder_initial["reminder_date"] = _default_invite_due_date()
         reminder_form = ReminderScheduleForm(initial=reminder_initial)
 
     protocol_members = project.advisory_board_members.filter(
@@ -1517,6 +1519,10 @@ def _advisory_board_context(
                 protocol_initial["deadline"] = timezone.localtime(first_deadline)
             except (ValueError, TypeError):
                 protocol_initial["deadline"] = first_deadline
+        else:
+            protocol_initial["deadline"] = timezone.localtime(
+                _default_document_feedback_deadline()
+            )
         protocol_form = ProtocolReminderScheduleForm(initial=protocol_initial)
 
     if member_form is None:
@@ -1565,6 +1571,10 @@ def _advisory_board_context(
                 action_initial["deadline"] = timezone.localtime(first_deadline)
             except (ValueError, TypeError):
                 action_initial["deadline"] = first_deadline
+        else:
+            action_initial["deadline"] = timezone.localtime(
+                _default_document_feedback_deadline()
+            )
         action_list_form = ActionListReminderScheduleForm(initial=action_initial)
 
     if action_list_feedback_close_form is None:
@@ -1778,6 +1788,7 @@ def _advisory_board_context(
         "section_palette": section_palette,
         "custom_field_group_choices": AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
         "declined_members_with_reason": declined_with_reason,
+        "minimum_allowed_deadline_date": _minimum_allowed_deadline_date(),
     }
 
 
