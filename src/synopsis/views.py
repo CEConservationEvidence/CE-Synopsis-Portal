@@ -6149,6 +6149,7 @@ def reference_summary_board(request, project_id):
 
     assigned_counts = Counter()
     needs_help_by_author = Counter()
+    summarised_by_author = Counter()
     unassigned_count = 0
     needs_help_count = 0
     for item in summaries:
@@ -6158,16 +6159,24 @@ def reference_summary_board(request, project_id):
             assigned_counts[item.assigned_to_id] += 1
             if item.needs_help:
                 needs_help_by_author[item.assigned_to_id] += 1
+            if item.status == ReferenceSummary.STATUS_DONE:
+                summarised_by_author[item.assigned_to_id] += 1
         if item.needs_help:
             needs_help_count += 1
 
     author_options = list(project.author_users.order_by("first_name", "last_name"))
     workload = []
     for author in author_options:
+        assigned = assigned_counts.get(author.id, 0)
+        summarised = summarised_by_author.get(author.id, 0)
         workload.append(
             {
                 "author": author,
-                "assigned": assigned_counts.get(author.id, 0),
+                "assigned": assigned,
+                "summarised": summarised,
+                "summarised_percent": int((summarised / assigned) * 100)
+                if assigned
+                else 0,
                 "needs_help": needs_help_by_author.get(author.id, 0),
             }
         )
