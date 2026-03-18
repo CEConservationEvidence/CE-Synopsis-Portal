@@ -5726,6 +5726,12 @@ def _reference_summary_display_label(summary, index=None):
     return summary.display_label
 
 
+def _reference_summary_workspace_heading(reference):
+    canonical = reference.canonical
+    author_bits = [canonical.authors or "Unknown authors"]
+    if canonical.publication_year:
+        author_bits.append(str(canonical.publication_year))
+    return " · ".join(author_bits)
 def _reference_summary_tabs(reference, *, active_summary_id=None):
     summaries = _sync_reference_summary_identifiers_for_reference(reference, save=False)
     tab_count = len(summaries)
