@@ -487,6 +487,7 @@
                                                     name="reminder_date"
                                                     class="form-control"
                                                     value="{{ m.response_date|date:'Y-m-d' }}"
+                                                    min="{{ minimum_allowed_deadline_date|date:'Y-m-d' }}"
                                                     aria-label="Response deadline for {{ m.first_name|default:m.email }}"
                                                 >
                                                 <button class="btn btn-outline-primary btn-sm">Save</button>
