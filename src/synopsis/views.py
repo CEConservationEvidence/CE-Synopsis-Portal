@@ -6276,6 +6276,29 @@ def reference_summary_detail(request, project_id, summary_id):
                 project_id=project.id,
                 summary_id=new_summary.id,
             )
+        if action == "delete-summary-tab":
+            remaining_summaries = list(
+                summary.reference.summaries.exclude(pk=summary.pk).order_by("created_at", "id")
+            )
+            if not remaining_summaries:
+                messages.error(
+                    request,
+                    "You cannot delete the only summary tab for this reference.",
+                )
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            next_summary = remaining_summaries[0]
+            summary.delete()
+            _sync_reference_summary_identifiers_for_reference(next_summary.reference, save=True)
+            messages.success(request, "Summary tab deleted.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=next_summary.id,
+            )
         if action == "save-summary" and summary_form.is_valid():
             summary = summary_form.save(commit=False)
             if not summary.summary_author:
