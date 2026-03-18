@@ -748,6 +748,28 @@
         };
         const csrftoken = getCookie("csrftoken");
 
+        const updateSummaryPreview = (select) => {
+            if (!select) return;
+            const preview = document.getElementById(select.dataset.previewTarget);
+            if (!preview) return;
+            const option = select.options[select.selectedIndex];
+            const emptyText = preview.dataset.emptyText || "Choose a summary tab.";
+            if (!option || !option.value) {
+                preview.classList.add("is-empty");
+                preview.innerHTML = emptyText;
+                return;
+            }
+            preview.classList.remove("is-empty");
+            const heading = option.dataset.referenceHeading || "";
+            const context = option.dataset.referenceContext || "";
+            const summaryDisplay = option.dataset.summaryDisplay || option.textContent || "";
+            preview.innerHTML = `
+                <div class="summary-picker-preview-title">${heading || "Unknown authors"}</div>
+                <div class="summary-picker-preview-meta">${context || "Untitled reference"}</div>
+                <div class="mt-2">${summaryDisplay}</div>
+            `;
+        };
+
         document.querySelectorAll(".summary-filter").forEach((input) => {
             input.addEventListener("input", () => {
                 const target = document.getElementById(input.dataset.target);
@@ -769,6 +791,11 @@
                     group.hidden = q && !hasVisibleOption;
                 });
             });
+        });
+
+        document.querySelectorAll(".summary-picker-select").forEach((select) => {
+            select.addEventListener("change", () => updateSummaryPreview(select));
+            updateSummaryPreview(select);
         });
 
         const chapterFilterInput = document.getElementById("evidence-chapter-filter");
