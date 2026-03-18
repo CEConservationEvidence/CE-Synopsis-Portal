@@ -353,7 +353,7 @@ class AdvisoryInviteForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text=(
             "This date is shown in the invitation and on the advisory board dashboard. "
-            "Leave blank if you do not want to set a deadline."
+            f"Defaults to {ADVISORY_INVITE_RESPONSE_WINDOW_DAYS} days from today."
         ),
     )
     message = forms.CharField(
@@ -369,14 +369,14 @@ class AdvisoryInviteForm(forms.Form):
         initial=False,
         label="Attach action list document",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Adds a link to the latest action list file.",
+        help_text="Optional. Adds a link to the latest action list file.",
     )
     include_collaborative_link = forms.BooleanField(
         required=False,
         initial=False,
         label="Include collaborative editor link",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Shares the live OnlyOffice editor for the action list.",
+        help_text="Optional. Shares the live OnlyOffice editor for the action list.",
     )
 
 
@@ -985,7 +985,7 @@ class AdvisoryBulkInviteForm(forms.Form):
         label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text=(
-            "Optional – overrides each member's existing deadline. Leave blank to keep their current dates."
+            f"Defaults to {ADVISORY_INVITE_RESPONSE_WINDOW_DAYS} days from today for members without an existing deadline."
         ),
     )
     message = forms.CharField(
@@ -1001,14 +1001,14 @@ class AdvisoryBulkInviteForm(forms.Form):
         initial=False,
         label="Attach action list document",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Adds a link to the latest action list file.",
+        help_text="Optional. Adds a link to the latest action list file.",
     )
     include_collaborative_link = forms.BooleanField(
         required=False,
         initial=False,
         label="Include collaborative editor link",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Shares the live OnlyOffice editor for the action list.",
+        help_text="Optional. Shares the live OnlyOffice editor for the action list.",
     )
 
 
@@ -1018,7 +1018,7 @@ class ProtocolSendForm(forms.Form):
         label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text=(
-            "Optional – overrides each member's existing deadline. Leave blank to keep their current dates."
+            f"Defaults to {ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS} days from today if no deadline is already set."
         ),
     )
     message = forms.CharField(
@@ -1034,14 +1034,14 @@ class ProtocolSendForm(forms.Form):
         initial=False,
         label="Attach protocol document",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Adds a link to the latest protocol document.",
+        help_text="Required: select this or the collaborative editor link before sending.",
     )
     include_collaborative_link = forms.BooleanField(
         required=False,
         initial=False,
         label="Include collaborative editor link",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Shares the live collaborative editor for the action list.",
+        help_text="Required: select this or the protocol document before sending.",
     )
 
     def __init__(
@@ -1092,7 +1092,7 @@ class ActionListSendForm(forms.Form):
         label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text=(
-            "Optional – overrides each member's existing deadline. Leave blank to keep their current dates."
+            f"Defaults to {ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS} days from today if no deadline is already set."
         ),
     )
     message = forms.CharField(
@@ -1108,14 +1108,14 @@ class ActionListSendForm(forms.Form):
         initial=False,
         label="Attach action list document",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Adds a link to the latest action list document.",
+        help_text="Required: select this or the collaborative editor link before sending.",
     )
     include_collaborative_link = forms.BooleanField(
         required=False,
         initial=False,
         label="Include collaborative editor link",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Shares the live collaborative editor for the action list.",
+        help_text="Required: select this or the action list document before sending.",
     )
 
     def __init__(
