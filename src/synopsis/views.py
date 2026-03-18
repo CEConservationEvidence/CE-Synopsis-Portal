@@ -566,6 +566,12 @@ def _invite_response_window_days():
 
 def _document_feedback_window_days():
     return getattr(settings, "ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS", 10)
+
+
+def _end_of_day_datetime(date_value):
+    combined = dt.datetime.combine(date_value, dt.time(23, 59))
+    return timezone.make_aware(combined) if timezone.is_naive(combined) else combined
+
 def _format_file_size(size_bytes):
     try:
         size = int(size_bytes)
