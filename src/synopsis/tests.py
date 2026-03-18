@@ -2987,7 +2987,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
                 "reference_id": ref.id,
                 "screening_status": "included",
                 "screening_notes": "Relevant to the topic.",
-                "reference_folder": ["", "3"],
+                "reference_folder": ["", "3a"],
             },
         )
 
@@ -3000,7 +3000,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         ref.refresh_from_db()
         self.assertEqual(ref.screening_status, "included")
-        self.assertEqual(ref.reference_folder, ["3"])
+        self.assertEqual(ref.reference_folder, ["3a"])
 
     def test_save_folders_preserves_existing_screening_notes(self):
         upload = SimpleUploadedFile(
