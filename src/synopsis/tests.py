@@ -77,6 +77,7 @@ from .utils import (
 )
 from .views import (
     _advisory_board_context,
+    _build_advisory_invitation_email,
     _create_protocol_feedback,
     _format_deadline,
     _format_value,
@@ -149,6 +150,33 @@ class EmailSubjectTests(TestCase):
         self.assertEqual(
             subject,
             f"[Action requested] Protocol for review — {self.project.title}",
+        )
+
+    def test_advisory_invitation_email_escapes_urls_in_html_hrefs(self):
+        text, html_body = _build_advisory_invitation_email(
+            project=self.project,
+            recipient_name="Taylor",
+            due_date=date(2025, 5, 10),
+            yes_url="https://example.com/yes?x=1&y='two'",
+            no_url='https://example.com/no?x=1&y="three"',
+            attachment_lines=[
+                ("Action list", "https://files.example.com/doc?version=1&lang='en'")
+            ],
+        )
+
+        self.assertIn("https://example.com/yes?x=1&y='two'", text)
+        self.assertIn('https://example.com/no?x=1&y="three"', text)
+        self.assertIn(
+            "href='https://example.com/yes?x=1&amp;y=&#x27;two&#x27;'",
+            html_body,
+        )
+        self.assertIn(
+            "href='https://example.com/no?x=1&amp;y=&quot;three&quot;'",
+            html_body,
+        )
+        self.assertIn(
+            "href='https://files.example.com/doc?version=1&amp;lang=&#x27;en&#x27;'",
+            html_body,
         )
 
 

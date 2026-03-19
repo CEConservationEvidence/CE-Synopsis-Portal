@@ -647,6 +647,8 @@ def _build_advisory_invitation_email(
 ):
     deadline_txt = due_date.strftime("%d %b %Y") if due_date else "—"
     recipient_label = recipient_name or "colleague"
+    safe_yes_url = html.escape(yes_url, quote=True)
+    safe_no_url = html.escape(no_url, quote=True)
     standard_text = _project_advisory_invitation_message(
         project, override=standard_message
     )
@@ -689,8 +691,8 @@ def _build_advisory_invitation_email(
         [
             (
                 f"<p>"
-                f"<a href='{yes_url}' style='padding:8px 12px;border:1px solid #0a0;text-decoration:none;'>Yes</a> "
-                f"<a href='{no_url}' style='padding:8px 12px;border:1px solid #a00;text-decoration:none;margin-left:8px;'>No</a>"
+                f"<a href='{safe_yes_url}' style='padding:8px 12px;border:1px solid #0a0;text-decoration:none;'>Yes</a> "
+                f"<a href='{safe_no_url}' style='padding:8px 12px;border:1px solid #a00;text-decoration:none;margin-left:8px;'>No</a>"
                 f"</p>"
             ),
             "<p><em>After clicking Yes you'll confirm that you will actively participate and provide valuable input.</em></p>",
@@ -698,9 +700,10 @@ def _build_advisory_invitation_email(
     )
     if attachment_lines:
         for label, url in attachment_lines:
+            safe_url = html.escape(url, quote=True)
             html_parts.append(
                 f"<p><strong>{html.escape(label)}:</strong> "
-                f"<a href='{url}'>{html.escape(url)}</a></p>"
+                f"<a href='{safe_url}'>{html.escape(url)}</a></p>"
             )
     html_parts.append("<p>Thank you.</p>")
     return "\n".join(text_parts), "".join(html_parts)
@@ -10659,24 +10662,13 @@ def advisory_send_invite_member(request, project_id, member_id):
     no_url = request.build_absolute_uri(
         reverse("synopsis:advisory_invite_reply", args=[inv.token, "no"])
     )
-    deadline_txt = due_date.strftime("%d %b %Y") if due_date else "—"
-
     subject = email_subject("invite", project, due_date)
-    text = (
-        f"Dear {m.first_name or 'colleague'},\n\n"
-        f"You are invited to advise on '{project.title}'.\n"
-        f"Please reply by: {deadline_txt}\n\n"
-        f"Yes: {yes_url}\nNo:  {no_url}\n\n"
-        f"Thank you."
-    )
-    html = (
-        f"<p>Dear {m.first_name or 'colleague'},</p>"
-        f"<p>You are invited to advise on '<strong>{project.title}</strong>'.</p>"
-        f"<p><strong>Please reply by: {deadline_txt}</strong></p>"
-        f"<p>"
-        f"<a href='{yes_url}' style='padding:8px 12px;border:1px solid #0a0;text-decoration:none;'>Yes</a> "
-        f"<a href='{no_url}' style='padding:8px 12px;border:1px solid #a00;text-decoration:none;margin-left:8px;'>No</a>"
-        f"</p>"
+    text, html = _build_advisory_invitation_email(
+        project=project,
+        recipient_name=m.first_name or "colleague",
+        due_date=due_date,
+        yes_url=yes_url,
+        no_url=no_url,
     )
 
     msg = EmailMultiAlternatives(
