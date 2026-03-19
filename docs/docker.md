@@ -39,6 +39,9 @@ Copy the template:
 cp .env.template .env
 ```
 
+This Docker path continues to use `.env`. Direct non-Docker Django commands can
+use `.env.local` independently.
+
 Fill in at least:
 - `SECRET_KEY`
 - `DB_NAME`

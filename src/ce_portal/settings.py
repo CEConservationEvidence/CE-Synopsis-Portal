@@ -11,12 +11,34 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import importlib.util
+import os
 from pathlib import Path
-from decouple import config
+from decouple import AutoConfig, Config, RepositoryEnv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+REPO_ROOT = BASE_DIR.parent
 HAS_WHITENOISE = importlib.util.find_spec("whitenoise") is not None
+
+
+def _build_config():
+    env_file_override = (os.environ.get("ENV_FILE") or "").strip()
+    if env_file_override:
+        env_path = Path(env_file_override)
+        if not env_path.is_absolute():
+            env_path = REPO_ROOT / env_path
+        if not env_path.exists():
+            raise FileNotFoundError(f"Configured ENV_FILE does not exist: {env_path}")
+        return Config(RepositoryEnv(str(env_path))), env_path
+
+    for candidate in (REPO_ROOT / ".env.local", REPO_ROOT / ".env"):
+        if candidate.exists():
+            return Config(RepositoryEnv(str(candidate))), candidate
+
+    return AutoConfig(search_path=str(REPO_ROOT)), None
+
+
+config, ACTIVE_ENV_FILE = _build_config()
 
 
 def _csv_config(name: str, default: str = "") -> list[str]:

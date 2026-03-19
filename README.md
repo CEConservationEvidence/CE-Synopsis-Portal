@@ -130,7 +130,7 @@ Prerequisites:
 Setup:
 
 ```bash
-cp .env.template .env
+cp .env.local.template .env.local
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -142,7 +142,8 @@ python manage.py runserver
 Then open `http://127.0.0.1:8000/`.
 
 Notes:
-- database credentials are read from `.env`
+- direct Django commands automatically prefer `.env.local`, then fall back to `.env`
+- use `ENV_FILE=...` if you want to force a different env file for a specific command
 - the default database backend is PostgreSQL
 - email is configured to the console backend in development
 
@@ -153,6 +154,12 @@ source .venv/bin/activate
 cd src
 python manage.py check
 python manage.py test
+```
+
+Example override:
+
+```bash
+ENV_FILE=../.env.local python manage.py runserver
 ```
 
 ## Docker Deployment
