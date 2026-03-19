@@ -2748,6 +2748,7 @@ def protocol_detail(request, project_id):
         response="Y",
     )
     protocol_pending_dates = [
+        d
         for d in protocol_members.filter(feedback_on_protocol_deadline__isnull=False)
         .order_by("feedback_on_protocol_deadline")
         .values_list("feedback_on_protocol_deadline", flat=True)
