@@ -304,6 +304,91 @@
     <div class="col-12">
         <div class="card">
             <div class="card-body">
+                <div class="d-flex flex-column flex-xl-row justify-content-between gap-4">
+                    <div class="flex-grow-1">
+                        <h5 class="mb-1">Action list feedback window</h5>
+                        <p class="text-muted small mb-2">Set the feedback deadline here. Reminder emails go automatically two business days before that deadline.</p>
+                        <div class="small mb-2">
+                            Members with action list:
+                            <strong>{{ action_list_pending_count }}</strong>
+                        </div>
+                        <p class="mb-2 text-muted">
+                            {% if action_list_feedback_state.deadline %}
+                                Deadline: {{ action_list_feedback_state.deadline|date:"Y-m-d H:i" }}
+                            {% else %}
+                                No deadline scheduled yet.
+                            {% endif %}
+                        </p>
+                        {% if initial_action_list_reminder_log %}
+                        <p class="small text-muted mb-2">
+                            First scheduled {{ initial_action_list_reminder_log.created_at|date:"Y-m-d H:i" }}
+                        </p>
+                        {% endif %}
+                        {% if action_list_feedback_state.action_list %}
+                            {% if action_list_feedback_state.is_closed %}
+                        <span class="badge text-bg-danger">Closed {{ action_list_feedback_state.closed_at|date:"Y-m-d H:i" }}</span>
+                            {% else %}
+                        <span class="badge text-bg-success">Open for submissions</span>
+                            {% endif %}
+                        <p class="text-muted small mt-2 mb-0">Links stay open until this deadline or until you close them manually.</p>
+                        {% if action_list_feedback_state.closure_message %}
+                        <p class="mt-2 mb-0">
+                            <strong>Message shown to members:</strong>
+                            {{ action_list_feedback_state.closure_message }}
+                        </p>
+                        {% endif %}
+                        {% else %}
+                        <span class="badge text-bg-secondary">Waiting for upload</span>
+                        <p class="text-muted small mt-2 mb-0">Upload an action list file to enable the feedback window.</p>
+                        {% endif %}
+                    </div>
+                    <div class="flex-grow-1">
+                        {% if can_edit_documents %}
+                        <form method="post" action="{% url 'synopsis:advisory_schedule_action_list_reminders' project.id %}" class="mb-3">
+                            {% csrf_token %}
+                            <div class="mb-2">
+                                {{ action_list_reminder_form.deadline.label_tag }}
+                                {{ action_list_reminder_form.deadline }}
+                                {{ action_list_reminder_form.deadline.errors }}
+                                <div class="form-text">Must be at least tomorrow.</div>
+                            </div>
+                            <button class="btn btn-outline-primary btn-sm">Set action list deadline</button>
+                        </form>
+                        {% if action_list_feedback_state.action_list %}
+                            {% if action_list_feedback_state.is_closed %}
+                        <form method="post" action="{% url 'synopsis:advisory_action_list_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="reopen">
+                            <button class="btn btn-outline-secondary align-self-start">Reopen feedback</button>
+                            {% if action_list_feedback_state.deadline %}
+                            <small class="text-muted">The deadline still blocks submissions after {{ action_list_feedback_state.deadline|date:"Y-m-d H:i" }}.</small>
+                            {% endif %}
+                        </form>
+                            {% else %}
+                        <form method="post" action="{% url 'synopsis:advisory_action_list_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                            {% csrf_token %}
+                            {{ action_list_feedback_close_form.non_field_errors }}
+                            <div>
+                                {{ action_list_feedback_close_form.message.label_tag }}
+                                {{ action_list_feedback_close_form.message }}
+                                {{ action_list_feedback_close_form.message.errors }}
+                                <div class="form-text">Members will see this note when they open their feedback link after closure.</div>
+                            </div>
+                            <button class="btn btn-outline-danger align-self-start">Close feedback now</button>
+                        </form>
+                            {% endif %}
+                        {% endif %}
+                        {% else %}
+                        <p class="text-muted small mb-0">You can view the feedback window here, but only project editors can update its deadline or closure state.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h5 class="card-title mb-0">Revision history</h5>
                     {% if action_list_revision_entries %}

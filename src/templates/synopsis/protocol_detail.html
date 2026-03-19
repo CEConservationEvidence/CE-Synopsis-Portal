@@ -275,6 +275,91 @@
             </div>
         </div>
     </div>
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex flex-column flex-xl-row justify-content-between gap-4">
+                    <div class="flex-grow-1">
+                        <h5 class="mb-1">Protocol feedback window</h5>
+                        <p class="text-muted small mb-2">Set the feedback deadline here. Reminder emails go automatically two business days before that deadline.</p>
+                        <div class="small mb-2">
+                            Members with protocol:
+                            <strong>{{ protocol_pending_count }}</strong>
+                        </div>
+                        <p class="mb-2 text-muted">
+                            {% if protocol_feedback_state.deadline %}
+                                Deadline: {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}
+                            {% else %}
+                                No deadline scheduled yet.
+                            {% endif %}
+                        </p>
+                        {% if initial_protocol_reminder_log %}
+                        <p class="small text-muted mb-2">
+                            First scheduled {{ initial_protocol_reminder_log.created_at|date:"Y-m-d H:i" }}
+                        </p>
+                        {% endif %}
+                        {% if protocol_feedback_state.protocol %}
+                            {% if protocol_feedback_state.is_closed %}
+                        <span class="badge text-bg-danger">Closed {{ protocol_feedback_state.closed_at|date:"Y-m-d H:i" }}</span>
+                            {% else %}
+                        <span class="badge text-bg-success">Open for submissions</span>
+                            {% endif %}
+                        <p class="text-muted small mt-2 mb-0">Links stay open until this deadline or until you close them manually.</p>
+                        {% if protocol_feedback_state.closure_message %}
+                        <p class="mt-2 mb-0">
+                            <strong>Message shown to members:</strong>
+                            {{ protocol_feedback_state.closure_message }}
+                        </p>
+                        {% endif %}
+                        {% else %}
+                        <span class="badge text-bg-secondary">Waiting for upload</span>
+                        <p class="text-muted small mt-2 mb-0">Upload a protocol file to enable the feedback window.</p>
+                        {% endif %}
+                    </div>
+                    <div class="flex-grow-1">
+                        {% if can_edit_documents %}
+                        <form method="post" action="{% url 'synopsis:advisory_schedule_protocol_reminders' project.id %}" class="mb-3">
+                            {% csrf_token %}
+                            <div class="mb-2">
+                                {{ protocol_reminder_form.deadline.label_tag }}
+                                {{ protocol_reminder_form.deadline }}
+                                {{ protocol_reminder_form.deadline.errors }}
+                                <div class="form-text">Must be at least tomorrow.</div>
+                            </div>
+                            <button class="btn btn-outline-primary btn-sm">Set protocol deadline</button>
+                        </form>
+                        {% if protocol_feedback_state.protocol %}
+                            {% if protocol_feedback_state.is_closed %}
+                        <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="reopen">
+                            <button class="btn btn-outline-secondary align-self-start">Reopen feedback</button>
+                            {% if protocol_feedback_state.deadline %}
+                            <small class="text-muted">The deadline still blocks submissions after {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}.</small>
+                            {% endif %}
+                        </form>
+                            {% else %}
+                        <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                            {% csrf_token %}
+                            {{ protocol_feedback_close_form.non_field_errors }}
+                            <div>
+                                {{ protocol_feedback_close_form.message.label_tag }}
+                                {{ protocol_feedback_close_form.message }}
+                                {{ protocol_feedback_close_form.message.errors }}
+                                <div class="form-text">Members will see this note when they open their feedback link after closure.</div>
+                            </div>
+                            <button class="btn btn-outline-danger align-self-start">Close feedback now</button>
+                        </form>
+                            {% endif %}
+                        {% endif %}
+                        {% else %}
+                        <p class="text-muted small mb-0">You can view the feedback window here, but only project editors can update its deadline or closure state.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
     {% if can_toggle_stage and current_revision_entry %}
     <div class="modal fade" id="protocolSetFinalCurrentModal" tabindex="-1" aria-labelledby="protocolSetFinalCurrentModalLabel" aria-hidden="true">
         <div class="modal-dialog">
