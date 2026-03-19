@@ -1,6 +1,5 @@
 {# TODO: #78 improve the PDF viewer by adding open sourced advanced features such as annotation and highlighting (this would require audit trailing and perhaps a new model to store annotations linked to users and timestamps, but the original PDF file could remain unchanged and the annotations could be rendered as an overlay in the viewer). #}
 {# TODO: #81 might be a good idea adding a feature to export the summary details and PDF together in a structured format (e.g. JSON or XML) for easy sharing with collaborators or importing into other tools. This could include all the structured fields from the summary form as well as metadata about the reference and summary status. #}
-{# TODO: #82 make the automatically generated summary paragraph editable directly in the interface, allowing users to make quick adjustments without having to copy and paste it into the main summary field. This could be implemented with a simple "Edit generated summary" button that toggles the paragraph into an editable textarea, and saving changes would update the main summary field accordingly. #}
 {# TODO: #83 remove the quality scores from the main form and create a separate "Quality assessment" section that can be filled in after the initial summary is complete. This would help streamline the main summary form and allow users to focus on the core details first, while still providing a structured way to capture quality assessments later on. #}
 
 {% extends "synopsis/base.html" %}
@@ -469,18 +468,43 @@
         </div>
         <div class="card mb-3 shadow-sm">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <span>Generated summary paragraph</span>
-                {% if generated_summary %}
-                <button class="btn btn-outline-secondary btn-sm" type="button" id="copy-generated-summary">Copy</button>
+                <div class="d-flex flex-wrap align-items-center gap-2">
+                    <span>Summary paragraph</span>
+                    {% if summary.synopsis_draft %}
+                    <span class="badge text-bg-success">Edited draft saved</span>
+                    {% endif %}
+                </div>
+                {% if current_summary_paragraph %}
+                <button class="btn btn-outline-secondary btn-sm" type="button" id="copy-current-summary">Copy current</button>
                 {% endif %}
             </div>
             <div class="card-body">
                 {% if generated_summary %}
-                    <p class="text-muted small mb-2">Auto-built from the structured fields above - use as a starting point.</p>
-                    <pre class="bg-light border rounded p-3" style="white-space: pre-wrap;">{{ generated_summary }}</pre>
+                    <p class="text-muted small mb-3">This field starts with the auto-generated paragraph from the structured fields above. Edit it directly if you want compilation and export to use revised wording.</p>
                 {% else %}
-                    <p class="text-muted mb-0">Fill in the structured fields to generate a summary paragraph.</p>
+                    <p class="text-muted small mb-3">Fill in the structured fields above to generate a paragraph automatically, or write a custom summary paragraph here.</p>
                 {% endif %}
+                <form method="post" class="d-flex flex-column gap-3">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="save-synopsis-draft">
+                    <div>
+                        <label class="form-label" for="{{ draft_form.synopsis_draft.id_for_label }}">Editable summary paragraph</label>
+                        {{ draft_form.synopsis_draft }}
+                        <div class="form-text">{{ draft_form.synopsis_draft.help_text }}</div>
+                        {% if draft_form.synopsis_draft.errors %}
+                        <div class="text-danger small">{{ draft_form.synopsis_draft.errors|join:", " }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button class="btn btn-primary btn-sm" type="submit" name="draft_command" value="save">Save paragraph draft</button>
+                        {% if generated_summary and summary.synopsis_draft %}
+                        <button class="btn btn-outline-secondary btn-sm" type="submit" name="draft_command" value="use-generated">Reset to auto-generated</button>
+                        {% endif %}
+                        {% if summary.synopsis_draft %}
+                        <button class="btn btn-outline-danger btn-sm" type="submit" name="draft_command" value="clear">Clear edited draft</button>
+                        {% endif %}
+                    </div>
+                </form>
             </div>
         </div>
     </div>
@@ -580,25 +604,30 @@
   </div>
 </div>
 
-{% if generated_summary %}
-{{ generated_summary|json_script:"generated-summary-data" }}
+{% if current_summary_paragraph %}
+{{ current_summary_paragraph|json_script:"current-summary-data" }}
 <script>
     (function() {
-        const btn = document.getElementById("copy-generated-summary");
-        const dataEl = document.getElementById("generated-summary-data");
-        if (!btn || !dataEl) return;
-        let summaryText = "";
+        const btn = document.getElementById("copy-current-summary");
+        const dataEl = document.getElementById("current-summary-data");
+        const draftField = document.getElementById("{{ draft_form.synopsis_draft.id_for_label }}");
+        if (!dataEl) return;
+        let initialText = "";
         try {
-            summaryText = JSON.parse(dataEl.textContent);
-            if (typeof summaryText !== "string") {
-                summaryText = Array.isArray(summaryText)
-                    ? summaryText.join("\n")
-                    : String(summaryText);
+            initialText = JSON.parse(dataEl.textContent);
+            if (typeof initialText !== "string") {
+                initialText = Array.isArray(initialText)
+                    ? initialText.join("\n")
+                    : String(initialText);
             }
         } catch (e) {
             console.warn("Could not parse generated summary payload");
             return;
         }
+        if (draftField && !(draftField.value || "").trim()) {
+            draftField.value = initialText;
+        }
+        if (!btn) return;
         const fallbackCopy = (text) => {
             const temp = document.createElement("textarea");
             temp.value = text;
@@ -609,22 +638,27 @@
             try { document.execCommand("copy"); } catch (e) {}
             document.body.removeChild(temp);
         };
+        const currentText = () => {
+            const value = draftField ? (draftField.value || "").trim() : "";
+            return value || initialText;
+        };
         btn.addEventListener("click", () => {
             const doSuccess = () => {
                 btn.textContent = "Copied";
-                setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+                setTimeout(() => { btn.textContent = "Copy current"; }, 1500);
             };
             const doFail = () => {
                 btn.textContent = "Copy failed";
-                setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+                setTimeout(() => { btn.textContent = "Copy current"; }, 1500);
             };
+            const textToCopy = currentText();
             if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(summaryText).then(doSuccess).catch(() => {
-                    fallbackCopy(summaryText);
+                navigator.clipboard.writeText(textToCopy).then(doSuccess).catch(() => {
+                    fallbackCopy(textToCopy);
                     doSuccess();
                 });
             } else {
-                fallbackCopy(summaryText);
+                fallbackCopy(textToCopy);
                 doSuccess();
             }
         });

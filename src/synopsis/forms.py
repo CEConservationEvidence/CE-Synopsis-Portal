@@ -1714,7 +1714,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "harms_score",
             "reliability_score",
             "relevance_score",
-            "synopsis_draft",
             "summary_author",
             "broad_category",
             "keywords",
@@ -1759,7 +1758,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "harms_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
             "reliability_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
             "relevance_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
-            "synopsis_draft": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
             "citation": forms.TextInput(attrs={"class": "form-control"}),
         }
 
@@ -1884,6 +1882,34 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             instance.save()
             self.save_m2m()
         return instance
+
+
+class ReferenceSummaryDraftForm(forms.ModelForm):
+    def __init__(self, *args, generated_summary="", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["synopsis_draft"].required = False
+        self.fields["synopsis_draft"].help_text = (
+            "Saved draft text is used in compilation/export. Leave it blank to fall back to the auto-generated paragraph."
+        )
+        if (
+            not self.is_bound
+            and not (self.instance and (self.instance.synopsis_draft or "").strip())
+            and (generated_summary or "").strip()
+        ):
+            self.initial["synopsis_draft"] = generated_summary.strip()
+
+    class Meta:
+        model = ReferenceSummary
+        fields = ["synopsis_draft"]
+        widgets = {
+            "synopsis_draft": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 8,
+                    "placeholder": "Edit the generated paragraph here, or leave blank to fall back to the auto-generated text.",
+                }
+            )
+        }
 
 
 class ReferenceActionSummaryForm(forms.ModelForm):
