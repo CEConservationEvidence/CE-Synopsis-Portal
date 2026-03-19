@@ -128,7 +128,13 @@ from .models import (
     SynopsisExportLog,
 )
 from .presets import PRESETS
-from .utils import ensure_global_groups, email_subject, reply_to_list, reference_hash
+from .utils import (
+    ensure_global_groups,
+    email_subject,
+    minimum_allowed_deadline_date,
+    reply_to_list,
+    reference_hash,
+)
 
 
 ONLYOFFICE_SETTINGS = getattr(settings, "ONLYOFFICE", {})
@@ -595,10 +601,6 @@ def _resolve_document_feedback_deadline(override_due_date=None, current_deadline
     if override_due_date:
         return _end_of_day_datetime(override_due_date)
     return current_deadline or _default_document_feedback_deadline()
-
-
-def _minimum_allowed_deadline_date():
-    return timezone.localdate() + dt.timedelta(days=1)
 
 
 def _format_file_size(size_bytes):
@@ -1790,7 +1792,7 @@ def _advisory_board_context(
         "section_palette": section_palette,
         "custom_field_group_choices": AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
         "declined_members_with_reason": declined_with_reason,
-        "minimum_allowed_deadline_date": _minimum_allowed_deadline_date(),
+        "minimum_allowed_deadline_date": minimum_allowed_deadline_date(),
     }
 
 
@@ -5808,6 +5810,7 @@ def _ensure_reference_summaries(project, references):
                     reference=ref,
                     citation=_reference_summary_citation(ref),
                 )
+                _sync_reference_summary_identifiers_for_reference(ref, save=True)
                 existing_ref_ids.add(ref.id)
     return existing_ref_ids
 
@@ -5838,12 +5841,118 @@ def _project_reference_prefix(project):
     return "".join(initials[:6]) or "REF"
 
 
+def _prefix_from_identifier(identifier):
+    cleaned = _clean_identifier(identifier)
+    match = re.match(r"^(.*?)(\d+)$", cleaned)
+    if not match:
+        return ""
+    return match.group(1)
+
+
+def _sequence_from_identifier(identifier, prefix):
+    cleaned = _clean_identifier(identifier)
+    if prefix:
+        if not cleaned.startswith(prefix):
+            return None
+        suffix = cleaned[len(prefix) :]
+    else:
+        suffix = cleaned
+    if not suffix.isdigit():
+        return None
+    return int(suffix)
+
+
+def _reference_identifier_candidates(project):
+    summaries = ReferenceSummary.objects.filter(project=project).only(
+        "reference_identifier",
+        "summary_identifier"
+    )
+    for summary in summaries:
+        candidate = _clean_identifier(summary.reference_identifier)
+        if candidate:
+            yield candidate
+            continue
+        reference_identifier, _suffix = _split_summary_identifier(
+            summary.summary_identifier
+        )
+        if reference_identifier:
+            yield reference_identifier
+
+
+def _stored_project_reference_prefix(project):
+    for identifier in _reference_identifier_candidates(project):
+        prefix = _prefix_from_identifier(identifier)
+        if prefix:
+            return prefix
+    return ""
+
+
 def _generated_reference_identifier(reference):
-    sequence = 1000 + Reference.objects.filter(
-        project=reference.project,
+    project = reference.project
+    prefix = _stored_project_reference_prefix(project) or _project_reference_prefix(
+        project
+    )
+    count_floor = 1000 + Reference.objects.filter(
+        project=project,
         id__lt=reference.id,
     ).count()
-    return f"{_project_reference_prefix(reference.project)}{sequence}"
+    max_sequence = 999
+    for identifier in _reference_identifier_candidates(project):
+        sequence = _sequence_from_identifier(identifier, prefix)
+        if sequence is not None and sequence > max_sequence:
+            max_sequence = sequence
+    return f"{prefix}{max(count_floor, max_sequence + 1)}"
+
+
+def _clean_identifier(value):
+    return (value or "").strip()
+
+
+def _split_summary_identifier(summary_identifier):
+    cleaned = _clean_identifier(summary_identifier)
+    if "." not in cleaned:
+        return "", ""
+    reference_identifier, suffix = cleaned.rsplit(".", 1)
+    if not reference_identifier or not suffix:
+        return "", ""
+    return reference_identifier, suffix
+
+
+def _stored_reference_identifier_from_summaries(summaries):
+    for summary in summaries:
+        reference_identifier = _clean_identifier(summary.reference_identifier)
+        if reference_identifier:
+            return reference_identifier
+    for summary in summaries:
+        reference_identifier, _suffix = _split_summary_identifier(
+            summary.summary_identifier
+        )
+        if reference_identifier:
+            return reference_identifier
+    return ""
+
+
+def _reference_identifier_for_reference(reference, summaries=None):
+    if summaries is None:
+        summaries = list(reference.summaries.order_by("created_at", "id"))
+    reference_identifier = _stored_reference_identifier_from_summaries(summaries)
+    if reference_identifier:
+        return reference_identifier
+    return _generated_reference_identifier(reference)
+
+
+def _reference_identifier_for_summary(summary):
+    reference_identifier = _clean_identifier(summary.reference_identifier)
+    if reference_identifier:
+        return reference_identifier
+    reference_identifier, _suffix = _split_summary_identifier(
+        summary.summary_identifier
+    )
+    if reference_identifier:
+        return reference_identifier
+    if summary.reference_id:
+        return _reference_identifier_for_reference(summary.reference)
+    return ""
 
 
 def _alphabetical_suffix(index):
@@ -5862,15 +5971,42 @@ def _generated_summary_identifier(reference_identifier, index):
 
 def _sync_reference_summary_identifiers_for_reference(reference, *, save=False):
     summaries = list(reference.summaries.order_by("created_at", "id"))
-    reference_identifier = _generated_reference_identifier(reference)
-    for index, summary in enumerate(summaries, start=1):
-        summary_identifier = _generated_summary_identifier(reference_identifier, index)
+    reference_identifier = _reference_identifier_for_reference(
+        reference, summaries=summaries
+    )
+    used_suffixes_by_reference = defaultdict(set)
+    next_index_by_reference = defaultdict(lambda: 1)
+
+    for summary in summaries:
+        summary_reference_identifier, suffix = _split_summary_identifier(
+            summary.summary_identifier
+        )
+        if summary_reference_identifier and suffix:
+            used_suffixes_by_reference[summary_reference_identifier].add(suffix)
+
+    def _next_unused_summary_identifier(target_reference_identifier):
+        next_index = next_index_by_reference[target_reference_identifier]
+        while True:
+            suffix = _alphabetical_suffix(next_index)
+            next_index += 1
+            if suffix in used_suffixes_by_reference[target_reference_identifier]:
+                continue
+            used_suffixes_by_reference[target_reference_identifier].add(suffix)
+            next_index_by_reference[target_reference_identifier] = next_index
+            return f"{target_reference_identifier}.{suffix}"
+
+    for summary in summaries:
         changed_fields = []
-        if summary.reference_identifier != reference_identifier:
-            summary.reference_identifier = reference_identifier
+        summary_reference_identifier = _reference_identifier_for_summary(summary)
+        if not summary_reference_identifier:
+            summary_reference_identifier = reference_identifier
+        if _clean_identifier(summary.reference_identifier) != summary_reference_identifier:
+            summary.reference_identifier = summary_reference_identifier
             changed_fields.append("reference_identifier")
-        if summary.summary_identifier != summary_identifier:
-            summary.summary_identifier = summary_identifier
+        if not _clean_identifier(summary.summary_identifier):
+            summary.summary_identifier = _next_unused_summary_identifier(
+                summary_reference_identifier
+            )
             changed_fields.append("summary_identifier")
         if save and changed_fields:
             summary.save(update_fields=changed_fields + ["updated_at"])
@@ -5882,16 +6018,10 @@ def _reference_summary_display_label(summary, index=None):
     if label:
         return label
     if index is not None:
-        reference_identifier = (
-            (summary.reference_identifier or "").strip()
-            or _generated_reference_identifier(summary.reference)
-        )
+        reference_identifier = _reference_identifier_for_summary(summary)
         return _generated_summary_identifier(reference_identifier, index)
     if summary.reference_id:
-        reference_identifier = (
-            (summary.reference_identifier or "").strip()
-            or _generated_reference_identifier(summary.reference)
-        )
+        reference_identifier = _reference_identifier_for_summary(summary)
         return _generated_summary_identifier(reference_identifier, 1)
     return summary.display_label
 
@@ -5911,20 +6041,11 @@ def _reference_summary_workspace_context(reference):
 def _reference_summary_workspace_label(summary, index=None):
     label = _reference_summary_display_label(summary, index)
     summary_identifier = (summary.summary_identifier or "").strip()
-    if not summary_identifier and summary.reference_id:
-        reference_identifier = (
-            (summary.reference_identifier or "").strip()
-            or _generated_reference_identifier(summary.reference)
-        )
-        summary_identifier = _generated_summary_identifier(
-            reference_identifier,
-            index or 1,
-        )
     if summary_identifier and label and label != summary_identifier:
         return f"{summary_identifier} — {label}"
     if summary_identifier:
         return summary_identifier
-    return label
+    return _reference_summary_display_label(summary, index)
 
 
 def _reference_summary_tabs(reference, *, active_summary_id=None):
@@ -6128,20 +6249,29 @@ def _remove_reference_from_synopsis(reference):
     if not summaries:
         return 0
 
+    summary_ids = [summary.id for summary in summaries]
     assignments = list(
-        SynopsisAssignment.objects.filter(reference_summary__in=summaries).select_related(
-            "intervention", "reference_summary"
-        )
+        SynopsisAssignment.objects.filter(reference_summary_id__in=summary_ids)
+        .select_related("intervention")
     )
     if not assignments:
         return 0
 
     touched_interventions = {}
+    assignment_ids = []
     for assignment in assignments:
         touched_interventions[assignment.intervention_id] = assignment.intervention
-        for key_message in assignment.intervention.key_messages.all():
-            key_message.supporting_summaries.remove(assignment.reference_summary)
-        assignment.delete()
+        assignment_ids.append(assignment.id)
+
+    supporting_summary_through = (
+        SynopsisInterventionKeyMessage.supporting_summaries.through
+    )
+    with transaction.atomic():
+        supporting_summary_through.objects.filter(
+            synopsisinterventionkeymessage__intervention_id__in=touched_interventions.keys(),
+            referencesummary_id__in=summary_ids,
+        ).delete()
+        SynopsisAssignment.objects.filter(pk__in=assignment_ids).delete()
 
     for intervention in touched_interventions.values():
         _resequence_assignment_positions(intervention)
@@ -6164,7 +6294,7 @@ def _structured_summary_paragraph(
     location = ", ".join([part for part in [_clean(summary.region), _clean(summary.country)] if part])
     ref_id = _clean(reference_identifier_override)
     if not ref_id:
-        ref_id = _generated_reference_identifier(summary.reference)
+        ref_id = _reference_identifier_for_summary(summary)
     sites = _clean(summary.sites_replications)
     intro_parts = ["A"]
     intro_parts.append(study_design or study_type or "study")
@@ -6584,7 +6714,18 @@ def reference_summary_detail(request, project_id, summary_id):
                     summary_id=summary.id,
                 )
             next_summary = remaining_summaries[0]
-            summary.delete()
+            affected_intervention_ids = list(
+                SynopsisAssignment.objects.filter(reference_summary=summary)
+                .values_list("intervention_id", flat=True)
+                .distinct()
+            )
+            with transaction.atomic():
+                summary.delete()
+                if affected_intervention_ids:
+                    for intervention in SynopsisIntervention.objects.filter(
+                        id__in=affected_intervention_ids
+                    ):
+                        _resequence_assignment_positions(intervention)
             _sync_reference_summary_identifiers_for_reference(next_summary.reference, save=True)
             messages.success(request, "Summary tab deleted.")
             return redirect(
@@ -6658,12 +6799,11 @@ def reference_summary_detail(request, project_id, summary_id):
         if action == "update-classification" and classification_form.is_valid():
             reference = summary.reference
             previous_status = reference.screening_status
+            folders = classification_form.cleaned_data.get("reference_folder") or []
             reference.screening_status = classification_form.cleaned_data[
                 "screening_status"
             ]
-            reference.reference_folder = (
-                classification_form.cleaned_data.get("reference_folder") or []
-            )
+            reference.reference_folder = [folder for folder in folders if folder]
             reference.screening_notes = (
                 classification_form.cleaned_data.get("screening_notes") or ""
             )
@@ -6842,10 +6982,10 @@ def reference_summary_detail(request, project_id, summary_id):
             "project": project,
             "summary": summary,
             "reference": summary.reference,
-            "generated_reference_id": _generated_reference_identifier(summary.reference),
+            "generated_reference_id": _reference_identifier_for_summary(summary),
             "generated_summary_id": summary.summary_identifier
             or _generated_summary_identifier(
-                _generated_reference_identifier(summary.reference),
+                _reference_identifier_for_summary(summary),
                 1,
             ),
             "generated_reference_title": summary.reference.canonical.title
@@ -8955,7 +9095,7 @@ def advisory_invite_update_due_date(request, project_id, invitation_id):
 
     date_str = (request.POST.get("due_date") or "").strip()
     new_due_date = dt.date.fromisoformat(date_str) if date_str else None
-    if new_due_date and new_due_date < _minimum_allowed_deadline_date():
+    if new_due_date and new_due_date < minimum_allowed_deadline_date():
         messages.error(
             request,
             "Response date must be at least one day in the future.",

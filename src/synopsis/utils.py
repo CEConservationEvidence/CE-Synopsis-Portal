@@ -1,4 +1,5 @@
 import hashlib
+from datetime import timedelta
 
 from django.contrib.auth.models import Group
 from django.conf import settings
@@ -50,6 +51,10 @@ def reply_to_list(user_email: str | None) -> list[str]:
     """Prefer the inviter's email, fall back to DEFAULT_FROM_EMAIL."""
     fallback = settings.DEFAULT_FROM_EMAIL
     return [user_email or fallback]
+
+
+def minimum_allowed_deadline_date():
+    return timezone.localdate() + timedelta(days=1)
 
 
 GLOBAL_GROUPS = ["manager", "author", "external_collaborator"]

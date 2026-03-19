@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 from datetime import timedelta
 from synopsis.models import AdvisoryBoardMember
@@ -30,7 +30,20 @@ def format_deadline(dt_value):
 
 
 def reminder_lead_business_days():
-    return getattr(settings, "ADVISORY_REMINDER_LEAD_BUSINESS_DAYS", 2)
+    raw_value = getattr(settings, "ADVISORY_REMINDER_LEAD_BUSINESS_DAYS", 2)
+    try:
+        lead_days = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise CommandError(
+            "ADVISORY_REMINDER_LEAD_BUSINESS_DAYS must be an integer "
+            f"(got {raw_value!r})."
+        ) from exc
+    if lead_days < 0:
+        raise CommandError(
+            "ADVISORY_REMINDER_LEAD_BUSINESS_DAYS must be a non-negative integer "
+            f"(got {lead_days})."
+        )
+    return lead_days
 
 
 class Command(BaseCommand):

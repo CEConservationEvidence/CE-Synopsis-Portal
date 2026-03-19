@@ -783,18 +783,30 @@
             const emptyText = preview.dataset.emptyText || "Choose a summary tab.";
             if (!option || !option.value) {
                 preview.classList.add("is-empty");
-                preview.innerHTML = emptyText;
+                preview.textContent = emptyText;
                 return;
             }
             preview.classList.remove("is-empty");
             const heading = option.dataset.referenceHeading || "";
             const context = option.dataset.referenceContext || "";
             const summaryDisplay = option.dataset.summaryDisplay || option.textContent || "";
-            preview.innerHTML = `
-                <div class="summary-picker-preview-title">${heading || "Unknown authors"}</div>
-                <div class="summary-picker-preview-meta">${context || "Untitled reference"}</div>
-                <div class="mt-2">${summaryDisplay}</div>
-            `;
+            preview.replaceChildren();
+
+            const titleEl = document.createElement("div");
+            titleEl.className = "summary-picker-preview-title";
+            titleEl.textContent = heading || "Unknown authors";
+
+            const metaEl = document.createElement("div");
+            metaEl.className = "summary-picker-preview-meta";
+            metaEl.textContent = context || "Untitled reference";
+
+            const summaryEl = document.createElement("div");
+            summaryEl.className = "mt-2";
+            summaryEl.textContent = summaryDisplay;
+
+            preview.appendChild(titleEl);
+            preview.appendChild(metaEl);
+            preview.appendChild(summaryEl);
         };
 
         document.querySelectorAll(".summary-filter").forEach((input) => {

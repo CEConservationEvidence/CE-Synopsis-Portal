@@ -12,6 +12,7 @@ from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import PermissionDenied
+from django.core.management.base import CommandError
 from django.urls import reverse
 
 import shutil
@@ -50,12 +51,14 @@ from .models import (
 )
 from .forms import (
     ActionListReminderScheduleForm,
+    ActionListSendForm,
     AdvisoryBulkInviteForm,
     AdvisoryBoardMemberForm,
     AdvisoryInviteForm,
     AdvisoryMemberCustomDataForm,
     FunderForm,
     FunderContactFormSet,
+    ProtocolSendForm,
     ProtocolReminderScheduleForm,
     ProjectDeleteForm,
     ProjectSettingsForm,
@@ -999,6 +1002,40 @@ class AdvisoryDeadlineValidationTests(TestCase):
             expected_datetime_min,
         )
 
+    @override_settings(
+        ADVISORY_INVITE_RESPONSE_WINDOW_DAYS=14,
+        ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS=21,
+    )
+    def test_advisory_help_text_uses_runtime_settings(self):
+        self.assertIn(
+            "Defaults to 14 days from today.",
+            AdvisoryInviteForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 14 days from today",
+            AdvisoryBulkInviteForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 14 days from today.",
+            ReminderScheduleForm().fields["reminder_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today",
+            ProtocolSendForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today",
+            ActionListSendForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today.",
+            ProtocolReminderScheduleForm().fields["deadline"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today.",
+            ActionListReminderScheduleForm().fields["deadline"].help_text,
+        )
+
     def test_protocol_deadline_rejects_same_day_datetime(self):
         same_day_value = f"{timezone.localdate().isoformat()}T12:00"
         form = ProtocolReminderScheduleForm(data={"deadline": same_day_value})
@@ -1099,6 +1136,22 @@ class SendDueRemindersTests(TestCase):
             subjects,
         )
 
+    @override_settings(ADVISORY_REMINDER_LEAD_BUSINESS_DAYS=-1)
+    def test_rejects_negative_reminder_lead_business_days(self):
+        with self.assertRaisesMessage(
+            CommandError,
+            "ADVISORY_REMINDER_LEAD_BUSINESS_DAYS must be a non-negative integer",
+        ):
+            call_command("send_due_reminders")
+
+    @override_settings(ADVISORY_REMINDER_LEAD_BUSINESS_DAYS="tomorrow")
+    def test_rejects_non_integer_reminder_lead_business_days(self):
+        with self.assertRaisesMessage(
+            CommandError,
+            "ADVISORY_REMINDER_LEAD_BUSINESS_DAYS must be an integer",
+        ):
+            call_command("send_due_reminders")
+
 
 class MemberReminderUpdateTests(TestCase):
     def setUp(self):
@@ -1116,7 +1169,7 @@ class MemberReminderUpdateTests(TestCase):
             reminder_sent=True,
             reminder_sent_at=timezone.now(),
         )
-        target_date = timezone.localdate() + timedelta(days=5)
+        target_date = date(2025, 2, 20)
         response = self.client.post(
             reverse(
                 "synopsis:advisory_member_set_deadline",
@@ -1440,7 +1493,7 @@ class AdvisoryInviteFlowTests(TestCase):
             reminder_sent=True,
             reminder_sent_at=timezone.now(),
         )
-        due = timezone.localdate() + timedelta(days=7)
+        due = date(2025, 11, 30)
         url = reverse(
             "synopsis:advisory_invite_create_for_member",
             args=[self.project.id, member.id],
@@ -1506,14 +1559,14 @@ class AdvisoryInviteFlowTests(TestCase):
             email="iris@example.com",
             invite_sent=True,
             invite_sent_at=timezone.now(),
-            response_date=existing_due,
+            response_date=date(2025, 10, 1),
         )
         new_member = AdvisoryBoardMember.objects.create(
             project=self.project,
             first_name="Liam",
             email="liam@example.com",
         )
-        due = timezone.localdate() + timedelta(days=10)
+        due = date(2025, 12, 20)
         response = self.client.post(
             reverse("synopsis:advisory_send_invites_bulk", args=[self.project.id]),
             {
@@ -1526,7 +1579,7 @@ class AdvisoryInviteFlowTests(TestCase):
         already_invited.refresh_from_db()
         self.assertTrue(new_member.invite_sent)
         self.assertEqual(new_member.response_date, due)
-        self.assertEqual(already_invited.response_date, existing_due)
+        self.assertEqual(already_invited.response_date, date(2025, 10, 1))
         self.assertEqual(
             AdvisoryBoardInvitation.objects.filter(project=self.project).count(), 1
         )
@@ -3787,10 +3840,10 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
         self.summary.refresh_from_db()
         self.assertEqual(new_summary.assigned_to, self.user)
-        self.assertEqual(self.summary.reference_identifier, "CR1000")
-        self.assertEqual(self.summary.summary_identifier, "CR1000.a")
-        self.assertEqual(new_summary.reference_identifier, "CR1000")
-        self.assertEqual(new_summary.summary_identifier, "CR1000.b")
+        self.assertEqual(self.summary.reference_identifier, "manual-ref")
+        self.assertEqual(self.summary.summary_identifier, "manual-summary")
+        self.assertEqual(new_summary.reference_identifier, "manual-ref")
+        self.assertEqual(new_summary.summary_identifier, "manual-ref.a")
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.citation, "Author (2024)")
 
@@ -3824,6 +3877,60 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.summary_identifier, "CR1000.a")
+
+    def test_delete_summary_tab_resequences_intervention_assignments(self):
+        extra_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            status=ReferenceSummary.STATUS_DRAFT,
+        )
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Intervention",
+            position=1,
+        )
+        retained_assignment = SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=extra_summary,
+            position=2,
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, extra_summary.id],
+            ),
+            {"action": "delete-summary-tab"},
+            follow=False,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            fetch_redirect_response=False,
+        )
+        retained_assignment.refresh_from_db()
+        self.assertEqual(retained_assignment.position, 1)
 
     def test_delete_summary_tab_is_blocked_for_only_summary(self):
         self.client.login(username="author", password="pass123")
@@ -3902,6 +4009,146 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, 'value="CR1001"')
         self.assertContains(response, 'value="CR1001.a"')
 
+    def test_project_title_change_does_not_rewrite_existing_identifiers(self):
+        self.client.login(username="author", password="pass123")
+        detail_url = reverse(
+            "synopsis:reference_summary_detail",
+            args=[self.project.id, self.summary.id],
+        )
+
+        self.client.get(detail_url)
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.reference_identifier, "CR1000")
+        self.assertEqual(self.summary.summary_identifier, "CR1000.a")
+
+        self.project.title = "Marine Restoration Handbook"
+        self.project.save(update_fields=["title"])
+
+        self.client.get(detail_url)
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.reference_identifier, "CR1000")
+        self.assertEqual(self.summary.summary_identifier, "CR1000.a")
+
+    def test_deleting_earlier_reference_does_not_rewrite_later_reference_identifier(self):
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        self.client.login(username="author", password="pass123")
+        second_detail_url = reverse(
+            "synopsis:reference_summary_detail",
+            args=[self.project.id, second_summary.id],
+        )
+
+        self.client.get(second_detail_url)
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+        self.assertEqual(second_summary.summary_identifier, "CR1001.a")
+
+        self.reference.delete()
+
+        self.client.get(second_detail_url)
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+        self.assertEqual(second_summary.summary_identifier, "CR1001.a")
+
+    def test_new_reference_after_deleting_earlier_reference_gets_next_unused_id(self):
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        self.client.login(username="author", password="pass123")
+        self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, second_summary.id],
+            )
+        )
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+
+        self.reference.delete()
+
+        third_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="c" * 40,
+            title="Third reference",
+        )
+        third_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=third_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, third_summary.id],
+            )
+        )
+
+        third_summary.refresh_from_db()
+        self.assertEqual(third_summary.reference_identifier, "CR1002")
+        self.assertEqual(third_summary.summary_identifier, "CR1002.a")
+        self.assertContains(response, 'value="CR1002"')
+        self.assertContains(response, 'value="CR1002.a"')
+
+    def test_new_reference_after_project_rename_keeps_established_prefix(self):
+        self.client.login(username="author", password="pass123")
+        self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.reference_identifier, "CR1000")
+
+        self.project.title = "Marine Restoration Handbook"
+        self.project.save(update_fields=["title"])
+
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, second_summary.id],
+            )
+        )
+
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+        self.assertEqual(second_summary.summary_identifier, "CR1001.a")
+        self.assertContains(response, 'value="CR1001"')
+        self.assertContains(response, 'value="CR1001.a"')
+
     def test_board_still_creates_only_one_default_summary_per_included_reference(self):
         self.reference.screening_status = "included"
         self.reference.save(update_fields=["screening_status"])
@@ -3924,7 +4171,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ).count(),
             2,
         )
-        self.assertContains(resp, "of 2 summary tabs for this reference", status_code=200)
+        self.assertContains(resp, "multiple summary tabs per reference", status_code=200)
         self.assertContains(resp, "CR1000.b")
 
     def test_board_and_detail_use_library_reference_metadata(self):
@@ -3980,6 +4227,29 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.reference.screening_status, "included")
         self.assertEqual(self.reference.reference_folder, ["3a"])
         self.assertEqual(self.reference.screening_notes, "Freshwater fish evidence.")
+        self.assertContains(response, "Reference classification updated.")
+
+    def test_summary_detail_filters_blank_reference_folder_values(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "screening_status": "included",
+                "reference_folder": ["", "3a"],
+                "screening_notes": "Freshwater fish evidence.",
+            },
+            follow=True,
+        )
+
+        self.reference.refresh_from_db()
+        self.assertEqual(self.reference.reference_folder, ["3a"])
         self.assertContains(response, "Reference classification updated.")
 
     def test_excluding_reference_requires_reason_on_summary_page(self):
@@ -4198,7 +4468,7 @@ class ProjectAuthorSelectionUiTests(TestCase):
         self.assertContains(response, "Filter authors by name or username")
         self.assertContains(
             response,
-            "No Ctrl/Cmd multi-select is needed",
+            "no Ctrl/Cmd multi-select is needed",
             html=False,
         )
         self.assertContains(response, "Ibrahim Alhas (ibrahim)")

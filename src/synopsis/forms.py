@@ -1,5 +1,4 @@
 import re
-from datetime import timedelta
 
 from django import forms
 from django.conf import settings
@@ -9,25 +8,25 @@ from django.forms.models import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
 
+from .utils import minimum_allowed_deadline_date
+
 MAX_LOCATION_LINE_LENGTH = 200
-ADVISORY_INVITE_RESPONSE_WINDOW_DAYS = getattr(
-    settings, "ADVISORY_INVITE_RESPONSE_WINDOW_DAYS", 10
-)
-ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS = getattr(
-    settings, "ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS", 10
-)
 
 
-def _minimum_allowed_deadline_date():
-    return timezone.localdate() + timedelta(days=1)
+def _advisory_invite_response_window_days():
+    return getattr(settings, "ADVISORY_INVITE_RESPONSE_WINDOW_DAYS", 10)
+
+
+def _advisory_document_feedback_window_days():
+    return getattr(settings, "ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS", 10)
 
 
 def _minimum_allowed_deadline_date_str():
-    return _minimum_allowed_deadline_date().isoformat()
+    return minimum_allowed_deadline_date().isoformat()
 
 
 def _minimum_allowed_deadline_datetime_local_str():
-    return f"{_minimum_allowed_deadline_date().isoformat()}T00:00"
+    return f"{minimum_allowed_deadline_date().isoformat()}T00:00"
 
 
 def _set_min_date_attr(field):
@@ -41,7 +40,7 @@ def _set_min_datetime_attr(field):
 def _validate_not_same_day_date(value, field_label):
     if not value:
         return value
-    minimum_date = _minimum_allowed_deadline_date()
+    minimum_date = minimum_allowed_deadline_date()
     if value < minimum_date:
         raise forms.ValidationError(
             f"{field_label} must be at least one day in the future."
@@ -56,7 +55,7 @@ def _validate_not_same_day_datetime(value, field_label):
         local_value = timezone.localtime(value)
     except (ValueError, TypeError):
         local_value = value
-    minimum_date = _minimum_allowed_deadline_date()
+    minimum_date = minimum_allowed_deadline_date()
     if local_value.date() < minimum_date:
         raise forms.ValidationError(
             f"{field_label} must be at least one day in the future."
@@ -351,10 +350,7 @@ class AdvisoryInviteForm(forms.Form):
         required=False,
         label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text=(
-            "This date is shown in the invitation and on the advisory board dashboard. "
-            f"Defaults to {ADVISORY_INVITE_RESPONSE_WINDOW_DAYS} days from today."
-        ),
+        help_text="",
     )
     message = forms.CharField(
         required=False,
@@ -382,6 +378,10 @@ class AdvisoryInviteForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["due_date"])
+        self.fields["due_date"].help_text = (
+            "This date is shown in the invitation and on the advisory board dashboard. "
+            f"Defaults to {_advisory_invite_response_window_days()} days from today."
+        )
 
     def clean_due_date(self):
         return _validate_not_same_day_date(
@@ -993,9 +993,7 @@ class AdvisoryBulkInviteForm(forms.Form):
         required=False,
         label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text=(
-            f"Defaults to {ADVISORY_INVITE_RESPONSE_WINDOW_DAYS} days from today for members without an existing deadline."
-        ),
+        help_text="",
     )
     message = forms.CharField(
         required=False,
@@ -1023,6 +1021,11 @@ class AdvisoryBulkInviteForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["due_date"])
+        self.fields["due_date"].help_text = (
+            "Defaults to "
+            f"{_advisory_invite_response_window_days()} days from today for members "
+            "without an existing deadline."
+        )
 
     def clean_due_date(self):
         return _validate_not_same_day_date(
@@ -1035,9 +1038,7 @@ class ProtocolSendForm(forms.Form):
         required=False,
         label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text=(
-            f"Defaults to {ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS} days from today if no deadline is already set."
-        ),
+        help_text="",
     )
     message = forms.CharField(
         required=False,
@@ -1067,6 +1068,11 @@ class ProtocolSendForm(forms.Form):
     ):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["due_date"])
+        self.fields["due_date"].help_text = (
+            "Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today if no "
+            "deadline is already set."
+        )
         self.document_available = document_available
         self.collaborative_available = collaborative_enabled
         doc_field = self.fields["include_protocol_document"]
@@ -1119,9 +1125,7 @@ class ActionListSendForm(forms.Form):
         required=False,
         label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text=(
-            f"Defaults to {ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS} days from today if no deadline is already set."
-        ),
+        help_text="",
     )
     message = forms.CharField(
         required=False,
@@ -1151,6 +1155,11 @@ class ActionListSendForm(forms.Form):
     ):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["due_date"])
+        self.fields["due_date"].help_text = (
+            "Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today if no "
+            "deadline is already set."
+        )
         self.document_available = document_available
         self.collaborative_available = collaborative_enabled
         doc_field = self.fields["include_action_list_document"]
@@ -1200,14 +1209,16 @@ class ActionListSendForm(forms.Form):
 class ReminderScheduleForm(forms.Form):
     reminder_date = forms.DateField(
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text=(
-            f"Members without invitations will get this response deadline set. Defaults to {ADVISORY_INVITE_RESPONSE_WINDOW_DAYS} days from today."
-        ),
+        help_text="",
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["reminder_date"])
+        self.fields["reminder_date"].help_text = (
+            "Members without invitations will get this response deadline set. "
+            f"Defaults to {_advisory_invite_response_window_days()} days from today."
+        )
 
     def clean_reminder_date(self):
         return _validate_not_same_day_date(
@@ -1222,14 +1233,17 @@ class ProtocolReminderScheduleForm(forms.Form):
             format="%Y-%m-%dT%H:%M",
         ),
         input_formats=["%Y-%m-%dT%H:%M"],
-        help_text=(
-            f"Set or update the protocol feedback deadline (date and time) for members with the protocol. Defaults to {ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS} days from today."
-        ),
+        help_text="",
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _set_min_datetime_attr(self.fields["deadline"])
+        self.fields["deadline"].help_text = (
+            "Set or update the protocol feedback deadline (date and time) for "
+            "members with the protocol. Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today."
+        )
 
     def clean_deadline(self):
         return _validate_not_same_day_datetime(
@@ -1244,14 +1258,17 @@ class ActionListReminderScheduleForm(forms.Form):
             format="%Y-%m-%dT%H:%M",
         ),
         input_formats=["%Y-%m-%dT%H:%M"],
-        help_text=(
-            f"Set or update the action list feedback deadline (date and time) for members. Defaults to {ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS} days from today."
-        ),
+        help_text="",
     )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _set_min_datetime_attr(self.fields["deadline"])
+        self.fields["deadline"].help_text = (
+            "Set or update the action list feedback deadline (date and time) for "
+            "members. Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today."
+        )
 
     def clean_deadline(self):
         return _validate_not_same_day_datetime(
