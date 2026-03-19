@@ -28,6 +28,20 @@
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const defaultStandardMessage = "{{ default_invitation_message|escapejs }}";
+    const monthAbbreviations = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ];
 
     const formatDueDate = function (value) {
         if (!value) {
@@ -37,11 +51,10 @@ document.addEventListener("DOMContentLoaded", function () {
         if (Number.isNaN(parsed.getTime())) {
             return value;
         }
-        return parsed.toLocaleDateString("en-GB", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-        });
+        const day = String(parsed.getDate()).padStart(2, "0");
+        const month = monthAbbreviations[parsed.getMonth()] || "";
+        const year = String(parsed.getFullYear());
+        return month ? day + " " + month + " " + year : value;
     };
 
     document.querySelectorAll("[data-advisory-invite-preview]").forEach(function (preview) {
