@@ -76,6 +76,7 @@ from .forms import (
     AdvisoryCustomFieldPlacementForm,
     AdvisoryMemberCustomDataForm,
     ReferenceSummaryAssignmentForm,
+    ReferenceSummaryDraftForm,
     ReferenceSummaryUpdateForm,
     ReferenceSummaryCommentForm,
     ReferenceCommentForm,
@@ -6252,6 +6253,36 @@ def _structured_summary_paragraph(
     return paragraph
 
 
+def _reference_summary_paragraph(
+    summary: ReferenceSummary, reference_identifier_override: str | None = None
+) -> str:
+    draft = (summary.synopsis_draft or "").strip()
+    if draft:
+        override = (str(reference_identifier_override).strip() if reference_identifier_override else "")
+        if override:
+            known_identifiers = {
+                identifier.strip()
+                for identifier in [
+                    summary.reference_identifier,
+                    _generated_reference_identifier(summary.reference),
+                ]
+                if identifier and identifier.strip()
+            }
+            replaced = False
+            for identifier in known_identifiers:
+                token = f"({identifier})"
+                if token in draft:
+                    draft = draft.replace(token, f"({override})")
+                    replaced = True
+            if not replaced and f"({override})" not in draft:
+                draft = f"({override}) {draft}"
+        return draft
+    return _structured_summary_paragraph(
+        summary,
+        reference_identifier_override=reference_identifier_override,
+    )
+
+
 @login_required
 def reference_summary_board(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -6482,6 +6513,7 @@ def reference_summary_detail(request, project_id, summary_id):
         summary.reference, save=True
     )
     summary = next((item for item in synced_summaries if item.id == summary.id), summary)
+    generated_summary = _structured_summary_paragraph(summary)
 
     active_action = request.POST.get("action") if request.method == "POST" else None
     summary_form = ReferenceSummaryUpdateForm(
@@ -6505,6 +6537,11 @@ def reference_summary_detail(request, project_id, summary_id):
     classification_form = ReferenceClassificationForm(
         request.POST if active_action == "update-classification" else None,
         initial=classification_initial,
+    )
+    draft_form = ReferenceSummaryDraftForm(
+        request.POST if active_action == "save-synopsis-draft" else None,
+        instance=summary,
+        generated_summary=generated_summary,
     )
     comment_form = ReferenceSummaryCommentForm()
     document_form = ReferenceDocumentForm()
@@ -6573,6 +6610,42 @@ def reference_summary_detail(request, project_id, summary_id):
             if not error_list:
                 error_list.append("Unable to save summary. Please review your inputs.")
             messages.error(request, " ".join(error_list))
+        if action == "save-synopsis-draft":
+            draft_command = request.POST.get("draft_command") or "save"
+            if draft_command == "use-generated":
+                summary.synopsis_draft = generated_summary
+                summary.save(update_fields=["synopsis_draft", "updated_at"])
+                messages.success(
+                    request,
+                    "Generated paragraph copied into the editable draft.",
+                )
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            if draft_command == "clear":
+                summary.synopsis_draft = ""
+                summary.save(update_fields=["synopsis_draft", "updated_at"])
+                messages.success(
+                    request,
+                    "Saved paragraph draft cleared. Compilation will use the auto-generated paragraph again.",
+                )
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            if draft_form.is_valid():
+                summary = draft_form.save(commit=False)
+                summary.save(update_fields=["synopsis_draft", "updated_at"])
+                messages.success(request, "Summary paragraph draft saved.")
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            messages.error(request, "Could not save the summary paragraph draft.")
         if action == "update-classification" and classification_form.is_valid():
             reference = summary.reference
             previous_status = reference.screening_status
@@ -6742,7 +6815,7 @@ def reference_summary_detail(request, project_id, summary_id):
 
     comments = summary.comments.select_related("author")
     action_summaries = summary.action_summaries.order_by("order", "id")
-    generated_summary = _structured_summary_paragraph(summary)
+    current_summary_paragraph = _reference_summary_paragraph(summary)
     summary_tabs = _reference_summary_tabs(
         summary.reference, active_summary_id=summary.id
     )
@@ -6770,6 +6843,7 @@ def reference_summary_detail(request, project_id, summary_id):
             or summary.reference.title,
             "summary_tabs": summary_tabs,
             "summary_form": summary_form,
+            "draft_form": draft_form,
             "assignment_form": assignment_form,
             "classification_form": classification_form,
             "comment_form": comment_form,
@@ -6780,6 +6854,7 @@ def reference_summary_detail(request, project_id, summary_id):
             "action_summary_form": action_summary_form,
             "action_summaries": action_summaries,
             "generated_summary": generated_summary,
+            "current_summary_paragraph": current_summary_paragraph,
             "status_choices": ReferenceSummary.STATUS_CHOICES,
         },
     )
@@ -7723,7 +7798,7 @@ def _generate_synopsis_docx(project):
                 for assignment in ordered_assignments:
                     summary = assignment.reference_summary
                     reference_number = summary_numbers.get(summary.id)
-                    paragraph = _structured_summary_paragraph(
+                    paragraph = _reference_summary_paragraph(
                         summary,
                         reference_identifier_override=(
                             str(reference_number) if reference_number else None
