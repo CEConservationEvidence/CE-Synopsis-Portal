@@ -4759,7 +4759,7 @@ def advisory_schedule_protocol_reminders(request, project_id):
         request,
         f"Protocol reminder scheduled for {updated} member(s). Reminder now set as required.",
     )
-    return redirect("synopsis:advisory_board_list", project_id=project.id)
+    return redirect("synopsis:protocol_detail", project_id=project.id)
 
 
 @login_required
@@ -4770,7 +4770,7 @@ def advisory_schedule_action_list_reminders(request, project_id):
 
     if not getattr(project, "action_list", None):
         messages.error(request, "No action list configured for this project.")
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     form = ActionListReminderScheduleForm(request.POST)
     pending_members = project.advisory_board_members.filter(
@@ -4779,8 +4779,10 @@ def advisory_schedule_action_list_reminders(request, project_id):
     )
 
     if not form.is_valid():
-        context = _advisory_board_context(project, user=request.user, action_list_form=form)
-        return render(request, "synopsis/advisory_board_list.html", context)
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     deadline = form.cleaned_data["deadline"]
     if timezone.is_naive(deadline):
@@ -4832,7 +4834,7 @@ def advisory_schedule_action_list_reminders(request, project_id):
         request,
         f"Action list reminder scheduled for {updated} member(s). Reminder now set as required.",
     )
-    return redirect("synopsis:advisory_board_list", project_id=project.id)
+    return redirect("synopsis:action_list_detail", project_id=project.id)
 
 
 @login_required
@@ -8240,7 +8242,7 @@ def advisory_protocol_feedback_close(request, project_id):
     proto = getattr(project, "protocol", None)
     if not proto:
         messages.error(request, "No protocol configured for this project.")
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
+        return redirect("synopsis:protocol_detail", project_id=project.id)
 
     action = request.POST.get("action")
     if action == "reopen":
@@ -8255,19 +8257,17 @@ def advisory_protocol_feedback_close(request, project_id):
             "Protocol feedback reopened",
         )
         messages.success(request, "Protocol feedback reopened for advisory members.")
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
+        return redirect("synopsis:protocol_detail", project_id=project.id)
 
     if request.method != "POST":
         return HttpResponseBadRequest("POST required")
 
     form = ProtocolFeedbackCloseForm(request.POST)
     if not form.is_valid():
-        context = _advisory_board_context(
-            project,
-            user=request.user,
-            feedback_close_form=form,
-        )
-        return render(request, "synopsis/advisory_board_list.html", context)
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+        return redirect("synopsis:protocol_detail", project_id=project.id)
 
     message = form.cleaned_data.get("message", "")
     now = timezone.now()
@@ -8310,7 +8310,7 @@ def advisory_protocol_feedback_close(request, project_id):
             "Protocol collaborative session closed",
             f"Session {ended_session.token} marked inactive.",
         )
-    return redirect("synopsis:advisory_board_list", project_id=project.id)
+    return redirect("synopsis:protocol_detail", project_id=project.id)
 
 
 @login_required
@@ -8319,7 +8319,7 @@ def advisory_action_list_feedback_close(request, project_id):
     action_list = getattr(project, "action_list", None)
     if not action_list:
         messages.error(request, "No action list configured for this project.")
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     action = request.POST.get("action")
     if action == "reopen":
@@ -8336,19 +8336,17 @@ def advisory_action_list_feedback_close(request, project_id):
             "Action list feedback reopened",
         )
         messages.success(request, "Action list feedback reopened for advisory members.")
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     if request.method != "POST":
         return HttpResponseBadRequest("POST required")
 
     form = ActionListFeedbackCloseForm(request.POST)
     if not form.is_valid():
-        context = _advisory_board_context(
-            project,
-            user=request.user,
-            action_list_feedback_close_form=form,
-        )
-        return render(request, "synopsis/advisory_board_list.html", context)
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     message = form.cleaned_data.get("message", "")
     now = timezone.now()
@@ -8391,7 +8389,7 @@ def advisory_action_list_feedback_close(request, project_id):
             "Action list collaborative session closed",
             f"Session {ended_session.token} marked inactive.",
         )
-    return redirect("synopsis:advisory_board_list", project_id=project.id)
+    return redirect("synopsis:action_list_detail", project_id=project.id)
 
 
 @login_required
