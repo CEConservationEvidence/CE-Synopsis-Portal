@@ -69,6 +69,7 @@ from .forms import (
     ReferenceBatchUploadForm,
     LibraryReferenceBatchUploadForm,
     ReferenceScreeningForm,
+    ReferenceClassificationForm,
     LibraryReferenceUpdateForm,
     CollaborativeUpdateForm,
     AdvisoryCustomFieldForm,
@@ -6110,6 +6111,32 @@ def _resequence_action_summaries(reference_summary):
         if action_summary.order != idx:
             action_summary.order = idx
             action_summary.save(update_fields=["order"])
+
+
+def _remove_reference_from_synopsis(reference):
+    summaries = list(reference.summaries.all())
+    if not summaries:
+        return 0
+
+    assignments = list(
+        SynopsisAssignment.objects.filter(reference_summary__in=summaries).select_related(
+            "intervention", "reference_summary"
+        )
+    )
+    if not assignments:
+        return 0
+
+    touched_interventions = {}
+    for assignment in assignments:
+        touched_interventions[assignment.intervention_id] = assignment.intervention
+        for key_message in assignment.intervention.key_messages.all():
+            key_message.supporting_summaries.remove(assignment.reference_summary)
+        assignment.delete()
+
+    for intervention in touched_interventions.values():
+        _resequence_assignment_positions(intervention)
+
+    return len(assignments)
 
 
 def _structured_summary_paragraph(
