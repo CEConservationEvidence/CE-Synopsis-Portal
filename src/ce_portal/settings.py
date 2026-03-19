@@ -13,7 +13,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import importlib.util
 import os
 from pathlib import Path
-from decouple import AutoConfig, Config, RepositoryEnv
+from decouple import AutoConfig, Config, RepositoryEnv, UndefinedValueError, strtobool
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -48,6 +48,45 @@ def _csv_config(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 
+def _repository_value(name: str) -> str | None:
+    repository = getattr(config, "repository", None)
+    if repository is None:
+        return None
+    try:
+        return repository[name]
+    except KeyError:
+        return None
+
+
+def _bool_from_string(value: str) -> bool:
+    value = (value or "").strip()
+    return bool(value) if value == "" else bool(strtobool(value))
+
+
+def _bool_config(name: str, default: bool = False, fallback_names: tuple[str, ...] = ()) -> bool:
+    for env_name in (name, *fallback_names):
+        raw_env = os.environ.get(env_name)
+        if raw_env is None:
+            continue
+        try:
+            return _bool_from_string(raw_env)
+        except ValueError:
+            # Ignore unrelated shell values like DEBUG=release and fall back to
+            # the project env file instead of breaking manage.py commands.
+            continue
+
+    for env_name in (name, *fallback_names):
+        raw_repo = _repository_value(env_name)
+        if raw_repo is None:
+            continue
+        return _bool_from_string(raw_repo)
+
+    try:
+        return config(name, cast=bool, default=default)
+    except (UndefinedValueError, ValueError):
+        return default
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -55,7 +94,7 @@ def _csv_config(name: str, default: str = "") -> list[str]:
 SECRET_KEY = config("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config("DEBUG", cast=bool, default=False)
+DEBUG = _bool_config("DJANGO_DEBUG", default=False, fallback_names=("DEBUG",))
 
 ALLOWED_HOSTS = _csv_config(
     "ALLOWED_HOSTS",

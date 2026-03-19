@@ -64,20 +64,24 @@ The ONLYOFFICE setup works when these three URLs are set correctly:
 
 For the current Docker setup:
 - leave `ONLYOFFICE_INTERNAL_URL=http://onlyoffice`
+- if Django is also running in Docker Compose, set `ONLYOFFICE_APP_BASE_URL=http://web:8000`
 - keep the same `ONLYOFFICE_JWT_SECRET` in Django and ONLYOFFICE
 
 ## Local Docker Desktop Note
 
 For local Docker Desktop testing, the browser and the containers do not resolve `localhost` the same way.
 
-Typical local values are:
+Typical local values for the full Docker Compose stack are:
 
 ```env
 ONLYOFFICE_URL=http://localhost:8080
 ONLYOFFICE_INTERNAL_URL=http://onlyoffice
-ONLYOFFICE_APP_BASE_URL=http://host.docker.internal:8000
+ONLYOFFICE_APP_BASE_URL=http://web:8000
 ONLYOFFICE_TRUSTED_DOWNLOAD_URLS=http://localhost:8080,http://onlyoffice
+ALLOWED_HOSTS=localhost,127.0.0.1,host.docker.internal,web
 ```
+
+Use `http://host.docker.internal:8000` only if Django is running on the host machine and ONLYOFFICE is the only containerized part.
 
 ## Data Volumes
 

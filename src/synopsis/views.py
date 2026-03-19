@@ -761,7 +761,7 @@ def _apply_revision_to_protocol(protocol, revision) -> tuple[str, str]:
         raise ValueError("Revision file empty")
 
     base_name = revision.original_name or os.path.basename(revision.file.name)
-    new_filename = f"protocols/{uuid.uuid4()}_{base_name}"
+    new_filename = f"{uuid.uuid4()}_{base_name}"
     protocol.document.save(new_filename, ContentFile(content), save=False)
     protocol.current_revision = revision
     protocol.save(update_fields=["document", "current_revision"])
@@ -779,7 +779,7 @@ def _apply_revision_to_action_list(action_list, revision) -> tuple[str, str]:
         raise ValueError("Revision file empty")
 
     base_name = revision.original_name or os.path.basename(revision.file.name)
-    new_filename = f"action_lists/{uuid.uuid4()}_{base_name}"
+    new_filename = f"{uuid.uuid4()}_{base_name}"
     action_list.document.save(new_filename, ContentFile(content), save=False)
     action_list.current_revision = revision
     action_list.save(update_fields=["document", "current_revision"])

@@ -80,6 +80,8 @@ from .utils import (
 )
 from .views import (
     _advisory_board_context,
+    _apply_revision_to_action_list,
+    _apply_revision_to_protocol,
     _build_advisory_invitation_email,
     _build_onlyoffice_config,
     _download_onlyoffice_file,
@@ -2977,6 +2979,12 @@ class RevisionDeleteViewTests(TestCase):
             ).exists()
         )
 
+    def test_apply_protocol_revision_does_not_duplicate_upload_prefix(self):
+        _apply_revision_to_protocol(self.protocol, self.rev1)
+        self.protocol.refresh_from_db()
+        self.assertTrue(self.protocol.document.name.startswith("protocols/"))
+        self.assertNotIn("protocols/protocols/", self.protocol.document.name)
+
     def test_non_editor_cannot_delete_protocol_revision(self):
         request = self.factory.post(
             f"/project/{self.project.id}/protocol/revision/{self.rev1.id}/delete/"
@@ -3007,6 +3015,12 @@ class RevisionDeleteViewTests(TestCase):
                 project=self.project, action__icontains="Action list revision deleted"
             ).exists()
         )
+
+    def test_apply_action_list_revision_does_not_duplicate_upload_prefix(self):
+        _apply_revision_to_action_list(self.action_list, self.al_rev1)
+        self.action_list.refresh_from_db()
+        self.assertTrue(self.action_list.document.name.startswith("action_lists/"))
+        self.assertNotIn("action_lists/action_lists/", self.action_list.document.name)
 
     def test_non_editor_cannot_delete_action_list_revision(self):
         request = self.factory.post(
@@ -3086,7 +3100,7 @@ class ViewHelperTests(TestCase):
         self.assertTrue(_user_is_manager(user))
 
     def test_user_is_manager_for_group_member(self):
-        group = Group.objects.create(name="manager")
+        group, _ = Group.objects.get_or_create(name="manager")
         user = User.objects.create_user(username="manager_user")
         user.groups.add(group)
         self.assertTrue(_user_is_manager(user))
