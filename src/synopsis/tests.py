@@ -60,6 +60,7 @@ from .forms import (
     ProjectDeleteForm,
     ProjectSettingsForm,
     ReminderScheduleForm,
+    ReferenceSummaryDraftForm,
     ReferenceSummaryUpdateForm,
 )
 from .utils import (
@@ -91,6 +92,7 @@ from .views import (
     _generate_synopsis_docx,
     _link_library_references_to_project,
     _reference_export_citation,
+    _reference_summary_paragraph,
     _structured_summary_paragraph,
 )
 
@@ -3549,6 +3551,28 @@ class LibraryLinkBatchTests(TestCase):
 
 
 class ReferenceSummaryFormTests(TestCase):
+    def test_draft_form_prefills_generated_summary_when_no_saved_draft_exists(self):
+        project = Project.objects.create(title="Coral Reefs Synopsis")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="c" * 40,
+            title="Test reference",
+        )
+        summary = ReferenceSummary.objects.create(project=project, reference=reference)
+
+        form = ReferenceSummaryDraftForm(
+            instance=summary,
+            generated_summary="Auto-generated paragraph.",
+        )
+
+        self.assertEqual(form["synopsis_draft"].value(), "Auto-generated paragraph.")
+
     def test_location_tags_accepts_place_and_coords(self):
         form = ReferenceSummaryUpdateForm(
             data={"status": ReferenceSummary.STATUS_TODO, "location_tags": "London, UK - 51.50740, -0.12780"}
@@ -3652,6 +3676,62 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.summary.habitat_and_sites, "New habitat info")
         messages = list(get_messages(resp.wsgi_request))
         self.assertTrue(any("Summary updated" in str(m) for m in messages))
+
+    def test_save_summary_does_not_clear_saved_paragraph_draft(self):
+        self.summary.synopsis_draft = "Edited summary paragraph."
+        self.summary.save(update_fields=["synopsis_draft", "updated_at"])
+
+        self.client.login(username="author", password="pass123")
+        url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "habitat_and_sites": "Updated habitat info",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.synopsis_draft, "Edited summary paragraph.")
+
+    def test_save_summary_paragraph_draft_persists_changes(self):
+        self.client.login(username="author", password="pass123")
+        url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        response = self.client.post(
+            url,
+            {
+                "action": "save-synopsis-draft",
+                "draft_command": "save",
+                "synopsis_draft": "A revised summary paragraph written by the author.",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(
+            self.summary.synopsis_draft,
+            "A revised summary paragraph written by the author.",
+        )
+        messages = list(get_messages(response.wsgi_request))
+        self.assertTrue(any("paragraph draft saved" in str(m).lower() for m in messages))
+
+    def test_saved_summary_paragraph_draft_is_used_for_compilation(self):
+        self.summary.reference_identifier = "CR1000"
+        self.summary.synopsis_draft = "A revised paragraph (CR1000) with edited wording."
+        self.summary.save(
+            update_fields=["reference_identifier", "synopsis_draft", "updated_at"]
+        )
+
+        compiled = _reference_summary_paragraph(
+            self.summary, reference_identifier_override="2"
+        )
+
+        self.assertEqual(
+            compiled,
+            "A revised paragraph (2) with edited wording.",
+        )
 
     def test_create_summary_tab_adds_second_summary_for_same_reference(self):
         self.summary.assigned_to = self.user
