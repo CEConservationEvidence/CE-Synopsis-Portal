@@ -19,6 +19,15 @@
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_summary_board' project.id %}">Back to summaries</a>
     <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_list' project.id %}">Screening overview</a>
     <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#snapshotModal">Snapshot & comments</button>
+    <button
+        class="btn btn-outline-secondary"
+        type="button"
+        data-bs-toggle="offcanvas"
+        data-bs-target="#referenceManagementPanel"
+        aria-controls="referenceManagementPanel"
+    >
+        Reference management
+    </button>
 </div>
 <div class="card mb-4">
     <div class="card-body">
@@ -90,6 +99,112 @@
                     </span>
                 </a>
             {% endfor %}
+        </div>
+    </div>
+</div>
+<div
+    class="offcanvas offcanvas-end"
+    tabindex="-1"
+    id="referenceManagementPanel"
+    aria-labelledby="referenceManagementPanelLabel"
+    style="width: min(460px, 100vw);"
+>
+    <div class="offcanvas-header">
+        <div>
+            <h5 class="offcanvas-title mb-1" id="referenceManagementPanelLabel">Reference management</h5>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="badge {% if reference.screening_status == 'included' %}text-bg-success{% elif reference.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
+                    {{ reference.get_screening_status_display }}
+                </span>
+                <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'review' %}text-bg-warning{% elif summary.status == 'draft' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
+                    {{ summary.get_status_display }}
+                </span>
+            </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body d-flex flex-column gap-4">
+        {% if reference.screening_status == 'excluded' %}
+        <div class="alert alert-warning small mb-0">
+            This reference is currently excluded from this synopsis. It will not appear in the summary board or synopsis compilation until it is re-included.
+        </div>
+        {% endif %}
+        <form method="post" class="d-flex flex-column gap-3">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="update-status">
+            <div>
+                <div class="fw-semibold mb-1">Summary status</div>
+                <div class="small text-muted">Update the work status for this summary tab.</div>
+            </div>
+            <div>
+                <label class="form-label small">Status</label>
+                <select name="status" class="form-select form-select-sm">
+                    {% for code, label in status_choices %}
+                        {% if summary.status == code %}
+                            <option value="{{ code }}" selected>{{ label }}</option>
+                        {% else %}
+                            <option value="{{ code }}">{{ label }}</option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-check form-switch">
+                {% if summary.needs_help %}
+                    <input class="form-check-input" type="checkbox" id="needs-help" name="needs_help" value="1" checked>
+                {% else %}
+                    <input class="form-check-input" type="checkbox" id="needs-help" name="needs_help" value="1">
+                {% endif %}
+                <label class="form-check-label small" for="needs-help">Needs help</label>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-primary btn-sm" type="submit">Save status</button>
+                <button class="btn btn-outline-success btn-sm" type="submit" name="quick_done" value="1">Mark as summarised</button>
+            </div>
+        </form>
+        <form method="post" class="d-flex flex-column gap-3 border-top pt-4">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="update-classification">
+            <div>
+                <div class="fw-semibold mb-1">Synopsis reference classification</div>
+                <div class="small text-muted">
+                    These changes apply only to this synopsis copy of the reference. They do not change the global Reference Database record.
+                </div>
+            </div>
+            <div>
+                <label class="form-label small" for="{{ classification_form.screening_status.id_for_label }}">Synopsis status</label>
+                {{ classification_form.screening_status }}
+                {% if classification_form.screening_status.errors %}
+                <div class="text-danger small">{{ classification_form.screening_status.errors|join:", " }}</div>
+                {% endif %}
+            </div>
+            <div>
+                <label class="form-label small" for="{{ classification_form.reference_folder.id_for_label }}">Reference folders</label>
+                {{ classification_form.reference_folder }}
+                {% if classification_form.reference_folder.errors %}
+                <div class="text-danger small">{{ classification_form.reference_folder.errors|join:", " }}</div>
+                {% endif %}
+            </div>
+            <div>
+                <label class="form-label small" for="{{ classification_form.screening_notes.id_for_label }}">Reason / notes</label>
+                {{ classification_form.screening_notes }}
+                <div class="form-text">{{ classification_form.screening_notes.help_text }}</div>
+                {% if classification_form.screening_notes.errors %}
+                <div class="text-danger small">{{ classification_form.screening_notes.errors|join:", " }}</div>
+                {% endif %}
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-primary btn-sm" type="submit">Save classification</button>
+                {% if reference.batch_id %}
+                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_batch_detail' project.id reference.batch_id %}?focus=1&ref={{ reference.id }}">Open in screening view</a>
+                {% endif %}
+            </div>
+        </form>
+        <div class="row g-2 small border-top pt-4">
+            <div class="col-6">Assigned interventions: <strong>{{ summary.synopsis_assignments.count }}</strong></div>
+            <div class="col-6">Outcome rows: <strong>{{ summary.outcome_rows|length }}</strong></div>
+            <div class="col-6">Comments: <strong>{{ comments|length }}</strong></div>
+            <div class="col-6">Last updated: <strong>{{ summary.updated_at|date:"Y-m-d H:i" }}</strong></div>
+            <div class="col-12">Assigned: <strong>{% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}</strong></div>
         </div>
     </div>
 </div>
@@ -368,57 +483,6 @@
                 {% endif %}
             </div>
         </div>
-        <div class="card mb-4 shadow-sm">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span>Reference management</span>
-                <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'review' %}text-bg-warning{% elif summary.status == 'draft' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
-                    {{ summary.get_status_display }}
-                </span>
-            </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-lg-6">
-                        <form method="post" class="d-flex flex-column gap-3">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="update-status">
-                            <div>
-                                <label class="form-label small">Status</label>
-                                <select name="status" class="form-select form-select-sm">
-                                    {% for code, label in status_choices %}
-                                        {% if summary.status == code %}
-                                            <option value="{{ code }}" selected>{{ label }}</option>
-                                        {% else %}
-                                            <option value="{{ code }}">{{ label }}</option>
-                                        {% endif %}
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div class="form-check form-switch">
-                                {% if summary.needs_help %}
-                                    <input class="form-check-input" type="checkbox" id="needs-help" name="needs_help" value="1" checked>
-                                {% else %}
-                                    <input class="form-check-input" type="checkbox" id="needs-help" name="needs_help" value="1">
-                                {% endif %}
-                                <label class="form-check-label small" for="needs-help">Needs help</label>
-                            </div>
-                            <div class="d-flex flex-wrap gap-2">
-                                <button class="btn btn-primary btn-sm" type="submit">Save status</button>
-                                <button class="btn btn-outline-success btn-sm" type="submit" name="quick_done" value="1">Mark as summarised</button>
-                            </div>
-                        </form>
-                    </div>
-                    <div class="col-lg-6">
-                        <div class="row g-2 small">
-                            <div class="col-6">Assigned interventions: <strong>{{ summary.synopsis_assignments.count }}</strong></div>
-                            <div class="col-6">Outcome rows: <strong>{{ summary.outcome_rows|length }}</strong></div>
-                            <div class="col-6">Comments: <strong>{{ comments|length }}</strong></div>
-                            <div class="col-6">Last updated: <strong>{{ summary.updated_at|date:"Y-m-d H:i" }}</strong></div>
-                            <div class="col-12">Assigned: <strong>{% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}</strong></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 </div>
 
@@ -621,6 +685,13 @@
 </script>
 <script>
     (() => {
+        const managementPanel = document.getElementById("referenceManagementPanel");
+        if (managementPanel && window.bootstrap && bootstrap.Offcanvas) {
+            {% if classification_form.errors %}
+            bootstrap.Offcanvas.getOrCreateInstance(managementPanel).show();
+            {% endif %}
+        }
+
         const uploadForm = document.getElementById("pdf-upload-form");
         if (!uploadForm) return;
         const fileInput = uploadForm.querySelector("input[type='file']");
