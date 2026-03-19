@@ -2808,6 +2808,16 @@ def protocol_detail(request, project_id):
             "collaborative_force_end_url": collaborative_force_end_url,
             "collaborative_document_ready": protocol_document_ready,
             "collaborative_can_override": collaborative_can_override,
+            "protocol_reminder_form": protocol_reminder_form,
+            "protocol_pending_count": protocol_members.count(),
+            "protocol_pending_dates": protocol_pending_dates,
+            "initial_protocol_reminder_log": project.change_log.filter(
+                action="Scheduled protocol reminders"
+            )
+            .order_by("created_at")
+            .first(),
+            "protocol_feedback_state": protocol_feedback_state,
+            "protocol_feedback_close_form": protocol_feedback_close_form,
         },
     )
 
@@ -4694,8 +4704,10 @@ def advisory_schedule_protocol_reminders(request, project_id):
     )
 
     if not form.is_valid():
-        context = _advisory_board_context(project, user=request.user, protocol_form=form)
-        return render(request, "synopsis/advisory_board_list.html", context)
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+        return redirect("synopsis:protocol_detail", project_id=project.id)
 
     deadline = form.cleaned_data["deadline"]
     if timezone.is_naive(deadline):
