@@ -3145,6 +3145,9 @@ def action_list_detail(request, project_id):
             "collaborative_force_end_url": collaborative_force_end_url,
             "collaborative_can_override": collaborative_can_override,
             "collaborative_document_ready": action_document_ready,
+            "action_list_reminder_form": action_list_reminder_form,
+            "action_list_pending_count": action_list_members.count(),
+            "action_list_pending_dates": action_list_pending_dates,
         },
     )
 
