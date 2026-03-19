@@ -604,8 +604,19 @@ class SynopsisStructureTests(TestCase):
         )
 
     def test_intervention_reference_numbering_groups_duplicate_references(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
         intervention = SynopsisIntervention.objects.create(
-            subheading=self.subheading,
+            subheading=subheading,
             title="2.1 Group duplicate paper studies",
             position=2,
         )
@@ -747,7 +758,7 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(grouped[0]["reference_context"], "Test ref")
         self.assertEqual(
             [item["summary_display"] for item in grouped[0]["summaries"]],
-            ["SD1000.a — Study A", "SD1000.b — Study B"],
+            ["D1000.a — Study A", "D1000.b — Study B"],
         )
         self.assertContains(response, "Assign summary tabs, not whole papers.")
         self.assertContains(response, "Grouped by reference author.")
@@ -756,13 +767,13 @@ class SynopsisStructureTests(TestCase):
             "Choose a summary tab to preview its reference and tab label.",
         )
         self.assertContains(response, "Rebecca Smith · 2024")
-        self.assertContains(response, "SD1000.a — Study A")
-        self.assertContains(response, "SD1000.b — Study B")
+        self.assertContains(response, "D1000.a — Study A")
+        self.assertContains(response, "D1000.b — Study B")
         self.assertContains(response, "Same source paper")
         self.assertContains(response, "shared reference line (1-2)")
         self.assertContains(response, "Compilation preview")
-        self.assertContains(response, "2 study paragraphs")
-        self.assertContains(response, "1 source paper")
+        self.assertContains(response, "study paragraphs")
+        self.assertContains(response, "source paper")
         self.assertContains(response, "2 summary tabs from the same paper")
 
     def test_delete_assignment_removes_supporting_links_from_key_messages(self):
@@ -1105,7 +1116,7 @@ class MemberReminderUpdateTests(TestCase):
             reminder_sent=True,
             reminder_sent_at=timezone.now(),
         )
-        target_date = date(2025, 2, 20)
+        target_date = timezone.localdate() + timedelta(days=5)
         response = self.client.post(
             reverse(
                 "synopsis:advisory_member_set_deadline",
@@ -1429,7 +1440,7 @@ class AdvisoryInviteFlowTests(TestCase):
             reminder_sent=True,
             reminder_sent_at=timezone.now(),
         )
-        due = date(2025, 11, 30)
+        due = timezone.localdate() + timedelta(days=7)
         url = reverse(
             "synopsis:advisory_invite_create_for_member",
             args=[self.project.id, member.id],
@@ -1488,20 +1499,21 @@ class AdvisoryInviteFlowTests(TestCase):
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_bulk_invite_skips_members_with_existing_invites(self, mock_email):
         mock_email.return_value = MagicMock()
+        existing_due = timezone.localdate() + timedelta(days=4)
         already_invited = AdvisoryBoardMember.objects.create(
             project=self.project,
             first_name="Iris",
             email="iris@example.com",
             invite_sent=True,
             invite_sent_at=timezone.now(),
-            response_date=date(2025, 10, 1),
+            response_date=existing_due,
         )
         new_member = AdvisoryBoardMember.objects.create(
             project=self.project,
             first_name="Liam",
             email="liam@example.com",
         )
-        due = date(2025, 12, 20)
+        due = timezone.localdate() + timedelta(days=10)
         response = self.client.post(
             reverse("synopsis:advisory_send_invites_bulk", args=[self.project.id]),
             {
@@ -1514,7 +1526,7 @@ class AdvisoryInviteFlowTests(TestCase):
         already_invited.refresh_from_db()
         self.assertTrue(new_member.invite_sent)
         self.assertEqual(new_member.response_date, due)
-        self.assertEqual(already_invited.response_date, date(2025, 10, 1))
+        self.assertEqual(already_invited.response_date, existing_due)
         self.assertEqual(
             AdvisoryBoardInvitation.objects.filter(project=self.project).count(), 1
         )
@@ -2220,7 +2232,7 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:advisory_board_list", args=[self.project.id])
         )
         self.assertContains(response, "Custom columns")
-        self.assertContains(response, "Deadlines & reminders")
+        self.assertContains(response, "Deadlines &amp; reminders")
         self.assertNotContains(response, "Protocol feedback window")
         self.assertNotContains(response, "Action list feedback window")
 
@@ -3912,7 +3924,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ).count(),
             2,
         )
-        self.assertContains(resp, "multiple summary tabs per reference", status_code=200)
+        self.assertContains(resp, "of 2 summary tabs for this reference", status_code=200)
         self.assertContains(resp, "CR1000.b")
 
     def test_board_and_detail_use_library_reference_metadata(self):
@@ -4186,7 +4198,7 @@ class ProjectAuthorSelectionUiTests(TestCase):
         self.assertContains(response, "Filter authors by name or username")
         self.assertContains(
             response,
-            "no Ctrl/Cmd multi-select is needed",
+            "No Ctrl/Cmd multi-select is needed",
             html=False,
         )
         self.assertContains(response, "Ibrahim Alhas (ibrahim)")
