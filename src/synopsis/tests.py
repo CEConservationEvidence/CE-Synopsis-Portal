@@ -3865,6 +3865,115 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(detail_response, "Canonical library title")
         self.assertContains(detail_response, "Alhas, Ibrahim")
 
+    def test_summary_detail_can_update_reference_classification(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "screening_status": "included",
+                "reference_folder": ["3a"],
+                "screening_notes": "Freshwater fish evidence.",
+            },
+            follow=True,
+        )
+
+        self.reference.refresh_from_db()
+        self.assertEqual(self.reference.screening_status, "included")
+        self.assertEqual(self.reference.reference_folder, ["3a"])
+        self.assertEqual(self.reference.screening_notes, "Freshwater fish evidence.")
+        self.assertContains(response, "Reference classification updated.")
+
+    def test_excluding_reference_requires_reason_on_summary_page(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "screening_status": "excluded",
+                "reference_folder": [],
+                "screening_notes": "",
+            },
+        )
+
+        self.reference.refresh_from_db()
+        self.assertEqual(self.reference.screening_status, "included")
+        self.assertContains(
+            response,
+            "Provide a reason before excluding this reference from the synopsis.",
+        )
+
+    def test_excluding_reference_from_summary_removes_synopsis_assignments(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Intervention",
+            position=1,
+        )
+        assignment = SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        key_message = SynopsisInterventionKeyMessage.objects.create(
+            intervention=intervention,
+            response_group=SynopsisInterventionKeyMessage.GROUP_POPULATION,
+            statement="Supported by this study.",
+            position=1,
+        )
+        key_message.supporting_summaries.set([self.summary])
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "screening_status": "excluded",
+                "reference_folder": ["3a"],
+                "screening_notes": "Not relevant to this synopsis.",
+            },
+            follow=False,
+        )
+
+        self.reference.refresh_from_db()
+        key_message.refresh_from_db()
+        self.assertEqual(self.reference.screening_status, "excluded")
+        self.assertEqual(self.reference.screening_notes, "Not relevant to this synopsis.")
+        self.assertFalse(SynopsisAssignment.objects.filter(pk=assignment.id).exists())
+        self.assertEqual(key_message.supporting_summaries.count(), 0)
+        self.assertRedirects(
+            response,
+            f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, self.batch.id])}?focus=1&ref={self.reference.id}",
+            fetch_redirect_response=False,
+        )
+
     def test_board_context_workload_counts_are_aggregated_correctly(self):
         other_author = User.objects.create_user(
             username="coauthor",
