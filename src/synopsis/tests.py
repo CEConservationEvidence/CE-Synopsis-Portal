@@ -155,7 +155,7 @@ class EmailSubjectTests(TestCase):
     def test_advisory_invitation_email_escapes_urls_in_html_hrefs(self):
         text, html_body = _build_advisory_invitation_email(
             project=self.project,
-            recipient_name="Taylor",
+            recipient_name="Will",
             due_date=date(2025, 5, 10),
             yes_url="https://example.com/yes?x=1&y='two'",
             no_url='https://example.com/no?x=1&y="three"',
@@ -1517,8 +1517,8 @@ class AdvisoryInviteFlowTests(TestCase):
         mock_email.return_value = MagicMock()
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
-            first_name="Nova",
-            email="nova@example.com",
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
             reminder_sent=True,
             reminder_sent_at=timezone.now(),
         )
@@ -1551,8 +1551,8 @@ class AdvisoryInviteFlowTests(TestCase):
         mock_email.return_value = MagicMock()
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
-            first_name="Nova",
-            email="nova@example.com",
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
         )
         url = reverse(
             "synopsis:advisory_invite_create_for_member",
@@ -1586,8 +1586,8 @@ class AdvisoryInviteFlowTests(TestCase):
         mock_email.return_value = email_instance
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
-            first_name="Nova",
-            email="nova@example.com",
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
         )
         due = timezone.localdate() + timedelta(days=10)
 
@@ -1614,8 +1614,8 @@ class AdvisoryInviteFlowTests(TestCase):
     def test_single_invite_form_shows_preview_with_default_standard_message(self):
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
-            first_name="Nova",
-            email="nova@example.com",
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
         )
 
         response = self.client.get(
@@ -1638,8 +1638,8 @@ class AdvisoryInviteFlowTests(TestCase):
         self.project.save(update_fields=["advisory_invitation_message"])
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
-            first_name="ibrahim",
-            email="ibrahimalhas@example.com",
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
         )
         due = timezone.localdate() + timedelta(days=14)
 
