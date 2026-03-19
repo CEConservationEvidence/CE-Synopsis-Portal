@@ -2753,6 +2753,20 @@ def protocol_detail(request, project_id):
         .order_by("feedback_on_protocol_deadline")
         .values_list("feedback_on_protocol_deadline", flat=True)
     ]
+    protocol_reminder_initial = {}
+    if protocol_pending_dates:
+        first_deadline = protocol_pending_dates[0]
+        try:
+            protocol_reminder_initial["deadline"] = timezone.localtime(first_deadline)
+        except (ValueError, TypeError):
+            protocol_reminder_initial["deadline"] = first_deadline
+    else:
+        protocol_reminder_initial["deadline"] = timezone.localtime(
+            _default_document_feedback_deadline()
+        )
+    protocol_reminder_form = ProtocolReminderScheduleForm(
+        initial=protocol_reminder_initial
+    )
     return render(
         request,
         "synopsis/protocol_detail.html",
