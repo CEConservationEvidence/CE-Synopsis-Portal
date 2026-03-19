@@ -1066,12 +1066,15 @@ class ProtocolSendForm(forms.Form):
         self, *args, collaborative_enabled=False, document_available=False, **kwargs
     ):
         super().__init__(*args, **kwargs)
+        _set_min_date_attr(self.fields["due_date"])
         self.document_available = document_available
         self.collaborative_available = collaborative_enabled
         doc_field = self.fields["include_protocol_document"]
         if document_available:
             doc_field.disabled = False
-            doc_field.help_text = "Adds a link to the latest protocol document."
+            doc_field.help_text = (
+                "Required: select this or the collaborative editor link before sending."
+            )
         else:
             doc_field.initial = False
             doc_field.disabled = True
@@ -1080,7 +1083,9 @@ class ProtocolSendForm(forms.Form):
         collab_field = self.fields["include_collaborative_link"]
         if collaborative_enabled:
             collab_field.disabled = False
-            collab_field.help_text = "Shares the live collaborative editor for the protocol."
+            collab_field.help_text = (
+                "Required: select this or the protocol document before sending."
+            )
         else:
             collab_field.initial = False
             collab_field.disabled = True
@@ -1102,6 +1107,11 @@ class ProtocolSendForm(forms.Form):
                 "Upload the protocol or enable the collaborative editor before sending."
             )
         return cleaned
+
+    def clean_due_date(self):
+        return _validate_not_same_day_date(
+            self.cleaned_data.get("due_date"), "Response due date"
+        )
 
 
 class ActionListSendForm(forms.Form):
@@ -1140,12 +1150,15 @@ class ActionListSendForm(forms.Form):
         self, *args, collaborative_enabled=False, document_available=False, **kwargs
     ):
         super().__init__(*args, **kwargs)
+        _set_min_date_attr(self.fields["due_date"])
         self.document_available = document_available
         self.collaborative_available = collaborative_enabled
         doc_field = self.fields["include_action_list_document"]
         if document_available:
             doc_field.disabled = False
-            doc_field.help_text = "Adds a link to the latest action list document."
+            doc_field.help_text = (
+                "Required: select this or the collaborative editor link before sending."
+            )
         else:
             doc_field.initial = False
             doc_field.disabled = True
@@ -1154,7 +1167,9 @@ class ActionListSendForm(forms.Form):
         collab_field = self.fields["include_collaborative_link"]
         if collaborative_enabled:
             collab_field.disabled = False
-            collab_field.help_text = "Shares the live collaborative editor for the action list."
+            collab_field.help_text = (
+                "Required: select this or the action list document before sending."
+            )
         else:
             collab_field.initial = False
             collab_field.disabled = True
@@ -1176,12 +1191,28 @@ class ActionListSendForm(forms.Form):
             )
         return cleaned
 
+    def clean_due_date(self):
+        return _validate_not_same_day_date(
+            self.cleaned_data.get("due_date"), "Response due date"
+        )
+
 
 class ReminderScheduleForm(forms.Form):
     reminder_date = forms.DateField(
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text="Members without invitations will get this response deadline set.",
+        help_text=(
+            f"Members without invitations will get this response deadline set. Defaults to {ADVISORY_INVITE_RESPONSE_WINDOW_DAYS} days from today."
+        ),
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_date_attr(self.fields["reminder_date"])
+
+    def clean_reminder_date(self):
+        return _validate_not_same_day_date(
+            self.cleaned_data.get("reminder_date"), "Response deadline"
+        )
 
 
 class ProtocolReminderScheduleForm(forms.Form):
@@ -1191,8 +1222,19 @@ class ProtocolReminderScheduleForm(forms.Form):
             format="%Y-%m-%dT%H:%M",
         ),
         input_formats=["%Y-%m-%dT%H:%M"],
-        help_text="Set or update the protocol feedback deadline (date and time) for members with the protocol.",
+        help_text=(
+            f"Set or update the protocol feedback deadline (date and time) for members with the protocol. Defaults to {ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS} days from today."
+        ),
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_datetime_attr(self.fields["deadline"])
+
+    def clean_deadline(self):
+        return _validate_not_same_day_datetime(
+            self.cleaned_data.get("deadline"), "Protocol feedback deadline"
+        )
 
 
 class ActionListReminderScheduleForm(forms.Form):
@@ -1202,8 +1244,19 @@ class ActionListReminderScheduleForm(forms.Form):
             format="%Y-%m-%dT%H:%M",
         ),
         input_formats=["%Y-%m-%dT%H:%M"],
-        help_text="Set or update the action list feedback deadline (date and time) for members.",
+        help_text=(
+            f"Set or update the action list feedback deadline (date and time) for members. Defaults to {ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS} days from today."
+        ),
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_datetime_attr(self.fields["deadline"])
+
+    def clean_deadline(self):
+        return _validate_not_same_day_datetime(
+            self.cleaned_data.get("deadline"), "Action list feedback deadline"
+        )
 
 
 class ParticipationConfirmForm(forms.Form):
