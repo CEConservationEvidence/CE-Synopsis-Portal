@@ -24,10 +24,10 @@
             method="post"
             action="{{ force_end_url }}"
             class="d-inline"
-            onsubmit="return confirm('End this collaborative session for everyone?');"
+            onsubmit="return confirm('Request a final save and end this collaborative session for everyone?');"
         >
             {% csrf_token %}
-            <button type="submit" class="btn btn-outline-danger btn-sm">End session</button>
+            <button type="submit" class="btn btn-outline-danger btn-sm">Save and end session</button>
         </form>
         {% endif %}
     </div>

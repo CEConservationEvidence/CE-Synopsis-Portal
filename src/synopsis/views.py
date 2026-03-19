@@ -8,12 +8,13 @@ import re
 import random
 import uuid
 from decimal import Decimal
-from urllib.parse import urlparse, urlencode
+from urllib.parse import urljoin, urlparse, urlencode, urlunparse
 
 import jwt
 import requests
 import rispy
 import html
+import time
 from defusedxml import ElementTree as ET
 
 from django.conf import settings
@@ -979,9 +980,29 @@ def _onlyoffice_editor_js_url() -> str:
     return f"{base}/web-apps/apps/api/documents/api.js"
 
 
+def _onlyoffice_service_base_url() -> str:
+    return (
+        (ONLYOFFICE_SETTINGS.get("internal_url") or "").rstrip("/")
+        or (ONLYOFFICE_SETTINGS.get("base_url") or "").rstrip("/")
+    )
+
+
+def _onlyoffice_app_absolute_uri(request, path: str) -> str:
+    base = (ONLYOFFICE_SETTINGS.get("app_base_url") or "").rstrip("/")
+    if not base:
+        return request.build_absolute_uri(path)
+    return urljoin(f"{base}/", path.lstrip("/"))
+
+
 def _document_filetype(file_name: str) -> str:
     ext = (os.path.splitext(file_name)[1] or "").lstrip(".").lower()
     return ext or "docx"
+
+
+def _collaborative_document_key(project, document_type, session) -> str:
+    return f"{project.id}-{document_type}-{session.id}-{int(session.started_at.timestamp())}"[
+        -128:
+    ]
 
 
 def _build_onlyoffice_config(
@@ -996,12 +1017,10 @@ def _build_onlyoffice_config(
     if not document_file:
         raise ValueError("Document has no file attached")
 
-    file_url = request.build_absolute_uri(document_file.url)
+    file_url = _onlyoffice_app_absolute_uri(request, document_file.url)
     file_type = _document_filetype(document_file.name)
     title = os.path.basename(document_file.name) or _document_label(document_type)
-    doc_key = f"{project.id}-{document_type}-{session.id}-{int(session.started_at.timestamp())}"[
-        -128:
-    ]
+    doc_key = _collaborative_document_key(project, document_type, session)
 
     user = request.user
     user_id = str(getattr(user, "id", "anonymous"))
@@ -1017,7 +1036,8 @@ def _build_onlyoffice_config(
         user_name = participant.get("name", user_name)
         user_email = participant.get("email", user_email)
 
-    callback_url = request.build_absolute_uri(
+    callback_url = _onlyoffice_app_absolute_uri(
+        request,
         reverse(
             "synopsis:collaborative_edit_callback",
             args=[project.id, _document_type_slug(document_type), session.token],
@@ -1065,7 +1085,11 @@ def _build_onlyoffice_config(
 
 
 def _download_onlyoffice_file(file_url: str) -> bytes:
-    raw_entries = [ONLYOFFICE_SETTINGS.get("base_url", "")]
+    file_url = _onlyoffice_internal_download_url(file_url)
+    raw_entries = [
+        ONLYOFFICE_SETTINGS.get("base_url", ""),
+        ONLYOFFICE_SETTINGS.get("internal_url", ""),
+    ]
     extra = ONLYOFFICE_SETTINGS.get("trusted_download_urls") or []
     if isinstance(extra, (list, tuple)):
         raw_entries.extend(extra)
@@ -1138,6 +1162,120 @@ def _onlyoffice_secret() -> str:
     return ONLYOFFICE_SETTINGS.get("jwt_secret", "")
 
 
+def _onlyoffice_internal_download_url(file_url: str) -> str:
+    base = (ONLYOFFICE_SETTINGS.get("base_url") or "").rstrip("/")
+    internal = (ONLYOFFICE_SETTINGS.get("internal_url") or "").rstrip("/")
+    if not base or not internal:
+        return file_url
+
+    try:
+        parsed_file = urlparse(file_url)
+        parsed_base = urlparse(base)
+        parsed_internal = urlparse(internal)
+    except ValueError:
+        return file_url
+
+    if (
+        parsed_file.scheme != parsed_base.scheme
+        or parsed_file.hostname != parsed_base.hostname
+        or (parsed_file.port or (443 if parsed_file.scheme == "https" else 80))
+        != (parsed_base.port or (443 if parsed_base.scheme == "https" else 80))
+    ):
+        return file_url
+
+    replacement_netloc = parsed_internal.netloc or parsed_file.netloc
+    return urlunparse(
+        (
+            parsed_internal.scheme or parsed_file.scheme,
+            replacement_netloc,
+            parsed_file.path,
+            parsed_file.params,
+            parsed_file.query,
+            parsed_file.fragment,
+        )
+    )
+
+
+def _onlyoffice_command_url() -> str:
+    base = _onlyoffice_service_base_url()
+    if not base:
+        return ""
+    return f"{base}/coauthoring/CommandService.ashx"
+
+
+def _onlyoffice_command_headers(payload: dict) -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    secret = _onlyoffice_secret()
+    if not secret:
+        return headers
+    token = jwt.encode(payload, secret, algorithm="HS256")
+    if isinstance(token, bytes):
+        token = token.decode("utf-8")
+    headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[bool, str]:
+    command_url = _onlyoffice_command_url()
+    if not command_url:
+        logger.warning(
+            "OnlyOffice force-save skipped for session %s because command URL is missing",
+            session.pk,
+        )
+        return False, "Collaborative save is not configured correctly."
+
+    payload = {
+        "c": "forcesave",
+        "key": _collaborative_document_key(project, document_type, session),
+    }
+    timeout = ONLYOFFICE_SETTINGS.get("callback_timeout", 10)
+    try:
+        response = requests.post(
+            command_url,
+            json=payload,
+            headers=_onlyoffice_command_headers(payload),
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (requests.RequestException, ValueError) as exc:
+        logger.error(
+            "OnlyOffice force-save request failed for session %s: %s",
+            session.pk,
+            exc,
+        )
+        return False, "Unable to request a final save from OnlyOffice."
+
+    error_code = data.get("error", 1) if isinstance(data, dict) else 1
+    if error_code not in {0, "0"}:
+        logger.error(
+            "OnlyOffice force-save request returned error for session %s: %s",
+            session.pk,
+            data,
+        )
+        return False, "OnlyOffice did not accept the final save request."
+
+    return True, "Final save requested from OnlyOffice."
+
+
+def _wait_for_collaborative_save(session, document_type, timeout_seconds: int) -> bool:
+    deadline = time.monotonic() + max(timeout_seconds, 1)
+    result_field = (
+        "result_protocol_revision_id"
+        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
+        else "result_action_list_revision_id"
+    )
+
+    while time.monotonic() < deadline:
+        session.refresh_from_db()
+        if getattr(session, result_field):
+            return True
+        time.sleep(0.5)
+
+    session.refresh_from_db()
+    return bool(getattr(session, result_field))
+
+
 def _extract_onlyoffice_token(request, payload: dict) -> str | None:
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
@@ -1176,6 +1314,10 @@ def _parse_onlyoffice_callback(request) -> dict:
     if not isinstance(decoded, dict):
         logger.warning("OnlyOffice callback token did not decode to a JSON object")
         raise PermissionDenied("Invalid callback payload")
+
+    nested_payload = decoded.get("payload")
+    if isinstance(nested_payload, dict):
+        return nested_payload
 
     return decoded
 
@@ -2707,11 +2849,6 @@ def protocol_detail(request, project_id):
             stage_changed = bool(protocol) and protocol.stage != new_stage
             replacing_file = bool(uploaded_file)
             previous_label = (
-                (action_list.current_revision.version_label or "")
-                if action_list and action_list.current_revision
-                else ""
-            )
-            previous_label = (
                 (protocol.current_revision.version_label or "")
                 if protocol and protocol.current_revision
                 else ""
@@ -3852,21 +3989,30 @@ def collaborative_force_end(request, project_id, document_slug, token):
         return redirect(_document_detail_url(project.id, document_type))
 
     reason = (request.POST.get("reason") or "").strip() or "Session ended from portal"
-    session.change_summary = session.change_summary or reason
-    session.mark_inactive(
-        ended_by=request.user,
-        reason=reason,
-        extra_updates=["change_summary"],
-    )
-
     document_label = _document_label(document_type)
-    _log_project_change(
-        project,
-        request.user,
-        f"{document_label} collaborative session ended",
-        f"Session {session.token} ended manually ({reason}).",
+    requested, save_message = _request_onlyoffice_forcesave(
+        project, document_type, session
     )
-    messages.success(request, f"{document_label} collaborative session closed.")
+    if _wait_for_collaborative_save(
+        session,
+        document_type,
+        timeout_seconds=ONLYOFFICE_SETTINGS.get("callback_timeout", 10),
+    ):
+        messages.success(
+            request, f"{document_label} saved and collaborative session closed."
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
+    if not requested:
+        messages.error(
+            request,
+            f"{save_message} The session is still open so no edits are discarded.",
+        )
+    else:
+        messages.warning(
+            request,
+            f"{save_message} The session is still open while OnlyOffice finishes saving.",
+        )
     return redirect(_document_detail_url(project.id, document_type))
 
 
