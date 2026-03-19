@@ -3121,6 +3121,51 @@ def action_list_detail(request, project_id):
             "Required when you replace the file or change the action list stage."
         )
 
+    action_list_members = project.advisory_board_members.filter(
+        sent_action_list_at__isnull=False,
+        response="Y",
+    )
+    action_list_pending_dates = [
+        d
+        for d in action_list_members.filter(
+            feedback_on_action_list_deadline__isnull=False
+        )
+        .order_by("feedback_on_action_list_deadline")
+        .values_list("feedback_on_action_list_deadline", flat=True)
+    ]
+    action_list_reminder_initial = {}
+    if action_list_pending_dates:
+        first_deadline = action_list_pending_dates[0]
+        try:
+            action_list_reminder_initial["deadline"] = timezone.localtime(
+                first_deadline
+            )
+        except (ValueError, TypeError):
+            action_list_reminder_initial["deadline"] = first_deadline
+    else:
+        action_list_reminder_initial["deadline"] = timezone.localtime(
+            _default_document_feedback_deadline()
+        )
+    action_list_reminder_form = ActionListReminderScheduleForm(
+        initial=action_list_reminder_initial
+    )
+    action_list_feedback_close_initial = {}
+    if action_list and action_list.feedback_closure_message:
+        action_list_feedback_close_initial["message"] = (
+            action_list.feedback_closure_message
+        )
+    action_list_feedback_close_form = ActionListFeedbackCloseForm(
+        initial=action_list_feedback_close_initial
+    )
+    action_list_feedback_state = {
+        "action_list": action_list,
+        "is_closed": bool(getattr(action_list, "feedback_closed_at", None)),
+        "closed_at": getattr(action_list, "feedback_closed_at", None),
+        "closure_message": getattr(action_list, "feedback_closure_message", ""),
+        "deadline": action_list_pending_dates[0] if action_list_pending_dates else None,
+        "document_ready": action_document_ready,
+    }
+
     return render(
         request,
         "synopsis/action_list_detail.html",
