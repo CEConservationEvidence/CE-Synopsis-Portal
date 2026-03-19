@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.contrib.auth.models import Group, User, AnonymousUser
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings, RequestFactory
@@ -48,12 +49,17 @@ from .models import (
     SynopsisAssignment,
 )
 from .forms import (
+    ActionListReminderScheduleForm,
+    AdvisoryBulkInviteForm,
     AdvisoryBoardMemberForm,
+    AdvisoryInviteForm,
     AdvisoryMemberCustomDataForm,
     FunderForm,
     FunderContactFormSet,
+    ProtocolReminderScheduleForm,
     ProjectDeleteForm,
     ProjectSettingsForm,
+    ReminderScheduleForm,
     ReferenceSummaryUpdateForm,
 )
 from .utils import (
@@ -941,6 +947,52 @@ class SynopsisStructureTests(TestCase):
         )
 
 
+class AdvisoryDeadlineValidationTests(TestCase):
+    def test_invite_due_date_rejects_today_and_past_dates(self):
+        today = timezone.localdate()
+        yesterday = today - timedelta(days=1)
+
+        today_form = AdvisoryInviteForm(
+            data={"email": "ibrahim@example.com", "due_date": today.isoformat()}
+        )
+        self.assertFalse(today_form.is_valid())
+        self.assertIn("due_date", today_form.errors)
+
+        yesterday_form = AdvisoryBulkInviteForm(
+            data={"due_date": yesterday.isoformat()}
+        )
+        self.assertFalse(yesterday_form.is_valid())
+        self.assertIn("due_date", yesterday_form.errors)
+
+    def test_schedule_forms_expose_minimum_dates_in_widgets(self):
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        expected_date_min = tomorrow.isoformat()
+        expected_datetime_min = f"{expected_date_min}T00:00"
+
+        self.assertEqual(
+            AdvisoryInviteForm().fields["due_date"].widget.attrs.get("min"),
+            expected_date_min,
+        )
+        self.assertEqual(
+            ReminderScheduleForm().fields["reminder_date"].widget.attrs.get("min"),
+            expected_date_min,
+        )
+        self.assertEqual(
+            ProtocolReminderScheduleForm().fields["deadline"].widget.attrs.get("min"),
+            expected_datetime_min,
+        )
+        self.assertEqual(
+            ActionListReminderScheduleForm().fields["deadline"].widget.attrs.get("min"),
+            expected_datetime_min,
+        )
+
+    def test_protocol_deadline_rejects_same_day_datetime(self):
+        same_day_value = f"{timezone.localdate().isoformat()}T12:00"
+        form = ProtocolReminderScheduleForm(data={"deadline": same_day_value})
+        self.assertFalse(form.is_valid())
+        self.assertIn("deadline", form.errors)
+
+
 @override_settings(DEFAULT_FROM_EMAIL="reminders@example.com")
 class SendDueRemindersTests(TestCase):
     def setUp(self):
@@ -1070,6 +1122,20 @@ class MemberReminderUpdateTests(TestCase):
             ).exists()
         )
 
+    def test_board_page_sets_minimum_response_deadline_on_inline_input(self):
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Randy",
+            email="randy@example.com",
+        )
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        response = self.client.get(self.board_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f'min="{tomorrow.strftime("%Y-%m-%d")}"',
+        )
+
     def test_clear_response_deadline(self):
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
@@ -1091,6 +1157,26 @@ class MemberReminderUpdateTests(TestCase):
         self.assertIsNone(member.response_date)
         self.assertFalse(member.reminder_sent)
         self.assertIsNone(member.reminder_sent_at)
+
+    def test_same_day_response_deadline_is_rejected(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Clara",
+            email="clara@example.com",
+        )
+        today = timezone.localdate()
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "invite"],
+            ),
+            {"reminder_date": today.strftime("%Y-%m-%d")},
+            follow=True,
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNone(member.response_date)
+        self.assertContains(response, "at least one day in the future")
 
     def test_update_protocol_deadline(self):
         member = AdvisoryBoardMember.objects.create(
@@ -1130,6 +1216,29 @@ class MemberReminderUpdateTests(TestCase):
                 project=self.project, action="Updated protocol reminder"
             ).exists()
         )
+
+    def test_same_day_protocol_deadline_is_rejected(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Paula",
+            email="paula@example.com",
+            response="Y",
+            sent_protocol_at=timezone.now(),
+        )
+        ProtocolFeedback.objects.create(project=self.project, member=member)
+        today_local = timezone.localtime(timezone.now()).replace(second=0, microsecond=0)
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "protocol"],
+            ),
+            {"deadline": today_local.strftime("%Y-%m-%dT%H:%M")},
+            follow=True,
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNone(member.feedback_on_protocol_deadline)
+        self.assertContains(response, "at least one day in the future")
 
     def test_update_action_list_deadline(self):
         action_list = ActionList.objects.create(
@@ -1343,6 +1452,38 @@ class AdvisoryInviteFlowTests(TestCase):
         self.assertEqual(mock_email.call_count, 1)
 
     @patch("synopsis.views.EmailMultiAlternatives")
+    def test_single_invite_defaults_due_date_to_configured_window_when_blank(self, mock_email):
+        mock_email.return_value = MagicMock()
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Nova",
+            email="nova@example.com",
+        )
+        url = reverse(
+            "synopsis:advisory_invite_create_for_member",
+            args=[self.project.id, member.id],
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "email": member.email,
+                "due_date": "",
+                "message": "Welcome aboard",
+            },
+        )
+
+        expected_due = timezone.localdate() + timedelta(
+            days=settings.ADVISORY_INVITE_RESPONSE_WINDOW_DAYS
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        invitation = AdvisoryBoardInvitation.objects.get(member=member)
+        self.assertEqual(member.response_date, expected_due)
+        self.assertEqual(invitation.due_date, expected_due)
+        self.assertEqual(mock_email.call_count, 1)
+
+    @patch("synopsis.views.EmailMultiAlternatives")
     def test_bulk_invite_skips_members_with_existing_invites(self, mock_email):
         mock_email.return_value = MagicMock()
         already_invited = AdvisoryBoardMember.objects.create(
@@ -1378,6 +1519,89 @@ class AdvisoryInviteFlowTests(TestCase):
         self.assertEqual(mock_email.call_count, 1)
         args, kwargs = mock_email.call_args
         self.assertEqual(kwargs["to"], [new_member.email])
+
+
+class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Document Deadlines")
+        self.user = User.objects.create_user(
+            username="author", password="pw", email="author@example.com"
+        )
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.client.force_login(self.user)
+        self.protocol = Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.txt", b"protocol"),
+        )
+        self.action_list = ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.txt", b"action list"),
+        )
+        self.member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Rebecca",
+            email="rebecca@example.com",
+            response="Y",
+            participation_confirmed=True,
+        )
+        self.expected_due = timezone.localdate() + timedelta(
+            days=settings.ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS
+        )
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_protocol_member_send_defaults_deadline_to_configured_window(self, mock_email):
+        mock_email.return_value = MagicMock()
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_protocol_compose_member",
+                args=[self.project.id, self.member.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+                "include_protocol_document": "on",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.feedback_on_protocol_deadline.date(), self.expected_due)
+        self.assertEqual(self.member.feedback_on_protocol_deadline.hour, 23)
+        self.assertEqual(self.member.feedback_on_protocol_deadline.minute, 59)
+        feedback = ProtocolFeedback.objects.get(project=self.project, member=self.member)
+        self.assertEqual(feedback.feedback_deadline_at, self.member.feedback_on_protocol_deadline)
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_action_list_member_send_defaults_deadline_to_configured_window(self, mock_email):
+        mock_email.return_value = MagicMock()
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_action_list_compose_member",
+                args=[self.project.id, self.member.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+                "include_action_list_document": "on",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        self.member.refresh_from_db()
+        self.assertEqual(
+            self.member.feedback_on_action_list_deadline.date(), self.expected_due
+        )
+        self.assertEqual(self.member.feedback_on_action_list_deadline.hour, 23)
+        self.assertEqual(self.member.feedback_on_action_list_deadline.minute, 59)
+        feedback = ActionListFeedback.objects.get(project=self.project, member=self.member)
+        self.assertEqual(
+            feedback.feedback_deadline_at,
+            self.member.feedback_on_action_list_deadline,
+        )
 
 
 class FunderUtilityTests(TestCase):
