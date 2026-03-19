@@ -19,6 +19,14 @@
                         <div class="invalid-feedback d-block">{{ form.due_date.errors|join:", " }}</div>
                         {% endif %}
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="{{ form.standard_message.id_for_label }}">Standard invitation message</label>
+                        {{ form.standard_message }}
+                        <div class="form-text">{{ form.standard_message.help_text }}</div>
+                        {% if form.standard_message.errors %}
+                        <div class="invalid-feedback d-block">{{ form.standard_message.errors|join:", " }}</div>
+                        {% endif %}
+                    </div>
                     <div class="mb-0">
                         <label class="form-label" for="{{ form.message.id_for_label }}">Additional message</label>
                         {{ form.message }}
@@ -49,6 +57,7 @@
             </div>
         </div>
     </div>
+    {% include "synopsis/includes/advisory_invitation_preview.html" %}
     <div class="mt-4 d-flex gap-2">
         <button class="btn btn-primary" type="submit">Send invitations</button>
         <a class="btn btn-outline-secondary" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>
