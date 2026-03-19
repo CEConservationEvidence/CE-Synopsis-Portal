@@ -5838,12 +5838,67 @@ def _project_reference_prefix(project):
     return "".join(initials[:6]) or "REF"
 
 
+def _prefix_from_identifier(identifier):
+    cleaned = _clean_identifier(identifier)
+    match = re.match(r"^(.*?)(\d+)$", cleaned)
+    if not match:
+        return ""
+    return match.group(1)
+
+
+def _sequence_from_identifier(identifier, prefix):
+    cleaned = _clean_identifier(identifier)
+    if prefix:
+        if not cleaned.startswith(prefix):
+            return None
+        suffix = cleaned[len(prefix) :]
+    else:
+        suffix = cleaned
+    if not suffix.isdigit():
+        return None
+    return int(suffix)
+
+
+def _reference_identifier_candidates(project):
+    summaries = ReferenceSummary.objects.filter(project=project).only(
+        "reference_identifier",
+        "summary_identifier"
+    )
+    for summary in summaries:
+        candidate = _clean_identifier(summary.reference_identifier)
+        if candidate:
+            yield candidate
+            continue
+        reference_identifier, _suffix = _split_summary_identifier(
+            summary.summary_identifier
+        )
+        if reference_identifier:
+            yield reference_identifier
+
+
+def _stored_project_reference_prefix(project):
+    for identifier in _reference_identifier_candidates(project):
+        prefix = _prefix_from_identifier(identifier)
+        if prefix:
+            return prefix
+    return ""
+
+
 def _generated_reference_identifier(reference):
-    sequence = 1000 + Reference.objects.filter(
-        project=reference.project,
+    project = reference.project
+    prefix = _stored_project_reference_prefix(project) or _project_reference_prefix(
+        project
+    )
+    count_floor = 1000 + Reference.objects.filter(
+        project=project,
         id__lt=reference.id,
     ).count()
-    return f"{_project_reference_prefix(reference.project)}{sequence}"
+    max_sequence = 999
+    for identifier in _reference_identifier_candidates(project):
+        sequence = _sequence_from_identifier(identifier, prefix)
+        if sequence is not None and sequence > max_sequence:
+            max_sequence = sequence
+    return f"{prefix}{max(count_floor, max_sequence + 1)}"
 
 
 def _clean_identifier(value):

@@ -3875,6 +3875,95 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(second_summary.reference_identifier, "CR1001")
         self.assertEqual(second_summary.summary_identifier, "CR1001.a")
 
+    def test_new_reference_after_deleting_earlier_reference_gets_next_unused_id(self):
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        self.client.login(username="author", password="pass123")
+        self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, second_summary.id],
+            )
+        )
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+
+        self.reference.delete()
+
+        third_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="c" * 40,
+            title="Third reference",
+        )
+        third_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=third_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, third_summary.id],
+            )
+        )
+
+        third_summary.refresh_from_db()
+        self.assertEqual(third_summary.reference_identifier, "CR1002")
+        self.assertEqual(third_summary.summary_identifier, "CR1002.a")
+        self.assertContains(response, 'value="CR1002"')
+        self.assertContains(response, 'value="CR1002.a"')
+
+    def test_new_reference_after_project_rename_keeps_established_prefix(self):
+        self.client.login(username="author", password="pass123")
+        self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.reference_identifier, "CR1000")
+
+        self.project.title = "Marine Restoration Handbook"
+        self.project.save(update_fields=["title"])
+
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, second_summary.id],
+            )
+        )
+
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+        self.assertEqual(second_summary.summary_identifier, "CR1001.a")
+        self.assertContains(response, 'value="CR1001"')
+        self.assertContains(response, 'value="CR1001.a"')
+
     def test_board_still_creates_only_one_default_summary_per_included_reference(self):
         self.reference.screening_status = "included"
         self.reference.save(update_fields=["screening_status"])
