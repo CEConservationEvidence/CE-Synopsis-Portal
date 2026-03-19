@@ -6253,20 +6253,29 @@ def _remove_reference_from_synopsis(reference):
     if not summaries:
         return 0
 
+    summary_ids = [summary.id for summary in summaries]
     assignments = list(
-        SynopsisAssignment.objects.filter(reference_summary__in=summaries).select_related(
-            "intervention", "reference_summary"
-        )
+        SynopsisAssignment.objects.filter(reference_summary_id__in=summary_ids)
+        .select_related("intervention")
     )
     if not assignments:
         return 0
 
     touched_interventions = {}
+    assignment_ids = []
     for assignment in assignments:
         touched_interventions[assignment.intervention_id] = assignment.intervention
-        for key_message in assignment.intervention.key_messages.all():
-            key_message.supporting_summaries.remove(assignment.reference_summary)
-        assignment.delete()
+        assignment_ids.append(assignment.id)
+
+    supporting_summary_through = (
+        SynopsisInterventionKeyMessage.supporting_summaries.through
+    )
+    with transaction.atomic():
+        supporting_summary_through.objects.filter(
+            synopsisinterventionkeymessage__intervention_id__in=touched_interventions.keys(),
+            referencesummary_id__in=summary_ids,
+        ).delete()
+        SynopsisAssignment.objects.filter(pk__in=assignment_ids).delete()
 
     for intervention in touched_interventions.values():
         _resequence_assignment_positions(intervention)
