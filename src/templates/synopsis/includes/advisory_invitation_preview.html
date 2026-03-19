@@ -23,10 +23,6 @@
             <div class="small text-uppercase text-muted mb-2">Email body</div>
             <div class="small" style="white-space: pre-line;" data-preview-body></div>
         </div>
-        <div class="border rounded-3 bg-light p-3 mt-3">
-            <div class="small text-uppercase text-muted mb-2">Optional resources</div>
-            <div class="small mb-0" style="white-space: pre-line;" data-preview-resources></div>
-        </div>
     </div>
 </div>
 <script>
@@ -55,7 +51,6 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         const subjectEl = preview.querySelector("[data-preview-subject]");
         const bodyEl = preview.querySelector("[data-preview-body]");
-        const resourcesEl = preview.querySelector("[data-preview-resources]");
         const dueInput = form.querySelector('[name="due_date"]');
         const standardInput = form.querySelector('[name="standard_message"]');
         const additionalInput = form.querySelector('[name="message"]');
@@ -67,14 +62,14 @@ document.addEventListener("DOMContentLoaded", function () {
         const selectedResources = function () {
             const resources = [];
             if (actionListInput && actionListInput.checked && !actionListInput.disabled) {
-                resources.push("Action list link will be included.");
+                resources.push("Action list: link will be included on send.");
             }
             if (
                 collaborativeInput
                 && collaborativeInput.checked
                 && !collaborativeInput.disabled
             ) {
-                resources.push("Collaborative editor link will be included.");
+                resources.push("Collaborative editor: link will be included on send.");
             }
             return resources;
         };
@@ -113,14 +108,6 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             bodyLines.push("", "Thank you.");
             bodyEl.textContent = bodyLines.join("\n");
-
-            if (resources.length) {
-                resourcesEl.textContent = resources.join("\n");
-                resourcesEl.classList.remove("text-muted");
-            } else {
-                resourcesEl.textContent = "No optional resources selected.";
-                resourcesEl.classList.add("text-muted");
-            }
         };
 
         [dueInput, standardInput, additionalInput, actionListInput, collaborativeInput]

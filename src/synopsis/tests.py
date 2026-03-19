@@ -1629,6 +1629,43 @@ class AdvisoryInviteFlowTests(TestCase):
         self.assertContains(response, default_advisory_invitation_message())
 
     @patch("synopsis.views.EmailMultiAlternatives")
+    def test_single_invite_missing_standard_message_field_keeps_saved_project_message(
+        self, mock_email
+    ):
+        email_instance = MagicMock()
+        mock_email.return_value = email_instance
+        self.project.advisory_invitation_message = "Saved standard message"
+        self.project.save(update_fields=["advisory_invitation_message"])
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="ibrahim",
+            email="ibrahimalhas@example.com",
+        )
+        due = timezone.localdate() + timedelta(days=14)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_invite_create_for_member",
+                args=[self.project.id, member.id],
+            ),
+            {
+                "email": member.email,
+                "due_date": due.strftime("%Y-%m-%d"),
+                "message": "Welcome aboard",
+            },
+        )
+
+        self.assertRedirects(response, self.board_url)
+        self.project.refresh_from_db()
+        self.assertEqual(
+            self.project.advisory_invitation_message, "Saved standard message"
+        )
+        args, _kwargs = mock_email.call_args
+        self.assertIn("Saved standard message", args[1])
+        html_body = email_instance.attach_alternative.call_args[0][0]
+        self.assertIn("Saved standard message", html_body)
+
+    @patch("synopsis.views.EmailMultiAlternatives")
     def test_bulk_invite_skips_members_with_existing_invites(self, mock_email):
         mock_email.return_value = MagicMock()
         already_invited = AdvisoryBoardMember.objects.create(
@@ -1708,6 +1745,40 @@ class AdvisoryInviteFlowTests(TestCase):
 
         self.assertContains(response, "Invitation preview")
         self.assertContains(response, default_advisory_invitation_message())
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_bulk_invite_missing_standard_message_field_keeps_saved_project_message(
+        self, mock_email
+    ):
+        email_instance = MagicMock()
+        mock_email.return_value = email_instance
+        self.project.advisory_invitation_message = "Saved standard message"
+        self.project.save(update_fields=["advisory_invitation_message"])
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Liam",
+            email="liam@example.com",
+        )
+        due = timezone.localdate() + timedelta(days=21)
+
+        response = self.client.post(
+            reverse("synopsis:advisory_send_invites_bulk", args=[self.project.id]),
+            {
+                "due_date": due.strftime("%Y-%m-%d"),
+                "message": "Bulk kickoff",
+            },
+        )
+
+        self.assertRedirects(response, self.board_url)
+        self.project.refresh_from_db()
+        self.assertEqual(
+            self.project.advisory_invitation_message, "Saved standard message"
+        )
+        args, kwargs = mock_email.call_args
+        self.assertEqual(kwargs["to"], [member.email])
+        self.assertIn("Saved standard message", args[1])
+        html_body = email_instance.attach_alternative.call_args[0][0]
+        self.assertIn("Saved standard message", html_body)
 
 
 class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):

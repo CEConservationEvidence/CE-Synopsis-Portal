@@ -8947,9 +8947,10 @@ def advisory_invite_create(request, project_id, member_id=None):
             )
             standard_message = form.cleaned_data.get("standard_message") or ""
             message_body = form.cleaned_data.get("message") or ""
-            _update_project_advisory_invitation_message(
-                project, standard_message, request.user
-            )
+            if "standard_message" in request.POST:
+                _update_project_advisory_invitation_message(
+                    project, standard_message, request.user
+                )
 
             inv = AdvisoryBoardInvitation.objects.create(
                 project=project,
@@ -9329,9 +9330,10 @@ def advisory_send_invites_bulk(request, project_id):
         standard_message = form.cleaned_data.get("standard_message") or ""
         message_body = form.cleaned_data.get("message") or ""
         bulk_due_date = form.cleaned_data.get("due_date")
-        _update_project_advisory_invitation_message(
-            project, standard_message, request.user
-        )
+        if "standard_message" in request.POST:
+            _update_project_advisory_invitation_message(
+                project, standard_message, request.user
+            )
 
         include_action_list = action_document_available and form.cleaned_data.get("include_action_list")
         include_collaborative_link = (
