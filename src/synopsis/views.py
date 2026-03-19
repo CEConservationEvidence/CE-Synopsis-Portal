@@ -2743,6 +2743,10 @@ def protocol_detail(request, project_id):
             "Required when you replace the file or change the protocol stage."
         )
 
+    protocol_members = project.advisory_board_members.filter(
+        sent_protocol_at__isnull=False,
+        response="Y",
+    )
     return render(
         request,
         "synopsis/protocol_detail.html",
