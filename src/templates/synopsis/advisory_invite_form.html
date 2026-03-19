@@ -1,5 +1,4 @@
 {# TODO: #66 The form could be cleaned up to make it easier for authors to send invitations without needing to understand the underlying data model. For example, instead of showing checkboxes for including the action list and collaborative editor link, we could show a single "Include project resources" checkbox that includes both if selected. We could also automatically include the collaborative editor link if the project has an active editor, without showing an explicit option for it in the form. #}
-{# TODO: #69 should also consider adding a preview of the invitation email that will be sent to the advisory board member, so that authors can see exactly what the recipient will receive before sending the invitation. #}
 {# TODO: #68 Finally, can make that the form is accessible and mobile-friendly, with clear labels and error messages for any validation issues. #}
 {# TODO: #67 low priority but adding a feature that allows authors to save a draft of the invitation before sending it, so that they can come back and edit it later if needed. #}
 
@@ -29,6 +28,14 @@
                         <div class="form-text">{{ form.due_date.help_text }}</div>
                         {% if form.due_date.errors %}
                         <div class="invalid-feedback d-block">{{ form.due_date.errors|join:", " }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="{{ form.standard_message.id_for_label }}">Standard invitation message</label>
+                        {{ form.standard_message }}
+                        <div class="form-text">{{ form.standard_message.help_text }}</div>
+                        {% if form.standard_message.errors %}
+                        <div class="invalid-feedback d-block">{{ form.standard_message.errors|join:", " }}</div>
                         {% endif %}
                     </div>
                     <div class="mb-0">
@@ -63,6 +70,7 @@
             </div>
         </div>
     </div>
+    {% include "synopsis/includes/advisory_invitation_preview.html" %}
     <div class="mt-4 d-flex gap-2">
         <button class="btn btn-primary" type="submit">Send invitation</button>
         <a class="btn btn-outline-secondary" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>
