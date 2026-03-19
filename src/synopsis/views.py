@@ -3148,6 +3148,13 @@ def action_list_detail(request, project_id):
             "action_list_reminder_form": action_list_reminder_form,
             "action_list_pending_count": action_list_members.count(),
             "action_list_pending_dates": action_list_pending_dates,
+            "initial_action_list_reminder_log": project.change_log.filter(
+                action="Scheduled action list reminders"
+            )
+            .order_by("created_at")
+            .first(),
+            "action_list_feedback_state": action_list_feedback_state,
+            "action_list_feedback_close_form": action_list_feedback_close_form,
         },
     )
 
