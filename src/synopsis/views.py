@@ -2767,6 +2767,21 @@ def protocol_detail(request, project_id):
     protocol_reminder_form = ProtocolReminderScheduleForm(
         initial=protocol_reminder_initial
     )
+    protocol_feedback_close_initial = {}
+    if protocol and protocol.feedback_closure_message:
+        protocol_feedback_close_initial["message"] = protocol.feedback_closure_message
+    protocol_feedback_close_form = ProtocolFeedbackCloseForm(
+        initial=protocol_feedback_close_initial
+    )
+    protocol_feedback_state = {
+        "protocol": protocol,
+        "is_closed": bool(getattr(protocol, "feedback_closed_at", None)),
+        "closed_at": getattr(protocol, "feedback_closed_at", None),
+        "closure_message": getattr(protocol, "feedback_closure_message", ""),
+        "deadline": protocol_pending_dates[0] if protocol_pending_dates else None,
+        "document_ready": protocol_document_ready,
+    }
+
     return render(
         request,
         "synopsis/protocol_detail.html",
