@@ -51,12 +51,14 @@ from .models import (
 )
 from .forms import (
     ActionListReminderScheduleForm,
+    ActionListSendForm,
     AdvisoryBulkInviteForm,
     AdvisoryBoardMemberForm,
     AdvisoryInviteForm,
     AdvisoryMemberCustomDataForm,
     FunderForm,
     FunderContactFormSet,
+    ProtocolSendForm,
     ProtocolReminderScheduleForm,
     ProjectDeleteForm,
     ProjectSettingsForm,
@@ -996,6 +998,40 @@ class AdvisoryDeadlineValidationTests(TestCase):
         self.assertEqual(
             ActionListReminderScheduleForm().fields["deadline"].widget.attrs.get("min"),
             expected_datetime_min,
+        )
+
+    @override_settings(
+        ADVISORY_INVITE_RESPONSE_WINDOW_DAYS=14,
+        ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS=21,
+    )
+    def test_advisory_help_text_uses_runtime_settings(self):
+        self.assertIn(
+            "Defaults to 14 days from today.",
+            AdvisoryInviteForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 14 days from today",
+            AdvisoryBulkInviteForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 14 days from today.",
+            ReminderScheduleForm().fields["reminder_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today",
+            ProtocolSendForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today",
+            ActionListSendForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today.",
+            ProtocolReminderScheduleForm().fields["deadline"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today.",
+            ActionListReminderScheduleForm().fields["deadline"].help_text,
         )
 
     def test_protocol_deadline_rejects_same_day_datetime(self):
