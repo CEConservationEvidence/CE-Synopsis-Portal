@@ -12,6 +12,7 @@ from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import PermissionDenied
+from django.core.management.base import CommandError
 from django.urls import reverse
 
 import shutil
@@ -1096,6 +1097,22 @@ class SendDueRemindersTests(TestCase):
             ),
             subjects,
         )
+
+    @override_settings(ADVISORY_REMINDER_LEAD_BUSINESS_DAYS=-1)
+    def test_rejects_negative_reminder_lead_business_days(self):
+        with self.assertRaisesMessage(
+            CommandError,
+            "ADVISORY_REMINDER_LEAD_BUSINESS_DAYS must be a non-negative integer",
+        ):
+            call_command("send_due_reminders")
+
+    @override_settings(ADVISORY_REMINDER_LEAD_BUSINESS_DAYS="tomorrow")
+    def test_rejects_non_integer_reminder_lead_business_days(self):
+        with self.assertRaisesMessage(
+            CommandError,
+            "ADVISORY_REMINDER_LEAD_BUSINESS_DAYS must be an integer",
+        ):
+            call_command("send_due_reminders")
 
 
 class MemberReminderUpdateTests(TestCase):
