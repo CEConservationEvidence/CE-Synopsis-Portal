@@ -1,5 +1,4 @@
 import re
-from datetime import timedelta
 
 from django import forms
 from django.conf import settings
@@ -8,6 +7,8 @@ from django.core.validators import FileExtensionValidator
 from django.forms.models import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
+
+from .utils import minimum_allowed_deadline_date
 
 MAX_LOCATION_LINE_LENGTH = 200
 
@@ -20,16 +21,12 @@ def _advisory_document_feedback_window_days():
     return getattr(settings, "ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS", 10)
 
 
-def _minimum_allowed_deadline_date():
-    return timezone.localdate() + timedelta(days=1)
-
-
 def _minimum_allowed_deadline_date_str():
-    return _minimum_allowed_deadline_date().isoformat()
+    return minimum_allowed_deadline_date().isoformat()
 
 
 def _minimum_allowed_deadline_datetime_local_str():
-    return f"{_minimum_allowed_deadline_date().isoformat()}T00:00"
+    return f"{minimum_allowed_deadline_date().isoformat()}T00:00"
 
 
 def _set_min_date_attr(field):
@@ -43,7 +40,7 @@ def _set_min_datetime_attr(field):
 def _validate_not_same_day_date(value, field_label):
     if not value:
         return value
-    minimum_date = _minimum_allowed_deadline_date()
+    minimum_date = minimum_allowed_deadline_date()
     if value < minimum_date:
         raise forms.ValidationError(
             f"{field_label} must be at least one day in the future."
@@ -58,7 +55,7 @@ def _validate_not_same_day_datetime(value, field_label):
         local_value = timezone.localtime(value)
     except (ValueError, TypeError):
         local_value = value
-    minimum_date = _minimum_allowed_deadline_date()
+    minimum_date = minimum_allowed_deadline_date()
     if local_value.date() < minimum_date:
         raise forms.ValidationError(
             f"{field_label} must be at least one day in the future."

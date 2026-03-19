@@ -127,7 +127,13 @@ from .models import (
     SynopsisExportLog,
 )
 from .presets import PRESETS
-from .utils import ensure_global_groups, email_subject, reply_to_list, reference_hash
+from .utils import (
+    ensure_global_groups,
+    email_subject,
+    minimum_allowed_deadline_date,
+    reply_to_list,
+    reference_hash,
+)
 
 
 ONLYOFFICE_SETTINGS = getattr(settings, "ONLYOFFICE", {})
@@ -594,10 +600,6 @@ def _resolve_document_feedback_deadline(override_due_date=None, current_deadline
     if override_due_date:
         return _end_of_day_datetime(override_due_date)
     return current_deadline or _default_document_feedback_deadline()
-
-
-def _minimum_allowed_deadline_date():
-    return timezone.localdate() + dt.timedelta(days=1)
 
 
 def _format_file_size(size_bytes):
@@ -1789,7 +1791,7 @@ def _advisory_board_context(
         "section_palette": section_palette,
         "custom_field_group_choices": AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
         "declined_members_with_reason": declined_with_reason,
-        "minimum_allowed_deadline_date": _minimum_allowed_deadline_date(),
+        "minimum_allowed_deadline_date": minimum_allowed_deadline_date(),
     }
 
 
@@ -9025,7 +9027,7 @@ def advisory_invite_update_due_date(request, project_id, invitation_id):
 
     date_str = (request.POST.get("due_date") or "").strip()
     new_due_date = dt.date.fromisoformat(date_str) if date_str else None
-    if new_due_date and new_due_date < _minimum_allowed_deadline_date():
+    if new_due_date and new_due_date < minimum_allowed_deadline_date():
         messages.error(
             request,
             "Response date must be at least one day in the future.",
