@@ -8,7 +8,10 @@ from django.forms.models import BaseInlineFormSet, inlineformset_factory
 from django.utils import timezone
 from django.utils.text import slugify
 
-from .utils import minimum_allowed_deadline_date
+from .utils import (
+    default_advisory_invitation_message,
+    minimum_allowed_deadline_date,
+)
 
 MAX_LOCATION_LINE_LENGTH = 200
 
@@ -352,6 +355,18 @@ class AdvisoryInviteForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text="",
     )
+    standard_message = forms.CharField(
+        required=False,
+        label="Standard invitation message",
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 5,
+                "placeholder": "Standard message used for advisory invitation emails",
+            }
+        ),
+        help_text="",
+    )
     message = forms.CharField(
         required=False,
         label="Additional message",
@@ -375,12 +390,25 @@ class AdvisoryInviteForm(forms.Form):
         help_text="Optional. Shares the live OnlyOffice editor for the action list.",
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["due_date"])
         self.fields["due_date"].help_text = (
             "This date is shown in the invitation and on the advisory board dashboard. "
             f"Defaults to {_advisory_invite_response_window_days()} days from today."
+        )
+        standard_message = (
+            getattr(project, "advisory_invitation_message", "").strip()
+            if project
+            else ""
+        )
+        if not self.is_bound:
+            self.fields["standard_message"].initial = (
+                standard_message or default_advisory_invitation_message()
+            )
+        self.fields["standard_message"].help_text = (
+            "Saved as the standard invitation text for this synopsis. "
+            "If unchanged, the built-in default message is used."
         )
 
     def clean_due_date(self):
@@ -995,6 +1023,18 @@ class AdvisoryBulkInviteForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text="",
     )
+    standard_message = forms.CharField(
+        required=False,
+        label="Standard invitation message",
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 5,
+                "placeholder": "Standard message used for advisory invitation emails",
+            }
+        ),
+        help_text="",
+    )
     message = forms.CharField(
         required=False,
         label="Additional message",
@@ -1018,13 +1058,26 @@ class AdvisoryBulkInviteForm(forms.Form):
         help_text="Optional. Shares the live OnlyOffice editor for the action list.",
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["due_date"])
         self.fields["due_date"].help_text = (
             "Defaults to "
             f"{_advisory_invite_response_window_days()} days from today for members "
             "without an existing deadline."
+        )
+        standard_message = (
+            getattr(project, "advisory_invitation_message", "").strip()
+            if project
+            else ""
+        )
+        if not self.is_bound:
+            self.fields["standard_message"].initial = (
+                standard_message or default_advisory_invitation_message()
+            )
+        self.fields["standard_message"].help_text = (
+            "Saved as the standard invitation text for this synopsis. "
+            "If unchanged, the built-in default message is used."
         )
 
     def clean_due_date(self):
