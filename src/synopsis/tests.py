@@ -3747,6 +3747,60 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.summary_identifier, "CR1000.a")
 
+    def test_delete_summary_tab_resequences_intervention_assignments(self):
+        extra_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            status=ReferenceSummary.STATUS_DRAFT,
+        )
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Intervention",
+            position=1,
+        )
+        retained_assignment = SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=extra_summary,
+            position=2,
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, extra_summary.id],
+            ),
+            {"action": "delete-summary-tab"},
+            follow=False,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            fetch_redirect_response=False,
+        )
+        retained_assignment.refresh_from_db()
+        self.assertEqual(retained_assignment.position, 1)
+
     def test_delete_summary_tab_is_blocked_for_only_summary(self):
         self.client.login(username="author", password="pass123")
         response = self.client.post(

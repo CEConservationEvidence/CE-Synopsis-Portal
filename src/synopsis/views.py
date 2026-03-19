@@ -6682,7 +6682,18 @@ def reference_summary_detail(request, project_id, summary_id):
                     summary_id=summary.id,
                 )
             next_summary = remaining_summaries[0]
-            summary.delete()
+            affected_intervention_ids = list(
+                SynopsisAssignment.objects.filter(reference_summary=summary)
+                .values_list("intervention_id", flat=True)
+                .distinct()
+            )
+            with transaction.atomic():
+                summary.delete()
+                if affected_intervention_ids:
+                    for intervention in SynopsisIntervention.objects.filter(
+                        id__in=affected_intervention_ids
+                    ):
+                        _resequence_assignment_positions(intervention)
             _sync_reference_summary_identifiers_for_reference(next_summary.reference, save=True)
             messages.success(request, "Summary tab deleted.")
             return redirect(
