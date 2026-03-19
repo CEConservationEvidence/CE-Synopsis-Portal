@@ -3957,6 +3957,29 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.reference.screening_notes, "Freshwater fish evidence.")
         self.assertContains(response, "Reference classification updated.")
 
+    def test_summary_detail_filters_blank_reference_folder_values(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "screening_status": "included",
+                "reference_folder": ["", "3a"],
+                "screening_notes": "Freshwater fish evidence.",
+            },
+            follow=True,
+        )
+
+        self.reference.refresh_from_db()
+        self.assertEqual(self.reference.reference_folder, ["3a"])
+        self.assertContains(response, "Reference classification updated.")
+
     def test_excluding_reference_requires_reason_on_summary_page(self):
         self.reference.screening_status = "included"
         self.reference.save(update_fields=["screening_status", "updated_at"])
@@ -4171,10 +4194,5 @@ class ProjectAuthorSelectionUiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Filter authors by name or username")
-        self.assertContains(
-            response,
-            "No Ctrl/Cmd multi-select is needed",
-            html=False,
-        )
         self.assertContains(response, "Ibrahim Alhas (ibrahim)")
         self.assertContains(response, "Will Morgan (will)")

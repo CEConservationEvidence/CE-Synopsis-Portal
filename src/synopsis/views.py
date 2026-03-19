@@ -6656,12 +6656,11 @@ def reference_summary_detail(request, project_id, summary_id):
         if action == "update-classification" and classification_form.is_valid():
             reference = summary.reference
             previous_status = reference.screening_status
+            folders = classification_form.cleaned_data.get("reference_folder") or []
             reference.screening_status = classification_form.cleaned_data[
                 "screening_status"
             ]
-            reference.reference_folder = (
-                classification_form.cleaned_data.get("reference_folder") or []
-            )
+            reference.reference_folder = [folder for folder in folders if folder]
             reference.screening_notes = (
                 classification_form.cleaned_data.get("screening_notes") or ""
             )
