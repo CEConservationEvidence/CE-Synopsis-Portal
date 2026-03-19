@@ -2097,7 +2097,7 @@ class CollaborativeClosureTests(TestCase):
         response = self.client.post(close_url, {"message": "Window closed"})
         self.assertRedirects(
             response,
-            reverse("synopsis:advisory_board_list", args=[self.project.id]),
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
         )
 
         self.project = Project.objects.get(id=self.project.id)
@@ -2150,7 +2150,7 @@ class CollaborativeClosureTests(TestCase):
         reopen_response = self.client.post(close_url, {"action": "reopen"})
         self.assertRedirects(
             reopen_response,
-            reverse("synopsis:advisory_board_list", args=[self.project.id]),
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
         )
         self.project.refresh_from_db()
         self.assertIsNone(self.project.protocol.feedback_closed_at)
@@ -2212,6 +2212,37 @@ class CollaborativePanelViewTests(TestCase):
         self.assertNotContains(
             response, "Upload the action list before starting a collaborative session."
         )
+
+    def test_advisory_board_shows_custom_columns_button_and_not_document_feedback_windows(self):
+        response = self.client.get(
+            reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        self.assertContains(response, "Custom columns")
+        self.assertContains(response, "Deadlines & reminders")
+        self.assertNotContains(response, "Protocol feedback window")
+        self.assertNotContains(response, "Action list feedback window")
+
+    def test_document_pages_show_feedback_window_controls(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+
+        protocol_response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+        self.assertContains(protocol_response, "Protocol feedback window")
+        self.assertContains(protocol_response, "Set protocol deadline")
+
+        action_list_response = self.client.get(
+            reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+        self.assertContains(action_list_response, "Action list feedback window")
+        self.assertContains(action_list_response, "Set action list deadline")
 
 
 class AdvisoryBoardCustomColumnsTests(TestCase):
