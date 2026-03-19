@@ -2747,6 +2747,11 @@ def protocol_detail(request, project_id):
         sent_protocol_at__isnull=False,
         response="Y",
     )
+    protocol_pending_dates = [
+        for d in protocol_members.filter(feedback_on_protocol_deadline__isnull=False)
+        .order_by("feedback_on_protocol_deadline")
+        .values_list("feedback_on_protocol_deadline", flat=True)
+    ]
     return render(
         request,
         "synopsis/protocol_detail.html",
