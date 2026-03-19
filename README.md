@@ -155,6 +155,29 @@ python manage.py check
 python manage.py test
 ```
 
+## Docker Deployment
+
+A Docker-based deployment is now included for:
+- Django/Gunicorn
+- PostgreSQL
+- OnlyOffice Document Server
+
+Main files:
+- [Dockerfile](Dockerfile)
+- [docker-compose.yml](docker-compose.yml)
+- [docker/entrypoint.sh](docker/entrypoint.sh)
+
+Quick start:
+
+```bash
+cp .env.template .env
+docker compose up --build -d
+docker compose exec web python manage.py createsuperuser
+```
+
+Detailed setup notes, including OnlyOffice URL/JWT configuration, are in [docs/docker.md](docs/docker.md).
+The admin-facing handoff checklist is in [docs/admin-handoff.md](docs/admin-handoff.md).
+
 ## Repository Layout
 
 ```text
