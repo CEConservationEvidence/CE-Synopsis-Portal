@@ -6497,6 +6497,15 @@ def reference_summary_detail(request, project_id, summary_id):
         project=project,
         initial=assignment_initial,
     )
+    classification_initial = {
+        "screening_status": summary.reference.screening_status,
+        "reference_folder": summary.reference.reference_folder,
+        "screening_notes": summary.reference.screening_notes,
+    }
+    classification_form = ReferenceClassificationForm(
+        request.POST if active_action == "update-classification" else None,
+        initial=classification_initial,
+    )
     comment_form = ReferenceSummaryCommentForm()
     document_form = ReferenceDocumentForm()
     action_summary_form = ReferenceActionSummaryForm()
@@ -6564,6 +6573,58 @@ def reference_summary_detail(request, project_id, summary_id):
             if not error_list:
                 error_list.append("Unable to save summary. Please review your inputs.")
             messages.error(request, " ".join(error_list))
+        if action == "update-classification" and classification_form.is_valid():
+            reference = summary.reference
+            previous_status = reference.screening_status
+            reference.screening_status = classification_form.cleaned_data[
+                "screening_status"
+            ]
+            reference.reference_folder = (
+                classification_form.cleaned_data.get("reference_folder") or []
+            )
+            reference.screening_notes = (
+                classification_form.cleaned_data.get("screening_notes") or ""
+            )
+            reference.screening_decision_at = timezone.now()
+            reference.screened_by = request.user
+            reference.save(
+                update_fields=[
+                    "screening_status",
+                    "reference_folder",
+                    "screening_notes",
+                    "screening_decision_at",
+                    "screened_by",
+                    "updated_at",
+                ]
+            )
+
+            if reference.screening_status == "excluded":
+                removed_assignments = _remove_reference_from_synopsis(reference)
+                messages.success(
+                    request,
+                    "Reference excluded from this synopsis."
+                    + (
+                        f" Removed it from {removed_assignments} intervention assignment(s)."
+                        if removed_assignments
+                        else ""
+                    ),
+                )
+                return redirect(
+                    f"{reverse('synopsis:reference_batch_detail', args=[project.id, reference.batch_id])}?focus=1&ref={reference.id}"
+                )
+
+            if previous_status == "excluded":
+                messages.success(
+                    request,
+                    "Reference re-included in this synopsis. You can now continue summarising it.",
+                )
+            else:
+                messages.success(request, "Reference classification updated.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=summary.id,
+            )
         if action == "assign" and assignment_form.is_valid():
             summary.assigned_to = assignment_form.cleaned_data["assigned_to"]
             summary.needs_help = assignment_form.cleaned_data["needs_help"]
@@ -6710,6 +6771,7 @@ def reference_summary_detail(request, project_id, summary_id):
             "summary_tabs": summary_tabs,
             "summary_form": summary_form,
             "assignment_form": assignment_form,
+            "classification_form": classification_form,
             "comment_form": comment_form,
             "comments": comments,
             "comment_tree": comment_tree,
