@@ -1169,7 +1169,7 @@ class MemberReminderUpdateTests(TestCase):
             reminder_sent=True,
             reminder_sent_at=timezone.now(),
         )
-        target_date = date(2025, 2, 20)
+        target_date = timezone.localdate() + timedelta(days=7)
         response = self.client.post(
             reverse(
                 "synopsis:advisory_member_set_deadline",
@@ -1493,7 +1493,7 @@ class AdvisoryInviteFlowTests(TestCase):
             reminder_sent=True,
             reminder_sent_at=timezone.now(),
         )
-        due = date(2025, 11, 30)
+        due = timezone.localdate() + timedelta(days=14)
         url = reverse(
             "synopsis:advisory_invite_create_for_member",
             args=[self.project.id, member.id],
@@ -1552,7 +1552,6 @@ class AdvisoryInviteFlowTests(TestCase):
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_bulk_invite_skips_members_with_existing_invites(self, mock_email):
         mock_email.return_value = MagicMock()
-        existing_due = timezone.localdate() + timedelta(days=4)
         already_invited = AdvisoryBoardMember.objects.create(
             project=self.project,
             first_name="Iris",
@@ -1566,7 +1565,7 @@ class AdvisoryInviteFlowTests(TestCase):
             first_name="Liam",
             email="liam@example.com",
         )
-        due = date(2025, 12, 20)
+        due = timezone.localdate() + timedelta(days=21)
         response = self.client.post(
             reverse("synopsis:advisory_send_invites_bulk", args=[self.project.id]),
             {
@@ -4171,7 +4170,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ).count(),
             2,
         )
-        self.assertContains(resp, "multiple summary tabs per reference", status_code=200)
+        self.assertContains(resp, "of 2 summary tabs for this reference", status_code=200)
         self.assertContains(resp, "CR1000.b")
 
     def test_board_and_detail_use_library_reference_metadata(self):
@@ -4466,10 +4465,6 @@ class ProjectAuthorSelectionUiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Filter authors by name or username")
-        self.assertContains(
-            response,
-            "no Ctrl/Cmd multi-select is needed",
-            html=False,
-        )
+        self.assertNotContains(response, "Ctrl/Cmd multi-select", html=False)
         self.assertContains(response, "Ibrahim Alhas (ibrahim)")
         self.assertContains(response, "Will Morgan (will)")
