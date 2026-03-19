@@ -2541,7 +2541,7 @@ class OnlyOfficeConfigTests(TestCase):
         views.ONLYOFFICE_SETTINGS = {
             "base_url": "http://localhost:8080",
             "internal_url": "http://onlyoffice",
-            "app_base_url": "http://host.docker.internal:8000",
+            "app_base_url": "http://web:8000",
             "jwt_secret": "change-me",
             "callback_timeout": 10,
             "trusted_download_urls": [
@@ -2591,13 +2591,20 @@ class OnlyOfficeConfigTests(TestCase):
             CollaborativeSession.DOCUMENT_PROTOCOL,
         )
 
-        self.assertTrue(
-            config["document"]["url"].startswith("http://host.docker.internal:8000/")
-        )
-        self.assertTrue(
-            config["editorConfig"]["callbackUrl"].startswith(
-                "http://host.docker.internal:8000/"
-            )
+        document_url = urlparse(config["document"]["url"])
+        callback_url = urlparse(config["editorConfig"]["callbackUrl"])
+
+        self.assertEqual(document_url.scheme, "http")
+        self.assertEqual(document_url.netloc, "web:8000")
+        self.assertTrue(document_url.path.startswith("/media/"))
+        self.assertEqual(callback_url.scheme, "http")
+        self.assertEqual(callback_url.netloc, "web:8000")
+        self.assertEqual(
+            callback_url.path,
+            reverse(
+                "synopsis:collaborative_edit_callback",
+                args=[self.project.id, "protocol", self.session.token],
+            ),
         )
 
 
