@@ -1215,14 +1215,14 @@ def _onlyoffice_command_headers(payload: dict) -> dict[str, str]:
     return headers
 
 
-def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[bool, str]:
+def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[str, str]:
     command_url = _onlyoffice_command_url()
     if not command_url:
         logger.warning(
             "OnlyOffice force-save skipped for session %s because command URL is missing",
             session.pk,
         )
-        return False, "Collaborative save is not configured correctly."
+        return "failed", "Collaborative save is not configured correctly."
 
     payload = {
         "c": "forcesave",
@@ -1244,18 +1244,27 @@ def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[bool
             session.pk,
             exc,
         )
-        return False, "Unable to request a final save from OnlyOffice."
+        return "failed", "Unable to request a final save from OnlyOffice."
 
     error_code = data.get("error", 1) if isinstance(data, dict) else 1
+    if error_code in {0, "0"}:
+        return "requested", "Final save requested from OnlyOffice."
+
+    if error_code in {4, "4"}:
+        logger.info(
+            "OnlyOffice force-save reported no pending changes for session %s: %s",
+            session.pk,
+            data,
+        )
+        return "noop", "No unsaved changes were pending in OnlyOffice."
+
     if error_code not in {0, "0"}:
         logger.error(
             "OnlyOffice force-save request returned error for session %s: %s",
             session.pk,
             data,
         )
-        return False, "OnlyOffice did not accept the final save request."
-
-    return True, "Final save requested from OnlyOffice."
+        return "failed", "OnlyOffice did not accept the final save request."
 
 
 def _wait_for_collaborative_save(session, document_type, timeout_seconds: int) -> bool:
@@ -3990,9 +3999,22 @@ def collaborative_force_end(request, project_id, document_slug, token):
 
     reason = (request.POST.get("reason") or "").strip() or "Session ended from portal"
     document_label = _document_label(document_type)
-    requested, save_message = _request_onlyoffice_forcesave(
+    save_state, save_message = _request_onlyoffice_forcesave(
         project, document_type, session
     )
+    if save_state == "noop":
+        session.mark_inactive(reason=reason)
+        _log_project_change(
+            project,
+            request.user,
+            f"{document_label} collaborative session closed",
+            f"Session {session.token} closed with no unsaved changes.",
+        )
+        messages.success(
+            request, f"{document_label} had no unsaved changes and the session was closed."
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
     if _wait_for_collaborative_save(
         session,
         document_type,
@@ -4003,7 +4025,7 @@ def collaborative_force_end(request, project_id, document_slug, token):
         )
         return redirect(_document_detail_url(project.id, document_type))
 
-    if not requested:
+    if save_state != "requested":
         messages.error(
             request,
             f"{save_message} The session is still open so no edits are discarded.",

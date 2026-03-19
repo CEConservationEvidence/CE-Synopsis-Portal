@@ -2627,7 +2627,7 @@ class CollaborativeForceSaveCloseTests(TestCase):
     @patch("synopsis.views._wait_for_collaborative_save", return_value=False)
     @patch(
         "synopsis.views._request_onlyoffice_forcesave",
-        return_value=(False, "Unable to request a final save from OnlyOffice."),
+        return_value=("failed", "Unable to request a final save from OnlyOffice."),
     )
     def test_force_end_keeps_session_open_when_save_request_fails(
         self, mock_request, mock_wait
@@ -2651,7 +2651,7 @@ class CollaborativeForceSaveCloseTests(TestCase):
     @patch("synopsis.views._wait_for_collaborative_save", return_value=True)
     @patch(
         "synopsis.views._request_onlyoffice_forcesave",
-        return_value=(True, "Final save requested from OnlyOffice."),
+        return_value=("requested", "Final save requested from OnlyOffice."),
     )
     def test_force_end_reports_success_after_final_save(
         self, mock_request, mock_wait
@@ -2669,6 +2669,30 @@ class CollaborativeForceSaveCloseTests(TestCase):
         )
         mock_request.assert_called_once()
         mock_wait.assert_called_once()
+
+    @patch("synopsis.views._wait_for_collaborative_save")
+    @patch(
+        "synopsis.views._request_onlyoffice_forcesave",
+        return_value=("noop", "No unsaved changes were pending in OnlyOffice."),
+    )
+    def test_force_end_closes_session_when_no_unsaved_changes(
+        self, mock_request, mock_wait
+    ):
+        response = self.client.post(self.url, {"reason": "Close from portal"})
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
+        )
+        self.session.refresh_from_db()
+        self.assertFalse(self.session.is_active)
+        messages_list = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(
+            "Protocol had no unsaved changes and the session was closed.",
+            messages_list,
+        )
+        mock_request.assert_called_once()
+        mock_wait.assert_not_called()
 
 
 class MediaServingUrlTests(SimpleTestCase):
