@@ -179,7 +179,11 @@ details.abstract-details[open] .abstract-full {
                             <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
                             <select name="reference_folder" class="form-select form-select-sm" multiple style="max-width: 320px; height: 150px;">
                                 {% for val,label in folder_choices %}
-                                <option value="{{ val }}" {% if val in focused_reference.reference_folder %}selected{% endif %}>{{ label }}</option>
+                                    {% if val in focused_reference.reference_folder %}
+                                        <option value="{{ val }}" selected>{{ label }}</option>
+                                    {% else %}
+                                        <option value="{{ val }}">{{ label }}</option>
+                                    {% endif %}
                                 {% endfor %}
                             </select>
                             <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ focused_reference.screening_status }}">Save folders</button>
@@ -252,7 +256,11 @@ details.abstract-details[open] .abstract-full {
                 </thead>
                 <tbody>
                     {% for ref in references %}
-                    <tr{% if not ref.canonical.abstract %} class="table-warning"{% endif %}>
+                    {% if not ref.canonical.abstract %}
+                    <tr class="table-warning">
+                    {% else %}
+                    <tr>
+                    {% endif %}
                         <td class="text-center">
                             <input
                                 class="form-check-input bulk-reference-checkbox"
@@ -327,7 +335,11 @@ details.abstract-details[open] .abstract-full {
                                 <input type="hidden" name="reference_id" value="{{ ref.id }}">
                                 <select name="reference_folder" class="form-select form-select-sm" multiple style="max-width: 220px; height: 150px;">
                                     {% for val,label in folder_choices %}
-                                    <option value="{{ val }}" {% if val in ref.reference_folder %}selected{% endif %}>{{ label }}</option>
+                                        {% if val in ref.reference_folder %}
+                                            <option value="{{ val }}" selected>{{ label }}</option>
+                                        {% else %}
+                                            <option value="{{ val }}">{{ label }}</option>
+                                        {% endif %}
                                     {% endfor %}
                                 </select>
                                 <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ ref.screening_status }}">Save folders</button>

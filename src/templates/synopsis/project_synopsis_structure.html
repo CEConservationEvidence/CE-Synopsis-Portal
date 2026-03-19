@@ -25,6 +25,33 @@
     .hidden-by-filter {
         display: none !important;
     }
+    .assignment-picker {
+        background: #f8f9fa;
+        border: 1px solid #e2e8f0;
+        border-radius: 0.5rem;
+        padding: 0.85rem;
+    }
+    .summary-picker-select {
+        min-height: 13rem;
+    }
+    .summary-picker-preview {
+        min-height: 8.5rem;
+        border: 1px dashed #cbd5e1;
+        border-radius: 0.5rem;
+        background: #fff;
+        padding: 0.75rem;
+    }
+    .summary-picker-preview.is-empty {
+        color: #6c757d;
+    }
+    .summary-picker-preview-title {
+        font-weight: 600;
+        color: #1f2937;
+    }
+    .summary-picker-preview-meta {
+        color: #6b7280;
+        font-size: 0.875rem;
+    }
 </style>
 
 <div class="bg-white p-4 rounded shadow-sm mb-3">
@@ -112,12 +139,20 @@
                                     <option value="{{ preset.key }}">{{ preset.label }}</option>
                                 {% endfor %}
                             </select>
-                            <button class="btn btn-outline-primary btn-sm" {% if chapters %}disabled{% endif %}>Apply</button>
+                            {% if chapters %}
+                                <button class="btn btn-outline-primary btn-sm" disabled>Apply</button>
+                            {% else %}
+                                <button class="btn btn-outline-primary btn-sm">Apply</button>
+                            {% endif %}
                         </form>
                         <form method="post" class="mt-2">
                             {% csrf_token %}
                             <input type="hidden" name="action" value="reset-structure">
-                            <button class="btn btn-outline-danger btn-sm" {% if not chapters %}disabled{% endif %} onclick="return confirm('Clear all chapters and start over?')">Clear outline</button>
+                            {% if not chapters %}
+                                <button class="btn btn-outline-danger btn-sm" disabled onclick="return confirm('Clear all chapters and start over?')">Clear outline</button>
+                            {% else %}
+                                <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Clear all chapters and start over?')">Clear outline</button>
+                            {% endif %}
                         </form>
                         <div class="small text-muted mt-1">Presets can be applied only when the outline is empty.</div>
                     </div>
@@ -145,7 +180,11 @@
 
     <div class="col-lg-8" id="evidence-pane">
         {% for chapter in evidence_chapters %}
-        <details class="card mb-3 synopsis-chapter evidence-chapter-card" data-chapter-title="{{ chapter.title|lower }}" id="chapter-{{ chapter.id }}" {% if forloop.first %}open{% endif %}>
+        {% if forloop.first %}
+        <details class="card mb-3 synopsis-chapter evidence-chapter-card" data-chapter-title="{{ chapter.title|lower }}" id="chapter-{{ chapter.id }}" open>
+        {% else %}
+        <details class="card mb-3 synopsis-chapter evidence-chapter-card" data-chapter-title="{{ chapter.title|lower }}" id="chapter-{{ chapter.id }}">
+        {% endif %}
             <summary class="card-header d-flex flex-column flex-lg-row justify-content-between align-items-lg-center gap-2">
                 <div>
                     <div class="fw-semibold">{{ chapter.title }}</div>
@@ -168,7 +207,11 @@
                         <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
                         <select name="chapter_type" class="form-select form-select-sm">
                             {% for value, label in chapter_form.chapter_type.field.choices %}
-                            <option value="{{ value }}" {% if chapter.chapter_type == value %}selected{% endif %}>{{ label }}</option>
+                                {% if chapter.chapter_type == value %}
+                                    <option value="{{ value }}" selected>{{ label }}</option>
+                                {% else %}
+                                    <option value="{{ value }}">{{ label }}</option>
+                                {% endif %}
                             {% endfor %}
                         </select>
                         <button class="btn btn-outline-primary btn-sm">Save type</button>
@@ -243,7 +286,11 @@
                 </div>
 
                 {% for subheading in chapter.subheadings.all %}
-                <details class="border rounded mb-2 synopsis-subheading" {% if forloop.first %}open{% endif %}>
+                {% if forloop.first %}
+                <details class="border rounded mb-2 synopsis-subheading" open>
+                {% else %}
+                <details class="border rounded mb-2 synopsis-subheading">
+                {% endif %}
                     <summary class="p-2 d-flex justify-content-between align-items-center gap-2">
                         <div class="fw-semibold">{{ subheading.title }}</div>
                         <span class="badge text-bg-light">{{ subheading.intervention_total|default:0 }} interventions</span>
@@ -353,7 +400,11 @@
                                                 <select name="iucn_category" class="form-select form-select-sm">
                                                     <option value="">Choose...</option>
                                                     {% for category in iucn_categories %}
-                                                    <option value="{{ category.id }}" {% if intervention.iucn_category_id == category.id %}selected{% endif %}>{{ category }}</option>
+                                                        {% if intervention.iucn_category_id == category.id %}
+                                                            <option value="{{ category.id }}" selected>{{ category }}</option>
+                                                        {% else %}
+                                                            <option value="{{ category.id }}">{{ category }}</option>
+                                                        {% endif %}
                                                     {% endfor %}
                                                 </select>
                                             </div>
@@ -362,15 +413,23 @@
                                                 <select name="primary_intervention" class="form-select form-select-sm">
                                                     <option value="">None</option>
                                                     {% for existing in all_interventions %}
-                                                    {% if existing.id != intervention.id %}
-                                                    <option value="{{ existing.id }}" {% if intervention.primary_intervention_id == existing.id %}selected{% endif %}>{{ existing.title }}</option>
-                                                    {% endif %}
+                                                        {% if existing.id != intervention.id %}
+                                                            {% if intervention.primary_intervention_id == existing.id %}
+                                                                <option value="{{ existing.id }}" selected>{{ existing.title }}</option>
+                                                            {% else %}
+                                                                <option value="{{ existing.id }}">{{ existing.title }}</option>
+                                                            {% endif %}
+                                                        {% endif %}
                                                     {% endfor %}
                                                 </select>
                                             </div>
                                             <div class="col-12 col-lg-2 d-flex align-items-center">
                                                 <div class="form-check mt-3">
-                                                    <input class="form-check-input" type="checkbox" name="is_cross_reference" value="1" id="cross-ref-{{ intervention.id }}" {% if intervention.is_cross_reference %}checked{% endif %}>
+                                                    {% if intervention.is_cross_reference %}
+                                                        <input class="form-check-input" type="checkbox" name="is_cross_reference" value="1" id="cross-ref-{{ intervention.id }}" checked>
+                                                    {% else %}
+                                                        <input class="form-check-input" type="checkbox" name="is_cross_reference" value="1" id="cross-ref-{{ intervention.id }}">
+                                                    {% endif %}
                                                     <label class="form-check-label small" for="cross-ref-{{ intervention.id }}">Cross-ref</label>
                                                 </div>
                                             </div>
@@ -406,7 +465,11 @@
                                                     <label class="form-label small text-muted mb-1">Evidence status</label>
                                                     <select name="evidence_status" class="form-select form-select-sm">
                                                         {% for code, label in intervention_synthesis_form.evidence_status.field.choices %}
-                                                        <option value="{{ code }}" {% if intervention.evidence_status == code %}selected{% endif %}>{{ label }}</option>
+                                                            {% if intervention.evidence_status == code %}
+                                                                <option value="{{ code }}" selected>{{ label }}</option>
+                                                            {% else %}
+                                                                <option value="{{ code }}">{{ label }}</option>
+                                                            {% endif %}
                                                         {% endfor %}
                                                     </select>
                                                 </div>
@@ -433,7 +496,11 @@
                                                         <div class="col-12 col-lg-4">
                                                             <select name="response_group" class="form-select form-select-sm">
                                                                 {% for code, label in key_message_form.response_group.field.choices %}
-                                                                <option value="{{ code }}" {% if key_message.response_group == code %}selected{% endif %}>{{ label }}</option>
+                                                                    {% if key_message.response_group == code %}
+                                                                        <option value="{{ code }}" selected>{{ label }}</option>
+                                                                    {% else %}
+                                                                        <option value="{{ code }}">{{ label }}</option>
+                                                                    {% endif %}
                                                                 {% endfor %}
                                                             </select>
                                                         </div>
@@ -452,9 +519,15 @@
                                                         <label class="form-label small text-muted mb-1">Supporting studies (optional)</label>
                                                         <select name="supporting_summaries" class="form-select form-select-sm" multiple size="4">
                                                             {% for option in intervention.supporting_summary_options %}
-                                                            <option value="{{ option.id }}" {% if option.id in key_message.supporting_summary_ids %}selected{% endif %}>
-                                                                {% if option.number %}({{ option.number }}) {% endif %}{{ option.title }}
-                                                            </option>
+                                                                {% if option.id in key_message.supporting_summary_ids %}
+                                                                    <option value="{{ option.id }}" selected>
+                                                                        {% if option.number %}({{ option.number }}) {% endif %}{{ option.reference_heading }} — {{ option.summary_display }}
+                                                                    </option>
+                                                                {% else %}
+                                                                    <option value="{{ option.id }}">
+                                                                        {% if option.number %}({{ option.number }}) {% endif %}{{ option.reference_heading }} — {{ option.summary_display }}
+                                                                    </option>
+                                                                {% endif %}
                                                             {% endfor %}
                                                         </select>
                                                         <div class="small text-muted mt-1">Only summaries assigned to this intervention can be linked.</div>
@@ -518,7 +591,7 @@
                                                     <select name="supporting_summaries" class="form-select form-select-sm" multiple size="4">
                                                         {% for option in intervention.supporting_summary_options %}
                                                         <option value="{{ option.id }}">
-                                                            {% if option.number %}({{ option.number }}) {% endif %}{{ option.summary_label }} — {{ option.paper_title }}
+                                                            {% if option.number %}({{ option.number }}) {% endif %}{{ option.reference_heading }} — {{ option.summary_display }}
                                                         </option>
                                                         {% endfor %}
                                                     </select>
@@ -531,24 +604,75 @@
 
                                 <div class="d-flex justify-content-between align-items-center mb-1">
                                     <span class="text-muted small text-uppercase">Assigned summaries</span>
-                                    <form method="post" class="d-inline-flex gap-2 align-items-center">
-                                        {% csrf_token %}
-                                        <input type="hidden" name="action" value="add-assignment">
-                                        <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
-                                        <input type="text" class="form-control form-control-sm summary-filter" data-target="summary-select-{{ intervention.id }}" placeholder="Filter">
-                                        <select id="summary-select-{{ intervention.id }}" name="summary" class="form-select form-select-sm">
-                                            <option value="">Select summary…</option>
-                                            {% for group in reference_summary_groups %}
-                                            <optgroup label="{{ group.paper_title }}{% if group.paper_meta %} — {{ group.paper_meta }}{% endif %}">
-                                                {% for summary in group.summaries %}
-                                                <option value="{{ summary.id }}" data-search="{{ summary.search_text }}">{{ summary.summary_label }}</option>
-                                                {% endfor %}
-                                            </optgroup>
-                                            {% endfor %}
-                                        </select>
-                                        <button class="btn btn-outline-primary btn-sm">Add</button>
-                                    </form>
                                 </div>
+                                <form method="post" class="assignment-picker mb-2">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="add-assignment">
+                                    <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                    <div class="row g-3 align-items-start">
+                                        <div class="col-12 col-xl-4">
+                                            <label class="form-label small text-muted mb-1" for="summary-filter-{{ intervention.id }}">Filter summary tabs</label>
+                                            <input
+                                                type="text"
+                                                id="summary-filter-{{ intervention.id }}"
+                                                class="form-control form-control-sm summary-filter"
+                                                data-target="summary-select-{{ intervention.id }}"
+                                                placeholder="Filter by author, year, title, summary ID, or label"
+                                            >
+                                            <div class="small text-muted mt-2">
+                                                Grouped by reference author. Each option below is one summary tab, not a whole paper.
+                                            </div>
+                                        </div>
+                                        <div class="col-12 col-xl-5">
+                                            <label class="form-label small text-muted mb-1" for="summary-select-{{ intervention.id }}">Available summary tabs</label>
+                                            <select
+                                                id="summary-select-{{ intervention.id }}"
+                                                name="summary"
+                                                class="form-select form-select-sm summary-picker-select"
+                                                size="8"
+                                                data-preview-target="summary-preview-{{ intervention.id }}"
+                                            >
+                                                <option
+                                                    value=""
+                                                    data-search=""
+                                                    data-reference-heading=""
+                                                    data-reference-context=""
+                                                    data-summary-display=""
+                                                >
+                                                    Select summary…
+                                                </option>
+                                                {% for group in reference_summary_groups %}
+                                                <optgroup label="{{ group.reference_heading }}{% if group.reference_context %} — {{ group.reference_context }}{% endif %}">
+                                                    {% for summary in group.summaries %}
+                                                    <option
+                                                        value="{{ summary.id }}"
+                                                        data-search="{{ summary.search_text }}"
+                                                        data-reference-heading="{{ group.reference_heading }}"
+                                                        data-reference-context="{{ group.reference_context }}"
+                                                        data-summary-display="{{ summary.summary_display }}"
+                                                    >
+                                                        {{ summary.summary_display }}
+                                                    </option>
+                                                    {% endfor %}
+                                                </optgroup>
+                                                {% endfor %}
+                                            </select>
+                                        </div>
+                                        <div class="col-12 col-xl-3 d-flex flex-column gap-2">
+                                            <div>
+                                                <label class="form-label small text-muted mb-1">Selected summary</label>
+                                                <div
+                                                    id="summary-preview-{{ intervention.id }}"
+                                                    class="summary-picker-preview is-empty"
+                                                    data-empty-text="Choose a summary tab to preview its reference and tab label."
+                                                >
+                                                    Choose a summary tab to preview its reference and tab label.
+                                                </div>
+                                            </div>
+                                            <button class="btn btn-outline-primary btn-sm">Add summary</button>
+                                        </div>
+                                    </div>
+                                </form>
                                 <div class="small text-muted mb-2">Assign summary tabs, not whole papers. Each assigned tab becomes one study paragraph in export. Numbering is automatic (oldest publication first). If multiple tabs come from the same paper, export keeps the study paragraphs separate but collapses the final reference list to one citation line.</div>
 
                                 {% if intervention.compilation_preview.study_paragraph_count %}
@@ -593,10 +717,10 @@
                                             {% if assignment.ce_reference_number %}
                                             <span class="badge text-bg-light me-2">({{ assignment.ce_reference_number }})</span>
                                             {% endif %}
-                                            <div class="fw-semibold">{{ assignment.paper_title }}</div>
+                                            <div class="fw-semibold">{{ assignment.reference_heading }}</div>
                                             <div class="small text-muted">
-                                                {{ assignment.summary_label }}
-                                                {% if assignment.paper_meta %} · {{ assignment.paper_meta }}{% endif %}
+                                                {{ assignment.summary_display }}
+                                                {% if assignment.reference_context %} · {{ assignment.reference_context }}{% endif %}
                                                 {% if assignment.duplicate_reference_assignment %}
                                                 <span class="badge text-bg-secondary ms-2">Same source paper</span>
                                                 {% endif %}
@@ -651,6 +775,40 @@
         };
         const csrftoken = getCookie("csrftoken");
 
+        const updateSummaryPreview = (select) => {
+            if (!select) return;
+            const preview = document.getElementById(select.dataset.previewTarget);
+            if (!preview) return;
+            const option = select.options[select.selectedIndex];
+            const emptyText = preview.dataset.emptyText || "Choose a summary tab.";
+            if (!option || !option.value) {
+                preview.classList.add("is-empty");
+                preview.textContent = emptyText;
+                return;
+            }
+            preview.classList.remove("is-empty");
+            const heading = option.dataset.referenceHeading || "";
+            const context = option.dataset.referenceContext || "";
+            const summaryDisplay = option.dataset.summaryDisplay || option.textContent || "";
+            preview.replaceChildren();
+
+            const titleEl = document.createElement("div");
+            titleEl.className = "summary-picker-preview-title";
+            titleEl.textContent = heading || "Unknown authors";
+
+            const metaEl = document.createElement("div");
+            metaEl.className = "summary-picker-preview-meta";
+            metaEl.textContent = context || "Untitled reference";
+
+            const summaryEl = document.createElement("div");
+            summaryEl.className = "mt-2";
+            summaryEl.textContent = summaryDisplay;
+
+            preview.appendChild(titleEl);
+            preview.appendChild(metaEl);
+            preview.appendChild(summaryEl);
+        };
+
         document.querySelectorAll(".summary-filter").forEach((input) => {
             input.addEventListener("input", () => {
                 const target = document.getElementById(input.dataset.target);
@@ -672,6 +830,11 @@
                     group.hidden = q && !hasVisibleOption;
                 });
             });
+        });
+
+        document.querySelectorAll(".summary-picker-select").forEach((select) => {
+            select.addEventListener("change", () => updateSummaryPreview(select));
+            updateSummaryPreview(select);
         });
 
         const chapterFilterInput = document.getElementById("evidence-chapter-filter");

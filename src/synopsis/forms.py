@@ -1,12 +1,66 @@
 import re
 
 from django import forms
+from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.validators import FileExtensionValidator
 from django.forms.models import BaseInlineFormSet, inlineformset_factory
+from django.utils import timezone
 from django.utils.text import slugify
 
+from .utils import minimum_allowed_deadline_date
+
 MAX_LOCATION_LINE_LENGTH = 200
+
+
+def _advisory_invite_response_window_days():
+    return getattr(settings, "ADVISORY_INVITE_RESPONSE_WINDOW_DAYS", 10)
+
+
+def _advisory_document_feedback_window_days():
+    return getattr(settings, "ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS", 10)
+
+
+def _minimum_allowed_deadline_date_str():
+    return minimum_allowed_deadline_date().isoformat()
+
+
+def _minimum_allowed_deadline_datetime_local_str():
+    return f"{minimum_allowed_deadline_date().isoformat()}T00:00"
+
+
+def _set_min_date_attr(field):
+    field.widget.attrs["min"] = _minimum_allowed_deadline_date_str()
+
+
+def _set_min_datetime_attr(field):
+    field.widget.attrs["min"] = _minimum_allowed_deadline_datetime_local_str()
+
+
+def _validate_not_same_day_date(value, field_label):
+    if not value:
+        return value
+    minimum_date = minimum_allowed_deadline_date()
+    if value < minimum_date:
+        raise forms.ValidationError(
+            f"{field_label} must be at least one day in the future."
+        )
+    return value
+
+
+def _validate_not_same_day_datetime(value, field_label):
+    if not value:
+        return value
+    try:
+        local_value = timezone.localtime(value)
+    except (ValueError, TypeError):
+        local_value = value
+    minimum_date = minimum_allowed_deadline_date()
+    if local_value.date() < minimum_date:
+        raise forms.ValidationError(
+            f"{field_label} must be at least one day in the future."
+        )
+    return value
 
 from .models import (
     ActionList,
@@ -296,10 +350,7 @@ class AdvisoryInviteForm(forms.Form):
         required=False,
         label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text=(
-            "This date is shown in the invitation and on the advisory board dashboard. "
-            "Leave blank if you do not want to set a deadline."
-        ),
+        help_text="",
     )
     message = forms.CharField(
         required=False,
@@ -314,15 +365,28 @@ class AdvisoryInviteForm(forms.Form):
         initial=False,
         label="Attach action list document",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Adds a link to the latest action list file.",
+        help_text="Optional. Adds a link to the latest action list file.",
     )
     include_collaborative_link = forms.BooleanField(
         required=False,
         initial=False,
         label="Include collaborative editor link",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Shares the live OnlyOffice editor for the action list.",
+        help_text="Optional. Shares the live OnlyOffice editor for the action list.",
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_date_attr(self.fields["due_date"])
+        self.fields["due_date"].help_text = (
+            "This date is shown in the invitation and on the advisory board dashboard. "
+            f"Defaults to {_advisory_invite_response_window_days()} days from today."
+        )
+
+    def clean_due_date(self):
+        return _validate_not_same_day_date(
+            self.cleaned_data.get("due_date"), "Response due date"
+        )
 
 
 class AdvisoryCustomFieldForm(forms.ModelForm):
@@ -929,9 +993,7 @@ class AdvisoryBulkInviteForm(forms.Form):
         required=False,
         label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text=(
-            "Optional – overrides each member's existing deadline. Leave blank to keep their current dates."
-        ),
+        help_text="",
     )
     message = forms.CharField(
         required=False,
@@ -946,15 +1008,29 @@ class AdvisoryBulkInviteForm(forms.Form):
         initial=False,
         label="Attach action list document",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Adds a link to the latest action list file.",
+        help_text="Optional. Adds a link to the latest action list file.",
     )
     include_collaborative_link = forms.BooleanField(
         required=False,
         initial=False,
         label="Include collaborative editor link",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Shares the live OnlyOffice editor for the action list.",
+        help_text="Optional. Shares the live OnlyOffice editor for the action list.",
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_date_attr(self.fields["due_date"])
+        self.fields["due_date"].help_text = (
+            "Defaults to "
+            f"{_advisory_invite_response_window_days()} days from today for members "
+            "without an existing deadline."
+        )
+
+    def clean_due_date(self):
+        return _validate_not_same_day_date(
+            self.cleaned_data.get("due_date"), "Response due date"
+        )
 
 
 class ProtocolSendForm(forms.Form):
@@ -962,9 +1038,7 @@ class ProtocolSendForm(forms.Form):
         required=False,
         label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text=(
-            "Optional – overrides each member's existing deadline. Leave blank to keep their current dates."
-        ),
+        help_text="",
     )
     message = forms.CharField(
         required=False,
@@ -979,26 +1053,34 @@ class ProtocolSendForm(forms.Form):
         initial=False,
         label="Attach protocol document",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Adds a link to the latest protocol document.",
+        help_text="Required: select this or the collaborative editor link before sending.",
     )
     include_collaborative_link = forms.BooleanField(
         required=False,
         initial=False,
         label="Include collaborative editor link",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Shares the live collaborative editor for the action list.",
+        help_text="Required: select this or the protocol document before sending.",
     )
 
     def __init__(
         self, *args, collaborative_enabled=False, document_available=False, **kwargs
     ):
         super().__init__(*args, **kwargs)
+        _set_min_date_attr(self.fields["due_date"])
+        self.fields["due_date"].help_text = (
+            "Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today if no "
+            "deadline is already set."
+        )
         self.document_available = document_available
         self.collaborative_available = collaborative_enabled
         doc_field = self.fields["include_protocol_document"]
         if document_available:
             doc_field.disabled = False
-            doc_field.help_text = "Adds a link to the latest protocol document."
+            doc_field.help_text = (
+                "Required: select this or the collaborative editor link before sending."
+            )
         else:
             doc_field.initial = False
             doc_field.disabled = True
@@ -1007,7 +1089,9 @@ class ProtocolSendForm(forms.Form):
         collab_field = self.fields["include_collaborative_link"]
         if collaborative_enabled:
             collab_field.disabled = False
-            collab_field.help_text = "Shares the live collaborative editor for the protocol."
+            collab_field.help_text = (
+                "Required: select this or the protocol document before sending."
+            )
         else:
             collab_field.initial = False
             collab_field.disabled = True
@@ -1030,15 +1114,18 @@ class ProtocolSendForm(forms.Form):
             )
         return cleaned
 
+    def clean_due_date(self):
+        return _validate_not_same_day_date(
+            self.cleaned_data.get("due_date"), "Response due date"
+        )
+
 
 class ActionListSendForm(forms.Form):
     due_date = forms.DateField(
         required=False,
         label="Response due date",
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text=(
-            "Optional – overrides each member's existing deadline. Leave blank to keep their current dates."
-        ),
+        help_text="",
     )
     message = forms.CharField(
         required=False,
@@ -1053,26 +1140,34 @@ class ActionListSendForm(forms.Form):
         initial=False,
         label="Attach action list document",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Adds a link to the latest action list document.",
+        help_text="Required: select this or the collaborative editor link before sending.",
     )
     include_collaborative_link = forms.BooleanField(
         required=False,
         initial=False,
         label="Include collaborative editor link",
         widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Shares the live collaborative editor for the action list.",
+        help_text="Required: select this or the action list document before sending.",
     )
 
     def __init__(
         self, *args, collaborative_enabled=False, document_available=False, **kwargs
     ):
         super().__init__(*args, **kwargs)
+        _set_min_date_attr(self.fields["due_date"])
+        self.fields["due_date"].help_text = (
+            "Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today if no "
+            "deadline is already set."
+        )
         self.document_available = document_available
         self.collaborative_available = collaborative_enabled
         doc_field = self.fields["include_action_list_document"]
         if document_available:
             doc_field.disabled = False
-            doc_field.help_text = "Adds a link to the latest action list document."
+            doc_field.help_text = (
+                "Required: select this or the collaborative editor link before sending."
+            )
         else:
             doc_field.initial = False
             doc_field.disabled = True
@@ -1081,7 +1176,9 @@ class ActionListSendForm(forms.Form):
         collab_field = self.fields["include_collaborative_link"]
         if collaborative_enabled:
             collab_field.disabled = False
-            collab_field.help_text = "Shares the live collaborative editor for the action list."
+            collab_field.help_text = (
+                "Required: select this or the action list document before sending."
+            )
         else:
             collab_field.initial = False
             collab_field.disabled = True
@@ -1103,12 +1200,30 @@ class ActionListSendForm(forms.Form):
             )
         return cleaned
 
+    def clean_due_date(self):
+        return _validate_not_same_day_date(
+            self.cleaned_data.get("due_date"), "Response due date"
+        )
+
 
 class ReminderScheduleForm(forms.Form):
     reminder_date = forms.DateField(
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text="Members without invitations will get this response deadline set.",
+        help_text="",
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_date_attr(self.fields["reminder_date"])
+        self.fields["reminder_date"].help_text = (
+            "Members without invitations will get this response deadline set. "
+            f"Defaults to {_advisory_invite_response_window_days()} days from today."
+        )
+
+    def clean_reminder_date(self):
+        return _validate_not_same_day_date(
+            self.cleaned_data.get("reminder_date"), "Response deadline"
+        )
 
 
 class ProtocolReminderScheduleForm(forms.Form):
@@ -1118,8 +1233,22 @@ class ProtocolReminderScheduleForm(forms.Form):
             format="%Y-%m-%dT%H:%M",
         ),
         input_formats=["%Y-%m-%dT%H:%M"],
-        help_text="Set or update the protocol feedback deadline (date and time) for members with the protocol.",
+        help_text="",
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_datetime_attr(self.fields["deadline"])
+        self.fields["deadline"].help_text = (
+            "Set or update the protocol feedback deadline (date and time) for "
+            "members with the protocol. Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today."
+        )
+
+    def clean_deadline(self):
+        return _validate_not_same_day_datetime(
+            self.cleaned_data.get("deadline"), "Protocol feedback deadline"
+        )
 
 
 class ActionListReminderScheduleForm(forms.Form):
@@ -1129,8 +1258,22 @@ class ActionListReminderScheduleForm(forms.Form):
             format="%Y-%m-%dT%H:%M",
         ),
         input_formats=["%Y-%m-%dT%H:%M"],
-        help_text="Set or update the action list feedback deadline (date and time) for members.",
+        help_text="",
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_datetime_attr(self.fields["deadline"])
+        self.fields["deadline"].help_text = (
+            "Set or update the action list feedback deadline (date and time) for "
+            "members. Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today."
+        )
+
+    def clean_deadline(self):
+        return _validate_not_same_day_datetime(
+            self.cleaned_data.get("deadline"), "Action list feedback deadline"
+        )
 
 
 class ParticipationConfirmForm(forms.Form):
@@ -1288,6 +1431,49 @@ class ReferenceScreeningForm(forms.Form):
             }
         ),
     )
+
+
+class ReferenceClassificationForm(forms.Form):
+    screening_status = forms.ChoiceField(
+        choices=[
+            ("included", "Included in this synopsis"),
+            ("excluded", "Exclude from this synopsis"),
+        ],
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Synopsis status",
+    )
+    reference_folder = forms.MultipleChoiceField(
+        choices=Reference.FOLDER_CHOICES,
+        required=False,
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "6"}),
+        label="Reference folders",
+    )
+    screening_notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "Reason or notes for this synopsis-level classification",
+            }
+        ),
+        label="Reason / notes",
+        help_text="Required if you exclude the reference from this synopsis.",
+    )
+
+    def clean_screening_notes(self):
+        return (self.cleaned_data.get("screening_notes") or "").strip()
+
+    def clean(self):
+        cleaned = super().clean()
+        status = cleaned.get("screening_status")
+        notes = cleaned.get("screening_notes") or ""
+        if status == "excluded" and not notes:
+            self.add_error(
+                "screening_notes",
+                "Provide a reason before excluding this reference from the synopsis.",
+            )
+        return cleaned
 
 
 class LibraryReferenceUpdateForm(forms.ModelForm):
@@ -1510,9 +1696,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         model = ReferenceSummary
         fields = [
             "status",
-            "reference_identifier",
-            "summary_identifier",
-            "reference_label",
             "action_description",
             "study_design",
             "sites_replications",
@@ -1547,9 +1730,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         ]
         widgets = {
             "status": forms.Select(attrs={"class": "form-select"}),
-            "reference_identifier": forms.TextInput(attrs={"class": "form-control"}),
-            "summary_identifier": forms.TextInput(attrs={"class": "form-control"}),
-            "reference_label": forms.TextInput(attrs={"class": "form-control"}),
             "action_description": forms.TextInput(attrs={"class": "form-control"}),
             "study_design": forms.TextInput(attrs={"class": "form-control"}),
             "sites_replications": forms.TextInput(

@@ -116,7 +116,11 @@
                         <input type="hidden" name="chapter_id" value="{{ chapter.id }}">
                         <select name="chapter_type" class="form-select form-select-sm">
                             {% for value, label in chapter_form.chapter_type.field.choices %}
-                            <option value="{{ value }}" {% if chapter.chapter_type == value %}selected{% endif %}>{{ label }}</option>
+                                {% if chapter.chapter_type == value %}
+                                    <option value="{{ value }}" selected>{{ label }}</option>
+                                {% else %}
+                                    <option value="{{ value }}">{{ label }}</option>
+                                {% endif %}
                             {% endfor %}
                         </select>
                         <button class="btn btn-outline-primary btn-sm">Save type</button>

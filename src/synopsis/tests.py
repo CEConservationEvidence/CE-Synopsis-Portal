@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.contrib.auth.models import Group, User, AnonymousUser
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings, RequestFactory
@@ -11,6 +12,7 @@ from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.exceptions import PermissionDenied
+from django.core.management.base import CommandError
 from django.urls import reverse
 
 import shutil
@@ -48,12 +50,19 @@ from .models import (
     SynopsisAssignment,
 )
 from .forms import (
+    ActionListReminderScheduleForm,
+    ActionListSendForm,
+    AdvisoryBulkInviteForm,
     AdvisoryBoardMemberForm,
+    AdvisoryInviteForm,
     AdvisoryMemberCustomDataForm,
     FunderForm,
     FunderContactFormSet,
+    ProtocolSendForm,
+    ProtocolReminderScheduleForm,
     ProjectDeleteForm,
     ProjectSettingsForm,
+    ReminderScheduleForm,
     ReferenceSummaryUpdateForm,
 )
 from .utils import (
@@ -596,8 +605,19 @@ class SynopsisStructureTests(TestCase):
         )
 
     def test_intervention_reference_numbering_groups_duplicate_references(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
         intervention = SynopsisIntervention.objects.create(
-            subheading=self.subheading,
+            subheading=subheading,
             title="2.1 Group duplicate paper studies",
             position=2,
         )
@@ -693,6 +713,9 @@ class SynopsisStructureTests(TestCase):
 
     def test_evidence_page_groups_summary_tabs_under_reference(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        self.reference.authors = "Rebecca Smith"
+        self.reference.publication_year = 2024
+        self.reference.save(update_fields=["authors", "publication_year", "updated_at"])
         chapter = SynopsisChapter.objects.create(
             project=self.project,
             title="2. Threat: Demo",
@@ -732,19 +755,26 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(response.status_code, 200)
         grouped = response.context["reference_summary_groups"]
         self.assertEqual(len(grouped), 1)
-        self.assertEqual(grouped[0]["paper_title"], "Test ref")
+        self.assertEqual(grouped[0]["reference_heading"], "Rebecca Smith · 2024")
+        self.assertEqual(grouped[0]["reference_context"], "Test ref")
         self.assertEqual(
-            [item["summary_label"] for item in grouped[0]["summaries"]],
-            ["Study A", "Study B"],
+            [item["summary_display"] for item in grouped[0]["summaries"]],
+            ["D1000.a — Study A", "D1000.b — Study B"],
         )
         self.assertContains(response, "Assign summary tabs, not whole papers.")
-        self.assertContains(response, "Study A")
-        self.assertContains(response, "Study B")
+        self.assertContains(response, "Grouped by reference author.")
+        self.assertContains(
+            response,
+            "Choose a summary tab to preview its reference and tab label.",
+        )
+        self.assertContains(response, "Rebecca Smith · 2024")
+        self.assertContains(response, "D1000.a — Study A")
+        self.assertContains(response, "D1000.b — Study B")
         self.assertContains(response, "Same source paper")
         self.assertContains(response, "shared reference line (1-2)")
         self.assertContains(response, "Compilation preview")
-        self.assertContains(response, "2 study paragraphs")
-        self.assertContains(response, "1 source paper")
+        self.assertContains(response, "study paragraphs")
+        self.assertContains(response, "source paper")
         self.assertContains(response, "2 summary tabs from the same paper")
 
     def test_delete_assignment_removes_supporting_links_from_key_messages(self):
@@ -931,6 +961,86 @@ class SynopsisStructureTests(TestCase):
         )
 
 
+class AdvisoryDeadlineValidationTests(TestCase):
+    def test_invite_due_date_rejects_today_and_past_dates(self):
+        today = timezone.localdate()
+        yesterday = today - timedelta(days=1)
+
+        today_form = AdvisoryInviteForm(
+            data={"email": "ibrahim@example.com", "due_date": today.isoformat()}
+        )
+        self.assertFalse(today_form.is_valid())
+        self.assertIn("due_date", today_form.errors)
+
+        yesterday_form = AdvisoryBulkInviteForm(
+            data={"due_date": yesterday.isoformat()}
+        )
+        self.assertFalse(yesterday_form.is_valid())
+        self.assertIn("due_date", yesterday_form.errors)
+
+    def test_schedule_forms_expose_minimum_dates_in_widgets(self):
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        expected_date_min = tomorrow.isoformat()
+        expected_datetime_min = f"{expected_date_min}T00:00"
+
+        self.assertEqual(
+            AdvisoryInviteForm().fields["due_date"].widget.attrs.get("min"),
+            expected_date_min,
+        )
+        self.assertEqual(
+            ReminderScheduleForm().fields["reminder_date"].widget.attrs.get("min"),
+            expected_date_min,
+        )
+        self.assertEqual(
+            ProtocolReminderScheduleForm().fields["deadline"].widget.attrs.get("min"),
+            expected_datetime_min,
+        )
+        self.assertEqual(
+            ActionListReminderScheduleForm().fields["deadline"].widget.attrs.get("min"),
+            expected_datetime_min,
+        )
+
+    @override_settings(
+        ADVISORY_INVITE_RESPONSE_WINDOW_DAYS=14,
+        ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS=21,
+    )
+    def test_advisory_help_text_uses_runtime_settings(self):
+        self.assertIn(
+            "Defaults to 14 days from today.",
+            AdvisoryInviteForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 14 days from today",
+            AdvisoryBulkInviteForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 14 days from today.",
+            ReminderScheduleForm().fields["reminder_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today",
+            ProtocolSendForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today",
+            ActionListSendForm().fields["due_date"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today.",
+            ProtocolReminderScheduleForm().fields["deadline"].help_text,
+        )
+        self.assertIn(
+            "Defaults to 21 days from today.",
+            ActionListReminderScheduleForm().fields["deadline"].help_text,
+        )
+
+    def test_protocol_deadline_rejects_same_day_datetime(self):
+        same_day_value = f"{timezone.localdate().isoformat()}T12:00"
+        form = ProtocolReminderScheduleForm(data={"deadline": same_day_value})
+        self.assertFalse(form.is_valid())
+        self.assertIn("deadline", form.errors)
+
+
 @override_settings(DEFAULT_FROM_EMAIL="reminders@example.com")
 class SendDueRemindersTests(TestCase):
     def setUp(self):
@@ -1024,6 +1134,22 @@ class SendDueRemindersTests(TestCase):
             subjects,
         )
 
+    @override_settings(ADVISORY_REMINDER_LEAD_BUSINESS_DAYS=-1)
+    def test_rejects_negative_reminder_lead_business_days(self):
+        with self.assertRaisesMessage(
+            CommandError,
+            "ADVISORY_REMINDER_LEAD_BUSINESS_DAYS must be a non-negative integer",
+        ):
+            call_command("send_due_reminders")
+
+    @override_settings(ADVISORY_REMINDER_LEAD_BUSINESS_DAYS="tomorrow")
+    def test_rejects_non_integer_reminder_lead_business_days(self):
+        with self.assertRaisesMessage(
+            CommandError,
+            "ADVISORY_REMINDER_LEAD_BUSINESS_DAYS must be an integer",
+        ):
+            call_command("send_due_reminders")
+
 
 class MemberReminderUpdateTests(TestCase):
     def setUp(self):
@@ -1041,7 +1167,7 @@ class MemberReminderUpdateTests(TestCase):
             reminder_sent=True,
             reminder_sent_at=timezone.now(),
         )
-        target_date = date(2025, 2, 20)
+        target_date = timezone.localdate() + timedelta(days=7)
         response = self.client.post(
             reverse(
                 "synopsis:advisory_member_set_deadline",
@@ -1058,6 +1184,20 @@ class MemberReminderUpdateTests(TestCase):
             ProjectChangeLog.objects.filter(
                 project=self.project, action="Updated invite reminder"
             ).exists()
+        )
+
+    def test_board_page_sets_minimum_response_deadline_on_inline_input(self):
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Randy",
+            email="randy@example.com",
+        )
+        tomorrow = timezone.localdate() + timedelta(days=1)
+        response = self.client.get(self.board_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f'min="{tomorrow.strftime("%Y-%m-%d")}"',
         )
 
     def test_clear_response_deadline(self):
@@ -1081,6 +1221,26 @@ class MemberReminderUpdateTests(TestCase):
         self.assertIsNone(member.response_date)
         self.assertFalse(member.reminder_sent)
         self.assertIsNone(member.reminder_sent_at)
+
+    def test_same_day_response_deadline_is_rejected(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Clara",
+            email="clara@example.com",
+        )
+        today = timezone.localdate()
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "invite"],
+            ),
+            {"reminder_date": today.strftime("%Y-%m-%d")},
+            follow=True,
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNone(member.response_date)
+        self.assertContains(response, "at least one day in the future")
 
     def test_update_protocol_deadline(self):
         member = AdvisoryBoardMember.objects.create(
@@ -1120,6 +1280,29 @@ class MemberReminderUpdateTests(TestCase):
                 project=self.project, action="Updated protocol reminder"
             ).exists()
         )
+
+    def test_same_day_protocol_deadline_is_rejected(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Paula",
+            email="paula@example.com",
+            response="Y",
+            sent_protocol_at=timezone.now(),
+        )
+        ProtocolFeedback.objects.create(project=self.project, member=member)
+        today_local = timezone.localtime(timezone.now()).replace(second=0, microsecond=0)
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "protocol"],
+            ),
+            {"deadline": today_local.strftime("%Y-%m-%dT%H:%M")},
+            follow=True,
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNone(member.feedback_on_protocol_deadline)
+        self.assertContains(response, "at least one day in the future")
 
     def test_update_action_list_deadline(self):
         action_list = ActionList.objects.create(
@@ -1308,7 +1491,7 @@ class AdvisoryInviteFlowTests(TestCase):
             reminder_sent=True,
             reminder_sent_at=timezone.now(),
         )
-        due = date(2025, 11, 30)
+        due = timezone.localdate() + timedelta(days=14)
         url = reverse(
             "synopsis:advisory_invite_create_for_member",
             args=[self.project.id, member.id],
@@ -1333,6 +1516,38 @@ class AdvisoryInviteFlowTests(TestCase):
         self.assertEqual(mock_email.call_count, 1)
 
     @patch("synopsis.views.EmailMultiAlternatives")
+    def test_single_invite_defaults_due_date_to_configured_window_when_blank(self, mock_email):
+        mock_email.return_value = MagicMock()
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Nova",
+            email="nova@example.com",
+        )
+        url = reverse(
+            "synopsis:advisory_invite_create_for_member",
+            args=[self.project.id, member.id],
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "email": member.email,
+                "due_date": "",
+                "message": "Welcome aboard",
+            },
+        )
+
+        expected_due = timezone.localdate() + timedelta(
+            days=settings.ADVISORY_INVITE_RESPONSE_WINDOW_DAYS
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        invitation = AdvisoryBoardInvitation.objects.get(member=member)
+        self.assertEqual(member.response_date, expected_due)
+        self.assertEqual(invitation.due_date, expected_due)
+        self.assertEqual(mock_email.call_count, 1)
+
+    @patch("synopsis.views.EmailMultiAlternatives")
     def test_bulk_invite_skips_members_with_existing_invites(self, mock_email):
         mock_email.return_value = MagicMock()
         already_invited = AdvisoryBoardMember.objects.create(
@@ -1341,14 +1556,14 @@ class AdvisoryInviteFlowTests(TestCase):
             email="iris@example.com",
             invite_sent=True,
             invite_sent_at=timezone.now(),
-            response_date=date(2025, 10, 1),
+            response_date=timezone.localdate() + timedelta(days=3),
         )
         new_member = AdvisoryBoardMember.objects.create(
             project=self.project,
             first_name="Liam",
             email="liam@example.com",
         )
-        due = date(2025, 12, 20)
+        due = timezone.localdate() + timedelta(days=21)
         response = self.client.post(
             reverse("synopsis:advisory_send_invites_bulk", args=[self.project.id]),
             {
@@ -1361,13 +1576,99 @@ class AdvisoryInviteFlowTests(TestCase):
         already_invited.refresh_from_db()
         self.assertTrue(new_member.invite_sent)
         self.assertEqual(new_member.response_date, due)
-        self.assertEqual(already_invited.response_date, date(2025, 10, 1))
+        self.assertEqual(
+            already_invited.response_date,
+            timezone.localdate() + timedelta(days=3),
+        )
         self.assertEqual(
             AdvisoryBoardInvitation.objects.filter(project=self.project).count(), 1
         )
         self.assertEqual(mock_email.call_count, 1)
         args, kwargs = mock_email.call_args
         self.assertEqual(kwargs["to"], [new_member.email])
+
+
+class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Document Deadlines")
+        self.user = User.objects.create_user(
+            username="author", password="pw", email="author@example.com"
+        )
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.client.force_login(self.user)
+        self.protocol = Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.txt", b"protocol"),
+        )
+        self.action_list = ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.txt", b"action list"),
+        )
+        self.member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Rebecca",
+            email="rebecca@example.com",
+            response="Y",
+            participation_confirmed=True,
+        )
+        self.expected_due = timezone.localdate() + timedelta(
+            days=settings.ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS
+        )
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_protocol_member_send_defaults_deadline_to_configured_window(self, mock_email):
+        mock_email.return_value = MagicMock()
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_protocol_compose_member",
+                args=[self.project.id, self.member.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+                "include_protocol_document": "on",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        self.member.refresh_from_db()
+        self.assertEqual(self.member.feedback_on_protocol_deadline.date(), self.expected_due)
+        self.assertEqual(self.member.feedback_on_protocol_deadline.hour, 23)
+        self.assertEqual(self.member.feedback_on_protocol_deadline.minute, 59)
+        feedback = ProtocolFeedback.objects.get(project=self.project, member=self.member)
+        self.assertEqual(feedback.feedback_deadline_at, self.member.feedback_on_protocol_deadline)
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_action_list_member_send_defaults_deadline_to_configured_window(self, mock_email):
+        mock_email.return_value = MagicMock()
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_action_list_compose_member",
+                args=[self.project.id, self.member.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+                "include_action_list_document": "on",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        self.member.refresh_from_db()
+        self.assertEqual(
+            self.member.feedback_on_action_list_deadline.date(), self.expected_due
+        )
+        self.assertEqual(self.member.feedback_on_action_list_deadline.hour, 23)
+        self.assertEqual(self.member.feedback_on_action_list_deadline.minute, 59)
+        feedback = ActionListFeedback.objects.get(project=self.project, member=self.member)
+        self.assertEqual(
+            feedback.feedback_deadline_at,
+            self.member.feedback_on_action_list_deadline,
+        )
 
 
 class FunderUtilityTests(TestCase):
@@ -1863,7 +2164,7 @@ class CollaborativeClosureTests(TestCase):
         response = self.client.post(close_url, {"message": "Window closed"})
         self.assertRedirects(
             response,
-            reverse("synopsis:advisory_board_list", args=[self.project.id]),
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
         )
 
         self.project = Project.objects.get(id=self.project.id)
@@ -1916,7 +2217,7 @@ class CollaborativeClosureTests(TestCase):
         reopen_response = self.client.post(close_url, {"action": "reopen"})
         self.assertRedirects(
             reopen_response,
-            reverse("synopsis:advisory_board_list", args=[self.project.id]),
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
         )
         self.project.refresh_from_db()
         self.assertIsNone(self.project.protocol.feedback_closed_at)
@@ -1978,6 +2279,37 @@ class CollaborativePanelViewTests(TestCase):
         self.assertNotContains(
             response, "Upload the action list before starting a collaborative session."
         )
+
+    def test_advisory_board_shows_custom_columns_button_and_not_document_feedback_windows(self):
+        response = self.client.get(
+            reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        self.assertContains(response, "Custom columns")
+        self.assertContains(response, "Deadlines &amp; reminders")
+        self.assertNotContains(response, "Protocol feedback window")
+        self.assertNotContains(response, "Action list feedback window")
+
+    def test_document_pages_show_feedback_window_controls(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+
+        protocol_response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+        self.assertContains(protocol_response, "Protocol feedback window")
+        self.assertContains(protocol_response, "Set protocol deadline")
+
+        action_list_response = self.client.get(
+            reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+        self.assertContains(action_list_response, "Action list feedback window")
+        self.assertContains(action_list_response, "Set action list deadline")
 
 
 class AdvisoryBoardCustomColumnsTests(TestCase):
@@ -2987,7 +3319,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
                 "reference_id": ref.id,
                 "screening_status": "included",
                 "screening_notes": "Relevant to the topic.",
-                "reference_folder": ["", "3"],
+                "reference_folder": ["", "3a"],
             },
         )
 
@@ -3000,7 +3332,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         ref.refresh_from_db()
         self.assertEqual(ref.screening_status, "included")
-        self.assertEqual(ref.reference_folder, ["3"])
+        self.assertEqual(ref.reference_folder, ["3a"])
 
     def test_save_folders_preserves_existing_screening_notes(self):
         upload = SimpleUploadedFile(
@@ -3351,7 +3683,7 @@ class ReferenceSummaryFormTests(TestCase):
 class ReferenceSummaryDetailViewTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="author", password="pass123")
-        self.project = Project.objects.create(title="Summary Project")
+        self.project = Project.objects.create(title="Coral Reefs Synopsis")
         UserRole.objects.create(user=self.user, project=self.project, role="author")
         self.batch = ReferenceSourceBatch.objects.create(
             project=self.project,
@@ -3390,7 +3722,8 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
     def test_create_summary_tab_adds_second_summary_for_same_reference(self):
         self.summary.assigned_to = self.user
-        self.summary.reference_identifier = "REF-12"
+        self.summary.reference_identifier = "manual-ref"
+        self.summary.summary_identifier = "manual-summary"
         self.summary.reference_label = "Test reference label"
         self.summary.summary_author = "Existing Author"
         self.summary.citation = "Author (2024)"
@@ -3427,11 +3760,316 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ),
             fetch_redirect_response=False,
         )
+        self.summary.refresh_from_db()
         self.assertEqual(new_summary.assigned_to, self.user)
-        self.assertEqual(new_summary.reference_identifier, "REF-12")
-        self.assertEqual(new_summary.reference_label, "Test reference label")
+        self.assertEqual(self.summary.reference_identifier, "manual-ref")
+        self.assertEqual(self.summary.summary_identifier, "manual-summary")
+        self.assertEqual(new_summary.reference_identifier, "manual-ref")
+        self.assertEqual(new_summary.summary_identifier, "manual-ref.a")
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.citation, "Author (2024)")
+
+    def test_delete_summary_tab_removes_extra_tab_and_redirects_to_remaining_tab(self):
+        extra_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            status=ReferenceSummary.STATUS_DRAFT,
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, extra_summary.id],
+            ),
+            {"action": "delete-summary-tab"},
+            follow=False,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            fetch_redirect_response=False,
+        )
+        self.assertFalse(
+            ReferenceSummary.objects.filter(pk=extra_summary.id).exists()
+        )
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.summary_identifier, "CR1000.a")
+
+    def test_delete_summary_tab_resequences_intervention_assignments(self):
+        extra_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            status=ReferenceSummary.STATUS_DRAFT,
+        )
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Intervention",
+            position=1,
+        )
+        retained_assignment = SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=extra_summary,
+            position=2,
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, extra_summary.id],
+            ),
+            {"action": "delete-summary-tab"},
+            follow=False,
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            fetch_redirect_response=False,
+        )
+        retained_assignment.refresh_from_db()
+        self.assertEqual(retained_assignment.position, 1)
+
+    def test_delete_summary_tab_is_blocked_for_only_summary(self):
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {"action": "delete-summary-tab"},
+            follow=True,
+        )
+
+        self.assertEqual(
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            ).count(),
+            1,
+        )
+        messages = list(get_messages(response.wsgi_request))
+        self.assertTrue(
+            any("only summary tab" in str(message) for message in messages)
+        )
+
+    def test_detail_page_shows_generated_identifiers_and_reference_title(self):
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, 'value="CR1000"')
+        self.assertContains(response, 'value="CR1000.a"')
+        self.assertContains(response, 'value="Test reference"')
+
+    def test_single_summary_tab_defaults_to_generated_summary_identifier_label(self):
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        tabs = response.context["summary_tabs"]
+        self.assertEqual(len(tabs), 1)
+        self.assertEqual(tabs[0]["label"], "CR1000.a")
+
+    def test_second_reference_in_project_gets_next_generated_reference_id(self):
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, second_summary.id],
+            )
+        )
+
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+        self.assertEqual(second_summary.summary_identifier, "CR1001.a")
+        self.assertContains(response, 'value="CR1001"')
+        self.assertContains(response, 'value="CR1001.a"')
+
+    def test_project_title_change_does_not_rewrite_existing_identifiers(self):
+        self.client.login(username="author", password="pass123")
+        detail_url = reverse(
+            "synopsis:reference_summary_detail",
+            args=[self.project.id, self.summary.id],
+        )
+
+        self.client.get(detail_url)
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.reference_identifier, "CR1000")
+        self.assertEqual(self.summary.summary_identifier, "CR1000.a")
+
+        self.project.title = "Marine Restoration Handbook"
+        self.project.save(update_fields=["title"])
+
+        self.client.get(detail_url)
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.reference_identifier, "CR1000")
+        self.assertEqual(self.summary.summary_identifier, "CR1000.a")
+
+    def test_deleting_earlier_reference_does_not_rewrite_later_reference_identifier(self):
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        self.client.login(username="author", password="pass123")
+        second_detail_url = reverse(
+            "synopsis:reference_summary_detail",
+            args=[self.project.id, second_summary.id],
+        )
+
+        self.client.get(second_detail_url)
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+        self.assertEqual(second_summary.summary_identifier, "CR1001.a")
+
+        self.reference.delete()
+
+        self.client.get(second_detail_url)
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+        self.assertEqual(second_summary.summary_identifier, "CR1001.a")
+
+    def test_new_reference_after_deleting_earlier_reference_gets_next_unused_id(self):
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        self.client.login(username="author", password="pass123")
+        self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, second_summary.id],
+            )
+        )
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+
+        self.reference.delete()
+
+        third_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="c" * 40,
+            title="Third reference",
+        )
+        third_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=third_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, third_summary.id],
+            )
+        )
+
+        third_summary.refresh_from_db()
+        self.assertEqual(third_summary.reference_identifier, "CR1002")
+        self.assertEqual(third_summary.summary_identifier, "CR1002.a")
+        self.assertContains(response, 'value="CR1002"')
+        self.assertContains(response, 'value="CR1002.a"')
+
+    def test_new_reference_after_project_rename_keeps_established_prefix(self):
+        self.client.login(username="author", password="pass123")
+        self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.reference_identifier, "CR1000")
+
+        self.project.title = "Marine Restoration Handbook"
+        self.project.save(update_fields=["title"])
+
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="b" * 40,
+            title="Second reference",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, second_summary.id],
+            )
+        )
+
+        second_summary.refresh_from_db()
+        self.assertEqual(second_summary.reference_identifier, "CR1001")
+        self.assertEqual(second_summary.summary_identifier, "CR1001.a")
+        self.assertContains(response, 'value="CR1001"')
+        self.assertContains(response, 'value="CR1001.a"')
 
     def test_board_still_creates_only_one_default_summary_per_included_reference(self):
         self.reference.screening_status = "included"
@@ -3455,8 +4093,10 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ).count(),
             2,
         )
-        self.assertContains(resp, "multiple summary tabs per reference", status_code=200)
-        self.assertContains(resp, "Summary 2")
+        self.assertContains(
+            resp, "of 2 summary tabs for this reference", status_code=200
+        )
+        self.assertContains(resp, "CR1000.b")
 
     def test_board_and_detail_use_library_reference_metadata(self):
         canonical = LibraryReference.objects.create(
@@ -3488,6 +4128,138 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(detail_response, "Canonical library title")
         self.assertContains(detail_response, "Alhas, Ibrahim")
 
+    def test_summary_detail_can_update_reference_classification(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "screening_status": "included",
+                "reference_folder": ["3a"],
+                "screening_notes": "Freshwater fish evidence.",
+            },
+            follow=True,
+        )
+
+        self.reference.refresh_from_db()
+        self.assertEqual(self.reference.screening_status, "included")
+        self.assertEqual(self.reference.reference_folder, ["3a"])
+        self.assertEqual(self.reference.screening_notes, "Freshwater fish evidence.")
+        self.assertContains(response, "Reference classification updated.")
+
+    def test_summary_detail_filters_blank_reference_folder_values(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "screening_status": "included",
+                "reference_folder": ["", "3a"],
+                "screening_notes": "Freshwater fish evidence.",
+            },
+            follow=True,
+        )
+
+        self.reference.refresh_from_db()
+        self.assertEqual(self.reference.reference_folder, ["3a"])
+        self.assertContains(response, "Reference classification updated.")
+
+    def test_excluding_reference_requires_reason_on_summary_page(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "screening_status": "excluded",
+                "reference_folder": [],
+                "screening_notes": "",
+            },
+        )
+
+        self.reference.refresh_from_db()
+        self.assertEqual(self.reference.screening_status, "included")
+        self.assertContains(
+            response,
+            "Provide a reason before excluding this reference from the synopsis.",
+        )
+
+    def test_excluding_reference_from_summary_removes_synopsis_assignments(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Intervention",
+            position=1,
+        )
+        assignment = SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        key_message = SynopsisInterventionKeyMessage.objects.create(
+            intervention=intervention,
+            response_group=SynopsisInterventionKeyMessage.GROUP_POPULATION,
+            statement="Supported by this study.",
+            position=1,
+        )
+        key_message.supporting_summaries.set([self.summary])
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "screening_status": "excluded",
+                "reference_folder": ["3a"],
+                "screening_notes": "Not relevant to this synopsis.",
+            },
+            follow=False,
+        )
+
+        self.reference.refresh_from_db()
+        key_message.refresh_from_db()
+        self.assertEqual(self.reference.screening_status, "excluded")
+        self.assertEqual(self.reference.screening_notes, "Not relevant to this synopsis.")
+        self.assertFalse(SynopsisAssignment.objects.filter(pk=assignment.id).exists())
+        self.assertEqual(key_message.supporting_summaries.count(), 0)
+        self.assertRedirects(
+            response,
+            f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, self.batch.id])}?focus=1&ref={self.reference.id}",
+            fetch_redirect_response=False,
+        )
+
     def test_board_context_workload_counts_are_aggregated_correctly(self):
         other_author = User.objects.create_user(
             username="coauthor",
@@ -3518,16 +4290,21 @@ class ReferenceSummaryDetailViewTests(TestCase):
             reference=second_reference,
             assigned_to=self.user,
             needs_help=True,
+            status=ReferenceSummary.STATUS_DONE,
         )
         third_summary = ReferenceSummary.objects.create(
             project=self.project,
             reference=third_reference,
             assigned_to=other_author,
             needs_help=False,
+            status=ReferenceSummary.STATUS_DRAFT,
         )
         self.summary.assigned_to = self.user
         self.summary.needs_help = False
-        self.summary.save(update_fields=["assigned_to", "needs_help", "updated_at"])
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.save(
+            update_fields=["assigned_to", "needs_help", "status", "updated_at"]
+        )
 
         self.client.login(username="author", password="pass123")
         response = self.client.get(
@@ -3536,11 +4313,32 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         workload = {
-            row["author"].id: {"assigned": row["assigned"], "needs_help": row["needs_help"]}
+            row["author"].id: {
+                "assigned": row["assigned"],
+                "summarised": row["summarised"],
+                "summarised_percent": row["summarised_percent"],
+                "needs_help": row["needs_help"],
+            }
             for row in response.context["workload"]
         }
-        self.assertEqual(workload[self.user.id], {"assigned": 2, "needs_help": 1})
-        self.assertEqual(workload[other_author.id], {"assigned": 1, "needs_help": 0})
+        self.assertEqual(
+            workload[self.user.id],
+            {
+                "assigned": 2,
+                "summarised": 2,
+                "summarised_percent": 100,
+                "needs_help": 1,
+            },
+        )
+        self.assertEqual(
+            workload[other_author.id],
+            {
+                "assigned": 1,
+                "summarised": 0,
+                "summarised_percent": 0,
+                "needs_help": 0,
+            },
+        )
         self.assertEqual(response.context["unassigned_count"], 0)
         self.assertEqual(response.context["needs_help_count"], 1)
 
@@ -3592,10 +4390,5 @@ class ProjectAuthorSelectionUiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Filter authors by name or username")
-        self.assertContains(
-            response,
-            "no Ctrl/Cmd multi-select is needed",
-            html=False,
-        )
         self.assertContains(response, "Ibrahim Alhas (ibrahim)")
         self.assertContains(response, "Will Morgan (will)")

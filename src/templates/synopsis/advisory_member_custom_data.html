@@ -4,7 +4,11 @@
 {% block content %}
 <h1 class="mb-3">Custom data – {{ member.first_name|default:member.email }}</h1>
 <p class="text-muted">Update the additional columns configured for the advisory board. These values appear in the {{ status_key }} section.</p>
-<form method="post" class="card"{% if focused_field %} action="?field={{ focused_field.id }}"{% endif %}>
+{% if focused_field %}
+<form method="post" class="card" action="?field={{ focused_field.id }}">
+{% else %}
+<form method="post" class="card">
+{% endif %}
     <div class="card-body">
         {% csrf_token %}
         {% if focused_field %}

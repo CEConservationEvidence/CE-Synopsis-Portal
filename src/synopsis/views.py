@@ -69,6 +69,7 @@ from .forms import (
     ReferenceBatchUploadForm,
     LibraryReferenceBatchUploadForm,
     ReferenceScreeningForm,
+    ReferenceClassificationForm,
     LibraryReferenceUpdateForm,
     CollaborativeUpdateForm,
     AdvisoryCustomFieldForm,
@@ -126,7 +127,13 @@ from .models import (
     SynopsisExportLog,
 )
 from .presets import PRESETS
-from .utils import ensure_global_groups, email_subject, reply_to_list, reference_hash
+from .utils import (
+    ensure_global_groups,
+    email_subject,
+    minimum_allowed_deadline_date,
+    reply_to_list,
+    reference_hash,
+)
 
 
 ONLYOFFICE_SETTINGS = getattr(settings, "ONLYOFFICE", {})
@@ -558,6 +565,41 @@ def _format_deadline(deadline):
     except (ValueError, TypeError):
         aware = deadline
     return aware.strftime("%d %b %Y %H:%M")
+
+
+def _invite_response_window_days():
+    return getattr(settings, "ADVISORY_INVITE_RESPONSE_WINDOW_DAYS", 10)
+
+
+def _document_feedback_window_days():
+    return getattr(settings, "ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS", 10)
+
+
+def _end_of_day_datetime(date_value):
+    combined = dt.datetime.combine(date_value, dt.time(23, 59))
+    return timezone.make_aware(combined) if timezone.is_naive(combined) else combined
+
+
+def _default_invite_due_date():
+    return timezone.localdate() + dt.timedelta(days=_invite_response_window_days())
+
+
+def _default_document_feedback_due_date():
+    return timezone.localdate() + dt.timedelta(days=_document_feedback_window_days())
+
+
+def _default_document_feedback_deadline():
+    return _end_of_day_datetime(_default_document_feedback_due_date())
+
+
+def _resolve_invite_due_date(override=None, member=None):
+    return override or getattr(member, "response_date", None) or _default_invite_due_date()
+
+
+def _resolve_document_feedback_deadline(override_due_date=None, current_deadline=None):
+    if override_due_date:
+        return _end_of_day_datetime(override_due_date)
+    return current_deadline or _default_document_feedback_deadline()
 
 
 def _format_file_size(size_bytes):
@@ -1458,6 +1500,8 @@ def _advisory_board_context(
         reminder_initial = {}
         if pending_reminder_dates:
             reminder_initial["reminder_date"] = pending_reminder_dates[0]
+        else:
+            reminder_initial["reminder_date"] = _default_invite_due_date()
         reminder_form = ReminderScheduleForm(initial=reminder_initial)
 
     protocol_members = project.advisory_board_members.filter(
@@ -1478,6 +1522,10 @@ def _advisory_board_context(
                 protocol_initial["deadline"] = timezone.localtime(first_deadline)
             except (ValueError, TypeError):
                 protocol_initial["deadline"] = first_deadline
+        else:
+            protocol_initial["deadline"] = timezone.localtime(
+                _default_document_feedback_deadline()
+            )
         protocol_form = ProtocolReminderScheduleForm(initial=protocol_initial)
 
     if member_form is None:
@@ -1526,6 +1574,10 @@ def _advisory_board_context(
                 action_initial["deadline"] = timezone.localtime(first_deadline)
             except (ValueError, TypeError):
                 action_initial["deadline"] = first_deadline
+        else:
+            action_initial["deadline"] = timezone.localtime(
+                _default_document_feedback_deadline()
+            )
         action_list_form = ActionListReminderScheduleForm(initial=action_initial)
 
     if action_list_feedback_close_form is None:
@@ -1739,6 +1791,7 @@ def _advisory_board_context(
         "section_palette": section_palette,
         "custom_field_group_choices": AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
         "declined_members_with_reason": declined_with_reason,
+        "minimum_allowed_deadline_date": minimum_allowed_deadline_date(),
     }
 
 
@@ -2693,6 +2746,45 @@ def protocol_detail(request, project_id):
             "Required when you replace the file or change the protocol stage."
         )
 
+    protocol_members = project.advisory_board_members.filter(
+        sent_protocol_at__isnull=False,
+        response="Y",
+    )
+    protocol_pending_dates = [
+        d
+        for d in protocol_members.filter(feedback_on_protocol_deadline__isnull=False)
+        .order_by("feedback_on_protocol_deadline")
+        .values_list("feedback_on_protocol_deadline", flat=True)
+    ]
+    protocol_reminder_initial = {}
+    if protocol_pending_dates:
+        first_deadline = protocol_pending_dates[0]
+        try:
+            protocol_reminder_initial["deadline"] = timezone.localtime(first_deadline)
+        except (ValueError, TypeError):
+            protocol_reminder_initial["deadline"] = first_deadline
+    else:
+        protocol_reminder_initial["deadline"] = timezone.localtime(
+            _default_document_feedback_deadline()
+        )
+    protocol_reminder_form = ProtocolReminderScheduleForm(
+        initial=protocol_reminder_initial
+    )
+    protocol_feedback_close_initial = {}
+    if protocol and protocol.feedback_closure_message:
+        protocol_feedback_close_initial["message"] = protocol.feedback_closure_message
+    protocol_feedback_close_form = ProtocolFeedbackCloseForm(
+        initial=protocol_feedback_close_initial
+    )
+    protocol_feedback_state = {
+        "protocol": protocol,
+        "is_closed": bool(getattr(protocol, "feedback_closed_at", None)),
+        "closed_at": getattr(protocol, "feedback_closed_at", None),
+        "closure_message": getattr(protocol, "feedback_closure_message", ""),
+        "deadline": protocol_pending_dates[0] if protocol_pending_dates else None,
+        "document_ready": protocol_document_ready,
+    }
+
     return render(
         request,
         "synopsis/protocol_detail.html",
@@ -2719,6 +2811,16 @@ def protocol_detail(request, project_id):
             "collaborative_force_end_url": collaborative_force_end_url,
             "collaborative_document_ready": protocol_document_ready,
             "collaborative_can_override": collaborative_can_override,
+            "protocol_reminder_form": protocol_reminder_form,
+            "protocol_pending_count": protocol_members.count(),
+            "protocol_pending_dates": protocol_pending_dates,
+            "initial_protocol_reminder_log": project.change_log.filter(
+                action="Scheduled protocol reminders"
+            )
+            .order_by("created_at")
+            .first(),
+            "protocol_feedback_state": protocol_feedback_state,
+            "protocol_feedback_close_form": protocol_feedback_close_form,
         },
     )
 
@@ -3022,6 +3124,51 @@ def action_list_detail(request, project_id):
             "Required when you replace the file or change the action list stage."
         )
 
+    action_list_members = project.advisory_board_members.filter(
+        sent_action_list_at__isnull=False,
+        response="Y",
+    )
+    action_list_pending_dates = [
+        d
+        for d in action_list_members.filter(
+            feedback_on_action_list_deadline__isnull=False
+        )
+        .order_by("feedback_on_action_list_deadline")
+        .values_list("feedback_on_action_list_deadline", flat=True)
+    ]
+    action_list_reminder_initial = {}
+    if action_list_pending_dates:
+        first_deadline = action_list_pending_dates[0]
+        try:
+            action_list_reminder_initial["deadline"] = timezone.localtime(
+                first_deadline
+            )
+        except (ValueError, TypeError):
+            action_list_reminder_initial["deadline"] = first_deadline
+    else:
+        action_list_reminder_initial["deadline"] = timezone.localtime(
+            _default_document_feedback_deadline()
+        )
+    action_list_reminder_form = ActionListReminderScheduleForm(
+        initial=action_list_reminder_initial
+    )
+    action_list_feedback_close_initial = {}
+    if action_list and action_list.feedback_closure_message:
+        action_list_feedback_close_initial["message"] = (
+            action_list.feedback_closure_message
+        )
+    action_list_feedback_close_form = ActionListFeedbackCloseForm(
+        initial=action_list_feedback_close_initial
+    )
+    action_list_feedback_state = {
+        "action_list": action_list,
+        "is_closed": bool(getattr(action_list, "feedback_closed_at", None)),
+        "closed_at": getattr(action_list, "feedback_closed_at", None),
+        "closure_message": getattr(action_list, "feedback_closure_message", ""),
+        "deadline": action_list_pending_dates[0] if action_list_pending_dates else None,
+        "document_ready": action_document_ready,
+    }
+
     return render(
         request,
         "synopsis/action_list_detail.html",
@@ -3046,6 +3193,16 @@ def action_list_detail(request, project_id):
             "collaborative_force_end_url": collaborative_force_end_url,
             "collaborative_can_override": collaborative_can_override,
             "collaborative_document_ready": action_document_ready,
+            "action_list_reminder_form": action_list_reminder_form,
+            "action_list_pending_count": action_list_members.count(),
+            "action_list_pending_dates": action_list_pending_dates,
+            "initial_action_list_reminder_log": project.change_log.filter(
+                action="Scheduled action list reminders"
+            )
+            .order_by("created_at")
+            .first(),
+            "action_list_feedback_state": action_list_feedback_state,
+            "action_list_feedback_close_form": action_list_feedback_close_form,
         },
     )
 
@@ -4605,8 +4762,10 @@ def advisory_schedule_protocol_reminders(request, project_id):
     )
 
     if not form.is_valid():
-        context = _advisory_board_context(project, user=request.user, protocol_form=form)
-        return render(request, "synopsis/advisory_board_list.html", context)
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+        return redirect("synopsis:protocol_detail", project_id=project.id)
 
     deadline = form.cleaned_data["deadline"]
     if timezone.is_naive(deadline):
@@ -4658,7 +4817,7 @@ def advisory_schedule_protocol_reminders(request, project_id):
         request,
         f"Protocol reminder scheduled for {updated} member(s). Reminder now set as required.",
     )
-    return redirect("synopsis:advisory_board_list", project_id=project.id)
+    return redirect("synopsis:protocol_detail", project_id=project.id)
 
 
 @login_required
@@ -4669,7 +4828,7 @@ def advisory_schedule_action_list_reminders(request, project_id):
 
     if not getattr(project, "action_list", None):
         messages.error(request, "No action list configured for this project.")
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     form = ActionListReminderScheduleForm(request.POST)
     pending_members = project.advisory_board_members.filter(
@@ -4678,8 +4837,10 @@ def advisory_schedule_action_list_reminders(request, project_id):
     )
 
     if not form.is_valid():
-        context = _advisory_board_context(project, user=request.user, action_list_form=form)
-        return render(request, "synopsis/advisory_board_list.html", context)
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     deadline = form.cleaned_data["deadline"]
     if timezone.is_naive(deadline):
@@ -4731,7 +4892,7 @@ def advisory_schedule_action_list_reminders(request, project_id):
         request,
         f"Action list reminder scheduled for {updated} member(s). Reminder now set as required.",
     )
-    return redirect("synopsis:advisory_board_list", project_id=project.id)
+    return redirect("synopsis:action_list_detail", project_id=project.id)
 
 
 @login_required
@@ -5648,8 +5809,207 @@ def _ensure_reference_summaries(project, references):
                     reference=ref,
                     citation=_reference_summary_citation(ref),
                 )
+                _sync_reference_summary_identifiers_for_reference(ref, save=True)
                 existing_ref_ids.add(ref.id)
     return existing_ref_ids
+
+
+_REFERENCE_ID_STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "book",
+    "for",
+    "in",
+    "of",
+    "on",
+    "project",
+    "synopsis",
+    "the",
+    "to",
+}
+
+
+def _project_reference_prefix(project):
+    words = re.findall(r"[A-Za-z0-9]+", project.title or "")
+    initials = [
+        word[0].upper()
+        for word in words
+        if word and word.lower() not in _REFERENCE_ID_STOP_WORDS
+    ]
+    return "".join(initials[:6]) or "REF"
+
+
+def _prefix_from_identifier(identifier):
+    cleaned = _clean_identifier(identifier)
+    match = re.match(r"^(.*?)(\d+)$", cleaned)
+    if not match:
+        return ""
+    return match.group(1)
+
+
+def _sequence_from_identifier(identifier, prefix):
+    cleaned = _clean_identifier(identifier)
+    if prefix:
+        if not cleaned.startswith(prefix):
+            return None
+        suffix = cleaned[len(prefix) :]
+    else:
+        suffix = cleaned
+    if not suffix.isdigit():
+        return None
+    return int(suffix)
+
+
+def _reference_identifier_candidates(project):
+    summaries = ReferenceSummary.objects.filter(project=project).only(
+        "reference_identifier",
+        "summary_identifier"
+    )
+    for summary in summaries:
+        candidate = _clean_identifier(summary.reference_identifier)
+        if candidate:
+            yield candidate
+            continue
+        reference_identifier, _suffix = _split_summary_identifier(
+            summary.summary_identifier
+        )
+        if reference_identifier:
+            yield reference_identifier
+
+
+def _stored_project_reference_prefix(project):
+    for identifier in _reference_identifier_candidates(project):
+        prefix = _prefix_from_identifier(identifier)
+        if prefix:
+            return prefix
+    return ""
+
+
+def _generated_reference_identifier(reference):
+    project = reference.project
+    prefix = _stored_project_reference_prefix(project) or _project_reference_prefix(
+        project
+    )
+    count_floor = 1000 + Reference.objects.filter(
+        project=project,
+        id__lt=reference.id,
+    ).count()
+    max_sequence = 999
+    for identifier in _reference_identifier_candidates(project):
+        sequence = _sequence_from_identifier(identifier, prefix)
+        if sequence is not None and sequence > max_sequence:
+            max_sequence = sequence
+    return f"{prefix}{max(count_floor, max_sequence + 1)}"
+
+
+def _clean_identifier(value):
+    return (value or "").strip()
+
+
+def _split_summary_identifier(summary_identifier):
+    cleaned = _clean_identifier(summary_identifier)
+    if "." not in cleaned:
+        return "", ""
+    reference_identifier, suffix = cleaned.rsplit(".", 1)
+    if not reference_identifier or not suffix:
+        return "", ""
+    return reference_identifier, suffix
+
+
+def _stored_reference_identifier_from_summaries(summaries):
+    for summary in summaries:
+        reference_identifier = _clean_identifier(summary.reference_identifier)
+        if reference_identifier:
+            return reference_identifier
+    for summary in summaries:
+        reference_identifier, _suffix = _split_summary_identifier(
+            summary.summary_identifier
+        )
+        if reference_identifier:
+            return reference_identifier
+    return ""
+
+
+def _reference_identifier_for_reference(reference, summaries=None):
+    if summaries is None:
+        summaries = list(reference.summaries.order_by("created_at", "id"))
+    reference_identifier = _stored_reference_identifier_from_summaries(summaries)
+    if reference_identifier:
+        return reference_identifier
+    return _generated_reference_identifier(reference)
+
+
+def _reference_identifier_for_summary(summary):
+    reference_identifier = _clean_identifier(summary.reference_identifier)
+    if reference_identifier:
+        return reference_identifier
+    reference_identifier, _suffix = _split_summary_identifier(
+        summary.summary_identifier
+    )
+    if reference_identifier:
+        return reference_identifier
+    if summary.reference_id:
+        return _reference_identifier_for_reference(summary.reference)
+    return ""
+
+
+def _alphabetical_suffix(index):
+    index = max(index, 1)
+    letters = []
+    while index > 0:
+        index -= 1
+        index, remainder = divmod(index, 26)
+        letters.append(chr(ord("a") + remainder))
+    return "".join(reversed(letters))
+
+
+def _generated_summary_identifier(reference_identifier, index):
+    return f"{reference_identifier}.{_alphabetical_suffix(index)}"
+
+
+def _sync_reference_summary_identifiers_for_reference(reference, *, save=False):
+    summaries = list(reference.summaries.order_by("created_at", "id"))
+    reference_identifier = _reference_identifier_for_reference(
+        reference, summaries=summaries
+    )
+    used_suffixes_by_reference = defaultdict(set)
+    next_index_by_reference = defaultdict(lambda: 1)
+
+    for summary in summaries:
+        summary_reference_identifier, suffix = _split_summary_identifier(
+            summary.summary_identifier
+        )
+        if summary_reference_identifier and suffix:
+            used_suffixes_by_reference[summary_reference_identifier].add(suffix)
+
+    def _next_unused_summary_identifier(target_reference_identifier):
+        next_index = next_index_by_reference[target_reference_identifier]
+        while True:
+            suffix = _alphabetical_suffix(next_index)
+            next_index += 1
+            if suffix in used_suffixes_by_reference[target_reference_identifier]:
+                continue
+            used_suffixes_by_reference[target_reference_identifier].add(suffix)
+            next_index_by_reference[target_reference_identifier] = next_index
+            return f"{target_reference_identifier}.{suffix}"
+
+    for summary in summaries:
+        changed_fields = []
+        summary_reference_identifier = _reference_identifier_for_summary(summary)
+        if not summary_reference_identifier:
+            summary_reference_identifier = reference_identifier
+        if _clean_identifier(summary.reference_identifier) != summary_reference_identifier:
+            summary.reference_identifier = summary_reference_identifier
+            changed_fields.append("reference_identifier")
+        if not _clean_identifier(summary.summary_identifier):
+            summary.summary_identifier = _next_unused_summary_identifier(
+                summary_reference_identifier
+            )
+            changed_fields.append("summary_identifier")
+        if save and changed_fields:
+            summary.save(update_fields=changed_fields + ["updated_at"])
+    return summaries
 
 
 def _reference_summary_display_label(summary, index=None):
@@ -5657,14 +6017,45 @@ def _reference_summary_display_label(summary, index=None):
     if label:
         return label
     if index is not None:
-        return f"Summary {index}"
+        reference_identifier = _reference_identifier_for_summary(summary)
+        return _generated_summary_identifier(reference_identifier, index)
+    if summary.reference_id:
+        reference_identifier = _reference_identifier_for_summary(summary)
+        return _generated_summary_identifier(reference_identifier, 1)
     return summary.display_label
 
 
+def _reference_summary_workspace_heading(reference):
+    canonical = reference.canonical
+    author_bits = [canonical.authors or "Unknown authors"]
+    if canonical.publication_year:
+        author_bits.append(str(canonical.publication_year))
+    return " · ".join(author_bits)
+
+
+def _reference_summary_workspace_context(reference):
+    return reference.canonical.title or "Untitled reference"
+
+
+def _reference_summary_workspace_label(summary, index=None):
+    label = summary.explicit_label
+    summary_identifier = _clean_identifier(summary.summary_identifier)
+    if not summary_identifier:
+        reference_identifier = _reference_identifier_for_summary(summary)
+        if reference_identifier:
+            summary_identifier = _generated_summary_identifier(
+                reference_identifier,
+                index or 1,
+            )
+    if summary_identifier and label and label != summary_identifier:
+        return f"{summary_identifier} — {label}"
+    if summary_identifier:
+        return summary_identifier
+    return _reference_summary_display_label(summary, index)
+
+
 def _reference_summary_tabs(reference, *, active_summary_id=None):
-    summaries = list(
-        reference.summaries.select_related("assigned_to").order_by("created_at", "id")
-    )
+    summaries = _sync_reference_summary_identifiers_for_reference(reference, save=False)
     tab_count = len(summaries)
     tabs = []
     for index, item in enumerate(summaries, start=1):
@@ -5690,6 +6081,8 @@ def _reference_summary_workspace_groups(reference_summaries):
     for summaries in grouped.values():
         reference = summaries[0].reference
         canonical = reference.canonical
+        reference_heading = _reference_summary_workspace_heading(reference)
+        reference_context = _reference_summary_workspace_context(reference)
         paper_title = canonical.title or "Untitled reference"
         meta_parts = []
         if canonical.authors:
@@ -5700,33 +6093,43 @@ def _reference_summary_workspace_groups(reference_summaries):
 
         group_payload = {
             "reference_id": reference.id,
+            "reference_heading": reference_heading,
+            "reference_context": reference_context,
             "paper_title": paper_title,
             "paper_meta": paper_meta,
             "summaries": [],
         }
         for index, summary in enumerate(summaries, start=1):
             summary_label = _reference_summary_display_label(summary, index)
+            summary_display = _reference_summary_workspace_label(summary, index)
             search_text = " ".join(
                 bit
                 for bit in (
+                    reference_heading,
+                    reference_context,
                     paper_title,
                     paper_meta,
                     summary_label,
+                    summary_display,
                     summary.summary_identifier,
                     summary.action_description,
                 )
                 if bit
             )
             summary_meta[summary.id] = {
+                "reference_heading": reference_heading,
+                "reference_context": reference_context,
                 "paper_title": paper_title,
                 "paper_meta": paper_meta,
                 "summary_label": summary_label,
+                "summary_display": summary_display,
                 "search_text": search_text,
             }
             group_payload["summaries"].append(
                 {
                     "id": summary.id,
                     "summary_label": summary_label,
+                    "summary_display": summary_display,
                     "search_text": search_text,
                 }
             )
@@ -5739,16 +6142,18 @@ def _clone_reference_summary(source_summary, user=None):
         source_summary.summary_author
         or (user.get_full_name() or user.username if user and user.is_authenticated else "")
     )
-    return ReferenceSummary.objects.create(
+    new_summary = ReferenceSummary.objects.create(
         project=source_summary.project,
         reference=source_summary.reference,
         assigned_to=source_summary.assigned_to,
         citation=source_summary.citation or _reference_summary_citation(source_summary.reference),
-        reference_identifier=source_summary.reference_identifier,
-        reference_label=source_summary.reference_label or source_summary.reference.canonical.title,
         summary_author=summary_author,
         source_url=source_summary.source_url,
     )
+    synced = _sync_reference_summary_identifiers_for_reference(
+        source_summary.reference, save=True
+    )
+    return next((item for item in synced if item.id == new_summary.id), new_summary)
 
 
 def _next_chapter_position(project):
@@ -5845,6 +6250,41 @@ def _resequence_action_summaries(reference_summary):
             action_summary.save(update_fields=["order"])
 
 
+def _remove_reference_from_synopsis(reference):
+    summaries = list(reference.summaries.all())
+    if not summaries:
+        return 0
+
+    summary_ids = [summary.id for summary in summaries]
+    assignments = list(
+        SynopsisAssignment.objects.filter(reference_summary_id__in=summary_ids)
+        .select_related("intervention")
+    )
+    if not assignments:
+        return 0
+
+    touched_interventions = {}
+    assignment_ids = []
+    for assignment in assignments:
+        touched_interventions[assignment.intervention_id] = assignment.intervention
+        assignment_ids.append(assignment.id)
+
+    supporting_summary_through = (
+        SynopsisInterventionKeyMessage.supporting_summaries.through
+    )
+    with transaction.atomic():
+        supporting_summary_through.objects.filter(
+            synopsisinterventionkeymessage__intervention_id__in=touched_interventions.keys(),
+            referencesummary_id__in=summary_ids,
+        ).delete()
+        SynopsisAssignment.objects.filter(pk__in=assignment_ids).delete()
+
+    for intervention in touched_interventions.values():
+        _resequence_assignment_positions(intervention)
+
+    return len(assignments)
+
+
 def _structured_summary_paragraph(
     summary: ReferenceSummary, reference_identifier_override: str | None = None
 ) -> str:
@@ -5860,7 +6300,7 @@ def _structured_summary_paragraph(
     location = ", ".join([part for part in [_clean(summary.region), _clean(summary.country)] if part])
     ref_id = _clean(reference_identifier_override)
     if not ref_id:
-        ref_id = _clean(summary.reference_identifier)
+        ref_id = _reference_identifier_for_summary(summary)
     sites = _clean(summary.sites_replications)
     intro_parts = ["A"]
     intro_parts.append(study_design or study_type or "study")
@@ -6084,6 +6524,7 @@ def reference_summary_board(request, project_id):
 
     assigned_counts = Counter()
     needs_help_by_author = Counter()
+    summarised_by_author = Counter()
     unassigned_count = 0
     needs_help_count = 0
     for item in summaries:
@@ -6093,16 +6534,24 @@ def reference_summary_board(request, project_id):
             assigned_counts[item.assigned_to_id] += 1
             if item.needs_help:
                 needs_help_by_author[item.assigned_to_id] += 1
+            if item.status == ReferenceSummary.STATUS_DONE:
+                summarised_by_author[item.assigned_to_id] += 1
         if item.needs_help:
             needs_help_count += 1
 
     author_options = list(project.author_users.order_by("first_name", "last_name"))
     workload = []
     for author in author_options:
+        assigned = assigned_counts.get(author.id, 0)
+        summarised = summarised_by_author.get(author.id, 0)
         workload.append(
             {
                 "author": author,
-                "assigned": assigned_counts.get(author.id, 0),
+                "assigned": assigned,
+                "summarised": summarised,
+                "summarised_percent": int((summarised / assigned) * 100)
+                if assigned
+                else 0,
                 "needs_help": needs_help_by_author.get(author.id, 0),
             }
         )
@@ -6175,6 +6624,10 @@ def reference_summary_detail(request, project_id, summary_id):
         pk=summary_id,
         project=project,
     )
+    synced_summaries = _sync_reference_summary_identifiers_for_reference(
+        summary.reference, save=True
+    )
+    summary = next((item for item in synced_summaries if item.id == summary.id), summary)
 
     active_action = request.POST.get("action") if request.method == "POST" else None
     summary_form = ReferenceSummaryUpdateForm(
@@ -6189,6 +6642,15 @@ def reference_summary_detail(request, project_id, summary_id):
         request.POST if request.POST.get("action") == "assign" else None,
         project=project,
         initial=assignment_initial,
+    )
+    classification_initial = {
+        "screening_status": summary.reference.screening_status,
+        "reference_folder": summary.reference.reference_folder,
+        "screening_notes": summary.reference.screening_notes,
+    }
+    classification_form = ReferenceClassificationForm(
+        request.POST if active_action == "update-classification" else None,
+        initial=classification_initial,
     )
     comment_form = ReferenceSummaryCommentForm()
     document_form = ReferenceDocumentForm()
@@ -6207,6 +6669,40 @@ def reference_summary_detail(request, project_id, summary_id):
                 project_id=project.id,
                 summary_id=new_summary.id,
             )
+        if action == "delete-summary-tab":
+            remaining_summaries = list(
+                summary.reference.summaries.exclude(pk=summary.pk).order_by("created_at", "id")
+            )
+            if not remaining_summaries:
+                messages.error(
+                    request,
+                    "You cannot delete the only summary tab for this reference.",
+                )
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            next_summary = remaining_summaries[0]
+            affected_intervention_ids = list(
+                SynopsisAssignment.objects.filter(reference_summary=summary)
+                .values_list("intervention_id", flat=True)
+                .distinct()
+            )
+            with transaction.atomic():
+                summary.delete()
+                if affected_intervention_ids:
+                    for intervention in SynopsisIntervention.objects.filter(
+                        id__in=affected_intervention_ids
+                    ):
+                        _resequence_assignment_positions(intervention)
+            _sync_reference_summary_identifiers_for_reference(next_summary.reference, save=True)
+            messages.success(request, "Summary tab deleted.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=next_summary.id,
+            )
         if action == "save-summary" and summary_form.is_valid():
             summary = summary_form.save(commit=False)
             if not summary.summary_author:
@@ -6214,6 +6710,7 @@ def reference_summary_detail(request, project_id, summary_id):
                     request.user.get_full_name() or request.user.username
                 )
             summary.save()
+            _sync_reference_summary_identifiers_for_reference(summary.reference, save=True)
             summary_form.save_m2m()
             messages.success(request, "Summary updated.")
             return redirect(
@@ -6233,6 +6730,57 @@ def reference_summary_detail(request, project_id, summary_id):
             if not error_list:
                 error_list.append("Unable to save summary. Please review your inputs.")
             messages.error(request, " ".join(error_list))
+        if action == "update-classification" and classification_form.is_valid():
+            reference = summary.reference
+            previous_status = reference.screening_status
+            folders = classification_form.cleaned_data.get("reference_folder") or []
+            reference.screening_status = classification_form.cleaned_data[
+                "screening_status"
+            ]
+            reference.reference_folder = [folder for folder in folders if folder]
+            reference.screening_notes = (
+                classification_form.cleaned_data.get("screening_notes") or ""
+            )
+            reference.screening_decision_at = timezone.now()
+            reference.screened_by = request.user
+            reference.save(
+                update_fields=[
+                    "screening_status",
+                    "reference_folder",
+                    "screening_notes",
+                    "screening_decision_at",
+                    "screened_by",
+                    "updated_at",
+                ]
+            )
+
+            if reference.screening_status == "excluded":
+                removed_assignments = _remove_reference_from_synopsis(reference)
+                messages.success(
+                    request,
+                    "Reference excluded from this synopsis."
+                    + (
+                        f" Removed it from {removed_assignments} intervention assignment(s)."
+                        if removed_assignments
+                        else ""
+                    ),
+                )
+                return redirect(
+                    f"{reverse('synopsis:reference_batch_detail', args=[project.id, reference.batch_id])}?focus=1&ref={reference.id}"
+                )
+
+            if previous_status == "excluded":
+                messages.success(
+                    request,
+                    "Reference re-included in this synopsis. You can now continue summarising it.",
+                )
+            else:
+                messages.success(request, "Reference classification updated.")
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=summary.id,
+            )
         if action == "assign" and assignment_form.is_valid():
             summary.assigned_to = assignment_form.cleaned_data["assigned_to"]
             summary.needs_help = assignment_form.cleaned_data["needs_help"]
@@ -6368,9 +6916,18 @@ def reference_summary_detail(request, project_id, summary_id):
             "project": project,
             "summary": summary,
             "reference": summary.reference,
+            "generated_reference_id": _reference_identifier_for_summary(summary),
+            "generated_summary_id": summary.summary_identifier
+            or _generated_summary_identifier(
+                _reference_identifier_for_summary(summary),
+                1,
+            ),
+            "generated_reference_title": summary.reference.canonical.title
+            or summary.reference.title,
             "summary_tabs": summary_tabs,
             "summary_form": summary_form,
             "assignment_form": assignment_form,
+            "classification_form": classification_form,
             "comment_form": comment_form,
             "comments": comments,
             "comment_tree": comment_tree,
@@ -7023,9 +7580,25 @@ def _project_synopsis_workspace(
                         "paper_title",
                         assignment.reference_summary.reference.canonical.title,
                     )
+                    assignment.reference_heading = meta.get(
+                        "reference_heading",
+                        _reference_summary_workspace_heading(
+                            assignment.reference_summary.reference
+                        ),
+                    )
+                    assignment.reference_context = meta.get(
+                        "reference_context",
+                        _reference_summary_workspace_context(
+                            assignment.reference_summary.reference
+                        ),
+                    )
                     assignment.paper_meta = meta.get("paper_meta", "")
                     assignment.summary_label = meta.get(
                         "summary_label", assignment.reference_summary.display_label
+                    )
+                    assignment.summary_display = meta.get(
+                        "summary_display",
+                        _reference_summary_workspace_label(assignment.reference_summary),
                     )
                     assignment.duplicate_reference_assignment = (
                         reference_counts.get(
@@ -7045,8 +7618,11 @@ def _project_synopsis_workspace(
                     {
                         "id": assignment.reference_summary_id,
                         "number": assignment.ce_reference_number,
+                        "reference_heading": assignment.reference_heading,
+                        "reference_context": assignment.reference_context,
                         "paper_title": assignment.paper_title,
                         "summary_label": assignment.summary_label,
+                        "summary_display": assignment.summary_display,
                     }
                     for assignment in assignments
                 ]
@@ -7966,7 +8542,7 @@ def advisory_protocol_feedback_close(request, project_id):
     proto = getattr(project, "protocol", None)
     if not proto:
         messages.error(request, "No protocol configured for this project.")
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
+        return redirect("synopsis:protocol_detail", project_id=project.id)
 
     action = request.POST.get("action")
     if action == "reopen":
@@ -7981,19 +8557,17 @@ def advisory_protocol_feedback_close(request, project_id):
             "Protocol feedback reopened",
         )
         messages.success(request, "Protocol feedback reopened for advisory members.")
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
+        return redirect("synopsis:protocol_detail", project_id=project.id)
 
     if request.method != "POST":
         return HttpResponseBadRequest("POST required")
 
     form = ProtocolFeedbackCloseForm(request.POST)
     if not form.is_valid():
-        context = _advisory_board_context(
-            project,
-            user=request.user,
-            feedback_close_form=form,
-        )
-        return render(request, "synopsis/advisory_board_list.html", context)
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+        return redirect("synopsis:protocol_detail", project_id=project.id)
 
     message = form.cleaned_data.get("message", "")
     now = timezone.now()
@@ -8036,7 +8610,7 @@ def advisory_protocol_feedback_close(request, project_id):
             "Protocol collaborative session closed",
             f"Session {ended_session.token} marked inactive.",
         )
-    return redirect("synopsis:advisory_board_list", project_id=project.id)
+    return redirect("synopsis:protocol_detail", project_id=project.id)
 
 
 @login_required
@@ -8045,7 +8619,7 @@ def advisory_action_list_feedback_close(request, project_id):
     action_list = getattr(project, "action_list", None)
     if not action_list:
         messages.error(request, "No action list configured for this project.")
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     action = request.POST.get("action")
     if action == "reopen":
@@ -8062,19 +8636,17 @@ def advisory_action_list_feedback_close(request, project_id):
             "Action list feedback reopened",
         )
         messages.success(request, "Action list feedback reopened for advisory members.")
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     if request.method != "POST":
         return HttpResponseBadRequest("POST required")
 
     form = ActionListFeedbackCloseForm(request.POST)
     if not form.is_valid():
-        context = _advisory_board_context(
-            project,
-            user=request.user,
-            action_list_feedback_close_form=form,
-        )
-        return render(request, "synopsis/advisory_board_list.html", context)
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     message = form.cleaned_data.get("message", "")
     now = timezone.now()
@@ -8117,7 +8689,7 @@ def advisory_action_list_feedback_close(request, project_id):
             "Action list collaborative session closed",
             f"Session {ended_session.token} marked inactive.",
         )
-    return redirect("synopsis:advisory_board_list", project_id=project.id)
+    return redirect("synopsis:action_list_detail", project_id=project.id)
 
 
 @login_required
@@ -8140,6 +8712,8 @@ def advisory_invite_create(request, project_id, member_id=None):
         initial["email"] = member.email
         if member.response_date:
             initial["due_date"] = member.response_date
+    if "due_date" not in initial:
+        initial["due_date"] = _default_invite_due_date()
 
     form = None
     if request.method == "POST":
@@ -8163,7 +8737,10 @@ def advisory_invite_create(request, project_id, member_id=None):
 
     if request.method == "POST" and form.is_valid():
             email = form.cleaned_data["email"].strip()
-            due_date = form.cleaned_data.get("due_date")
+            due_date = _resolve_invite_due_date(
+                form.cleaned_data.get("due_date"),
+                member=member,
+            )
             message_body = form.cleaned_data.get("message") or ""
 
             inv = AdvisoryBoardInvitation.objects.create(
@@ -8248,7 +8825,7 @@ def advisory_invite_create(request, project_id, member_id=None):
                 member.invite_sent = True
                 member.invite_sent_at = timezone.now()
                 update_fields = {"invite_sent", "invite_sent_at"}
-                if due_date and member.response_date != due_date:
+                if member.response_date != due_date:
                     member.response_date = due_date
                     member.reminder_sent = False
                     member.reminder_sent_at = None
@@ -8449,7 +9026,14 @@ def advisory_invite_update_due_date(request, project_id, invitation_id):
         return HttpResponseBadRequest("POST required")
 
     date_str = (request.POST.get("due_date") or "").strip()
-    inv.due_date = dt.date.fromisoformat(date_str) if date_str else None
+    new_due_date = dt.date.fromisoformat(date_str) if date_str else None
+    if new_due_date and new_due_date < minimum_allowed_deadline_date():
+        messages.error(
+            request,
+            "Response date must be at least one day in the future.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    inv.due_date = new_due_date
     inv.save(update_fields=["due_date"])
     messages.success(request, f"Response date updated for {inv.email}.")
     return redirect("synopsis:advisory_board_list", project_id=project.id)
@@ -8526,7 +9110,7 @@ def advisory_send_invites_bulk(request, project_id):
     if request.method == "POST":
         form = AdvisoryBulkInviteForm(request.POST)
     else:
-        form = AdvisoryBulkInviteForm()
+        form = AdvisoryBulkInviteForm(initial={"due_date": _default_invite_due_date()})
 
     if not action_document_available:
         form.fields["include_action_list"].disabled = True
@@ -8571,7 +9155,7 @@ def advisory_send_invites_bulk(request, project_id):
 
         sent = 0
         for member in members:
-            due_date = bulk_due_date or member.response_date
+            due_date = _resolve_invite_due_date(bulk_due_date, member=member)
             inv = AdvisoryBoardInvitation.objects.create(
                 project=project,
                 member=member,
@@ -8645,7 +9229,7 @@ def advisory_send_invites_bulk(request, project_id):
             member.invite_sent = True
             member.invite_sent_at = timezone.now()
             update_fields = {"invite_sent", "invite_sent_at"}
-            if due_date and member.response_date != due_date:
+            if member.response_date != due_date:
                 member.response_date = due_date
                 member.reminder_sent = False
                 member.reminder_sent_at = None
@@ -8904,14 +9488,6 @@ def advisory_send_protocol_compose_all(request, project_id):
                 "include_protocol_document"
             )
             due_date = form.cleaned_data.get("due_date")
-            deadline_dt = None
-            if due_date:
-                combined = dt.datetime.combine(due_date, dt.time(23, 59))
-                deadline_dt = (
-                    timezone.make_aware(combined)
-                    if timezone.is_naive(combined)
-                    else combined
-                )
             proto_url = (
                 request.build_absolute_uri(proto_doc.url)
                 if include_document and proto_doc
@@ -8924,9 +9500,13 @@ def advisory_send_protocol_compose_all(request, project_id):
             for m in members:
                 member_deadline = m.feedback_on_protocol_deadline
                 deadline_changed = False
-                if deadline_dt:
-                    member_deadline = deadline_dt
-                    m.feedback_on_protocol_deadline = deadline_dt
+                resolved_deadline = _resolve_document_feedback_deadline(
+                    due_date,
+                    current_deadline=member_deadline,
+                )
+                if member_deadline != resolved_deadline:
+                    member_deadline = resolved_deadline
+                    m.feedback_on_protocol_deadline = resolved_deadline
                     m.protocol_reminder_sent = False
                     m.protocol_reminder_sent_at = None
                     deadline_changed = True
@@ -8999,6 +9579,7 @@ def advisory_send_protocol_compose_all(request, project_id):
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         form = ProtocolSendForm(
+            initial={"due_date": _default_document_feedback_due_date()},
             collaborative_enabled=collaborative_enabled,
             document_available=protocol_document_available,
         )
@@ -9047,20 +9628,15 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             include_document = protocol_document_available and form.cleaned_data.get(
                 "include_protocol_document"
             )
-            due_date = form.cleaned_data.get("due_date")
-            deadline_dt = None
-            if due_date:
-                combined = dt.datetime.combine(due_date, dt.time(23, 59))
-                deadline_dt = (
-                    timezone.make_aware(combined)
-                    if timezone.is_naive(combined)
-                    else combined
-                )
             member_deadline = m.feedback_on_protocol_deadline
             deadline_changed = False
-            if deadline_dt:
-                member_deadline = deadline_dt
-                m.feedback_on_protocol_deadline = deadline_dt
+            resolved_deadline = _resolve_document_feedback_deadline(
+                form.cleaned_data.get("due_date"),
+                current_deadline=member_deadline,
+            )
+            if member_deadline != resolved_deadline:
+                member_deadline = resolved_deadline
+                m.feedback_on_protocol_deadline = resolved_deadline
                 m.protocol_reminder_sent = False
                 m.protocol_reminder_sent_at = None
                 deadline_changed = True
@@ -9141,6 +9717,8 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
         if m.feedback_on_protocol_deadline:
             local_deadline = timezone.localtime(m.feedback_on_protocol_deadline)
             deadline_initial = local_deadline.date()
+        else:
+            deadline_initial = _default_document_feedback_due_date()
         form = ProtocolSendForm(
             initial={
                 "due_date": deadline_initial,
@@ -9204,15 +9782,6 @@ def advisory_send_action_list_compose_all(request, project_id):
             include_collab = collaborative_enabled and form.cleaned_data.get(
                 "include_collaborative_link"
             )
-            due_date = form.cleaned_data.get("due_date")
-            deadline_dt = None
-            if due_date:
-                combined = dt.datetime.combine(due_date, dt.time(23, 59))
-                deadline_dt = (
-                    timezone.make_aware(combined)
-                    if timezone.is_naive(combined)
-                    else combined
-                )
             doc_url = (
                 request.build_absolute_uri(action_list.document.url)
                 if include_document and action_document_available
@@ -9225,9 +9794,13 @@ def advisory_send_action_list_compose_all(request, project_id):
             for m in members:
                 member_deadline = m.feedback_on_action_list_deadline
                 deadline_changed = False
-                if deadline_dt:
-                    member_deadline = deadline_dt
-                    m.feedback_on_action_list_deadline = deadline_dt
+                resolved_deadline = _resolve_document_feedback_deadline(
+                    form.cleaned_data.get("due_date"),
+                    current_deadline=member_deadline,
+                )
+                if member_deadline != resolved_deadline:
+                    member_deadline = resolved_deadline
+                    m.feedback_on_action_list_deadline = resolved_deadline
                     m.action_list_reminder_sent = False
                     m.action_list_reminder_sent_at = None
                     deadline_changed = True
@@ -9299,6 +9872,7 @@ def advisory_send_action_list_compose_all(request, project_id):
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         form = ActionListSendForm(
+            initial={"due_date": _default_document_feedback_due_date()},
             collaborative_enabled=collaborative_enabled,
             document_available=action_document_available,
         )
@@ -9353,20 +9927,15 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             include_collab = collaborative_enabled and form.cleaned_data.get(
                 "include_collaborative_link"
             )
-            due_date = form.cleaned_data.get("due_date")
-            deadline_dt = None
-            if due_date:
-                combined = dt.datetime.combine(due_date, dt.time(23, 59))
-                deadline_dt = (
-                    timezone.make_aware(combined)
-                    if timezone.is_naive(combined)
-                    else combined
-                )
             member_deadline = member.feedback_on_action_list_deadline
             deadline_changed = False
-            if deadline_dt:
-                member_deadline = deadline_dt
-                member.feedback_on_action_list_deadline = deadline_dt
+            resolved_deadline = _resolve_document_feedback_deadline(
+                form.cleaned_data.get("due_date"),
+                current_deadline=member_deadline,
+            )
+            if member_deadline != resolved_deadline:
+                member_deadline = resolved_deadline
+                member.feedback_on_action_list_deadline = resolved_deadline
                 member.action_list_reminder_sent = False
                 member.action_list_reminder_sent_at = None
                 deadline_changed = True
@@ -9449,6 +10018,8 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
         if member.feedback_on_action_list_deadline:
             local_deadline = timezone.localtime(member.feedback_on_action_list_deadline)
             deadline_initial = local_deadline.date()
+        else:
+            deadline_initial = _default_document_feedback_due_date()
         form = ActionListSendForm(
             initial={
                 "due_date": deadline_initial,
@@ -9899,12 +10470,13 @@ def advisory_send_invite_member(request, project_id, member_id):
         messages.error(request, "This member has no email.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
+    due_date = _resolve_invite_due_date(member=m)
     inv = AdvisoryBoardInvitation.objects.create(
         project=project,
         member=m,
         email=m.email,
         invited_by=request.user,
-        due_date=m.response_date,
+        due_date=due_date,
     )
     yes_url = request.build_absolute_uri(
         reverse("synopsis:advisory_invite_reply", args=[inv.token, "yes"])
@@ -9912,9 +10484,9 @@ def advisory_send_invite_member(request, project_id, member_id):
     no_url = request.build_absolute_uri(
         reverse("synopsis:advisory_invite_reply", args=[inv.token, "no"])
     )
-    deadline_txt = m.response_date.strftime("%d %b %Y") if m.response_date else "—"
+    deadline_txt = due_date.strftime("%d %b %Y") if due_date else "—"
 
-    subject = email_subject("invite", project, m.response_date)
+    subject = email_subject("invite", project, due_date)
     text = (
         f"Dear {m.first_name or 'colleague'},\n\n"
         f"You are invited to advise on '{project.title}'.\n"
@@ -9943,7 +10515,21 @@ def advisory_send_invite_member(request, project_id, member_id):
 
     m.invite_sent = True
     m.invite_sent_at = timezone.now()
-    m.save(update_fields=["invite_sent", "invite_sent_at"])
+    if m.response_date != due_date:
+        m.response_date = due_date
+        m.reminder_sent = False
+        m.reminder_sent_at = None
+        m.save(
+            update_fields=[
+                "invite_sent",
+                "invite_sent_at",
+                "response_date",
+                "reminder_sent",
+                "reminder_sent_at",
+            ]
+        )
+    else:
+        m.save(update_fields=["invite_sent", "invite_sent_at"])
 
     messages.success(request, f"Invitation sent to {m.email}.")
     return redirect("synopsis:advisory_board_list", project_id=project.id)

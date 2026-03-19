@@ -582,14 +582,6 @@ class CollaborativeSession(models.Model):
         self.last_callback_payload = payload or {}
         self.save(update_fields=["last_activity_at", "last_callback_payload"])
 
-
-# TODO: Refactor AdvisoryBoardMember columns for clarity and normalization:
-#   - Consider renaming 'title', 'first_name', 'middle_name', 'last_name' for consistency with other models.
-#   - Review if 'middle_name' is necessary or can be merged with 'first_name'.
-#   - Evaluate if contact fields (email, phone) should be normalized into a separate ContactInfo model.
-#   - Check for redundant or unused fields (e.g., 'feedback_on_actions_received', 'feedback_on_list', etc.).
-#   - Document the purpose of each field and remove any that are not used in workflows.
-#   - Ensure field naming is clear for teams adapting this model.
 class AdvisoryBoardMember(models.Model):
     """An advisory board member for a project, where there can be multiple members per project.
     Note that this datamodel is speficific to CE and may need to be dropped by other teams.
@@ -1072,7 +1064,7 @@ class ReferenceSourceBatch(models.Model):
         ("manual_upload", "Manual upload"),
         ("library_link", "Library link"),
         ("legacy", "Legacy import"),
-    ]  # TODO: Other teams may want to drop or modify these choices. Also most likely it should be simplified to journal search or manual upload.
+    ]
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="reference_batches"
@@ -1243,7 +1235,9 @@ class Reference(models.Model):
         ("", "—"),
         ("1", "1. Amphibians"),
         ("2", "2. Birds"),
-        ("3", "3. Fish"),
+        ("3a", "3a. Fish - Fresh Water"),
+        ("3b", "3b. Fish - Marine"),
+        ("3", "3. Fish (legacy - recategorise)"),
         ("4", "4. Terrestrial invertebrates"),
         ("5", "5. Marine invertebrates"),
         ("6", "6. Mammals"),

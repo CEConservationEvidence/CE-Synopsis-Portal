@@ -1,16 +1,33 @@
-// TODO: #76 implement automatic reference IDs and summary (tab) IDs that are generated sequentially for each reference, so that users don't have to manually input these identifiers. For example, when a user creates a new summary tab for a reference, the system could automatically assign it the next available summary ID (e.g., Summary 1, Summary 2, etc.) and pre-fill the Reference ID based on the reference's unique identifier.
-// TODO: #77 allow authors to delete summary tabs for flexibility and to keep the interface clean, especially if they accidentally create extra tabs or want to remove outdated ones. Implementing a delete function with a confirmation step can help prevent accidental deletions.
-// TODO: #78 improve the PDF viewer by adding open sourced advanced features such as annotation and highlighting (this would require audit trailing and perhaps a new model to store annotations linked to users and timestamps, but the original PDF file could remain unchanged and the annotations could be rendered as an overlay in the viewer).
+{# TODO: #78 improve the PDF viewer by adding open sourced advanced features such as annotation and highlighting (this would require audit trailing and perhaps a new model to store annotations linked to users and timestamps, but the original PDF file could remain unchanged and the annotations could be rendered as an overlay in the viewer). #}
+{# TODO: #81 might be a good idea adding a feature to export the summary details and PDF together in a structured format (e.g. JSON or XML) for easy sharing with collaborators or importing into other tools. This could include all the structured fields from the summary form as well as metadata about the reference and summary status. #}
+{# TODO: #82 make the automatically generated summary paragraph editable directly in the interface, allowing users to make quick adjustments without having to copy and paste it into the main summary field. This could be implemented with a simple "Edit generated summary" button that toggles the paragraph into an editable textarea, and saving changes would update the main summary field accordingly. #}
+{# TODO: #83 remove the quality scores from the main form and create a separate "Quality assessment" section that can be filled in after the initial summary is complete. This would help streamline the main summary form and allow users to focus on the core details first, while still providing a structured way to capture quality assessments later on. #}
 
 {% extends "synopsis/base.html" %}
 {% block title %}Reference summary – {{ project.title }}{% endblock %}
 {% block content %}
 {{ summary_form.media }}
+<style>
+    .generated-readonly {
+        background-color: #f3f4f6;
+        border-color: #d5d9de;
+        color: #5f6872;
+    }
+</style>
 <h1 class="mb-3">Reference summary</h1>
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_summary_board' project.id %}">Back to summaries</a>
     <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_list' project.id %}">Screening overview</a>
     <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#snapshotModal">Snapshot & comments</button>
+    <button
+        class="btn btn-outline-secondary"
+        type="button"
+        data-bs-toggle="offcanvas"
+        data-bs-target="#referenceManagementPanel"
+        aria-controls="referenceManagementPanel"
+    >
+        Reference management
+    </button>
 </div>
 <div class="card mb-4">
     <div class="card-body">
@@ -29,15 +46,6 @@
         {% else %}
         <p class="text-muted mb-0">No abstract available.</p>
         {% endif %}
-        <div class="mt-3 small text-muted">
-            Active summary tab:
-            <strong>
-                {% for tab in summary_tabs %}
-                    {% if tab.is_active %}{{ tab.label }}{% endif %}
-                {% endfor %}
-            </strong>
-            · Use one tab per distinct intervention/study summary from this paper.
-        </div>
     </div>
 </div>
 <div class="card mb-4 shadow-sm">
@@ -46,15 +54,39 @@
             <div>
                 <div class="fw-semibold">Summary tabs for this reference</div>
                 <div class="small text-muted">
-                    Create another tab when the same paper needs more than one full summary record, for example different interventions, methods, or studies.
-                </div>
-            </div>
-            <form method="post" class="mb-0">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="create-summary-tab">
-                <button class="btn btn-outline-primary btn-sm" type="submit">Add summary tab</button>
-            </form>
+            Tab names come from the Action field when you add one. Otherwise, the system uses the generated Summary ID (for example, CR1000.a, CR1000.b, and so on).
         </div>
+            </div>
+            <div class="d-flex flex-wrap gap-2 ms-md-auto">
+                <form method="post" class="mb-0">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="create-summary-tab">
+                    <button class="btn btn-outline-primary btn-sm" type="submit">Add summary tab</button>
+                </form>
+                {% if summary_tabs|length > 1 %}
+                <form method="post" class="mb-0">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="delete-summary-tab">
+                    <button
+                        class="btn btn-outline-danger btn-sm ms-md-2"
+                        type="submit"
+                        onclick="return confirm('Delete this summary tab? This will remove any comments, action summaries, and synopsis assignments linked to it.');"
+                    >
+                        Delete this tab
+                    </button>
+                </form>
+                {% endif %}
+            </div>
+        </div>
+        {% if summary_tabs|length == 1 %}
+        <div class="small text-muted">
+            At least one summary tab must remain for each reference.
+        </div>
+        {% else %}
+        <div class="small text-muted">
+            Deleting the current tab removes its linked comments, action summaries, and synopsis assignments.
+        </div>
+        {% endif %}
         <div class="d-flex flex-wrap gap-2">
             {% for tab in summary_tabs %}
                 <a
@@ -68,8 +100,111 @@
                 </a>
             {% endfor %}
         </div>
-        <div class="small text-muted">
-            Tab names come from the Action field or Summary ID once you fill them in. Until then, the system labels them as Summary 1, Summary 2, and so on.
+    </div>
+</div>
+<div
+    class="offcanvas offcanvas-end"
+    tabindex="-1"
+    id="referenceManagementPanel"
+    aria-labelledby="referenceManagementPanelLabel"
+    style="width: min(460px, 100vw);"
+>
+    <div class="offcanvas-header">
+        <div>
+            <h5 class="offcanvas-title mb-1" id="referenceManagementPanelLabel">Reference management</h5>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="badge {% if reference.screening_status == 'included' %}text-bg-success{% elif reference.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
+                    {{ reference.get_screening_status_display }}
+                </span>
+                <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'review' %}text-bg-warning{% elif summary.status == 'draft' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
+                    {{ summary.get_status_display }}
+                </span>
+            </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+    </div>
+    <div class="offcanvas-body d-flex flex-column gap-4">
+        {% if reference.screening_status == 'excluded' %}
+        <div class="alert alert-warning small mb-0">
+            This reference is currently excluded from this synopsis. It will not appear in the summary board or synopsis compilation until it is re-included.
+        </div>
+        {% endif %}
+        <form method="post" class="d-flex flex-column gap-3">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="update-status">
+            <div>
+                <div class="fw-semibold mb-1">Summary status</div>
+                <div class="small text-muted">Update the work status for this summary tab.</div>
+            </div>
+            <div>
+                <label class="form-label small">Status</label>
+                <select name="status" class="form-select form-select-sm">
+                    {% for code, label in status_choices %}
+                        {% if summary.status == code %}
+                            <option value="{{ code }}" selected>{{ label }}</option>
+                        {% else %}
+                            <option value="{{ code }}">{{ label }}</option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-check form-switch">
+                {% if summary.needs_help %}
+                    <input class="form-check-input" type="checkbox" id="needs-help" name="needs_help" value="1" checked>
+                {% else %}
+                    <input class="form-check-input" type="checkbox" id="needs-help" name="needs_help" value="1">
+                {% endif %}
+                <label class="form-check-label small" for="needs-help">Needs help</label>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-primary btn-sm" type="submit">Save status</button>
+                <button class="btn btn-outline-success btn-sm" type="submit" name="quick_done" value="1">Mark as summarised</button>
+            </div>
+        </form>
+        <form method="post" class="d-flex flex-column gap-3 border-top pt-4">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="update-classification">
+            <div>
+                <div class="fw-semibold mb-1">Synopsis reference classification</div>
+                <div class="small text-muted">
+                    These changes apply only to this synopsis copy of the reference. They do not change the global Reference Database record.
+                </div>
+            </div>
+            <div>
+                <label class="form-label small" for="{{ classification_form.screening_status.id_for_label }}">Synopsis status</label>
+                {{ classification_form.screening_status }}
+                {% if classification_form.screening_status.errors %}
+                <div class="text-danger small">{{ classification_form.screening_status.errors|join:", " }}</div>
+                {% endif %}
+            </div>
+            <div>
+                <label class="form-label small" for="{{ classification_form.reference_folder.id_for_label }}">Reference folders</label>
+                {{ classification_form.reference_folder }}
+                {% if classification_form.reference_folder.errors %}
+                <div class="text-danger small">{{ classification_form.reference_folder.errors|join:", " }}</div>
+                {% endif %}
+            </div>
+            <div>
+                <label class="form-label small" for="{{ classification_form.screening_notes.id_for_label }}">Reason / notes</label>
+                {{ classification_form.screening_notes }}
+                <div class="form-text">{{ classification_form.screening_notes.help_text }}</div>
+                {% if classification_form.screening_notes.errors %}
+                <div class="text-danger small">{{ classification_form.screening_notes.errors|join:", " }}</div>
+                {% endif %}
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+                <button class="btn btn-outline-primary btn-sm" type="submit">Save classification</button>
+                {% if reference.batch_id %}
+                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_batch_detail' project.id reference.batch_id %}?focus=1&ref={{ reference.id }}">Open in screening view</a>
+                {% endif %}
+            </div>
+        </form>
+        <div class="row g-2 small border-top pt-4">
+            <div class="col-6">Assigned interventions: <strong>{{ summary.synopsis_assignments.count }}</strong></div>
+            <div class="col-6">Outcome rows: <strong>{{ summary.outcome_rows|length }}</strong></div>
+            <div class="col-6">Comments: <strong>{{ comments|length }}</strong></div>
+            <div class="col-6">Last updated: <strong>{{ summary.updated_at|date:"Y-m-d H:i" }}</strong></div>
+            <div class="col-12">Assigned: <strong>{% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}</strong></div>
         </div>
     </div>
 </div>
@@ -154,21 +289,21 @@
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Reference ID</label>
-                                {{ summary_form.reference_identifier }}
+                                <input type="text" class="form-control generated-readonly" value="{{ generated_reference_id }}" readonly>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Summary ID</label>
-                                {{ summary_form.summary_identifier }}
+                                <input type="text" class="form-control generated-readonly" value="{{ generated_summary_id }}" readonly>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">Reference</label>
+                                <input type="text" class="form-control generated-readonly" value="{{ generated_reference_title }}" readonly>
                             </div>
                         </div>
                     </div>
                     <div>
                         <div class="text-uppercase text-muted small fw-semibold mb-2">Study overview</div>
                         <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Reference</label>
-                                {{ summary_form.reference_label }}
-                            </div>
                             <div class="col-md-6">
                                 <label class="form-label">Action</label>
                                 {{ summary_form.action_description }}
@@ -348,49 +483,6 @@
                 {% endif %}
             </div>
         </div>
-        <div class="card mb-4 shadow-sm">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <span>Reference management</span>
-                <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'review' %}text-bg-warning{% elif summary.status == 'draft' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
-                    {{ summary.get_status_display }}
-                </span>
-            </div>
-            <div class="card-body">
-                <div class="row g-3">
-                    <div class="col-lg-6">
-                        <form method="post" class="d-flex flex-column gap-3">
-                            {% csrf_token %}
-                            <input type="hidden" name="action" value="update-status">
-                            <div>
-                                <label class="form-label small">Status</label>
-                                <select name="status" class="form-select form-select-sm">
-                                    {% for code, label in status_choices %}
-                                        <option value="{{ code }}" {% if summary.status == code %}selected{% endif %}>{{ label }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="needs-help" name="needs_help" value="1" {% if summary.needs_help %}checked{% endif %}>
-                                <label class="form-check-label small" for="needs-help">Needs help</label>
-                            </div>
-                            <div class="d-flex flex-wrap gap-2">
-                                <button class="btn btn-primary btn-sm" type="submit">Save status</button>
-                                <button class="btn btn-outline-success btn-sm" type="submit" name="quick_done" value="1">Mark as summarised</button>
-                            </div>
-                        </form>
-                    </div>
-                    <div class="col-lg-6">
-                        <div class="row g-2 small">
-                            <div class="col-6">Assigned interventions: <strong>{{ summary.synopsis_assignments.count }}</strong></div>
-                            <div class="col-6">Outcome rows: <strong>{{ summary.outcome_rows|length }}</strong></div>
-                            <div class="col-6">Comments: <strong>{{ comments|length }}</strong></div>
-                            <div class="col-6">Last updated: <strong>{{ summary.updated_at|date:"Y-m-d H:i" }}</strong></div>
-                            <div class="col-12">Assigned: <strong>{% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}</strong></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 </div>
 
@@ -408,8 +500,8 @@
         <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
             <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'in_progress' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">{{ summary.get_status_display }}</span>
             {% if summary.needs_help %}<span class="badge text-bg-warning text-dark">Needs help</span>{% endif %}
-            <span class="badge text-bg-light">Ref ID: {{ summary.reference_identifier|default:"—" }}</span>
-            <span class="badge text-bg-light">Summary ID: {{ summary.summary_identifier|default:"—" }}</span>
+            <span class="badge text-bg-light">Ref ID: {{ generated_reference_id }}</span>
+            <span class="badge text-bg-light">Summary ID: {{ generated_summary_id }}</span>
             <span class="badge text-bg-light">Last updated: {{ summary.updated_at|date:"Y-m-d H:i" }}</span>
             <span class="badge text-bg-light">Assigned: {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}</span>
             <button class="btn btn-outline-secondary btn-sm ms-auto" type="button" id="copy-snapshot">Copy snapshot</button>
@@ -549,7 +641,7 @@
         const syncHeights = () => {
             const summaryHeight = summaryCard.getBoundingClientRect().height;
             if (!summaryHeight) return;
-            const viewportAllowance = Math.max(window.innerHeight - 32, 320); // keep visible while sticky
+            const viewportAllowance = Math.max(window.innerHeight - 32, 320); // keep visible while sticky - not sure why 32px is needed but seems to help prevent some edge cases of the PDF viewer disappearing ( DO NOT DELETE!!)
             const targetHeight = Math.min(summaryHeight, viewportAllowance);
             pdfCard.style.height = `${targetHeight}px`;
             pdfCard.style.maxHeight = `${targetHeight}px`;
@@ -593,6 +685,13 @@
 </script>
 <script>
     (() => {
+        const managementPanel = document.getElementById("referenceManagementPanel");
+        if (managementPanel && window.bootstrap && bootstrap.Offcanvas) {
+            {% if classification_form.errors %}
+            bootstrap.Offcanvas.getOrCreateInstance(managementPanel).show();
+            {% endif %}
+        }
+
         const uploadForm = document.getElementById("pdf-upload-form");
         if (!uploadForm) return;
         const fileInput = uploadForm.querySelector("input[type='file']");
@@ -611,8 +710,8 @@
             "Status: {{ summary.get_status_display }}",
             "Needs help: {% if summary.needs_help %}Yes{% else %}No{% endif %}",
             "Assigned: {% if summary.assigned_to %}{{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}{% else %}Unassigned{% endif %}",
-            "Ref ID: {{ summary.reference_identifier|default:'—' }}",
-            "Summary ID: {{ summary.summary_identifier|default:'—' }}",
+            "Ref ID: {{ generated_reference_id }}",
+            "Summary ID: {{ generated_summary_id }}",
             "Last updated: {{ summary.updated_at|date:'Y-m-d H:i' }}",
         ].join(" | ");
         const fallbackCopy = (text) => {

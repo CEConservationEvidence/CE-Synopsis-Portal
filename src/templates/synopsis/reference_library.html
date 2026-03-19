@@ -24,9 +24,15 @@
                     <select name="batch" id="batch-filter" class="form-select form-select-sm" style="max-width: 280px;">
                         <option value="">All batches</option>
                         {% for batch in batch_options %}
-                        <option value="{{ batch.id }}"{% if selected_batch == batch.id %} selected{% endif %}>
-                            {{ batch.label }} ({{ batch.created_at|date:"Y-m-d" }})
-                        </option>
+                            {% if selected_batch == batch.id %}
+                                <option value="{{ batch.id }}" selected>
+                                    {{ batch.label }} ({{ batch.created_at|date:"Y-m-d" }})
+                                </option>
+                            {% else %}
+                                <option value="{{ batch.id }}">
+                                    {{ batch.label }} ({{ batch.created_at|date:"Y-m-d" }})
+                                </option>
+                            {% endif %}
                         {% endfor %}
                     </select>
                 </div>
@@ -65,7 +71,11 @@
                     <label class="fw-semibold mb-0" for="target_project">Target project</label>
                     <select name="target_project" id="target_project" class="form-select form-select-sm" style="max-width: 260px;">
                         {% for proj in project_options %}
-                        <option value="{{ proj.id }}"{% if selected_project == proj.id %} selected{% endif %}>{{ proj.title }}</option>
+                            {% if selected_project == proj.id %}
+                                <option value="{{ proj.id }}" selected>{{ proj.title }}</option>
+                            {% else %}
+                                <option value="{{ proj.id }}">{{ proj.title }}</option>
+                            {% endif %}
                         {% endfor %}
                     </select>
                 </div>

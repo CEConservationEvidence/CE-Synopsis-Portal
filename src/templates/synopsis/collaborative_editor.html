@@ -2,17 +2,15 @@
 {% block title %}Collaborative Editor – {{ document_label }}{% endblock %}
 {% block page_container_class %}container-fluid p-0{% endblock %}
 {% block content %}
-// TODO: #45 # Need to consider handling reconnecting to the session if the user loses connection temporarily.
-// TODO: #46 need to consider adding a notice about autosave and how often changes are saved.
-// TODO: #44 need to consider adding a warning when the user attempts to close the tab/window while editing.
-// TODO: #48 Need to remove ability for ab members to end the session via the button via collab link. (only authors can end session in app)
-// NOTE: At present this view is only reachable by authenticated project staff because the route sits behind
-// the standard dashboard login. Advisory board members still collaborate via the email instructions that lead
-// them through the main project area while they are signed in as staff; a public token-only endpoint is not yet implemented.
-// TODO: #57 Consider adding a "last edited" timestamp somewhere in the UI, perhaps in the header, that updates in real time as changes are made. This could help collaborators keep track of when the document was last modified and by whom (if that information is available from OnlyOffice's apis).
-// TODO: #58: Consider adding a "version history" feature that allows collaborators to view and revert to previous versions of the document. This could be implemented using OnlyOffice's versioning capabilities, if available, or by periodically saving snapshots of the document state in the backend.
-// TODO: #59: Consider adding a "commenting" feature that allows collaborators to leave comments on specific sections of the document. This could be implemented using OnlyOffice's commenting capabilities, if available, or by creating a custom commenting system in the frontend and backend.
-// TODO: #60: Consider adding a "presence indicator" that shows which collaborators are currently viewing or editing the document in real time. This could be implemented using OnlyOffice's presence capabilities, if available, or by creating a custom presence system in the frontend and backend using WebSockets or a similar technology.
+{# TODO: #45 Need to consider handling reconnecting to the session if the user loses connection temporarily. #}
+{# TODO: #46 need to consider adding a notice about autosave and how often changes are saved. #}
+{# TODO: #44 need to consider adding a warning when the user attempts to close the tab/window while editing. #}
+{# TODO: #48 Need to remove ability for advisory board members to end the session via the button via collab link. (only authors can end session in app) #}
+{# NOTE: At present this view is only reachable by authenticated project staff because the route sits behind the standard dashboard login. Advisory board members still collaborate via the email instructions that lead them through the main project area while they are signed in as staff; a public token-only endpoint is not yet implemented. #}
+{# TODO: #57 Consider adding a "last edited" timestamp somewhere in the UI, perhaps in the header, that updates in real time as changes are made. This could help collaborators keep track of when the document was last modified and by whom (if that information is available from OnlyOffice's APIs). #}
+{# TODO: #58 Consider adding a "version history" feature that allows collaborators to view and revert to previous versions of the document. This could be implemented using OnlyOffice's versioning capabilities, if available, or by periodically saving snapshots of the document state in the backend. #}
+{# TODO: #59 Consider adding a "commenting" feature that allows collaborators to leave comments on specific sections of the document. This could be implemented using OnlyOffice's commenting capabilities, if available, or by creating a custom commenting system in the frontend and backend. #}
+{# TODO: #60 Consider adding a "presence indicator" that shows which collaborators are currently viewing or editing the document in real time. This could be implemented using OnlyOffice's presence capabilities, if available, or by creating a custom presence system in the frontend and backend using WebSockets or a similar technology. #}
 
 <div class="collab-header py-3 px-3 px-md-4">
     <h1 class="mb-2">Collaborative editor – {{ document_label }}</h1>

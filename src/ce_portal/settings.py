@@ -136,8 +136,13 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
 EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-# TODO: IMPORTANT!Change this in production to a real email address.
+# TODO: IMPORTANT!Change this in post-production to a real email address.
 DEFAULT_FROM_EMAIL = "CE Synopsis Portal <ce-portal@localhost>"
+
+# Advisory board response windows
+ADVISORY_INVITE_RESPONSE_WINDOW_DAYS = 10
+ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS = 10
+ADVISORY_REMINDER_LEAD_BUSINESS_DAYS = 2
 
 
 # OnlyOffice Document Server configuration (collaborative editing)
@@ -151,3 +156,4 @@ CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8000",
     "http://host.docker.internal:8000",
 ]
+# TODO: get django settings and onlyoffice injection ready for the online pilot (for docker compose too).
