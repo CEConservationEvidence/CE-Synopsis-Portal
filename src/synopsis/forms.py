@@ -1416,6 +1416,49 @@ class ReferenceScreeningForm(forms.Form):
     )
 
 
+class ReferenceClassificationForm(forms.Form):
+    screening_status = forms.ChoiceField(
+        choices=[
+            ("included", "Included in this synopsis"),
+            ("excluded", "Exclude from this synopsis"),
+        ],
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Synopsis status",
+    )
+    reference_folder = forms.MultipleChoiceField(
+        choices=Reference.FOLDER_CHOICES,
+        required=False,
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "6"}),
+        label="Reference folders",
+    )
+    screening_notes = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 3,
+                "placeholder": "Reason or notes for this synopsis-level classification",
+            }
+        ),
+        label="Reason / notes",
+        help_text="Required if you exclude the reference from this synopsis.",
+    )
+
+    def clean_screening_notes(self):
+        return (self.cleaned_data.get("screening_notes") or "").strip()
+
+    def clean(self):
+        cleaned = super().clean()
+        status = cleaned.get("screening_status")
+        notes = cleaned.get("screening_notes") or ""
+        if status == "excluded" and not notes:
+            self.add_error(
+                "screening_notes",
+                "Provide a reason before excluding this reference from the synopsis.",
+            )
+        return cleaned
+
+
 class LibraryReferenceUpdateForm(forms.ModelForm):
     class Meta:
         model = LibraryReference
