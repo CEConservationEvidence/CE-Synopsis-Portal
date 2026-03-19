@@ -1020,6 +1020,15 @@ class AdvisoryBulkInviteForm(forms.Form):
         help_text="Optional. Shares the live OnlyOffice editor for the action list.",
     )
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_date_attr(self.fields["due_date"])
+
+    def clean_due_date(self):
+        return _validate_not_same_day_date(
+            self.cleaned_data.get("due_date"), "Response due date"
+        )
+
 
 class ProtocolSendForm(forms.Form):
     due_date = forms.DateField(
