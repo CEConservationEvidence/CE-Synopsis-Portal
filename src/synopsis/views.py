@@ -5911,6 +5911,15 @@ def _reference_summary_workspace_context(reference):
 def _reference_summary_workspace_label(summary, index=None):
     label = _reference_summary_display_label(summary, index)
     summary_identifier = (summary.summary_identifier or "").strip()
+    if not summary_identifier and summary.reference_id:
+        reference_identifier = (
+            (summary.reference_identifier or "").strip()
+            or _generated_reference_identifier(summary.reference)
+        )
+        summary_identifier = _generated_summary_identifier(
+            reference_identifier,
+            index or 1,
+        )
     if summary_identifier and label and label != summary_identifier:
         return f"{summary_identifier} — {label}"
     if summary_identifier:
