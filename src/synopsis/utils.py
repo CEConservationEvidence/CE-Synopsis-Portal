@@ -6,6 +6,11 @@ from django.conf import settings
 from django.utils import timezone
 
 BRAND = "CE Synopsis"
+DEFAULT_ADVISORY_INVITATION_MESSAGE = (
+    "We would greatly value your expertise and feedback on this synopsis. "
+    "Your input will help strengthen the final output for the wider "
+    "conservation community."
+)
 
 
 def email_subject(kind: str, project, due_date=None) -> str:
@@ -51,6 +56,10 @@ def reply_to_list(user_email: str | None) -> list[str]:
     """Prefer the inviter's email, fall back to DEFAULT_FROM_EMAIL."""
     fallback = settings.DEFAULT_FROM_EMAIL
     return [user_email or fallback]
+
+
+def default_advisory_invitation_message() -> str:
+    return DEFAULT_ADVISORY_INVITATION_MESSAGE
 
 
 def minimum_allowed_deadline_date():

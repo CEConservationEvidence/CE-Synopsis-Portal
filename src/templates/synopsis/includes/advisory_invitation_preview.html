@@ -1,0 +1,136 @@
+<div
+    class="card mt-4"
+    data-advisory-invite-preview
+    data-project-title="{{ project.title|escape }}"
+    data-recipient-name="{{ preview_recipient_name|default:'colleague'|escape }}"
+>
+    <div class="card-body">
+        <h5 class="card-title mb-1">Invitation preview</h5>
+        <p class="text-muted small mb-0">
+            This shows the standard invitation text, any additional note, and the
+            core email wording that will be sent.
+        </p>
+        {% if preview_is_bulk %}
+        <p class="text-muted small mt-2 mb-0">
+            Bulk sends use each member's first name when available. This preview uses a generic greeting.
+        </p>
+        {% endif %}
+        <div class="border rounded-3 bg-light p-3 mt-3">
+            <div class="small text-uppercase text-muted mb-1">Subject</div>
+            <div class="fw-semibold" data-preview-subject></div>
+        </div>
+        <div class="border rounded-3 p-3 mt-3">
+            <div class="small text-uppercase text-muted mb-2">Email body</div>
+            <div class="small" style="white-space: pre-line;" data-preview-body></div>
+        </div>
+    </div>
+</div>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    const defaultStandardMessage = "{{ default_invitation_message|escapejs }}";
+    const monthAbbreviations = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+    ];
+
+    const formatDueDate = function (value) {
+        if (!value) {
+            return "—";
+        }
+        const parsed = new Date(value + "T00:00:00");
+        if (Number.isNaN(parsed.getTime())) {
+            return value;
+        }
+        const day = String(parsed.getDate()).padStart(2, "0");
+        const month = monthAbbreviations[parsed.getMonth()] || "";
+        const year = String(parsed.getFullYear());
+        return month ? day + " " + month + " " + year : value;
+    };
+
+    document.querySelectorAll("[data-advisory-invite-preview]").forEach(function (preview) {
+        const form = preview.closest("form");
+        if (!form) {
+            return;
+        }
+        const subjectEl = preview.querySelector("[data-preview-subject]");
+        const bodyEl = preview.querySelector("[data-preview-body]");
+        const dueInput = form.querySelector('[name="due_date"]');
+        const standardInput = form.querySelector('[name="standard_message"]');
+        const additionalInput = form.querySelector('[name="message"]');
+        const actionListInput = form.querySelector('[name="include_action_list"]');
+        const collaborativeInput = form.querySelector('[name="include_collaborative_link"]');
+        const projectTitle = preview.dataset.projectTitle || "";
+        const recipientName = preview.dataset.recipientName || "colleague";
+
+        const selectedResources = function () {
+            const resources = [];
+            if (actionListInput && actionListInput.checked && !actionListInput.disabled) {
+                resources.push("Action list: link will be included on send.");
+            }
+            if (
+                collaborativeInput
+                && collaborativeInput.checked
+                && !collaborativeInput.disabled
+            ) {
+                resources.push("Collaborative editor: link will be included on send.");
+            }
+            return resources;
+        };
+
+        const updatePreview = function () {
+            const dueText = formatDueDate(dueInput ? dueInput.value : "");
+            const standardText = ((standardInput && standardInput.value) || "").trim()
+                || defaultStandardMessage;
+            const additionalText = ((additionalInput && additionalInput.value) || "").trim();
+            const resources = selectedResources();
+            const dueSuffix = dueText === "—" ? "" : " (reply by " + dueText + ")";
+
+            subjectEl.textContent =
+                "[CE Synopsis] Invitation to advise on " + projectTitle + dueSuffix;
+
+            const bodyLines = [
+                "Dear " + recipientName + ",",
+                "",
+                "You are invited to advise on '" + projectTitle + "'.",
+                "Please reply by: " + dueText,
+                "",
+                standardText,
+            ];
+            if (additionalText) {
+                bodyLines.push("", additionalText);
+            }
+            bodyLines.push(
+                "",
+                "Yes: unique response link generated on send",
+                "No:  unique response link generated on send",
+                "",
+                "After clicking Yes you'll be asked to confirm you can actively participate and provide valuable input."
+            );
+            if (resources.length) {
+                bodyLines.push("", ...resources);
+            }
+            bodyLines.push("", "Thank you.");
+            bodyEl.textContent = bodyLines.join("\n");
+        };
+
+        [dueInput, standardInput, additionalInput, actionListInput, collaborativeInput]
+            .filter(Boolean)
+            .forEach(function (input) {
+                input.addEventListener("input", updatePreview);
+                input.addEventListener("change", updatePreview);
+            });
+
+        updatePreview();
+    });
+});
+</script>
