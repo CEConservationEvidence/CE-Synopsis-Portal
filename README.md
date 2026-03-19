@@ -183,7 +183,7 @@ docker compose exec web python manage.py createsuperuser
 ```
 
 Detailed setup notes, including OnlyOffice URL/JWT configuration, are in [docs/docker.md](docs/docker.md).
-The admin-facing handoff checklist is in [docs/admin-handoff.md](docs/admin-handoff.md).
+The admin-facing handoff checklist is in [docs/instructions.md](docs/instructions.md).
 
 ## Repository Layout
 
