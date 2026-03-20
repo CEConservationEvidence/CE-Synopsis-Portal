@@ -199,6 +199,7 @@ USE_TZ = True
 
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+USE_MANIFEST_STATIC_STORAGE = HAS_WHITENOISE and not DEBUG
 
 STORAGES = {
     "default": {
@@ -207,7 +208,7 @@ STORAGES = {
     "staticfiles": {
         "BACKEND": (
             "whitenoise.storage.CompressedManifestStaticFilesStorage"
-            if HAS_WHITENOISE
+            if USE_MANIFEST_STATIC_STORAGE
             else "django.contrib.staticfiles.storage.StaticFilesStorage"
         ),
     },
