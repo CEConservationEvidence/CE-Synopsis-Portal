@@ -70,7 +70,7 @@ SECURE_SSL_REDIRECT=False
 ```
 
 Notes to clarify thinsgs:
-- `ONLYOFFICE_URL` is the ber-facing ONLYOFFICE URL.
+- `ONLYOFFICE_URL` is the browser-facing ONLYOFFICE URL.
 - `ONLYOFFICE_INTERNAL_URL` should stay `http://onlyoffice` in Docker.
 - `ONLYOFFICE_APP_BASE_URL` is the app URL ONLYOFFICE uses to fetch documents and send save callbacks.
 - `ONLYOFFICE_JWT_SECRET` must match between Django and ONLYOFFICE.
