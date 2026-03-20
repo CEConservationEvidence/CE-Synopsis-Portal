@@ -4003,12 +4003,17 @@ def collaborative_force_end(request, project_id, document_slug, token):
         project, document_type, session
     )
     if save_state == "noop":
-        session.mark_inactive(reason=reason)
+        session.change_summary = session.change_summary or reason
+        session.mark_inactive(
+            ended_by=request.user,
+            reason=reason,
+            extra_updates=["change_summary"],
+        )
         _log_project_change(
             project,
             request.user,
             f"{document_label} collaborative session closed",
-            f"Session {session.token} closed with no unsaved changes.",
+            f"Session {session.token} closed with no unsaved changes ({reason}).",
         )
         messages.success(
             request, f"{document_label} had no unsaved changes and the session was closed."

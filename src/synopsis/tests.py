@@ -2693,6 +2693,9 @@ class CollaborativeForceSaveCloseTests(TestCase):
         )
         self.session.refresh_from_db()
         self.assertFalse(self.session.is_active)
+        self.assertEqual(self.session.ended_by, self.manager)
+        self.assertEqual(self.session.end_reason, "Close from portal")
+        self.assertEqual(self.session.change_summary, "Close from portal")
         messages_list = [message.message for message in get_messages(response.wsgi_request)]
         self.assertIn(
             "Protocol had no unsaved changes and the session was closed.",
