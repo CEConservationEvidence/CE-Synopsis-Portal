@@ -41,7 +41,8 @@ services:
       - media_data:/app/src/media
 
   onlyoffice:
-    image: onlyoffice/documentserver:latest
+    # Pin the validated Document Server version so pilot deployments stay reproducible.
+    image: onlyoffice/documentserver:9.0.4
     restart: unless-stopped
     environment:
       JWT_ENABLED: ${ONLYOFFICE_JWT_ENABLED:-true}
