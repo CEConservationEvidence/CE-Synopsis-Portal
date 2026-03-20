@@ -130,7 +130,7 @@ Prerequisites:
 Setup:
 
 ```bash
-cp .env.template .env
+cp .env.local.template .env.local
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
@@ -142,7 +142,8 @@ python manage.py runserver
 Then open `http://127.0.0.1:8000/`.
 
 Notes:
-- database credentials are read from `.env`
+- direct Django commands automatically prefer `.env.local`, then fall back to `.env`
+- use `ENV_FILE=...` if you want to force a different env file for a specific command
 - the default database backend is PostgreSQL
 - email is configured to the console backend in development
 
@@ -154,6 +155,35 @@ cd src
 python manage.py check
 python manage.py test
 ```
+
+Example override:
+
+```bash
+ENV_FILE=../.env.local python manage.py runserver
+```
+
+## Docker Deployment
+
+A Docker-based deployment is now included for:
+- Django/Gunicorn
+- PostgreSQL
+- OnlyOffice Document Server
+
+Main files:
+- [Dockerfile](Dockerfile)
+- [docker-compose.yml](docker-compose.yml)
+- [docker/entrypoint.sh](docker/entrypoint.sh)
+
+Quick start:
+
+```bash
+cp .env.template .env
+docker compose up --build -d
+docker compose exec web python manage.py createsuperuser
+```
+
+Detailed setup notes, including OnlyOffice URL/JWT configuration, are in [docs/docker.md](docs/docker.md).
+The admin-facing handoff checklist is in [docs/instructions.md](docs/instructions.md).
 
 ## Repository Layout
 

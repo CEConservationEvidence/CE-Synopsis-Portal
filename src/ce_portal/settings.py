@@ -10,11 +10,81 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import importlib.util
+import os
 from pathlib import Path
-from decouple import config
+from decouple import AutoConfig, Config, RepositoryEnv, UndefinedValueError, strtobool
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+REPO_ROOT = BASE_DIR.parent
+HAS_WHITENOISE = importlib.util.find_spec("whitenoise") is not None
+
+
+def _build_config():
+    env_file_override = (os.environ.get("ENV_FILE") or "").strip()
+    if env_file_override:
+        env_path = Path(env_file_override)
+        if not env_path.is_absolute():
+            env_path = REPO_ROOT / env_path
+        if not env_path.exists():
+            raise FileNotFoundError(f"Configured ENV_FILE does not exist: {env_path}")
+        return Config(RepositoryEnv(str(env_path))), env_path
+
+    for candidate in (REPO_ROOT / ".env.local", REPO_ROOT / ".env"):
+        if candidate.exists():
+            return Config(RepositoryEnv(str(candidate))), candidate
+
+    return AutoConfig(search_path=str(REPO_ROOT)), None
+
+
+config, ACTIVE_ENV_FILE = _build_config()
+
+
+def _csv_config(name: str, default: str = "") -> list[str]:
+    raw_value = config(name, default=default)
+    if not raw_value:
+        return []
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
+def _repository_value(name: str) -> str | None:
+    repository = getattr(config, "repository", None)
+    if repository is None:
+        return None
+    try:
+        return repository[name]
+    except KeyError:
+        return None
+
+
+def _bool_from_string(value: str) -> bool:
+    value = (value or "").strip()
+    return bool(value) if value == "" else bool(strtobool(value))
+
+
+def _bool_config(name: str, default: bool = False, fallback_names: tuple[str, ...] = ()) -> bool:
+    for env_name in (name, *fallback_names):
+        raw_env = os.environ.get(env_name)
+        if raw_env is None:
+            continue
+        try:
+            return _bool_from_string(raw_env)
+        except ValueError:
+            # Ignore unrelated shell values like DEBUG=release and fall back to
+            # the project env file instead of breaking manage.py commands.
+            continue
+
+    for env_name in (name, *fallback_names):
+        raw_repo = _repository_value(env_name)
+        if raw_repo is None:
+            continue
+        return _bool_from_string(raw_repo)
+
+    try:
+        return config(name, cast=bool, default=default)
+    except (UndefinedValueError, ValueError):
+        return default
 
 
 # Quick-start development settings - unsuitable for production
@@ -24,9 +94,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = config("DEBUG", cast=bool, default=False)
+DEBUG = _bool_config("DJANGO_DEBUG", default=False, fallback_names=("DEBUG",))
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "host.docker.internal"]
+ALLOWED_HOSTS = _csv_config(
+    "ALLOWED_HOSTS",
+    default="localhost,127.0.0.1,host.docker.internal",
+)
 
 
 # Application definition
@@ -51,6 +124,9 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+if HAS_WHITENOISE:
+    MIDDLEWARE.insert(1, "whitenoise.middleware.WhiteNoiseMiddleware")
 
 ROOT_URLCONF = "ce_portal.urls"
 
@@ -121,7 +197,22 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+USE_MANIFEST_STATIC_STORAGE = HAS_WHITENOISE and not DEBUG
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": (
+            "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            if USE_MANIFEST_STATIC_STORAGE
+            else "django.contrib.staticfiles.storage.StaticFilesStorage"
+        ),
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -134,10 +225,35 @@ LOGIN_URL = "/login/"
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+SERVE_MEDIA = config("SERVE_MEDIA", cast=bool, default=False)
 
-EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
-# TODO: IMPORTANT!Change this in post-production to a real email address.
-DEFAULT_FROM_EMAIL = "CE Synopsis Portal <ce-portal@localhost>"
+EMAIL_BACKEND = config(
+    "EMAIL_BACKEND",
+    default="django.core.mail.backends.console.EmailBackend",
+)
+EMAIL_HOST = config("EMAIL_HOST", default="localhost")
+EMAIL_PORT = config("EMAIL_PORT", cast=int, default=25)
+EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = config("EMAIL_HOST_PASSWORD", default="")
+EMAIL_USE_TLS = config("EMAIL_USE_TLS", cast=bool, default=False)
+EMAIL_USE_SSL = config("EMAIL_USE_SSL", cast=bool, default=False)
+EMAIL_TIMEOUT = config("EMAIL_TIMEOUT", cast=int, default=10)
+DEFAULT_FROM_EMAIL = config(
+    "DEFAULT_FROM_EMAIL",
+    default="CE Synopsis Portal <ce-portal@localhost>",
+)
+SERVER_EMAIL = config("SERVER_EMAIL", default=DEFAULT_FROM_EMAIL)
+
+USE_X_FORWARDED_HOST = config("USE_X_FORWARDED_HOST", cast=bool, default=False)
+USE_X_FORWARDED_PORT = config("USE_X_FORWARDED_PORT", cast=bool, default=False)
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https")
+    if config("SECURE_PROXY_SSL_HEADER_ENABLED", cast=bool, default=False)
+    else None
+)
+SESSION_COOKIE_SECURE = config("SESSION_COOKIE_SECURE", cast=bool, default=False)
+CSRF_COOKIE_SECURE = config("CSRF_COOKIE_SECURE", cast=bool, default=False)
+SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", cast=bool, default=False)
 
 # Advisory board response windows
 ADVISORY_INVITE_RESPONSE_WINDOW_DAYS = 10
@@ -147,13 +263,15 @@ ADVISORY_REMINDER_LEAD_BUSINESS_DAYS = 2
 
 # OnlyOffice Document Server configuration (collaborative editing)
 ONLYOFFICE = {
-    "base_url": config("ONLYOFFICE_URL", default="http://localhost"),
+    "base_url": config("ONLYOFFICE_URL", default=""),
+    "internal_url": config("ONLYOFFICE_INTERNAL_URL", default=""),
+    "app_base_url": config("ONLYOFFICE_APP_BASE_URL", default=""),
     "jwt_secret": config("ONLYOFFICE_JWT_SECRET", default="change-me"),
     "callback_timeout": config("ONLYOFFICE_CALLBACK_TIMEOUT", cast=int, default=10),
+    "trusted_download_urls": _csv_config("ONLYOFFICE_TRUSTED_DOWNLOAD_URLS"),
 }
 
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:8000",
-    "http://host.docker.internal:8000",
-]
-# TODO: get django settings and onlyoffice injection ready for the online pilot (for docker compose too).
+CSRF_TRUSTED_ORIGINS = _csv_config(
+    "CSRF_TRUSTED_ORIGINS",
+    default="http://localhost:8000,http://host.docker.internal:8000",
+)

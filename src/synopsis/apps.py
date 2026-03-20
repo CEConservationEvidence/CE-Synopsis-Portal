@@ -6,11 +6,4 @@ class SynopsisConfig(AppConfig):
     name = "synopsis"
 
     def ready(self):
-        # Ensure default groups exist at startup
-        try:
-            from .utils import ensure_global_groups
-
-            ensure_global_groups()
-        except Exception:
-            # During migrations / checks, DB might not be ready; ignore
-            pass
+        from . import signals  # noqa: F401

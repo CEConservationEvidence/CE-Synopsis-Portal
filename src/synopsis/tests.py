@@ -1,13 +1,16 @@
 from datetime import date, datetime, timedelta
+import importlib
 import io
+import json
 from urllib.parse import urlparse
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+import jwt
 from django.contrib.auth.models import Group, User, AnonymousUser
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings, RequestFactory
+from django.test import TestCase, override_settings, RequestFactory, SimpleTestCase
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.contrib.sessions.middleware import SessionMiddleware
@@ -77,7 +80,12 @@ from .utils import (
 )
 from .views import (
     _advisory_board_context,
+    _apply_revision_to_action_list,
+    _apply_revision_to_protocol,
     _build_advisory_invitation_email,
+    _build_onlyoffice_config,
+    _download_onlyoffice_file,
+    _parse_onlyoffice_callback,
     _create_protocol_feedback,
     _format_deadline,
     _format_value,
@@ -2300,6 +2308,68 @@ class OnlyOfficeDownloadTests(TestCase):
             self.views._download_onlyoffice_file(url)
         mock_get.assert_not_called()
 
+    @patch("synopsis.views.requests.get")
+    def test_download_uses_internal_onlyoffice_url_when_base_is_browser_host(self, mock_get):
+        self.views.ONLYOFFICE_SETTINGS = {
+            "base_url": "http://localhost:8080",
+            "internal_url": "http://onlyoffice",
+            "callback_timeout": 7,
+            "trusted_download_urls": ["http://onlyoffice"],
+        }
+        mock_response = MagicMock()
+        mock_response.content = b"doc"
+        mock_response.raise_for_status.return_value = None
+        mock_get.return_value = mock_response
+
+        content = _download_onlyoffice_file(
+            "http://localhost:8080/cache/files/data/demo/output.docx?x=1"
+        )
+
+        self.assertEqual(content, b"doc")
+        mock_get.assert_called_once_with(
+            "http://onlyoffice/cache/files/data/demo/output.docx?x=1",
+            timeout=7,
+        )
+
+
+class OnlyOfficeCallbackParsingTests(TestCase):
+    def setUp(self):
+        from . import views
+
+        self.views = views
+        self.original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "jwt_secret": "change-me",
+        }
+        self.addCleanup(self._restore_settings)
+        self.factory = RequestFactory()
+
+    def _restore_settings(self):
+        self.views.ONLYOFFICE_SETTINGS = self.original_settings
+
+    def test_parse_callback_unwraps_nested_payload_from_jwt(self):
+        payload = {
+            "payload": {
+                "status": 2,
+                "url": "http://localhost:8080/cache/files/data/demo/output.docx",
+            }
+        }
+        token = jwt.encode(payload, "change-me", algorithm="HS256")
+        request = self.factory.post(
+            "/",
+            data=json.dumps({}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        parsed = _parse_onlyoffice_callback(request)
+
+        self.assertEqual(parsed["status"], 2)
+        self.assertEqual(
+            parsed["url"],
+            "http://localhost:8080/cache/files/data/demo/output.docx",
+        )
+
 
 class CollaborativeClosureTests(TestCase):
     def setUp(self):
@@ -2422,6 +2492,233 @@ class CollaborativeClosureTests(TestCase):
         new_token = parsed.path.rstrip("/").split("/")[-1]
         new_session = CollaborativeSession.objects.get(token=new_token)
         self.assertTrue(new_session.is_active)
+
+
+class ProtocolUploadFlowTests(TestCase):
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
+        override = override_settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+
+        self.project = Project.objects.create(title="Ibrahim Protocol Pilot")
+        self.ibrahim = User.objects.create_user(username="ibrahim", password="pw")
+        UserRole.objects.create(user=self.ibrahim, project=self.project, role="author")
+        self.client.force_login(self.ibrahim)
+
+    def test_initial_protocol_upload_creates_revision_and_redirects(self):
+        response = self.client.post(
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1.0",
+                "document": SimpleUploadedFile(
+                    "ibrahim-protocol.docx",
+                    b"protocol",
+                    content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ),
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
+        )
+        protocol = Protocol.objects.get(project=self.project)
+        self.assertTrue(protocol.document.name.endswith(".docx"))
+        self.assertIsNotNone(protocol.current_revision)
+        self.assertEqual(protocol.current_revision.version_label, "v1.0")
+
+
+class OnlyOfficeConfigTests(TestCase):
+    def setUp(self):
+        from . import views
+
+        self.views = views
+        self.original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "http://localhost:8080",
+            "internal_url": "http://onlyoffice",
+            "app_base_url": "http://web:8000",
+            "jwt_secret": "change-me",
+            "callback_timeout": 10,
+            "trusted_download_urls": [
+                "http://localhost:8080",
+                "http://onlyoffice",
+            ],
+        }
+        self.addCleanup(self._restore_settings)
+
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
+        override = override_settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+
+        self.factory = RequestFactory()
+        self.project = Project.objects.create(title="Will Collaboration Test")
+        self.ibrahim = User.objects.create_user(username="ibrahim-editor", password="pw")
+        UserRole.objects.create(user=self.ibrahim, project=self.project, role="author")
+        self.protocol = Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile(
+                "will-protocol.docx",
+                b"protocol",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+        self.session = CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            started_by=self.ibrahim,
+            last_activity_at=timezone.now(),
+        )
+
+    def _restore_settings(self):
+        self.views.ONLYOFFICE_SETTINGS = self.original_settings
+
+    def test_config_uses_internal_app_base_for_document_and_callback_urls(self):
+        request = self.factory.get("/", HTTP_HOST="localhost:8000")
+        request.user = self.ibrahim
+
+        config = _build_onlyoffice_config(
+            request,
+            self.project,
+            self.protocol,
+            self.session,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+        )
+
+        document_url = urlparse(config["document"]["url"])
+        callback_url = urlparse(config["editorConfig"]["callbackUrl"])
+
+        self.assertEqual(document_url.scheme, "http")
+        self.assertEqual(document_url.netloc, "web:8000")
+        self.assertTrue(document_url.path.startswith("/media/"))
+        self.assertEqual(callback_url.scheme, "http")
+        self.assertEqual(callback_url.netloc, "web:8000")
+        self.assertEqual(
+            callback_url.path,
+            reverse(
+                "synopsis:collaborative_edit_callback",
+                args=[self.project.id, "protocol", self.session.token],
+            ),
+        )
+
+
+class CollaborativeForceSaveCloseTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Will Final Save")
+        self.manager = User.objects.create_user(username="ibrahim-manager", password="pw")
+        self.manager.is_staff = True
+        self.manager.save(update_fields=["is_staff"])
+        UserRole.objects.create(user=self.manager, project=self.project, role="manager")
+        self.client.force_login(self.manager)
+        self.protocol = Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("will-protocol.docx", b"protocol"),
+        )
+        self.session = CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            started_by=self.manager,
+            last_activity_at=timezone.now(),
+        )
+        self.url = reverse(
+            "synopsis:collaborative_force_end",
+            args=[self.project.id, "protocol", self.session.token],
+        )
+
+    @patch("synopsis.views._wait_for_collaborative_save", return_value=False)
+    @patch(
+        "synopsis.views._request_onlyoffice_forcesave",
+        return_value=("failed", "Unable to request a final save from OnlyOffice."),
+    )
+    def test_force_end_keeps_session_open_when_save_request_fails(
+        self, mock_request, mock_wait
+    ):
+        response = self.client.post(self.url, {"reason": "Close from portal"})
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
+        )
+        self.session.refresh_from_db()
+        self.assertTrue(self.session.is_active)
+        messages_list = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertTrue(
+            any("session is still open" in message for message in messages_list),
+            messages_list,
+        )
+        mock_request.assert_called_once()
+        mock_wait.assert_not_called()
+
+    @patch("synopsis.views._wait_for_collaborative_save", return_value=True)
+    @patch(
+        "synopsis.views._request_onlyoffice_forcesave",
+        return_value=("requested", "Final save requested from OnlyOffice."),
+    )
+    def test_force_end_reports_success_after_final_save(
+        self, mock_request, mock_wait
+    ):
+        response = self.client.post(self.url, {"reason": "Close from portal"})
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
+        )
+        messages_list = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(
+            "Protocol saved and collaborative session closed.",
+            messages_list,
+        )
+        mock_request.assert_called_once()
+        mock_wait.assert_called_once()
+
+    @patch("synopsis.views._wait_for_collaborative_save")
+    @patch(
+        "synopsis.views._request_onlyoffice_forcesave",
+        return_value=("noop", "No unsaved changes were pending in OnlyOffice."),
+    )
+    def test_force_end_closes_session_when_no_unsaved_changes(
+        self, mock_request, mock_wait
+    ):
+        response = self.client.post(self.url, {"reason": "Close from portal"})
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
+        )
+        self.session.refresh_from_db()
+        self.assertFalse(self.session.is_active)
+        self.assertEqual(self.session.ended_by, self.manager)
+        self.assertEqual(self.session.end_reason, "Close from portal")
+        self.assertEqual(self.session.change_summary, "Close from portal")
+        messages_list = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(
+            "Protocol had no unsaved changes and the session was closed.",
+            messages_list,
+        )
+        mock_request.assert_called_once()
+        mock_wait.assert_not_called()
+
+
+class MediaServingUrlTests(SimpleTestCase):
+    def test_media_route_added_when_serve_media_enabled_without_debug(self):
+        import ce_portal.urls as project_urls
+
+        with override_settings(DEBUG=False, SERVE_MEDIA=True):
+            reloaded = importlib.reload(project_urls)
+            try:
+                route_texts = [str(pattern.pattern) for pattern in reloaded.urlpatterns]
+                self.assertTrue(
+                    any(text.startswith("^media/") for text in route_texts),
+                    route_texts,
+                )
+            finally:
+                importlib.reload(project_urls)
 
 
 class CollaborativePanelViewTests(TestCase):
@@ -2716,6 +3013,12 @@ class RevisionDeleteViewTests(TestCase):
             ).exists()
         )
 
+    def test_apply_protocol_revision_does_not_duplicate_upload_prefix(self):
+        _apply_revision_to_protocol(self.protocol, self.rev1)
+        self.protocol.refresh_from_db()
+        self.assertTrue(self.protocol.document.name.startswith("protocols/"))
+        self.assertNotIn("protocols/protocols/", self.protocol.document.name)
+
     def test_non_editor_cannot_delete_protocol_revision(self):
         request = self.factory.post(
             f"/project/{self.project.id}/protocol/revision/{self.rev1.id}/delete/"
@@ -2746,6 +3049,12 @@ class RevisionDeleteViewTests(TestCase):
                 project=self.project, action__icontains="Action list revision deleted"
             ).exists()
         )
+
+    def test_apply_action_list_revision_does_not_duplicate_upload_prefix(self):
+        _apply_revision_to_action_list(self.action_list, self.al_rev1)
+        self.action_list.refresh_from_db()
+        self.assertTrue(self.action_list.document.name.startswith("action_lists/"))
+        self.assertNotIn("action_lists/action_lists/", self.action_list.document.name)
 
     def test_non_editor_cannot_delete_action_list_revision(self):
         request = self.factory.post(
@@ -2825,7 +3134,7 @@ class ViewHelperTests(TestCase):
         self.assertTrue(_user_is_manager(user))
 
     def test_user_is_manager_for_group_member(self):
-        group = Group.objects.create(name="manager")
+        group, _ = Group.objects.get_or_create(name="manager")
         user = User.objects.create_user(username="manager_user")
         user.groups.add(group)
         self.assertTrue(_user_is_manager(user))
