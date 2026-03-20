@@ -100,4 +100,5 @@ docker compose up --build -d
 
 - the container entrypoint runs migrations and collects static files automatically
 - uploaded media is served by Django in this Docker setup
+- `SERVE_MEDIA=True` is intended only for isolated/internal pilot deployments because media URLs are served directly without per-file auth checks
 - if a Docker Compose `SECRET_KEY` contains `$`, write it as `$$`

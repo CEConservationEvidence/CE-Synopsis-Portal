@@ -30,6 +30,7 @@ urlpatterns = [
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 elif getattr(settings, "SERVE_MEDIA", False):
+    # Internal pilot only: this exposes MEDIA_URL directly without per-file auth.
     media_prefix = settings.MEDIA_URL.lstrip("/")
     urlpatterns += [
         re_path(
