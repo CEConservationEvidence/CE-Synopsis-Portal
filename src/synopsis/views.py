@@ -4015,25 +4015,24 @@ def collaborative_force_end(request, project_id, document_slug, token):
         )
         return redirect(_document_detail_url(project.id, document_type))
 
-    if _wait_for_collaborative_save(
-        session,
-        document_type,
-        timeout_seconds=ONLYOFFICE_SETTINGS.get("callback_timeout", 10),
-    ):
-        messages.success(
-            request, f"{document_label} saved and collaborative session closed."
-        )
-        return redirect(_document_detail_url(project.id, document_type))
-
-    if save_state != "requested":
-        messages.error(
-            request,
-            f"{save_message} The session is still open so no edits are discarded.",
-        )
-    else:
+    if save_state == "requested":
+        if _wait_for_collaborative_save(
+            session,
+            document_type,
+            timeout_seconds=ONLYOFFICE_SETTINGS.get("callback_timeout", 10),
+        ):
+            messages.success(
+                request, f"{document_label} saved and collaborative session closed."
+            )
+            return redirect(_document_detail_url(project.id, document_type))
         messages.warning(
             request,
             f"{save_message} The session is still open while OnlyOffice finishes saving.",
+        )
+    else:
+        messages.error(
+            request,
+            f"{save_message} The session is still open so no edits are discarded.",
         )
     return redirect(_document_detail_url(project.id, document_type))
 

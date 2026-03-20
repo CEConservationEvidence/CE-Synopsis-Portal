@@ -2653,7 +2653,7 @@ class CollaborativeForceSaveCloseTests(TestCase):
             messages_list,
         )
         mock_request.assert_called_once()
-        mock_wait.assert_called_once()
+        mock_wait.assert_not_called()
 
     @patch("synopsis.views._wait_for_collaborative_save", return_value=True)
     @patch(
