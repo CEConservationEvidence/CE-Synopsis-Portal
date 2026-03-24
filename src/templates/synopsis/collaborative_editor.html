@@ -19,22 +19,33 @@
             <div class="fw-semibold">{{ project.title }}</div>
             <a class="small" href="{{ detail_url }}">Back to {{ document_label|lower }} detail</a>
         </div>
-        {% if can_force_end %}
-        <form
-            method="post"
-            action="{{ force_end_url }}"
-            class="d-inline"
-            onsubmit="return confirm('Request a final save and end this collaborative session for everyone?');"
-        >
-            {% csrf_token %}
-            <button type="submit" class="btn btn-outline-danger btn-sm">Save and end session</button>
-        </form>
-        {% endif %}
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                data-bs-toggle="modal"
+                data-bs-target="#{{ document_label|slugify }}-editor-workflow-help"
+            >
+                How this works
+            </button>
+            {% if can_force_end %}
+            <form
+                method="post"
+                action="{{ force_end_url }}"
+                class="d-inline"
+                onsubmit="return confirm('Request a final save and end this collaborative session for everyone?');"
+            >
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-danger btn-sm">Save and end session</button>
+            </form>
+            {% endif %}
+        </div>
     </div>
     {% if participant_display %}
     <div class="small text-muted mt-2">You are editing as {{ participant_display }}.</div>
     {% endif %}
 </div>
+{% include "synopsis/includes/collaborative_workflow_modal.html" with workflow_help_slug=document_label|slugify|add:"-editor" %}
 {% if window_closed_message %}
 <div class="alert alert-warning mx-3 mx-md-4 mt-3" role="alert">
     {{ window_closed_message }}
