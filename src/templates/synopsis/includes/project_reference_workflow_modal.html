@@ -4,7 +4,7 @@
             <div class="modal-header">
                 <div>
                     <h5 class="modal-title mb-1" id="{{ modal_id }}Label">How project references work</h5>
-                    <div class="small text-muted">Per-synopsis batches, screening, and when summaries appear.</div>
+                    <div class="small text-muted">How references are added to one synopsis, screened, and turned into summaries.</div>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -13,10 +13,10 @@
                     <h6 class="mb-2">The basic workflow</h6>
                     <ol class="mb-0 text-muted ps-3">
                         <li>Add references to this synopsis by linking from the global library or importing a RIS/plain-text file.</li>
-                        <li>Each import or link action creates a project batch that can be screened.</li>
+                        <li>Each import or link creates a batch that can be screened.</li>
                         <li>Screen references as included, excluded, or pending.</li>
                         <li>Included references automatically appear on the summary board.</li>
-                        <li>Create and assign summary tabs, then connect summarised evidence into the synopsis structure.</li>
+                        <li>Create and assign summary tabs, then connect those summaries into the synopsis structure.</li>
                     </ol>
                 </section>
 
@@ -27,7 +27,7 @@
                             <div class="border rounded p-3 h-100">
                                 <div class="fw-semibold mb-2">Link from library</div>
                                 <p class="small text-muted mb-0">
-                                    Best when a reference already exists in the shared database or may be reused across projects. Linking creates a synopsis copy for screening without removing it from the library.
+                                    Best when a reference already exists in the shared library or may be useful in more than one synopsis. Linking creates a synopsis copy for screening without removing it from the shared library.
                                 </p>
                             </div>
                         </div>
@@ -35,7 +35,7 @@
                             <div class="border rounded p-3 h-100">
                                 <div class="fw-semibold mb-2">Import directly into this synopsis</div>
                                 <p class="small text-muted mb-0">
-                                    Best for a new search result set that belongs mainly to this synopsis. The project gets a new batch, and the system still creates or reuses a matching library record in the background.
+                                    Best for a new search result set that mainly belongs to this synopsis. The synopsis gets a new batch, and the system still creates or reuses a matching record in the shared library in the background.
                                 </p>
                             </div>
                         </div>
@@ -45,7 +45,7 @@
                 <section>
                     <h6 class="mb-2">What is project-specific</h6>
                     <p class="mb-2 text-muted">
-                        Once a reference is in a synopsis, the working record becomes project-specific.
+                        Once a reference is in a synopsis, the working version of that reference belongs to that synopsis.
                     </p>
                     <ul class="mb-0 text-muted ps-3">
                         <li>Screening decisions are per synopsis.</li>
@@ -63,7 +63,7 @@
                     <ul class="mb-0 text-muted ps-3">
                         <li>The summary board groups all included references for that synopsis.</li>
                         <li>Each included reference gets at least one summary tab.</li>
-                        <li>You can create additional tabs when the same paper needs more than one summary entry.</li>
+                        <li>You can create additional tabs when the same paper needs more than one summary.</li>
                         <li>Summaries can be assigned to authors, moved through status columns, and flagged as needing help.</li>
                     </ul>
                 </section>
@@ -71,19 +71,19 @@
                 <section>
                     <h6 class="mb-2">How this behaves compared with the current EndNote process</h6>
                     <p class="mb-2 text-muted">
-                        It does not mirror the current team workflow one-for-one. A better way to think about it is:
+                        It does not copy the current team workflow exactly. A simple way to think about it is:
                     </p>
                     <ul class="mb-0 text-muted ps-3">
-                        <li><strong>Global library</strong> = shared source of references</li>
-                        <li><strong>Project references</strong> = synopsis working set for screening</li>
-                        <li><strong>Summary board</strong> = project-specific evidence extraction and writing</li>
+                        <li><strong>Shared library</strong> = the main source of references</li>
+                        <li><strong>Project references</strong> = the working list for one synopsis</li>
+                        <li><strong>Summary board</strong> = the place where included studies are written up and assigned</li>
                     </ul>
                 </section>
 
                 <section>
                     <h6 class="mb-2">Current state of the feature</h6>
                     <p class="mb-0 text-muted">
-                        The global reference database is already useful for reuse and deduplication, but it is still under active development. If something feels unclear or behaves differently from your current EndNote-based workflow, that is useful pilot feedback.
+                        The shared reference library is already useful for reuse and avoiding repeated imports, but it is still under active development. If something feels unclear or behaves differently from your current EndNote-based workflow, that is useful pilot feedback.
                     </p>
                 </section>
             </div>
