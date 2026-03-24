@@ -30,6 +30,7 @@ from .models import (
     AdvisoryBoardCustomField,
     AdvisoryBoardCustomFieldValueHistory,
     Funder,
+    IUCNCategory,
     Project,
     ProjectChangeLog,
     ProtocolFeedback,
@@ -817,6 +818,71 @@ class SynopsisStructureTests(TestCase):
         self.assertContains(response, "study paragraphs")
         self.assertContains(response, "source paper")
         self.assertContains(response, "2 summary tabs from the same paper")
+
+    def test_evidence_workspace_uses_action_only_iucn_categories(self):
+        response = self.client.get(
+            reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        )
+
+        context_categories = list(response.context["iucn_categories"])
+        self.assertTrue(context_categories)
+        self.assertTrue(
+            all(category.kind == IUCNCategory.KIND_ACTION for category in context_categories)
+        )
+        self.assertIn(
+            "Land/water protection-Area protection",
+            [category.name for category in context_categories],
+        )
+        self.assertNotIn(
+            "Residential & commercial development",
+            [category.name for category in context_categories],
+        )
+
+        form_categories = list(
+            response.context["intervention_form"].fields["iucn_category"].queryset
+        )
+        self.assertTrue(form_categories)
+        self.assertTrue(
+            all(category.kind == IUCNCategory.KIND_ACTION for category in form_categories)
+        )
+
+    def test_update_intervention_metadata_rejects_threat_category(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        threat_category = IUCNCategory.objects.filter(
+            kind=IUCNCategory.KIND_THREAT,
+            is_active=True,
+        ).first()
+
+        self.assertIsNotNone(threat_category)
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-intervention-metadata",
+                "intervention_id": intervention.id,
+                "iucn_category": str(threat_category.id),
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        intervention.refresh_from_db()
+        self.assertIsNone(intervention.iucn_category)
 
     def test_delete_assignment_removes_supporting_links_from_key_messages(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
