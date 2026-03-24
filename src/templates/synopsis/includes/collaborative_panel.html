@@ -4,6 +4,7 @@
 
 {% if collaborative_enabled %}
 {% with doc_ready=collaborative_document_ready %}
+{% with help_modal_slug=document_label|slugify %}
 <div class="border rounded bg-light p-3 mt-3">
     {% if collaborative_session %}
     <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
@@ -23,6 +24,14 @@
             {% endif %}
         </div>
         <div class="d-flex flex-wrap gap-2 align-items-center">
+            <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                data-bs-toggle="modal"
+                data-bs-target="#{{ help_modal_slug }}-workflow-help"
+            >
+                How this works
+            </button>
             {% if collaborative_resume_url %}
             <a
                 class="btn btn-primary btn-sm"
@@ -51,6 +60,14 @@
             <div class="small text-muted">Launch OnlyOffice to edit the {{ document_label|lower }} with real-time co-authoring.</div>
         </div>
         <div class="d-flex gap-2 align-items-center">
+            <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                data-bs-toggle="modal"
+                data-bs-target="#{{ help_modal_slug }}-workflow-help"
+            >
+                How this works
+            </button>
             {% if can_edit_documents %}
             <form method="post" action="{{ collaborative_start_url }}" class="d-inline">
                 {% csrf_token %}
@@ -73,5 +90,7 @@
     </div>
     {% endif %}
 </div>
+{% include "synopsis/includes/collaborative_workflow_modal.html" with workflow_help_slug=help_modal_slug %}
+{% endwith %}
 {% endwith %}
 {% endif %}
