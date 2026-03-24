@@ -2734,7 +2734,12 @@ class CollaborativePanelViewTests(TestCase):
         )
         self.assertContains(response, "How this works")
         self.assertContains(
-            response, "Use this workflow when authors need to work on one current protocol file together."
+            response, "This page manages the current working protocol for the project."
+        )
+        self.assertContains(response, "How collaborative editing works")
+        self.assertContains(
+            response,
+            "Use this guide for the live OnlyOffice session itself.",
         )
         self.assertContains(
             response, "Upload the protocol before starting a collaborative session."
@@ -2760,7 +2765,12 @@ class CollaborativePanelViewTests(TestCase):
         self.assertContains(response, "How this works")
         self.assertContains(
             response,
-            "Use this workflow when authors need to work on one current action list file together.",
+            "This page manages the current working action list for the project.",
+        )
+        self.assertContains(response, "How collaborative editing works")
+        self.assertContains(
+            response,
+            "Use this guide for the live OnlyOffice session itself.",
         )
         self.assertContains(
             response, "Upload the action list before starting a collaborative session."
