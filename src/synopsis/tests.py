@@ -2813,12 +2813,18 @@ class CollaborativePanelViewTests(TestCase):
         )
         self.assertContains(protocol_response, "Protocol feedback window")
         self.assertContains(protocol_response, "Set protocol deadline")
+        self.assertContains(protocol_response, 'data-bs-target="#protocolFeedbackWindowCollapse"')
+        self.assertContains(protocol_response, "data-collapse-toggle-label")
+        self.assertContains(protocol_response, 'data-label-open="Hide"')
 
         action_list_response = self.client.get(
             reverse("synopsis:action_list_detail", args=[self.project.id])
         )
         self.assertContains(action_list_response, "Action list feedback window")
         self.assertContains(action_list_response, "Set action list deadline")
+        self.assertContains(action_list_response, 'data-bs-target="#actionListFeedbackWindowCollapse"')
+        self.assertContains(action_list_response, "data-collapse-toggle-label")
+        self.assertContains(action_list_response, 'data-label-open="Hide"')
 
 
 class AdvisoryBoardCustomColumnsTests(TestCase):
