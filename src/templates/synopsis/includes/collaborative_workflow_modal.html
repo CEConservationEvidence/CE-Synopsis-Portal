@@ -10,23 +10,23 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="{{ help_slug }}-workflow-help-label">
-                    How {{ document_label|lower }} collaboration works
+                    How collaborative editing works for this {{ document_label|lower }}
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <p class="mb-3">
-                    Use this workflow when authors need to work on one current {{ document_label|lower }} file together.
+                    Use this guide for the live OnlyOffice session itself.
                 </p>
                 <ol class="mb-3 ps-3">
-                    <li>Upload the latest {{ document_label|lower }} document on this page. It becomes the current working revision.</li>
-                    <li>Choose <strong>Start collaborative edit</strong> to open one shared OnlyOffice session for this {{ document_label|lower }}.</li>
-                    <li>Authors with edit access reopen the same live session from the portal while it is active, so everyone works in one place.</li>
+                    <li>Choose <strong>Start collaborative edit</strong> to open one shared OnlyOffice session for the current {{ document_label|lower }} revision.</li>
+                    <li>Authors with edit access reopen the same live session from the portal while it is active, so everyone works in the same document.</li>
+                    <li>Use the editor normally while the session is open. The portal keeps that session attached to the current revision on this page.</li>
                     <li>When edits are complete, use <strong>Save and end session</strong> from the portal. That requests a final save and closes the shared session for everyone.</li>
-                    <li>The saved file remains the current revision here, where it can be downloaded, kept in draft, or marked final once agreed.</li>
+                    <li>After the session closes, return to the detail page to download the saved file, keep it in draft, or mark the current revision as final.</li>
                 </ol>
                 <div class="small text-muted">
-                    If the {{ document_label|lower }} is marked final, switch it back to draft before replacing it with a new revision. Closing the feedback window also closes collaborative editing for that document.
+                    Collaborative editing is optional. If you prefer, you can still update the {{ document_label|lower }} by downloading the current revision, editing offline, and uploading a new revision manually.
                 </div>
             </div>
             <div class="modal-footer">
