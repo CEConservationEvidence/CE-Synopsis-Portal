@@ -68,6 +68,7 @@ from .forms import (
     ProjectSettingsForm,
     ReminderScheduleForm,
     IUCN_ACTION_CHOICES,
+    IUCN_HABITAT_CHOICES,
     IUCN_THREAT_CHOICES,
     ReferenceSummaryDraftForm,
     ReferenceSummaryUpdateForm,
@@ -4211,6 +4212,37 @@ class LibraryLinkBatchTests(TestCase):
 
 
 class ReferenceSummaryFormTests(TestCase):
+    def test_habitat_tags_use_detailed_iucn_choices(self):
+        values = [value for value, _label in IUCN_HABITAT_CHOICES]
+        self.assertEqual(len(values), 63)
+        self.assertIn("Marine Coral Reefs", values)
+        self.assertIn(
+            "Wetlands (inland) - Permanent Freshwater Lakes",
+            values,
+        )
+        self.assertIn(
+            "Artificial - Subtropical/Tropical Heavily Degraded Former Forest",
+            values,
+        )
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "habitat_tags": [
+                    "Marine Coral Reefs",
+                    "Forest - Temperate",
+                ],
+            }
+        )
+        self.assertTrue(form.is_valid())
+        self.assertEqual(
+            form.cleaned_data["habitat_tags"],
+            [
+                "Marine Coral Reefs",
+                "Forest - Temperate",
+            ],
+        )
+
     def test_action_tags_use_detailed_iucn_choices(self):
         values = [value for value, _label in IUCN_ACTION_CHOICES]
         self.assertEqual(len(values), 37)
