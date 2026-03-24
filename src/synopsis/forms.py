@@ -98,7 +98,6 @@ RESEARCH_DESIGN_CHOICES = [
     ("Study", "Study"),
 ]
 
-    ("Livelihood/economic incentives", "Livelihood/economic incentives"),
 IUCN_ACTION_TAGS = [
     "Land/water protection-Area protection",
     "Land/water protection-Site/area stewardship",
