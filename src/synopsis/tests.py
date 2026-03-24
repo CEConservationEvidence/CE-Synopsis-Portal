@@ -5121,11 +5121,11 @@ class GlobalReferenceLibraryAccessTests(TestCase):
         self.assertContains(dashboard_response, "How this works for authors")
         self.assertContains(
             dashboard_response,
-            "The portal is designed to bring the main synopsis workflow into one place",
+            "The portal is meant to bring the main synopsis work into one place",
         )
         self.assertContains(
             dashboard_response,
-            "The portal does not currently behave as a one-for-one EndNote replacement",
+            "The portal does not currently work as a full one-for-one EndNote replacement",
         )
         self.assertContains(project_response, "Browse Reference Database")
         self.assertContains(
@@ -5151,9 +5151,9 @@ class GlobalReferenceLibraryAccessTests(TestCase):
         for response in (library_response, batch_list_response, batch_detail_response):
             self.assertEqual(response.status_code, 200)
             self.assertContains(response, "How this works")
-            self.assertContains(response, "How the global reference database works")
-            self.assertContains(response, "shared master library")
-            self.assertContains(response, "It is not yet a one-for-one EndNote replacement")
+            self.assertContains(response, "How the shared reference library works")
+            self.assertContains(response, "shared library of references")
+            self.assertContains(response, "It is not yet a full EndNote replacement")
 
 
 class ProjectReferenceWorkflowHelpUiTests(TestCase):
@@ -5203,7 +5203,7 @@ class ProjectReferenceWorkflowHelpUiTests(TestCase):
             self.assertContains(response, "Two ways to add references")
             self.assertContains(
                 response,
-                "It does not mirror the current team workflow one-for-one",
+                "It does not copy the current team workflow exactly",
             )
 
 

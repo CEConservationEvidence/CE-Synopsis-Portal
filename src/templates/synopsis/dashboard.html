@@ -3,6 +3,7 @@
 {% block content %}
 <h1>CE Synopsis Portal</h1>
 {% if user.is_authenticated %}
+{% include "synopsis/includes/dashboard_author_workflow_guide.html" %}
 <div class="d-flex flex-wrap gap-2 mt-3 mb-4">
     <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:reference_library' %}">Open Reference Database</a>
     <div class="small text-muted align-self-center">
