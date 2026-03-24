@@ -2732,6 +2732,10 @@ class CollaborativePanelViewTests(TestCase):
         response = self.client.get(
             reverse("synopsis:protocol_detail", args=[self.project.id])
         )
+        self.assertContains(response, "How this works")
+        self.assertContains(
+            response, "Use this workflow when authors need to work on one current protocol file together."
+        )
         self.assertContains(
             response, "Upload the protocol before starting a collaborative session."
         )
@@ -2752,6 +2756,11 @@ class CollaborativePanelViewTests(TestCase):
     def test_action_list_panel_disabled_without_document(self):
         response = self.client.get(
             reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+        self.assertContains(response, "How this works")
+        self.assertContains(
+            response,
+            "Use this workflow when authors need to work on one current action list file together.",
         )
         self.assertContains(
             response, "Upload the action list before starting a collaborative session."
