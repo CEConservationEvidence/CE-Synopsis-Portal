@@ -1,0 +1,38 @@
+{% with help_slug=workflow_help_slug|default:document_label|slugify %}
+<div
+    class="modal fade"
+    id="{{ help_slug }}-workflow-help"
+    tabindex="-1"
+    aria-labelledby="{{ help_slug }}-workflow-help-label"
+    aria-hidden="true"
+>
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="{{ help_slug }}-workflow-help-label">
+                    How {{ document_label|lower }} collaboration works
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">
+                    Use this workflow when authors need to work on one current {{ document_label|lower }} file together.
+                </p>
+                <ol class="mb-3 ps-3">
+                    <li>Upload the latest {{ document_label|lower }} document on this page. It becomes the current working revision.</li>
+                    <li>Choose <strong>Start collaborative edit</strong> to open one shared OnlyOffice session for this {{ document_label|lower }}.</li>
+                    <li>Authors with edit access reopen the same live session from the portal while it is active, so everyone works in one place.</li>
+                    <li>When edits are complete, use <strong>Save and end session</strong> from the portal. That requests a final save and closes the shared session for everyone.</li>
+                    <li>The saved file remains the current revision here, where it can be downloaded, kept in draft, or marked final once agreed.</li>
+                </ol>
+                <div class="small text-muted">
+                    If the {{ document_label|lower }} is marked final, switch it back to draft before replacing it with a new revision. Closing the feedback window also closes collaborative editing for that document.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endwith %}
