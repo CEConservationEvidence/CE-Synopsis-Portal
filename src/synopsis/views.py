@@ -7755,7 +7755,9 @@ def _project_synopsis_workspace(
             category_id = (request.POST.get("iucn_category") or "").strip()
             if category_id:
                 category = IUCNCategory.objects.filter(
-                    pk=category_id, is_active=True
+                    pk=category_id,
+                    kind=IUCNCategory.KIND_ACTION,
+                    is_active=True,
                 ).first()
                 if not category:
                     messages.error(request, "Invalid IUCN category selected.")
@@ -8065,8 +8067,11 @@ def _project_synopsis_workspace(
         chapter.assignment_total for chapter in evidence_chapters
     )
     narrative_total = len(text_chapters) + len(appendix_chapters)
-    iucn_categories = IUCNCategory.objects.filter(is_active=True).order_by(
-        "kind", "position", "name"
+    iucn_categories = IUCNCategory.objects.filter(
+        kind=IUCNCategory.KIND_ACTION,
+        is_active=True,
+    ).order_by(
+        "position", "name"
     )
     all_interventions = (
         SynopsisIntervention.objects.filter(subheading__chapter__project=project)

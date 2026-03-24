@@ -347,7 +347,7 @@
                                     <div class="fw-semibold">{{ intervention.title }}</div>
                                     <div class="small text-muted d-flex flex-wrap gap-2 mt-1">
                                         {% if intervention.iucn_category %}
-                                        <span class="badge text-bg-light">{{ intervention.iucn_category }}</span>
+                                        <span class="badge text-bg-light">{{ intervention.iucn_category.name }}</span>
                                         {% endif %}
                                         {% if intervention.is_cross_reference %}
                                         <span class="badge text-bg-warning text-dark">Cross-reference{% if intervention.primary_intervention %}: {{ intervention.primary_intervention.title }}{% endif %}</span>
@@ -401,9 +401,9 @@
                                                     <option value="">Choose...</option>
                                                     {% for category in iucn_categories %}
                                                         {% if intervention.iucn_category_id == category.id %}
-                                                            <option value="{{ category.id }}" selected>{{ category }}</option>
+                                                            <option value="{{ category.id }}" selected>{{ category.name }}</option>
                                                         {% else %}
-                                                            <option value="{{ category.id }}">{{ category }}</option>
+                                                            <option value="{{ category.id }}">{{ category.name }}</option>
                                                         {% endif %}
                                                     {% endfor %}
                                                 </select>

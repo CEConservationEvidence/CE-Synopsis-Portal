@@ -679,8 +679,10 @@ class SynopsisInterventionForm(forms.Form):
     def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["iucn_category"].queryset = IUCNCategory.objects.filter(
-            is_active=True
-        ).order_by("kind", "position", "name")
+            kind=IUCNCategory.KIND_ACTION,
+            is_active=True,
+        ).order_by("position", "name")
+        self.fields["iucn_category"].label_from_instance = lambda obj: obj.name
         interventions = SynopsisIntervention.objects.none()
         if project:
             interventions = (
