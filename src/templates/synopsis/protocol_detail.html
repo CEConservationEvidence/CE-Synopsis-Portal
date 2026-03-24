@@ -286,10 +286,26 @@
     </div>
     <div class="col-12">
         <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                <div>
+                    <h5 class="mb-0">Protocol feedback window</h5>
+                    <div class="small text-muted">Advisory board review deadline, reminders, and closure controls.</div>
+                </div>
+                <button
+                    class="btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#protocolFeedbackWindowCollapse"
+                    aria-expanded="false"
+                    aria-controls="protocolFeedbackWindowCollapse"
+                >
+                    Show
+                </button>
+            </div>
+            <div class="collapse" id="protocolFeedbackWindowCollapse">
             <div class="card-body">
                 <div class="d-flex flex-column flex-xl-row justify-content-between gap-4">
                     <div class="flex-grow-1">
-                        <h5 class="mb-1">Protocol feedback window</h5>
                         <p class="text-muted small mb-2">Set the feedback deadline here. Reminder emails go automatically two business days before that deadline.</p>
                         <div class="small mb-2">
                             Members with protocol:
@@ -366,6 +382,7 @@
                         {% endif %}
                     </div>
                 </div>
+            </div>
             </div>
         </div>
     </div>
