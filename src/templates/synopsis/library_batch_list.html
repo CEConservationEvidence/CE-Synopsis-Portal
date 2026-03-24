@@ -1,7 +1,13 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Library Batches{% endblock %}
 {% block content %}
-<h1 class="mb-3">Library batches</h1>
+{% include "synopsis/includes/reference_library_workflow_modal.html" with modal_id="reference-library-workflow-modal" %}
+<div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+    <h1 class="mb-0">Library batches</h1>
+    <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#reference-library-workflow-modal">
+        How this works
+    </button>
+</div>
 <div class="card mb-3">
     <div class="card-body">
         <div class="d-flex flex-wrap align-items-end justify-content-between gap-3">

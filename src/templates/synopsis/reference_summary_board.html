@@ -1,9 +1,11 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Reference summaries – {{ project.title }}{% endblock %}
 {% block content %}
+{% include "synopsis/includes/project_reference_workflow_modal.html" with modal_id="project-reference-workflow-modal" %}
 <h1 class="mb-3">Reference summaries – {{ project.title }}</h1>
 <div class="d-flex flex-wrap gap-2 mb-4">
     <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
+    <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#project-reference-workflow-modal">How this works</button>
     <a class="btn btn-outline-success" href="{% url 'synopsis:project_synopsis_evidence' project.id %}">Manage evidence structure</a>
     <div class="ms-auto">
         <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#distribution-modal">Distribution view</button>

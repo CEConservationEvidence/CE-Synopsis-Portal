@@ -2,6 +2,7 @@
 {% load advisory_extras %}
 {% block title %}Screening Batch – {{ batch.label }}{% endblock %}
 {% block content %}
+{% include "synopsis/includes/project_reference_workflow_modal.html" with modal_id="project-reference-workflow-modal" %}
 <h1 class="mb-1">{{ batch.label }}</h1>
 <p class="text-muted mb-3">
     Project: {{ project.title }}
@@ -73,6 +74,9 @@ details.abstract-details[open] .abstract-full {
 <div class="d-flex flex-wrap gap-2 mb-3 align-items-center justify-content-between">
     <div class="d-flex flex-wrap gap-2">
         <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_batch_list' project.id %}">Back to project references</a>
+        <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#project-reference-workflow-modal">
+            How this works
+        </button>
         <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#batchNotesModal">
             Snapshot &amp; comments
         </button>

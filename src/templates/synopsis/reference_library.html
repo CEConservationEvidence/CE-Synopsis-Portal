@@ -1,8 +1,14 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Reference Library{% endblock %}
 {% block content %}
+{% include "synopsis/includes/reference_library_workflow_modal.html" with modal_id="reference-library-workflow-modal" %}
 <h1 class="mb-2">Reference library</h1>
-<p class="text-muted mb-3">Central pool for all references. Link selected items to a project to start screening.</p>
+<div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+    <p class="text-muted mb-0">Central pool for all references. Link selected items to a project to start screening.</p>
+    <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#reference-library-workflow-modal">
+        How this works
+    </button>
+</div>
 {% if selected_project_obj %}
 <div class="alert alert-info py-2 d-flex flex-wrap align-items-center justify-content-between gap-2">
     <span>Linking into project: <strong>{{ selected_project_obj.title }}</strong>.</span>

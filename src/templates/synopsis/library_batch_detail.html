@@ -1,6 +1,7 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Library Batch{% endblock %}
 {% block content %}
+{% include "synopsis/includes/reference_library_workflow_modal.html" with modal_id="reference-library-workflow-modal" %}
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
     <div>
         <h1 class="mb-1">{{ batch.label }}</h1>
@@ -9,6 +10,9 @@
         </div>
     </div>
     <div class="d-flex flex-wrap align-items-center gap-2">
+        <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#reference-library-workflow-modal">
+            How this works
+        </button>
         <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:library_batch_list' %}">Back to batches</a>
         <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_library' %}">Back to library</a>
     </div>
