@@ -1,0 +1,41 @@
+{% with help_slug=workflow_help_slug|default:document_label|slugify %}
+<div
+    class="modal fade"
+    id="{{ help_slug }}-document-workflow-help"
+    tabindex="-1"
+    aria-labelledby="{{ help_slug }}-document-workflow-help-label"
+    aria-hidden="true"
+>
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="{{ help_slug }}-document-workflow-help-label">
+                    How this {{ document_label|lower }} workflow works
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-3">
+                    This page manages the current working {{ document_label|lower }} for the project.
+                </p>
+                <ol class="mb-3 ps-3">
+                    <li>Upload the first {{ document_label|lower }} file here to create the working document for the project.</li>
+                    <li>After that, replacing the file creates a new revision. Use the version label and change reason so the team can see what changed and why. The change reason is optional for the first upload, but expected for later revisions or stage changes.</li>
+                    <li>When a file is active, the page shows one <strong>current revision</strong>. That is the copy authors should treat as the live working version.</li>
+                    <li>If you want to edit offline, download the current revision first so you are working from the latest file.</li>
+                    <li>Collaborative editing is optional. Authors can either upload revised files manually or use the collaborative editor to work on the same current revision live.</li>
+                    <li>Keep the {{ document_label|lower }} in <strong>Draft</strong> while it is still being edited. Set it to <strong>Final</strong> only when the authors agree it is ready. If more changes are needed later, return it to Draft before replacing the file.</li>
+                    <li>The revision history lower on the page keeps older uploads. From there you can download an earlier version, restore it as the current revision, or mark a specific revision as final.</li>
+                    <li>The feedback window section is for advisory board review of the {{ document_label|lower }}. It controls the deadline, reminder timing, and whether the review links are open or closed. Closing that window also disables collaborative editing for that document.</li>
+                </ol>
+                <div class="small text-muted">
+                    In practice: keep authors aligned around the current revision shown at the top of the page, and avoid editing an older local copy unless you plan to upload it back as a new revision.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endwith %}
