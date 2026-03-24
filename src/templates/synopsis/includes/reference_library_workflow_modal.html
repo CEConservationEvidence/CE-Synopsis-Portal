@@ -1,0 +1,91 @@
+<div class="modal fade" id="{{ modal_id }}" tabindex="-1" aria-labelledby="{{ modal_id }}Label" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title mb-1" id="{{ modal_id }}Label">How the global reference database works</h5>
+                    <div class="small text-muted">Shared library, deduplication, and how records reach a synopsis.</div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body d-flex flex-column gap-4">
+                <section>
+                    <h6 class="mb-2">What this is</h6>
+                    <p class="mb-0 text-muted">
+                        The global reference database is a shared master library for the whole portal. It stores canonical reference metadata that can be searched, edited, and linked into individual synopses.
+                    </p>
+                </section>
+
+                <section>
+                    <h6 class="mb-2">How references get into the library</h6>
+                    <ul class="mb-0 text-muted ps-3">
+                        <li>Upload a RIS, XML, or supported plain-text file directly into the library.</li>
+                        <li>Import a RIS or plain-text file into a project. The system still creates or reuses a matching library record behind the scenes.</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h6 class="mb-2">How duplicates are handled today</h6>
+                    <p class="mb-2 text-muted">
+                        The system deduplicates library records using a hash based mainly on title, publication year, and DOI.
+                    </p>
+                    <ul class="mb-0 text-muted ps-3">
+                        <li>If the same reference is uploaded to the library again, it is skipped rather than imported twice.</li>
+                        <li>If a project already has that reference, linking from the library reuses the existing project copy instead of creating another one.</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h6 class="mb-2">What “Link to project” means</h6>
+                    <p class="mb-0 text-muted">
+                        Linking does not move a reference out of the library. It creates a project-level working copy for that synopsis, grouped into a project batch so authors can screen and manage it locally.
+                    </p>
+                </section>
+
+                <section>
+                    <h6 class="mb-2">What is shared vs what stays per synopsis</h6>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <div class="border rounded p-3 h-100">
+                                <div class="fw-semibold mb-2">Shared in the global library</div>
+                                <ul class="mb-0 small text-muted ps-3">
+                                    <li>Core citation metadata</li>
+                                    <li>Searchable shared reference records</li>
+                                    <li>Import history at the library level</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="border rounded p-3 h-100">
+                                <div class="fw-semibold mb-2">Managed per synopsis</div>
+                                <ul class="mb-0 small text-muted ps-3">
+                                    <li>Screening status</li>
+                                    <li>Reference folders</li>
+                                    <li>Screening notes and comments</li>
+                                    <li>Summary tabs, assignments, and evidence links</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h6 class="mb-2">How this compares with the current EndNote workflow</h6>
+                    <p class="mb-2 text-muted">
+                        It is similar to EndNote in that there is one central searchable pool of references that can be reused across multiple projects.
+                    </p>
+                    <p class="mb-0 text-muted">
+                        It is not yet a one-for-one EndNote replacement. Screening, synopsis folders, and summary work happen on project-specific copies after linking or import, and the global library component is still evolving.
+                    </p>
+                </section>
+
+                <section>
+                    <h6 class="mb-2">When to use this page</h6>
+                    <p class="mb-0 text-muted">
+                        Use the global library when you want to search shared references, tidy canonical metadata, or link existing references into a synopsis. If you just want to load a new search result set for one synopsis, you can also import directly into that project.
+                    </p>
+                </section>
+            </div>
+        </div>
+    </div>
+</div>
