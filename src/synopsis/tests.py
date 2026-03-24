@@ -66,6 +66,7 @@ from .forms import (
     ProjectDeleteForm,
     ProjectSettingsForm,
     ReminderScheduleForm,
+    IUCN_THREAT_CHOICES,
     ReferenceSummaryDraftForm,
     ReferenceSummaryUpdateForm,
 )
@@ -4143,6 +4144,35 @@ class LibraryLinkBatchTests(TestCase):
 
 
 class ReferenceSummaryFormTests(TestCase):
+    def test_threat_tags_use_detailed_iucn_choices(self):
+        values = [value for value, _label in IUCN_THREAT_CHOICES]
+        self.assertEqual(len(values), 41)
+        self.assertIn(
+            "Residential & commercial development-Housing/urban areas", values
+        )
+        self.assertIn("Invasive & other problematic species & genes", values)
+        self.assertIn(
+            "Climate change & severe weather-Other impacts", values
+        )
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "threat_tags": [
+                    "Residential & commercial development-Housing/urban areas",
+                    "Climate change & severe weather-Storms/flooding",
+                ],
+            }
+        )
+        self.assertTrue(form.is_valid())
+        self.assertEqual(
+            form.cleaned_data["threat_tags"],
+            [
+                "Residential & commercial development-Housing/urban areas",
+                "Climate change & severe weather-Storms/flooding",
+            ],
+        )
+
     def test_draft_form_prefills_generated_summary_when_no_saved_draft_exists(self):
         project = Project.objects.create(title="Coral Reefs Synopsis")
         batch = ReferenceSourceBatch.objects.create(
