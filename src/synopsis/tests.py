@@ -66,6 +66,7 @@ from .forms import (
     ProjectDeleteForm,
     ProjectSettingsForm,
     ReminderScheduleForm,
+    IUCN_ACTION_CHOICES,
     IUCN_THREAT_CHOICES,
     ReferenceSummaryDraftForm,
     ReferenceSummaryUpdateForm,
@@ -4144,6 +4145,33 @@ class LibraryLinkBatchTests(TestCase):
 
 
 class ReferenceSummaryFormTests(TestCase):
+    def test_action_tags_use_detailed_iucn_choices(self):
+        values = [value for value, _label in IUCN_ACTION_CHOICES]
+        self.assertEqual(len(values), 37)
+        self.assertIn("Land/water protection-Area protection", values)
+        self.assertIn(
+            "Livelihood, economic & other incentives-Conservation payments", values
+        )
+        self.assertIn("Research & monitoring-Other", values)
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "action_tags": [
+                    "Land/water management-Site/area management",
+                    "Research & monitoring-Conservation planning",
+                ],
+            }
+        )
+        self.assertTrue(form.is_valid())
+        self.assertEqual(
+            form.cleaned_data["action_tags"],
+            [
+                "Land/water management-Site/area management",
+                "Research & monitoring-Conservation planning",
+            ],
+        )
+
     def test_threat_tags_use_detailed_iucn_choices(self):
         values = [value for value, _label in IUCN_THREAT_CHOICES]
         self.assertEqual(len(values), 41)
