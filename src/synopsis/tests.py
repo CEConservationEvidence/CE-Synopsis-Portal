@@ -5118,12 +5118,93 @@ class GlobalReferenceLibraryAccessTests(TestCase):
 
         self.assertContains(dashboard_response, "Open Reference Database")
         self.assertContains(dashboard_response, "Reference Database")
+        self.assertContains(dashboard_response, "How this works for authors")
+        self.assertContains(
+            dashboard_response,
+            "The portal is designed to bring the main synopsis workflow into one place",
+        )
+        self.assertContains(
+            dashboard_response,
+            "The portal does not currently behave as a one-for-one EndNote replacement",
+        )
         self.assertContains(project_response, "Browse Reference Database")
         self.assertContains(
             project_response,
             reverse("synopsis:reference_library") + f"?project={self.project.id}",
             html=False,
         )
+
+    def test_library_pages_show_global_workflow_help(self):
+        self.client.login(username="authorlib", password="pass123")
+        batch = LibraryImportBatch.objects.create(
+            label="Library import",
+            source_type="journal_search",
+            uploaded_by=self.user,
+        )
+
+        library_response = self.client.get(reverse("synopsis:reference_library"))
+        batch_list_response = self.client.get(reverse("synopsis:library_batch_list"))
+        batch_detail_response = self.client.get(
+            reverse("synopsis:library_batch_detail", args=[batch.id])
+        )
+
+        for response in (library_response, batch_list_response, batch_detail_response):
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "How this works")
+            self.assertContains(response, "How the global reference database works")
+            self.assertContains(response, "shared master library")
+            self.assertContains(response, "It is not yet a one-for-one EndNote replacement")
+
+
+class ProjectReferenceWorkflowHelpUiTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="refauthor", password="pass123")
+        self.project = Project.objects.create(title="Reference Help Project")
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Search batch",
+            source_type="journal_search",
+            uploaded_by=self.user,
+        )
+        self.reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="ref-help-1",
+            title="Shared library behaviour",
+            screening_status="included",
+        )
+        self.summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            citation="Shared library behaviour",
+        )
+
+    def test_project_reference_pages_show_workflow_help(self):
+        self.client.login(username="refauthor", password="pass123")
+
+        responses = [
+            self.client.get(reverse("synopsis:reference_batch_list", args=[self.project.id])),
+            self.client.get(
+                reverse(
+                    "synopsis:reference_batch_detail",
+                    args=[self.project.id, self.batch.id],
+                )
+            ),
+            self.client.get(
+                reverse("synopsis:reference_summary_board", args=[self.project.id])
+            ),
+        ]
+
+        for response in responses:
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, "How this works")
+            self.assertContains(response, "How project references work")
+            self.assertContains(response, "Two ways to add references")
+            self.assertContains(
+                response,
+                "It does not mirror the current team workflow one-for-one",
+            )
 
 
 class ProjectAuthorSelectionUiTests(TestCase):
