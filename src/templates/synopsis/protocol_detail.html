@@ -151,8 +151,16 @@
                         <p class="text-muted mb-0">No protocol exists yet. Upload the first version below to get started.</p>
                         {% endif %}
                     </div>
-                    {% if protocol %}
                     <div class="d-flex align-items-center flex-wrap gap-2">
+                        <button
+                            type="button"
+                            class="btn btn-outline-secondary btn-sm"
+                            data-bs-toggle="modal"
+                            data-bs-target="#protocol-document-workflow-help"
+                        >
+                            How this works
+                        </button>
+                    {% if protocol %}
                         <div class="d-flex align-items-center gap-2">
                             <span class="fw-semibold">Stage:</span>
                             {% if protocol.stage == 'final' %}
@@ -185,6 +193,7 @@
                     </div>
                     {% endif %}
                 </div>
+                {% include "synopsis/includes/document_workflow_modal.html" with workflow_help_slug="protocol" document_label="Protocol" %}
                 {% include "synopsis/includes/collaborative_panel.html" with document_label="Protocol" collaborative_document_ready=collaborative_document_ready %}
                 {% if current_revision_entry %}
                 <div class="mt-2">
