@@ -5121,11 +5121,11 @@ class GlobalReferenceLibraryAccessTests(TestCase):
         self.assertContains(dashboard_response, "How this works for authors")
         self.assertContains(
             dashboard_response,
-            "The portal is meant to bring the main synopsis work into one place",
+            "The portal is meant to support the main Conservation Evidence synopsis workflow in one place",
         )
         self.assertContains(
             dashboard_response,
-            "The portal does not currently work as a full one-for-one EndNote replacement",
+            "This pilot is here to test how well the portal supports the real CE synopsis workflow from start to finish",
         )
         self.assertContains(project_response, "Browse Reference Database")
         self.assertContains(
