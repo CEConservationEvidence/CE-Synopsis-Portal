@@ -3216,6 +3216,18 @@ class ProjectSettingsFormTests(TestCase):
         updated = form.save()
         self.assertEqual(updated.title, "Forest Recovery")
 
+    def test_updates_description(self):
+        form = ProjectSettingsForm(
+            data={
+                "title": "Forest Recovery",
+                "description": "  A pilot synopsis for forest restoration.  ",
+            },
+            instance=self.project,
+        )
+        self.assertTrue(form.is_valid())
+        updated = form.save()
+        self.assertEqual(updated.description, "A pilot synopsis for forest restoration.")
+
 
 class ViewHelperTests(TestCase):
     def setUp(self):
@@ -5229,7 +5241,42 @@ class ProjectAuthorSelectionUiTests(TestCase):
         response = self.client.get(reverse("synopsis:project_create"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Description (optional)")
         self.assertContains(response, "Filter authors by name or username")
         self.assertNotContains(response, "Ctrl/Cmd multi-select", html=False)
         self.assertContains(response, "Ibrahim Alhas (ibrahim)")
         self.assertContains(response, "Will Morgan (will)")
+
+
+class ProjectDescriptionUiTests(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="manager",
+            password="pass123",
+            is_staff=True,
+        )
+        self.project = Project.objects.create(
+            title="Forest Restoration",
+            description="A pilot synopsis for forest restoration.",
+        )
+
+    def test_project_hub_shows_description_when_present(self):
+        self.client.login(username="manager", password="pass123")
+
+        response = self.client.get(reverse("synopsis:project_hub", args=[self.project.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Description")
+        self.assertContains(response, "A pilot synopsis for forest restoration.")
+
+    def test_project_settings_shows_description_field(self):
+        self.client.login(username="manager", password="pass123")
+
+        response = self.client.get(
+            reverse("synopsis:project_settings", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "optional description")
+        self.assertContains(response, "A pilot synopsis for forest restoration.")
+        self.assertContains(response, 'value="Forest Restoration"', html=False)
