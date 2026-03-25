@@ -2121,14 +2121,24 @@ class ProjectCreateForm(forms.ModelForm):
 
     class Meta:
         model = Project
-        fields = ["title", "start_date"]
+        fields = ["title", "description", "start_date"]
         widgets = {
             "title": forms.TextInput(attrs={"class": "form-control"}),
+            "description": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 4,
+                    "placeholder": "Optional short description of the synopsis",
+                }
+            ),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["start_date"].initial = timezone.localdate()
+
+    def clean_description(self):
+        return self.cleaned_data.get("description", "").strip()
 
 
 @login_required
@@ -2170,7 +2180,9 @@ def project_create(request):
                     project,
                     request.user,
                     "Project created",
-                    f"Title: {project.title}; Start date: {_format_value(project.start_date)}",
+                    "Title: "
+                    f"{project.title}; Description: {_format_value(project.description)}; "
+                    f"Start date: {_format_value(project.start_date)}",
                 )
 
                 authors = aform.cleaned_data.get("authors") or []
@@ -2254,6 +2266,7 @@ def project_create(request):
                     "contact_formset_hidden": hidden_contact_formset,
                     "summary": {
                         "title": pform.cleaned_data["title"],
+                        "description": pform.cleaned_data["description"],
                         "start_date": today,
                         "authors": author_names,
                         "funder": funder_summary,
@@ -2414,6 +2427,7 @@ def project_hub(request, project_id):
             "funders": funders,
             "funder_summary": funder_summary,
             "can_manage_project": _user_is_manager(request.user),
+            "can_edit_project": _user_can_edit_project(request.user, project),
         },
     )
 
@@ -4782,18 +4796,27 @@ def manager_dashboard(request):
 @login_required
 def project_settings(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
-    if not _user_is_manager(request.user):
-        messages.error(request, "Only managers can edit project settings.")
+    if not _user_can_edit_project(request.user, project):
+        messages.error(
+            request,
+            "Only managers or project authors can edit project settings.",
+        )
         return redirect("synopsis:project_hub", project_id=project.id)
 
     if request.method == "POST":
         original_title = project.title
+        original_description = project.description
         form = ProjectSettingsForm(request.POST, instance=project, project=project)
         if form.is_valid():
             updated_project = form.save()
             changes = []
             if original_title != updated_project.title:
                 changes.append(f"Title: {original_title} → {updated_project.title}")
+            if original_description != updated_project.description:
+                changes.append(
+                    "Description: "
+                    f"{_format_value(original_description)} → {_format_value(updated_project.description)}"
+                )
             if changes:
                 _log_project_change(
                     updated_project,

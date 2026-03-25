@@ -1116,9 +1116,16 @@ class ProjectSettingsForm(forms.ModelForm):
 
     class Meta:
         model = Project
-        fields = ["title"]
+        fields = ["title", "description"]
         widgets = {
             "title": forms.TextInput(attrs={"class": "form-control"}),
+            "description": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 4,
+                    "placeholder": "Optional short description of the synopsis",
+                }
+            ),
         }
         error_messages = {
             "title": {
@@ -1131,6 +1138,9 @@ class ProjectSettingsForm(forms.ModelForm):
         if not title:
             raise forms.ValidationError("Enter a title for the synopsis.")
         return title
+
+    def clean_description(self):
+        return self.cleaned_data.get("description", "").strip()
 
 
 class AdvisoryBulkInviteForm(forms.Form):
