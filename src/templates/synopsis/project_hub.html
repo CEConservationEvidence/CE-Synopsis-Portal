@@ -7,6 +7,12 @@
             <div class="col-lg-6">
                 <p class="text-uppercase text-muted small mb-1">Project overview</p>
                 <h1 class="mb-1">{{ project.title }}</h1>
+                {% if project.description %}
+                <div class="mb-3">
+                    <div class="text-uppercase text-muted small mb-1">Description</div>
+                    <p class="mb-0">{{ project.description|linebreaksbr }}</p>
+                </div>
+                {% endif %}
                 <p class="text-muted mb-2">Start date: <strong>{{ project.start_date|date:"Y-m-d"|default:"—" }}</strong></p>
                 <p class="text-muted mb-2">Phase: <strong>{{ project.get_phase_display }}</strong></p>
                 {% if last_phase_event %}
@@ -67,7 +73,7 @@
                         {% else %}
                         <p class="text-muted small mb-0">No authors assigned yet.</p>
                         {% endif %}
-                        {% if can_manage_project %}
+                        {% if can_edit_project %}
                         <div class="mt-2 text-end">
                             <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
                         </div>

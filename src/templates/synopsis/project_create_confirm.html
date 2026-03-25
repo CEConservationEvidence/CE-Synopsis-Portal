@@ -10,6 +10,14 @@
                 <dl class="row mb-0">
                     <dt class="col-sm-3">Title</dt>
                     <dd class="col-sm-9">{{ summary.title }}</dd>
+                    <dt class="col-sm-3">Description</dt>
+                    <dd class="col-sm-9">
+                        {% if summary.description %}
+                            {{ summary.description|linebreaksbr }}
+                        {% else %}
+                        <span class="text-muted">Not provided</span>
+                        {% endif %}
+                    </dd>
                     <dt class="col-sm-3">Start date</dt>
                     <dd class="col-sm-9">
                         {% if summary.start_date %}

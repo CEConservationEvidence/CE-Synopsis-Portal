@@ -6,7 +6,7 @@
     <p class="text-muted text-center">
         Update the core details for
         <strong>{{ project.title }}</strong>
-        . You can modify the synopsis title below.
+        . You can modify the synopsis title and optional description below.
     </p>
     <form method="post" class="col-lg-6 col-md-8 mx-auto shadow p-4 rounded bg-light" id="settings-form">
         {% csrf_token %}
@@ -14,20 +14,14 @@
         <div class="mb-4">
             {{ form.title.label_tag }}
             {{ form.title }}
-            <script>
-                document.addEventListener("DOMContentLoaded", function() {
-                    const titleField = document.querySelector("#id_title");
-                    if (titleField) {
-                        titleField.classList.add("form-control");
-                        const currentTitle = "{{ project.title|escapejs }}";
-                        titleField.placeholder = `Currently: ${currentTitle}`;
-                        if (titleField.value === currentTitle) {
-                            titleField.value = "";
-                        }
-                    }
-                });
-            </script>
             {% for error in form.title.errors %}
+            <div class="text-danger small mt-1">{{ error }}</div>
+            {% endfor %}
+        </div>
+        <div class="mb-4">
+            {{ form.description.label_tag }}
+            {{ form.description }}
+            {% for error in form.description.errors %}
             <div class="text-danger small mt-1">{{ error }}</div>
             {% endfor %}
         </div>
