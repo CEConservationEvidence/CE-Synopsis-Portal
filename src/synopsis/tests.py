@@ -1308,6 +1308,26 @@ class MemberReminderUpdateTests(TestCase):
             f'min="{tomorrow.strftime("%Y-%m-%d")}"',
         )
 
+    def test_board_page_shows_accepted_participation_note(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ness",
+            email="ness@example.com",
+            response="Y",
+            participation_confirmed=True,
+            participation_statement="Happy to help, but I may be slower next week.",
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "View note")
+        self.assertContains(response, f"accepted-message-{member.id}")
+        self.assertContains(
+            response,
+            "Happy to help, but I may be slower next week.",
+        )
+
     def test_clear_response_deadline(self):
         member = AdvisoryBoardMember.objects.create(
             project=self.project,

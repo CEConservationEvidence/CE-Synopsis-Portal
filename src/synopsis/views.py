@@ -1727,6 +1727,11 @@ def _advisory_board_context(
         for member in declined_members
         if (member.participation_statement or "").strip()
     ]
+    accepted_with_statement = [
+        member
+        for member in accepted_members
+        if (member.participation_statement or "").strip()
+    ]
 
     custom_fields = list(
         AdvisoryBoardCustomField.objects.filter(project=project).order_by(
@@ -2032,6 +2037,7 @@ def _advisory_board_context(
     return {
         "project": project,
         "accepted_members": accepted_members,
+        "accepted_members_with_statement": accepted_with_statement,
         "declined_members": declined_members,
         "pending_members": pending_members,
         "member_sections": member_sections,

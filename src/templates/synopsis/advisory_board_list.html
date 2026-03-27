@@ -561,6 +561,17 @@
                                         {% if m.response %}
                                         <div class="d-flex align-items-center justify-content-center gap-2 flex-wrap w-100">
                                             <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.is_declined %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ m.response }}</span>
+                                            {% if m.response == 'Y' and m.participation_statement %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#accepted-message-{{ m.id }}"
+                                                aria-label="View participation note for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View note
+                                            </button>
+                                            {% endif %}
                                             {% if m.is_declined and m.participation_statement %}
                                             <button
                                                 class="btn btn-link btn-sm p-0"
@@ -1058,6 +1069,33 @@
         </div>
     </div>
 </div>
+
+{% if accepted_members_with_statement %}
+    {% for accepted_member in accepted_members_with_statement %}
+    <div class="modal fade" id="accepted-message-{{ accepted_member.id }}" tabindex="-1" aria-labelledby="accepted-message-{{ accepted_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="accepted-message-{{ accepted_member.id }}-label">Participation note</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="border rounded bg-light p-3 text-start text-break">
+                        {% if accepted_member.participation_statement %}
+                        <p class="mb-0" style="white-space: pre-wrap;">{{ accepted_member.participation_statement }}</p>
+                        {% else %}
+                        <p class="text-muted mb-0">No note provided.</p>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
 
 {% if declined_members_with_reason %}
     {% for declined_member in declined_members_with_reason %}
