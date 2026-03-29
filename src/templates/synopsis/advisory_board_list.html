@@ -1266,6 +1266,38 @@
     {% endfor %}
 {% endif %}
 
+{% if action_list_feedback_members %}
+    {% for action_feedback_member in action_list_feedback_members %}
+        {% with feedback=action_feedback_member.latest_action_list_feedback_obj %}
+            {% if feedback.uploaded_document %}
+    <div class="modal fade" id="action-list-feedback-document-{{ action_feedback_member.id }}" tabindex="-1" aria-labelledby="action-list-feedback-document-{{ action_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="action-list-feedback-document-{{ action_feedback_member.id }}-label">Action list feedback document</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="border rounded bg-light p-3 mb-3 text-break">
+                        <div class="fw-semibold">{{ feedback.latest_document_label }}</div>
+                        <div class="small text-muted">Stored with this action list feedback submission.</div>
+                    </div>
+                    <a class="btn btn-outline-primary" href="{{ feedback.uploaded_document.url }}" target="_blank" rel="noopener">Open document</a>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+            {% endif %}
+        {% endwith %}
+    {% endfor %}
+{% endif %}
+
 {% if protocol_feedback_members %}
     {% for protocol_feedback_member in protocol_feedback_members %}
     <div class="modal fade" id="protocol-feedback-{{ protocol_feedback_member.id }}" tabindex="-1" aria-labelledby="protocol-feedback-{{ protocol_feedback_member.id }}-label" aria-hidden="true">
