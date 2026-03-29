@@ -1360,17 +1360,19 @@ class MemberReminderUpdateTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "View feedback")
+        self.assertContains(response, "View document")
         self.assertContains(response, f'aria-label="View protocol feedback for {member.first_name} {member.last_name}"')
         self.assertContains(response, f"protocol-feedback-{member.id}")
+        self.assertContains(response, f"protocol-feedback-document-{member.id}")
         self.assertContains(response, "Please tighten the scope in the introduction.")
         self.assertContains(response, feedback.latest_document_label())
 
     def test_board_page_shows_action_list_feedback_modal(self):
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
-            first_name="Alex",
+            first_name="Will",
             last_name="Actions",
-            email="alex@example.com",
+            email="will@example.com",
             response="Y",
             participation_confirmed=True,
             sent_action_list_at=timezone.now(),
@@ -1381,7 +1383,7 @@ class MemberReminderUpdateTests(TestCase):
             content="I suggest splitting habitat creation and restoration.",
             submitted_at=timezone.now(),
             uploaded_document=SimpleUploadedFile(
-                "alex-action-comments.docx",
+                "will-action-comments.docx",
                 b"action comments",
                 content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             ),
@@ -1391,8 +1393,10 @@ class MemberReminderUpdateTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "View feedback")
+        self.assertContains(response, "View document")
         self.assertContains(response, f'aria-label="View action list feedback for {member.first_name} {member.last_name}"')
         self.assertContains(response, f"action-list-feedback-{member.id}")
+        self.assertContains(response, f"action-list-feedback-document-{member.id}")
         self.assertContains(
             response,
             "I suggest splitting habitat creation and restoration.",
@@ -1421,6 +1425,141 @@ class MemberReminderUpdateTests(TestCase):
                 "%Y-%m-%d %H:%M"
             ),
         )
+
+    def test_board_page_shows_action_list_guidance_and_feedback_document_headers(self):
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "GUIDANCE FEEDBACK", count=2)
+        self.assertContains(response, "FEEDBACK DOCUMENT", count=2)
+
+    def test_can_toggle_action_list_author_replied_from_board(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Reyhan",
+            last_name="Reply",
+            email="reyhan@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+            feedback_on_action_list_received=timezone.localdate(),
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_action_list_flag",
+                args=[self.project.id, member.id, "author-replied"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertTrue(member.wm_replied)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Updated action list tracking",
+                details__contains="Marked author replied",
+            ).exists()
+        )
+
+    def test_cannot_toggle_action_list_author_replied_before_feedback_received(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Early",
+            last_name="Reply",
+            email="early@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_action_list_flag",
+                args=[self.project.id, member.id, "author-replied"],
+            ),
+            {"value": "1"},
+            follow=True,
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertFalse(member.wm_replied)
+        self.assertContains(
+            response,
+            "Action list tracking can only be updated after feedback has been received.",
+        )
+
+    def test_can_toggle_action_list_guidance_feedback_from_board(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Giad",
+            last_name="Guidance",
+            email="giad@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+            feedback_on_action_list_received=timezone.localdate(),
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_action_list_flag",
+                args=[self.project.id, member.id, "guidance-feedback"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertTrue(member.action_list_feedback_on_guidance)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Updated action list tracking",
+                details__contains="Marked guidance feedback recorded",
+            ).exists()
+        )
+
+    def test_board_page_shows_readable_action_list_tracking_controls(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Raed",
+            last_name="Readable",
+            email="raed@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+            feedback_on_action_list_received=timezone.localdate(),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Not yet")
+        self.assertContains(response, "Mark replied")
+        self.assertContains(response, "Not added")
+        self.assertContains(response, "Mark added")
+        self.assertContains(response, "Not marked")
+        self.assertContains(response, "Mark guidance")
+
+    def test_board_page_shows_action_list_author_replied_as_awaiting_before_feedback(self):
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Wait",
+            last_name="Feedback",
+            email="wait@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Awaiting feedback")
 
     def test_clear_response_deadline(self):
         member = AdvisoryBoardMember.objects.create(
