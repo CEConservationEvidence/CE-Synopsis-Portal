@@ -744,7 +744,135 @@
                                         {% if m.added_to_action_list_doc %}
                                         <span class="badge text-bg-success">Added</span>
                                         {% else %}
-                                        —
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_action_list_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_action_list_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_action_list_doc %}Clear feedback added to document{% else %}Mark feedback added to document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_action_list_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_action_list_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.added_to_action_list_doc %}
+                                        <span class="badge text-bg-success">Added</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_action_list_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_action_list_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_action_list_doc %}Clear feedback added to document{% else %}Mark feedback added to document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_action_list_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.action_list_feedback_on_guidance %}
+                                        <span class="badge text-bg-success">Guidance</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not marked</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_action_list_flag' project.id m.id 'guidance-feedback' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.action_list_feedback_on_guidance %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.action_list_feedback_on_guidance %}Clear guidance feedback{% else %}Mark guidance feedback{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.action_list_feedback_on_guidance %}Clear{% else %}Mark guidance{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_action_list_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.action_list_feedback_on_guidance %}
+                                        <span class="badge text-bg-success">Guidance</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not marked</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_action_list_flag' project.id m.id 'guidance-feedback' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.action_list_feedback_on_guidance %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.action_list_feedback_on_guidance %}Clear guidance feedback{% else %}Mark guidance feedback{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.action_list_feedback_on_guidance %}Clear{% else %}Mark guidance{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.uploaded_document %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span class="badge text-bg-success">Document received</span>
+                                            {% if m.latest_action_list_feedback_obj.submitted_at %}
+                                            <div class="text-muted small">{{ m.latest_action_list_feedback_obj.submitted_at|date:"Y-m-d H:i" }}</div>
+                                            {% endif %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#action-list-feedback-document-{{ m.id }}"
+                                                aria-label="View action list feedback document for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View document
+                                            </button>
+                                        </div>
+                                        {% elif m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.content %}
+                                        <span class="text-muted small">No document</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
                                     {% for field in combined_fields_by_group.action %}
