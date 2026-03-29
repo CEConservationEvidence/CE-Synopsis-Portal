@@ -1399,6 +1399,29 @@ class MemberReminderUpdateTests(TestCase):
         )
         self.assertContains(response, feedback.latest_document_label())
 
+    def test_board_page_shows_action_list_feedback_deadline(self):
+        deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=5)
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="ibrahim",
+            last_name="Deadline",
+            email="ibrahim@hotmail.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+            feedback_on_action_list_deadline=deadline,
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            timezone.localtime(member.feedback_on_action_list_deadline).strftime(
+                "%Y-%m-%d %H:%M"
+            ),
+        )
+
     def test_clear_response_deadline(self):
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
