@@ -641,8 +641,24 @@
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
                                         {% elif m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.submitted_at %}
-                                        <span class="badge text-bg-success">Received</span>
-                                        <div class="small text-muted">{{ m.latest_action_list_feedback_obj.submitted_at|date:"Y-m-d" }}</div>
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.latest_action_list_feedback_obj.submitted_at|date:"Y-m-d" }}</div>
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#action-list-feedback-{{ m.id }}"
+                                                aria-label="View action list feedback for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View feedback
+                                            </button>
+                                        </div>
+                                        {% elif m.feedback_on_action_list_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.feedback_on_action_list_received|date:"Y-m-d" }}</div>
+                                        </div>
                                         {% elif m.feedback_on_action_list_deadline %}
                                         <span class="badge text-bg-warning">Awaiting</span>
                                         {% else %}
@@ -742,8 +758,25 @@
                                     <td class="ab-status-protocol">
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
+                                        {% elif m.latest_feedback and m.latest_feedback.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.latest_feedback.submitted_at|date:"Y-m-d" }}</div>
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#protocol-feedback-{{ m.id }}"
+                                                aria-label="View protocol feedback for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View feedback
+                                            </button>
+                                        </div>
                                         {% elif m.feedback_on_protocol_received %}
-                                        {{ m.feedback_on_protocol_received|date:"Y-m-d" }}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.feedback_on_protocol_received|date:"Y-m-d" }}</div>
+                                        </div>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
@@ -1114,6 +1147,96 @@
                         <p class="text-muted mb-0">No reason provided.</p>
                         {% endif %}
                     </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+{% if action_list_feedback_members %}
+    {% for action_feedback_member in action_list_feedback_members %}
+    <div class="modal fade" id="action-list-feedback-{{ action_feedback_member.id }}" tabindex="-1" aria-labelledby="action-list-feedback-{{ action_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="action-list-feedback-{{ action_feedback_member.id }}-label">Action list feedback</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% with feedback=action_feedback_member.latest_action_list_feedback_obj %}
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="mb-3">
+                        <h6 class="mb-2">Comments</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.content %}
+                            <p class="mb-0" style="white-space: pre-wrap;">{{ feedback.content }}</p>
+                            {% else %}
+                            <p class="text-muted mb-0">No written comments were provided.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <h6 class="mb-2">Uploaded document</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.uploaded_document %}
+                            <a href="{{ feedback.uploaded_document.url }}">{{ feedback.latest_document_label }}</a>
+                            {% else %}
+                            <p class="text-muted mb-0">No document was uploaded.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endwith %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+{% if protocol_feedback_members %}
+    {% for protocol_feedback_member in protocol_feedback_members %}
+    <div class="modal fade" id="protocol-feedback-{{ protocol_feedback_member.id }}" tabindex="-1" aria-labelledby="protocol-feedback-{{ protocol_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="protocol-feedback-{{ protocol_feedback_member.id }}-label">Protocol feedback</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% with feedback=protocol_feedback_member.latest_feedback %}
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="mb-3">
+                        <h6 class="mb-2">Comments</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.content %}
+                            <p class="mb-0" style="white-space: pre-wrap;">{{ feedback.content }}</p>
+                            {% else %}
+                            <p class="text-muted mb-0">No written comments were provided.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <h6 class="mb-2">Uploaded document</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.uploaded_document %}
+                            <a href="{{ feedback.uploaded_document.url }}">{{ feedback.latest_document_label }}</a>
+                            {% else %}
+                            <p class="text-muted mb-0">No document was uploaded.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endwith %}
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
