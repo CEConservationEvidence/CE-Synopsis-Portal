@@ -625,6 +625,7 @@ class AdvisoryBoardMember(models.Model):
     feedback_on_action_list_deadline = models.DateTimeField(null=True, blank=True)
     feedback_on_action_list_received = models.DateField(null=True, blank=True)
     added_to_action_list_doc = models.BooleanField(default=False)
+    action_list_feedback_on_guidance = models.BooleanField(default=False)
 
     # Protocol interaction
     sent_protocol_at = models.DateTimeField(null=True, blank=True)
