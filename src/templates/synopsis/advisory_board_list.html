@@ -1310,6 +1310,38 @@
     </div>
     {% endfor %}
 {% endif %}
+
+{% if protocol_feedback_members %}
+    {% for protocol_feedback_member in protocol_feedback_members %}
+        {% with feedback=protocol_feedback_member.latest_feedback %}
+            {% if feedback.uploaded_document %}
+    <div class="modal fade" id="protocol-feedback-document-{{ protocol_feedback_member.id }}" tabindex="-1" aria-labelledby="protocol-feedback-document-{{ protocol_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="protocol-feedback-document-{{ protocol_feedback_member.id }}-label">Protocol feedback document</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="border rounded bg-light p-3 mb-3 text-break">
+                        <div class="fw-semibold">{{ feedback.latest_document_label }}</div>
+                        <div class="small text-muted">Stored with this protocol feedback submission.</div>
+                    </div>
+                    <a class="btn btn-outline-primary" href="{{ feedback.uploaded_document.url }}" target="_blank" rel="noopener">Open document</a>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+            {% endif %}
+        {% endwith %}
+    {% endfor %}
+{% endif %}
 <div class="d-flex justify-content-end mt-4">
     <a class="btn btn-outline-secondary btn-sm" href="#page-top">Back to top</a>
 </div>
