@@ -867,7 +867,23 @@
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
                                         {% elif m.latest_feedback and m.latest_feedback.uploaded_document %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span class="badge text-bg-success">Document received</span>
+                                            {% if m.latest_feedback.submitted_at %}
+                                            <div class="text-muted small">{{ m.latest_feedback.submitted_at|date:"Y-m-d H:i" }}</div>
+                                            {% endif %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#protocol-feedback-document-{{ m.id }}"
+                                                aria-label="View protocol feedback document for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View document
+                                            </button>
+                                        </div>
                                         {% elif m.latest_feedback and m.latest_feedback.content %}
+                                        <span class="text-muted small">No document</span>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
