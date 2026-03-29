@@ -1261,6 +1261,12 @@ class SendDueRemindersTests(TestCase):
 
 class MemberReminderUpdateTests(TestCase):
     def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
+        override = override_settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+
         self.project = Project.objects.create(title="Inline Reminders")
         self.user = User.objects.create_user(username="owner", password="pw")
         UserRole.objects.create(user=self.user, project=self.project, role="author")
@@ -1327,6 +1333,71 @@ class MemberReminderUpdateTests(TestCase):
             response,
             "Happy to help, but I may be slower next week.",
         )
+
+    def test_board_page_shows_protocol_feedback_modal(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Pat",
+            last_name="Protocol",
+            email="pat@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_protocol_at=timezone.now(),
+        )
+        feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            member=member,
+            content="Please tighten the scope in the introduction.",
+            submitted_at=timezone.now(),
+            uploaded_document=SimpleUploadedFile(
+                "pat-protocol-comments.docx",
+                b"protocol comments",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "View feedback")
+        self.assertContains(response, f'aria-label="View protocol feedback for {member.first_name} {member.last_name}"')
+        self.assertContains(response, f"protocol-feedback-{member.id}")
+        self.assertContains(response, "Please tighten the scope in the introduction.")
+        self.assertContains(response, feedback.latest_document_label())
+
+    def test_board_page_shows_action_list_feedback_modal(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Alex",
+            last_name="Actions",
+            email="alex@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+        )
+        feedback = ActionListFeedback.objects.create(
+            project=self.project,
+            member=member,
+            content="I suggest splitting habitat creation and restoration.",
+            submitted_at=timezone.now(),
+            uploaded_document=SimpleUploadedFile(
+                "alex-action-comments.docx",
+                b"action comments",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "View feedback")
+        self.assertContains(response, f'aria-label="View action list feedback for {member.first_name} {member.last_name}"')
+        self.assertContains(response, f"action-list-feedback-{member.id}")
+        self.assertContains(
+            response,
+            "I suggest splitting habitat creation and restoration.",
+        )
+        self.assertContains(response, feedback.latest_document_label())
 
     def test_clear_response_deadline(self):
         member = AdvisoryBoardMember.objects.create(
