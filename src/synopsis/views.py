@@ -2015,6 +2015,18 @@ def _advisory_board_context(
     )
 
     can_edit_members = _user_can_edit_project(user, project) if user else False
+    protocol_feedback_members = [
+        member
+        for member in all_members
+        if getattr(getattr(member, "latest_feedback", None), "submitted_at", None)
+    ]
+    action_list_feedback_members = [
+        member
+        for member in all_members
+        if getattr(
+            getattr(member, "latest_action_list_feedback_obj", None), "submitted_at", None
+        )
+    ]
 
     status_badges = {
         AdvisoryBoardCustomField.SECTION_ACCEPTED: {
@@ -2040,6 +2052,8 @@ def _advisory_board_context(
         "accepted_members_with_statement": accepted_with_statement,
         "declined_members": declined_members,
         "pending_members": pending_members,
+        "protocol_feedback_members": protocol_feedback_members,
+        "action_list_feedback_members": action_list_feedback_members,
         "member_sections": member_sections,
         "combined_fields_by_group": combined_fields_by_group,
         "member_status_badges": status_badges,
