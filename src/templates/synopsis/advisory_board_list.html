@@ -328,7 +328,7 @@
                         <th class="ab-group-header text-start ab-status-invite" scope="colgroup" colspan="{{ invitation_extra|add:4 }}">INVITATION</th>
                         {% endwith %}
                         {% with action_extra=combined_fields_by_group.action|length %}
-                        <th class="ab-group-header text-start ab-status-action" scope="colgroup" colspan="{{ action_extra|add:4 }}">ACTION LIST</th>
+                        <th class="ab-group-header text-start ab-status-action" scope="colgroup" colspan="{{ action_extra|add:5 }}">ACTION LIST</th>
                         {% endwith %}
                         {% with protocol_extra=combined_fields_by_group.protocol|length %}
                         <th class="ab-group-header text-start ab-status-protocol" scope="colgroup" colspan="{{ protocol_extra|add:7 }}">PROTOCOL</th>
@@ -375,6 +375,7 @@
                         </th>
                         {% endfor %}
                         <th class="ab-status-action text-start" scope="col">ACTION LIST SENT</th>
+                        <th class="ab-status-action text-start" scope="col">FEEDBACK DEADLINE</th>
                         <th class="ab-status-action text-start" scope="col">FEEDBACK RECEIVED</th>
                         <th class="ab-status-action text-start" scope="col">AUTHOR REPLIED</th>
                         <th class="ab-status-action text-start" scope="col">FEEDBACK ADDED TO DOC</th>
@@ -635,6 +636,15 @@
                                             <small class="text-muted text-nowrap">Upload action list first.</small>
                                         </div>
                                         {% endif %}
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.feedback_on_action_list_deadline %}
+                                        {{ m.feedback_on_action_list_deadline|date:"Y-m-d H:i" }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-action">
