@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import importlib.util
 import os
+import subprocess
 from pathlib import Path
 from decouple import AutoConfig, Config, RepositoryEnv, UndefinedValueError, strtobool
 
@@ -85,6 +86,28 @@ def _bool_config(name: str, default: bool = False, fallback_names: tuple[str, ..
         return config(name, cast=bool, default=default)
     except (UndefinedValueError, ValueError):
         return default
+
+
+def _git_release_label() -> str:
+    try:
+        branch = subprocess.check_output(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        short_sha = subprocess.check_output(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return ""
+
+    if not short_sha:
+        return ""
+    if branch and branch != "HEAD":
+        return f"{branch}@{short_sha}"
+    return short_sha
 
 
 # Quick-start development settings - unsuitable for production
@@ -243,6 +266,11 @@ DEFAULT_FROM_EMAIL = config(
     default="CE Synopsis Portal <ce-portal@localhost>",
 )
 SERVER_EMAIL = config("SERVER_EMAIL", default=DEFAULT_FROM_EMAIL)
+APP_RELEASE_LABEL = (
+    config("APP_RELEASE_LABEL", default="").strip()
+    or _git_release_label()
+    or "unlabelled build"
+)
 
 USE_X_FORWARDED_HOST = config("USE_X_FORWARDED_HOST", cast=bool, default=False)
 USE_X_FORWARDED_PORT = config("USE_X_FORWARDED_PORT", cast=bool, default=False)

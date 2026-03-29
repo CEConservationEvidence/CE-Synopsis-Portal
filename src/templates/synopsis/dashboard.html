@@ -2,6 +2,10 @@
 {% block title %}Dashboard – CE Portal{% endblock %}
 {% block content %}
 <h1>CE Synopsis Portal</h1>
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+    <span class="badge text-bg-light border">Deployed version</span>
+    <code>{{ app_release_label }}</code>
+</div>
 {% if user.is_authenticated %}
 {% include "synopsis/includes/dashboard_author_workflow_guide.html" %}
 <div class="d-flex flex-wrap gap-2 mt-3 mb-4">

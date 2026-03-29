@@ -5373,6 +5373,7 @@ class GlobalReferenceLibraryAccessTests(TestCase):
         self.project = Project.objects.create(title="Coral Project")
         UserRole.objects.create(user=self.user, project=self.project, role="author")
 
+    @override_settings(APP_RELEASE_LABEL="pilot-2026-03-29")
     def test_author_sees_global_library_entry_points(self):
         self.client.login(username="authorlib", password="pass123")
 
@@ -5381,6 +5382,8 @@ class GlobalReferenceLibraryAccessTests(TestCase):
             reverse("synopsis:project_hub", args=[self.project.id])
         )
 
+        self.assertContains(dashboard_response, "Deployed version")
+        self.assertContains(dashboard_response, "pilot-2026-03-29")
         self.assertContains(dashboard_response, "Open Reference Database")
         self.assertContains(dashboard_response, "Reference Database")
         self.assertContains(dashboard_response, "How this works for authors")

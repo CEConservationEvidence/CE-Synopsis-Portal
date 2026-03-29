@@ -2120,6 +2120,7 @@ def dashboard(request):
             "active_projects": active_projects,
             "completed_projects": completed_projects,
             "can_manage_projects": _user_is_manager(request.user),
+            "app_release_label": settings.APP_RELEASE_LABEL,
         },
     )
 
