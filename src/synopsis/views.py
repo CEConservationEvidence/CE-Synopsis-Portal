@@ -5406,6 +5406,72 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
 
 
 @login_required
+def advisory_member_set_action_list_flag(request, project_id, member_id, flag):
+    project = get_object_or_404(Project, pk=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
+
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    if not _user_can_edit_project(request.user, project):
+        messages.error(request, "You do not have permission to update this member.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if member.sent_action_list_at is None or (member.response or "").upper() != "Y":
+        messages.error(
+            request,
+            "This member needs an accepted invitation and a sent action list before updating action list tracking.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    normalized_flag = (flag or "").lower().replace("-", "_")
+    flag_map = {
+        "author_replied": ("wm_replied", "author replied"),
+        "added_to_doc": (
+            "added_to_action_list_doc",
+            "feedback added to the action list document",
+        ),
+        "guidance_feedback": (
+            "action_list_feedback_on_guidance",
+            "guidance feedback recorded",
+        ),
+    }
+    if normalized_flag not in flag_map:
+        return HttpResponseBadRequest("Unknown action list tracking field")
+
+    has_feedback = bool(
+        member.feedback_on_action_list_received
+        or getattr(getattr(member, "latest_action_list_feedback", None), "submitted_at", None)
+    )
+    if not has_feedback:
+        messages.error(
+            request,
+            "Action list tracking can only be updated after feedback has been received.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    field_name, label = flag_map[normalized_flag]
+    raw_value = request.POST.get("value", "")
+    new_value = str(raw_value).lower() in {"1", "true", "on", "yes"}
+    current_value = getattr(member, field_name)
+    if current_value != new_value:
+        setattr(member, field_name, new_value)
+        member.save(update_fields=[field_name])
+        human_name = " ".join(
+            part for part in (member.first_name, member.last_name) if part
+        ).strip() or member.email
+        state = "Marked" if new_value else "Cleared"
+        _log_project_change(
+            project,
+            request.user,
+            "Updated action list tracking",
+            f"{state} {label} for {human_name}",
+        )
+
+    return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
 def advisory_member_edit(request, project_id, member_id):
     project = get_object_or_404(Project, pk=project_id)
     member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
