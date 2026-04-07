@@ -1334,6 +1334,33 @@ class MemberReminderUpdateTests(TestCase):
             "Happy to help, but I may be slower next week.",
         )
 
+    def test_board_page_greys_out_response_deadline_for_accepted_member(self):
+        accepted_date = timezone.localdate() + timedelta(days=4)
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Amina",
+            last_name="Accepted",
+            email="amina@example.com",
+            response="Y",
+            participation_confirmed=True,
+            response_date=accepted_date,
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'value="{accepted_date.strftime("%Y-%m-%d")}"')
+        self.assertContains(response, 'aria-label="Response deadline for Amina"')
+        self.assertContains(response, "Locked")
+        self.assertContains(response, "Accepted")
+        self.assertNotContains(
+            response,
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "invite"],
+            ),
+        )
+
     def test_board_page_shows_protocol_feedback_modal(self):
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
