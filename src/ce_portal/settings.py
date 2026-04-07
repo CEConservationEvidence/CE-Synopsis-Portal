@@ -110,6 +110,14 @@ def _git_release_label() -> str:
     return short_sha
 
 
+def _release_label_file() -> str:
+    release_path = REPO_ROOT / ".release-label"
+    try:
+        return release_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
@@ -267,7 +275,8 @@ DEFAULT_FROM_EMAIL = config(
 )
 SERVER_EMAIL = config("SERVER_EMAIL", default=DEFAULT_FROM_EMAIL)
 APP_RELEASE_LABEL = (
-    config("APP_RELEASE_LABEL", default="").strip()
+    _release_label_file()
+    or config("APP_RELEASE_LABEL", default="").strip()
     or _git_release_label()
     or "unlabelled build"
 )
