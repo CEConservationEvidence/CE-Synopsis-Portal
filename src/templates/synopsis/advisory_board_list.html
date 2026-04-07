@@ -497,6 +497,25 @@
                                     <td class="ab-status-invite">
                                         {% if m.is_declined %}
                                         <span class="text-muted">Declined</span>
+                                        {% elif m.response == 'Y' %}
+                                        <div class="input-group input-group-sm opacity-75">
+                                            <input
+                                                type="date"
+                                                class="form-control bg-light text-muted"
+                                                value="{{ m.response_date|date:'Y-m-d' }}"
+                                                aria-label="Response deadline for {{ m.first_name|default:m.email }}"
+                                                disabled
+                                                readonly
+                                            >
+                                            <button
+                                                class="btn btn-outline-secondary btn-sm"
+                                                type="button"
+                                                disabled
+                                                aria-disabled="true"
+                                                tabindex="-1"
+                                            >Locked</button>
+                                        </div>
+                                        <div class="small text-muted mt-1">Accepted</div>
                                         {% else %}
                                         <form
                                             method="post"
