@@ -308,7 +308,9 @@ class ProtocolUpdateForm(forms.ModelForm):
     document = forms.FileField(
         required=False,
         validators=[FileExtensionValidator(["pdf", "docx"])],
-        widget=forms.FileInput(attrs={"class": "form-control"}),
+        widget=forms.FileInput(
+            attrs={"class": "form-control", "data-reset-before-select": "true"}
+        ),
         help_text="Upload a PDF or DOCX version of the protocol.",
     )
     change_reason = forms.CharField(
@@ -345,7 +347,9 @@ class ActionListUpdateForm(forms.ModelForm):
     document = forms.FileField(
         required=False,
         validators=[FileExtensionValidator(["pdf", "docx"])],
-        widget=forms.FileInput(attrs={"class": "form-control"}),
+        widget=forms.FileInput(
+            attrs={"class": "form-control", "data-reset-before-select": "true"}
+        ),
         help_text="Upload a PDF or DOCX version of the action list.",
     )
     change_reason = forms.CharField(
