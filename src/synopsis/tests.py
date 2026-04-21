@@ -2925,6 +2925,16 @@ class CollaborativeClosureTests(TestCase):
 
 class ProtocolUploadFlowTests(TestCase):
     def setUp(self):
+        from . import views
+
+        self.views = views
+        self.original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "https://onlyoffice.example.com/office",
+            "callback_timeout": 7,
+        }
+        self.addCleanup(self._restore_settings)
+
         self.media_dir = tempfile.mkdtemp()
         self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
         override = override_settings(MEDIA_ROOT=self.media_dir)
@@ -2935,6 +2945,9 @@ class ProtocolUploadFlowTests(TestCase):
         self.ibrahim = User.objects.create_user(username="ibrahim", password="pw")
         UserRole.objects.create(user=self.ibrahim, project=self.project, role="author")
         self.client.force_login(self.ibrahim)
+
+    def _restore_settings(self):
+        self.views.ONLYOFFICE_SETTINGS = self.original_settings
 
     def _docx_upload(self, name, content):
         return SimpleUploadedFile(
@@ -3112,6 +3125,92 @@ class ProtocolUploadFlowTests(TestCase):
             response,
             "Choose an action list file to upload. You can reuse the same filename as a file you deleted.",
         )
+
+    def test_protocol_delete_closes_stale_collaborative_session_before_reupload(self):
+        detail_url = reverse("synopsis:protocol_detail", args=[self.project.id])
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-protocol.docx", b"first"),
+            },
+        )
+        session = CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            started_by=self.ibrahim,
+            last_activity_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse("synopsis:protocol_delete", args=[self.project.id])
+        )
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        session.refresh_from_db()
+        self.assertFalse(session.is_active)
+        self.assertEqual(session.end_reason, "Protocol deleted")
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v2",
+                "document": self._docx_upload("draft-protocol.docx", b"second"),
+            },
+        )
+        self.assertRedirects(response, detail_url)
+
+        response = self.client.get(detail_url)
+        self.assertContains(response, "Start collaborative edit")
+        self.assertNotContains(response, "Open editor")
+
+    def test_action_list_delete_closes_stale_collaborative_session_before_reupload(self):
+        detail_url = reverse("synopsis:action_list_detail", args=[self.project.id])
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-action-list.docx", b"first"),
+            },
+        )
+        session = CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_ACTION_LIST,
+            started_by=self.ibrahim,
+            last_activity_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse("synopsis:action_list_delete", args=[self.project.id])
+        )
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        session.refresh_from_db()
+        self.assertFalse(session.is_active)
+        self.assertEqual(session.end_reason, "Action list deleted")
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v2",
+                "document": self._docx_upload("draft-action-list.docx", b"second"),
+            },
+        )
+        self.assertRedirects(response, detail_url)
+
+        response = self.client.get(detail_url)
+        self.assertContains(response, "Start collaborative edit")
+        self.assertNotContains(response, "Open editor")
 
 
 class OnlyOfficeConfigTests(TestCase):

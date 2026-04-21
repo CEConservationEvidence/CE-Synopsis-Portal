@@ -4534,11 +4534,18 @@ def action_list_delete_file(request, project_id):
         action_list.document = ""
         action_list.current_revision = None
         action_list.save(update_fields=["document", "current_revision"])
+        ended_session = _end_active_collaborative_session(
+            project,
+            CollaborativeSession.DOCUMENT_ACTION_LIST,
+            ended_by=request.user,
+            reason="Action list file deleted",
+        )
         _log_project_change(
             project,
             request.user,
             "Removed action list file",
-            f"File: {file_name}",
+            f"File: {file_name}"
+            + ("; Collaborative session closed" if ended_session else ""),
         )
         messages.success(
             request,
@@ -4658,12 +4665,20 @@ def action_list_delete(request, project_id):
         revision_count = action_list.revisions.count()
         if action_list.document:
             action_list.document.delete(save=False)
+        ended_session = _end_active_collaborative_session(
+            project,
+            CollaborativeSession.DOCUMENT_ACTION_LIST,
+            ended_by=request.user,
+            reason="Action list deleted",
+        )
         action_list.delete()
         details = []
         if file_name:
             details.append(f"File: {file_name}")
         details.append(f"Text length removed: {text_len} chars")
         details.append(f"Revisions removed: {revision_count}")
+        if ended_session:
+            details.append("Collaborative session closed")
         _log_project_change(
             project,
             request.user,
@@ -4830,11 +4845,18 @@ def protocol_delete_file(request, project_id):
         protocol.document = ""
         protocol.current_revision = None
         protocol.save(update_fields=["document", "current_revision"])
+        ended_session = _end_active_collaborative_session(
+            project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+            ended_by=request.user,
+            reason="Protocol file deleted",
+        )
         _log_project_change(
             project,
             request.user,
             "Removed protocol file",
-            f"File: {file_name}",
+            f"File: {file_name}"
+            + ("; Collaborative session closed" if ended_session else ""),
         )
         messages.success(
             request,
@@ -5013,11 +5035,19 @@ def protocol_delete(request, project_id):
         text_len = len(protocol.text_version or "")
         if protocol.document:
             protocol.document.delete(save=False)
+        ended_session = _end_active_collaborative_session(
+            project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+            ended_by=request.user,
+            reason="Protocol deleted",
+        )
         protocol.delete()
         details = []
         if file_name:
             details.append(f"File: {file_name}")
         details.append(f"Text length removed: {text_len} chars")
+        if ended_session:
+            details.append("Collaborative session closed")
         _log_project_change(
             project,
             request.user,
