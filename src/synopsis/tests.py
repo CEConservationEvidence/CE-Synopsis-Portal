@@ -3442,6 +3442,19 @@ class CollaborativePanelViewTests(TestCase):
         self.assertContains(
             response, "This page manages the current working protocol for the project."
         )
+        self.assertContains(
+            response,
+            "Sending the protocol for review happens on the Advisory Board page.",
+        )
+        self.assertContains(
+            response,
+            "When you are ready to send it to advisory board members, go to the Advisory Board page",
+        )
+        self.assertContains(response, "Go to Advisory Board")
+        self.assertContains(
+            response,
+            "Sending the protocol to advisory board members is done from the <strong>Advisory Board</strong> page.",
+        )
         self.assertContains(response, "How collaborative editing works")
         self.assertContains(
             response,
