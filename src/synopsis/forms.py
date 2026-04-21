@@ -1751,19 +1751,19 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
     action_tags = forms.MultipleChoiceField(
         required=False,
         choices=IUCN_ACTION_CHOICES,
-        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        widget=forms.CheckboxSelectMultiple(attrs={"class": "tag-choice-input"}),
         label="Action (IUCN)",
     )
     threat_tags = forms.MultipleChoiceField(
         required=False,
         choices=IUCN_THREAT_CHOICES,
-        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        widget=forms.CheckboxSelectMultiple(attrs={"class": "tag-choice-input"}),
         label="Threat (IUCN)",
     )
     habitat_tags = forms.MultipleChoiceField(
         required=False,
         choices=IUCN_HABITAT_CHOICES,
-        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        widget=forms.CheckboxSelectMultiple(attrs={"class": "tag-choice-input"}),
         label="Habitat (IUCN)",
     )
     taxon_tags = TagCommaField(

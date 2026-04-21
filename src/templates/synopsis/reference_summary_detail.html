@@ -11,6 +11,57 @@
         border-color: #d5d9de;
         color: #5f6872;
     }
+    .tag-picker {
+        border: 1px solid var(--bs-border-color);
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        background: #fff;
+    }
+    .tag-picker-toolbar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 0.5rem;
+        align-items: center;
+        margin-bottom: 0.75rem;
+    }
+    .tag-choice-panel {
+        max-height: 12rem;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+    }
+    .tag-choice-panel > div {
+        margin-bottom: 0.35rem;
+    }
+    .tag-choice-panel label {
+        display: grid;
+        grid-template-columns: 1.1rem minmax(0, 1fr);
+        gap: 0.5rem;
+        align-items: start;
+        min-height: 2rem;
+        padding: 0.35rem 0.45rem;
+        border-radius: 0.35rem;
+        cursor: pointer;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+    }
+    .tag-choice-panel label:hover {
+        background: #f6f8fa;
+    }
+    .tag-choice-panel .tag-choice-selected label {
+        background: #eaf4ff;
+        border: 1px solid #b6dcff;
+    }
+    .tag-choice-panel input[type="checkbox"] {
+        margin-top: 0.2rem;
+    }
+    .tag-choice-panel .tag-choice-hidden {
+        display: none;
+    }
+    @media (max-width: 575.98px) {
+        .tag-picker-toolbar {
+            grid-template-columns: minmax(0, 1fr);
+        }
+    }
 </style>
 <h1 class="mb-3">Reference summary</h1>
 <div class="d-flex flex-wrap gap-2 mb-4">
@@ -377,20 +428,68 @@
                     <div>
                         <div class="text-uppercase text-muted small fw-semibold mb-2">Tags & design</div>
                         <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Action tags (IUCN)</label>
-                                {{ summary_form.action_tags }}
-                                <div class="form-text">Select all applicable interventions.</div>
+                            <div class="col-12">
+                                <div class="tag-picker" data-tag-picker>
+                                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                                        <div>
+                                            <label class="form-label mb-1">Action tags (IUCN)</label>
+                                            <div class="form-text mt-0">Tick every action category that applies.</div>
+                                        </div>
+                                        <span class="badge text-bg-light" data-tag-count>0 selected</span>
+                                    </div>
+                                    <div class="tag-picker-toolbar">
+                                        <input type="search" class="form-control form-control-sm" data-tag-filter placeholder="Filter action tags">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" data-tag-clear>Clear</button>
+                                    </div>
+                                    <div class="tag-choice-panel">
+                                        {{ summary_form.action_tags }}
+                                    </div>
+                                </div>
+                                {% if summary_form.action_tags.errors %}
+                                <div class="text-danger small mt-1">{{ summary_form.action_tags.errors|join:", " }}</div>
+                                {% endif %}
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Threat tags (IUCN)</label>
-                                {{ summary_form.threat_tags }}
-                                <div class="form-text">Select all applicable threats.</div>
+                            <div class="col-12">
+                                <div class="tag-picker" data-tag-picker>
+                                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                                        <div>
+                                            <label class="form-label mb-1">Threat tags (IUCN)</label>
+                                            <div class="form-text mt-0">Tick every threat that the intervention is intended to address. More than one can be selected.</div>
+                                        </div>
+                                        <span class="badge text-bg-light" data-tag-count>0 selected</span>
+                                    </div>
+                                    <div class="tag-picker-toolbar">
+                                        <input type="search" class="form-control form-control-sm" data-tag-filter placeholder="Filter threat tags">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" data-tag-clear>Clear</button>
+                                    </div>
+                                    <div class="tag-choice-panel">
+                                        {{ summary_form.threat_tags }}
+                                    </div>
+                                </div>
+                                {% if summary_form.threat_tags.errors %}
+                                <div class="text-danger small mt-1">{{ summary_form.threat_tags.errors|join:", " }}</div>
+                                {% endif %}
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Habitat tags (IUCN)</label>
-                                {{ summary_form.habitat_tags }}
-                                <div class="form-text">Select all applicable habitats.</div>
+                            <div class="col-12">
+                                <div class="tag-picker" data-tag-picker>
+                                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                                        <div>
+                                            <label class="form-label mb-1">Habitat tags (IUCN)</label>
+                                            <div class="form-text mt-0">Tick every habitat category that applies.</div>
+                                        </div>
+                                        <span class="badge text-bg-light" data-tag-count>0 selected</span>
+                                    </div>
+                                    <div class="tag-picker-toolbar">
+                                        <input type="search" class="form-control form-control-sm" data-tag-filter placeholder="Filter habitat tags">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" data-tag-clear>Clear</button>
+                                    </div>
+                                    <div class="tag-choice-panel">
+                                        {{ summary_form.habitat_tags }}
+                                    </div>
+                                </div>
+                                {% if summary_form.habitat_tags.errors %}
+                                <div class="text-danger small mt-1">{{ summary_form.habitat_tags.errors|join:", " }}</div>
+                                {% endif %}
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Taxon tags</label>
@@ -664,6 +763,58 @@
     })();
 </script>
 {% endif %}
+<script>
+    (() => {
+        document.querySelectorAll("[data-tag-picker]").forEach((picker) => {
+            const filter = picker.querySelector("[data-tag-filter]");
+            const clearButton = picker.querySelector("[data-tag-clear]");
+            const count = picker.querySelector("[data-tag-count]");
+            const checkboxes = Array.from(picker.querySelectorAll("input[type='checkbox']"));
+            const rows = checkboxes.map((checkbox) => {
+                const label = picker.querySelector(`label[for="${checkbox.id}"]`) || checkbox.closest("label");
+                return {
+                    checkbox,
+                    label,
+                    row: label ? label.closest("div") : checkbox.closest("div"),
+                    text: label ? label.textContent.trim().toLowerCase() : "",
+                };
+            });
+
+            const update = () => {
+                const term = filter ? filter.value.trim().toLowerCase() : "";
+                let selected = 0;
+                rows.forEach((item) => {
+                    if (item.checkbox.checked) selected += 1;
+                    if (item.row) {
+                        item.row.classList.toggle("tag-choice-selected", item.checkbox.checked);
+                        item.row.classList.toggle(
+                            "tag-choice-hidden",
+                            Boolean(term) && !item.text.includes(term)
+                        );
+                    }
+                });
+                if (count) {
+                    count.textContent = selected === 1 ? "1 selected" : `${selected} selected`;
+                    count.classList.toggle("text-bg-primary", selected > 0);
+                    count.classList.toggle("text-bg-light", selected === 0);
+                }
+            };
+
+            checkboxes.forEach((checkbox) => checkbox.addEventListener("change", update));
+            if (filter) filter.addEventListener("input", update);
+            if (clearButton) {
+                clearButton.addEventListener("click", () => {
+                    checkboxes.forEach((checkbox) => {
+                        checkbox.checked = false;
+                    });
+                    if (filter) filter.value = "";
+                    update();
+                });
+            }
+            update();
+        });
+    })();
+</script>
 <script>
     (() => {
         const pdfCard = document.getElementById("pdf-card");
