@@ -4715,6 +4715,52 @@ class ReferenceSummaryFormTests(TestCase):
             ],
         )
 
+    def test_research_design_accepts_up_to_four_tags(self):
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "research_design": [
+                    "Replicated",
+                    "Randomized",
+                    "Controlled*",
+                    "Before-and-after",
+                ],
+            }
+        )
+
+        self.assertTrue(form.is_valid())
+        self.assertEqual(
+            form.cleaned_data["research_design"],
+            "Replicated; Randomized; Controlled*; Before-and-after",
+        )
+
+    def test_research_design_rejects_more_than_four_tags(self):
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "research_design": [
+                    "Replicated",
+                    "Randomized",
+                    "Paired sites",
+                    "Controlled*",
+                    "Before-and-after",
+                ],
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Select up to 4 research design tags", str(form.errors))
+
+    def test_research_design_initial_splits_saved_tags(self):
+        summary = ReferenceSummary(research_design="Replicated; Controlled*")
+
+        form = ReferenceSummaryUpdateForm(instance=summary)
+
+        self.assertEqual(
+            form["research_design"].value(),
+            ["Replicated", "Controlled*"],
+        )
+
     def test_draft_form_prefills_generated_summary_when_no_saved_draft_exists(self):
         project = Project.objects.create(title="Coral Reefs Synopsis")
         batch = ReferenceSourceBatch.objects.create(
