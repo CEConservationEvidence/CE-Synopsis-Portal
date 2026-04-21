@@ -2936,6 +2936,13 @@ class ProtocolUploadFlowTests(TestCase):
         UserRole.objects.create(user=self.ibrahim, project=self.project, role="author")
         self.client.force_login(self.ibrahim)
 
+    def _docx_upload(self, name, content):
+        return SimpleUploadedFile(
+            name,
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
     def test_initial_protocol_upload_creates_revision_and_redirects(self):
         response = self.client.post(
             reverse("synopsis:protocol_detail", args=[self.project.id]),
@@ -2943,11 +2950,7 @@ class ProtocolUploadFlowTests(TestCase):
                 "stage": "draft",
                 "change_reason": "",
                 "version_label": "v1.0",
-                "document": SimpleUploadedFile(
-                    "ibrahim-protocol.docx",
-                    b"protocol",
-                    content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                ),
+                "document": self._docx_upload("ibrahim-protocol.docx", b"protocol"),
             },
         )
 
@@ -2959,6 +2962,156 @@ class ProtocolUploadFlowTests(TestCase):
         self.assertTrue(protocol.document.name.endswith(".docx"))
         self.assertIsNotNone(protocol.current_revision)
         self.assertEqual(protocol.current_revision.version_label, "v1.0")
+
+    def test_protocol_can_reupload_same_filename_after_delete_file(self):
+        detail_url = reverse("synopsis:protocol_detail", args=[self.project.id])
+
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-protocol.docx", b"first"),
+            },
+        )
+        protocol = Protocol.objects.get(project=self.project)
+        original_document_path = protocol.document.name
+        original_revision_id = protocol.current_revision_id
+
+        response = self.client.post(
+            reverse("synopsis:protocol_delete_file", args=[self.project.id])
+        )
+        self.assertRedirects(response, detail_url)
+        protocol.refresh_from_db()
+        self.assertFalse(protocol.document)
+        self.assertIsNone(protocol.current_revision)
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "Replacing deleted draft",
+                "version_label": "v2",
+                "document": self._docx_upload("draft-protocol.docx", b"second"),
+            },
+        )
+        self.assertRedirects(response, detail_url)
+
+        protocol.refresh_from_db()
+        self.assertTrue(protocol.document)
+        self.assertNotEqual(protocol.document.name, original_document_path)
+        self.assertIsNotNone(protocol.current_revision)
+        self.assertNotEqual(protocol.current_revision_id, original_revision_id)
+        self.assertEqual(protocol.current_revision.original_name, "draft-protocol.docx")
+        self.assertEqual(protocol.current_revision.version_label, "v2")
+        self.assertEqual(ProtocolRevision.objects.filter(protocol=protocol).count(), 2)
+
+    def test_protocol_missing_file_after_delete_shows_clear_error(self):
+        detail_url = reverse("synopsis:protocol_detail", args=[self.project.id])
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-protocol.docx", b"first"),
+            },
+        )
+        self.client.post(reverse("synopsis:protocol_delete_file", args=[self.project.id]))
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Choose a protocol file to upload. You can reuse the same filename as a file you deleted.",
+        )
+
+    def test_action_list_can_reupload_same_filename_after_delete_file(self):
+        detail_url = reverse("synopsis:action_list_detail", args=[self.project.id])
+
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-action-list.docx", b"first"),
+            },
+        )
+        action_list = ActionList.objects.get(project=self.project)
+        original_document_path = action_list.document.name
+        original_revision_id = action_list.current_revision_id
+
+        response = self.client.post(
+            reverse("synopsis:action_list_delete_file", args=[self.project.id])
+        )
+        self.assertRedirects(response, detail_url)
+        action_list.refresh_from_db()
+        self.assertFalse(action_list.document)
+        self.assertIsNone(action_list.current_revision)
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "Replacing deleted draft",
+                "version_label": "v2",
+                "document": self._docx_upload("draft-action-list.docx", b"second"),
+            },
+        )
+        self.assertRedirects(response, detail_url)
+
+        action_list.refresh_from_db()
+        self.assertTrue(action_list.document)
+        self.assertNotEqual(action_list.document.name, original_document_path)
+        self.assertIsNotNone(action_list.current_revision)
+        self.assertNotEqual(action_list.current_revision_id, original_revision_id)
+        self.assertEqual(
+            action_list.current_revision.original_name, "draft-action-list.docx"
+        )
+        self.assertEqual(action_list.current_revision.version_label, "v2")
+        self.assertEqual(
+            ActionListRevision.objects.filter(action_list=action_list).count(), 2
+        )
+
+    def test_action_list_missing_file_after_delete_shows_clear_error(self):
+        detail_url = reverse("synopsis:action_list_detail", args=[self.project.id])
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-action-list.docx", b"first"),
+            },
+        )
+        self.client.post(
+            reverse("synopsis:action_list_delete_file", args=[self.project.id])
+        )
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Choose an action list file to upload. You can reuse the same filename as a file you deleted.",
+        )
 
 
 class OnlyOfficeConfigTests(TestCase):
@@ -3369,6 +3522,10 @@ class CollaborativePanelViewTests(TestCase):
         self.assertContains(protocol_response, 'data-bs-target="#protocolFeedbackWindowCollapse"')
         self.assertContains(protocol_response, "data-collapse-toggle-label")
         self.assertContains(protocol_response, 'data-label-open="Hide"')
+        self.assertContains(
+            protocol_response,
+            "Closing this feedback window will stop advisory members from submitting protocol feedback and will end collaborative editing for this protocol. Are you sure?",
+        )
 
         action_list_response = self.client.get(
             reverse("synopsis:action_list_detail", args=[self.project.id])
@@ -3378,6 +3535,10 @@ class CollaborativePanelViewTests(TestCase):
         self.assertContains(action_list_response, 'data-bs-target="#actionListFeedbackWindowCollapse"')
         self.assertContains(action_list_response, "data-collapse-toggle-label")
         self.assertContains(action_list_response, 'data-label-open="Hide"')
+        self.assertContains(
+            action_list_response,
+            "Closing this feedback window will stop advisory members from submitting action list feedback and will end collaborative editing for this action list. Are you sure?",
+        )
 
 
 class AdvisoryBoardCustomColumnsTests(TestCase):
