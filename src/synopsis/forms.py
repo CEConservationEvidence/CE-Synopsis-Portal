@@ -97,6 +97,10 @@ RESEARCH_DESIGN_CHOICES = [
     ("Systematic review", "Systematic review"),
     ("Study", "Study"),
 ]
+RESEARCH_DESIGN_TAG_CHOICES = [
+    (value, label) for value, label in RESEARCH_DESIGN_CHOICES if value
+]
+MAX_RESEARCH_DESIGN_TAGS = 4
 
 IUCN_ACTION_TAGS = [
     "Land/water protection-Area protection",
@@ -1821,11 +1825,11 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         label="Outcome rows",
         help_text="One outcome per line, fields separated by |",
     )
-    research_design = forms.ChoiceField(
+    research_design = forms.MultipleChoiceField(
         required=False,
-        choices=RESEARCH_DESIGN_CHOICES,
-        widget=forms.Select(attrs={"class": "form-select"}),
-        label="Research design",
+        choices=RESEARCH_DESIGN_TAG_CHOICES,
+        widget=forms.CheckboxSelectMultiple(attrs={"class": "tag-choice-input"}),
+        label="Research design tags",
     )
     QUALITY_SCORE_RANGES = {
         "benefits_score": (0, 100, "1"),
@@ -1838,6 +1842,10 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         instance = getattr(self, "instance", None)
         self._existing_status = instance.status if instance else None
+        if not self.is_bound and instance and instance.research_design:
+            self.initial["research_design"] = self._split_research_design_value(
+                instance.research_design
+            )
         if "status" not in (self.data or {}):
             self.fields["status"].required = False
         if instance and instance.pk and instance.outcome_rows:
@@ -1962,6 +1970,22 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
 
     def clean_habitat_tags(self):
         return self._split_tags("habitat_tags")
+
+    @staticmethod
+    def _split_research_design_value(value):
+        if isinstance(value, (list, tuple)):
+            return [str(part).strip() for part in value if str(part).strip()]
+        if not value:
+            return []
+        return [part.strip() for part in re.split(r";|,", str(value)) if part.strip()]
+
+    def clean_research_design(self):
+        values = self.cleaned_data.get("research_design") or []
+        if len(values) > MAX_RESEARCH_DESIGN_TAGS:
+            raise forms.ValidationError(
+                f"Select up to {MAX_RESEARCH_DESIGN_TAGS} research design tags."
+            )
+        return "; ".join(values)
 
     def clean_location_tags(self):
         raw = self.cleaned_data.get("location_tags", "") or ""
