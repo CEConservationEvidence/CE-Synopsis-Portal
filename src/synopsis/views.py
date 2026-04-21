@@ -5712,6 +5712,22 @@ def advisory_member_edit(request, project_id, member_id):
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
     if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "delete_member":
+            display_name = _advisory_member_display(member)
+            member_email = member.email
+            member_id_value = member.id
+            with transaction.atomic():
+                _log_project_change(
+                    project,
+                    request.user,
+                    "Deleted advisory member",
+                    f"Removed {display_name} ({member_email}) from the advisory board; member id {member_id_value}.",
+                )
+                member.delete()
+            messages.success(request, f"Deleted advisory board member {display_name}.")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+
         form = AdvisoryBoardMemberForm(request.POST, instance=member)
         if form.is_valid():
             updated_member = form.save()

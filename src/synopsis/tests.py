@@ -1832,6 +1832,86 @@ class MemberReminderUpdateTests(TestCase):
             ).exists()
         )
 
+    def test_edit_member_page_includes_delete_action(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            title="Dr",
+            first_name="Rebecca",
+            last_name="Smith",
+            email="rebecca@example.com",
+        )
+
+        url = reverse(
+            "synopsis:advisory_member_edit",
+            args=[self.project.id, member.id],
+        )
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Delete advisory board member")
+        self.assertContains(response, 'name="action" value="delete_member"')
+
+    def test_delete_member_from_edit_page(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            title="Dr",
+            first_name="Rebecca",
+            last_name="Smith",
+            email="rebecca@example.com",
+        )
+        custom_field = AdvisoryBoardCustomField.objects.create(
+            project=self.project,
+            name="Expertise",
+            data_type=AdvisoryBoardCustomField.TYPE_TEXT,
+        )
+        custom_field.set_value_for_member(member, "Wetlands", changed_by=self.user)
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+            invited_by=self.user,
+        )
+        protocol_feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+            content="Protocol notes",
+        )
+        action_list_feedback = ActionListFeedback.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+            content="Action list notes",
+        )
+
+        url = reverse(
+            "synopsis:advisory_member_edit",
+            args=[self.project.id, member.id],
+        )
+        response = self.client.post(url, data={"action": "delete_member"})
+
+        self.assertRedirects(response, self.board_url)
+        self.assertFalse(
+            AdvisoryBoardMember.objects.filter(pk=member.id).exists()
+        )
+        self.assertFalse(
+            AdvisoryBoardInvitation.objects.filter(pk=invitation.id).exists()
+        )
+        self.assertFalse(
+            custom_field.values.filter(member_id=member.id).exists()
+        )
+        protocol_feedback.refresh_from_db()
+        action_list_feedback.refresh_from_db()
+        self.assertIsNone(protocol_feedback.member)
+        self.assertIsNone(action_list_feedback.member)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Deleted advisory member",
+                details__contains="Rebecca Smith",
+            ).exists()
+        )
+
     def test_decline_reason_length_validation(self):
         member = AdvisoryBoardMember.objects.create(
             project=self.project,

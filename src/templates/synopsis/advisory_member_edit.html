@@ -58,4 +58,21 @@
         </form>
     </div>
 </div>
+<div class="card border-danger mt-3">
+    <div class="card-header text-danger fw-semibold">Delete advisory board member</div>
+    <div class="card-body">
+        <p class="text-muted mb-3">
+            Delete this row if the person was added in error or should no longer be tracked on this advisory board.
+            Submitted feedback files and comments remain in the project history, but this member row and its row-specific tracking values will be removed.
+        </p>
+        <form
+            method="post"
+            onsubmit="return confirm('Delete this advisory board member? This cannot be undone.');"
+        >
+            {% csrf_token %}
+            <input type="hidden" name="action" value="delete_member">
+            <button type="submit" class="btn btn-outline-danger">Delete member</button>
+        </form>
+    </div>
+</div>
 {% endblock %}
