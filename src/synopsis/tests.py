@@ -2957,6 +2957,130 @@ class OnlyOfficeConfigTests(TestCase):
         )
 
 
+class OnlyOfficeExternalAccessTests(TestCase):
+    def setUp(self):
+        from . import views
+
+        self.views = views
+        self.original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "http://localhost:8080",
+            "internal_url": "http://onlyoffice",
+            "app_base_url": "http://web:8000",
+            "jwt_secret": "change-me",
+            "callback_timeout": 10,
+            "trusted_download_urls": [
+                "http://localhost:8080",
+                "http://onlyoffice",
+            ],
+        }
+        self.addCleanup(self._restore_settings)
+
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
+        override = override_settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+
+        self.project = Project.objects.create(title="External Collaboration")
+        self.author = User.objects.create_user(username="external-author", password="pw")
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        self.member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Asha",
+            last_name="Reviewer",
+            organisation="CE",
+            email="asha@example.com",
+            response="Y",
+            participation_confirmed=True,
+            feedback_on_protocol_deadline=timezone.now() + timedelta(days=7),
+        )
+        self.protocol = Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile(
+                "external-protocol.docx",
+                b"protocol",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+        self.session = CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            started_by=self.author,
+            last_activity_at=timezone.now(),
+        )
+
+    def _restore_settings(self):
+        self.views.ONLYOFFICE_SETTINGS = self.original_settings
+
+    def _editor_url(self, query):
+        return (
+            reverse(
+                "synopsis:collaborative_edit",
+                args=[self.project.id, "protocol", self.session.token],
+            )
+            + query
+        )
+
+    def test_anonymous_reviewer_can_open_editor_with_feedback_token(self):
+        feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            member=self.member,
+            email=self.member.email,
+            feedback_deadline_at=self.member.feedback_on_protocol_deadline,
+        )
+
+        response = self.client.get(self._editor_url(f"?feedback={feedback.token}"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["editor_config"]["editorConfig"]["user"]["id"],
+            f"abm:{self.member.id}",
+        )
+        self.assertContains(response, "You are editing as Asha Reviewer.")
+
+    def test_anonymous_reviewer_can_open_editor_with_invitation_token(self):
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=self.member,
+            email=self.member.email,
+            invited_by=self.author,
+            due_date=timezone.localdate() + timedelta(days=7),
+        )
+        self.session.invitations.add(invitation)
+
+        response = self.client.get(
+            self._editor_url(f"?invite={invitation.token}&member={self.member.id}")
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["editor_config"]["editorConfig"]["user"]["id"],
+            f"abm:{self.member.id}",
+        )
+
+    def test_member_id_only_link_is_blocked_for_anonymous_users(self):
+        response = self.client.get(self._editor_url(f"?member={self.member.id}"))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(
+            response,
+            "This older collaborative link is missing its secure review token.",
+            status_code=403,
+        )
+
+    def test_project_author_can_open_editor_without_external_token(self):
+        self.client.force_login(self.author)
+
+        response = self.client.get(self._editor_url(""))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["editor_config"]["editorConfig"]["user"]["id"],
+            str(self.author.id),
+        )
+
+
 class CollaborativeForceSaveCloseTests(TestCase):
     def setUp(self):
         self.project = Project.objects.create(title="Will Final Save")

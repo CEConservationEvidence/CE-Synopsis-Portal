@@ -21,7 +21,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User, Group
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives
 from django.db import connection, transaction
@@ -924,6 +924,8 @@ def _ensure_collaborative_invite_link(
         )
 
     params = {}
+    if invitation:
+        params["invite"] = str(invitation.token)
     if member:
         params["member"] = str(member.id)
     if feedback:
@@ -967,6 +969,191 @@ def _collaborative_session_or_404(project, document_type, token):
         document_type=document_type,
         token=token,
     )
+
+
+def _feedback_model_for_document_type(document_type):
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        return ProtocolFeedback
+    if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST:
+        return ActionListFeedback
+    return None
+
+
+def _member_feedback_deadline(member, document_type):
+    if not member:
+        return None
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        return member.feedback_on_protocol_deadline
+    if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST:
+        return member.feedback_on_action_list_deadline
+    return None
+
+
+def _collaborative_access_closed_response(
+    request,
+    project,
+    document_label,
+    message,
+    *,
+    status=403,
+    detail_url="",
+):
+    return render(
+        request,
+        "synopsis/collaborative_editor.html",
+        {
+            "project": project,
+            "document_label": document_label,
+            "detail_url": detail_url,
+            "window_closed_message": message,
+            "can_force_end": False,
+            "force_end_url": "",
+            "participant_display": "",
+        },
+        status=status,
+    )
+
+
+def _resolve_external_collaborative_access(request, project, document_type, session):
+    feedback_token = request.GET.get("feedback")
+    invitation_token = request.GET.get("invite")
+
+    if feedback_token:
+        feedback_model = _feedback_model_for_document_type(document_type)
+        if not feedback_model:
+            return {
+                "allowed": False,
+                "message": "This collaborative link is not available.",
+            }
+        try:
+            feedback = (
+                feedback_model.objects.select_related("member", "invitation")
+                .get(token=feedback_token, project=project)
+            )
+        except (feedback_model.DoesNotExist, TypeError, ValueError, ValidationError):
+            return {
+                "allowed": False,
+                "message": "This collaborative feedback link is not valid.",
+            }
+
+        member = feedback.member
+        if member and member.response == "N":
+            return {
+                "allowed": False,
+                "message": "This collaborative link is no longer available because the invitation was declined.",
+            }
+
+        deadline = _member_feedback_deadline(member, document_type) or feedback.feedback_deadline_at
+        if deadline and timezone.now() >= deadline:
+            return {
+                "allowed": False,
+                "message": f"This collaborative feedback link closed on {_format_deadline(deadline)}.",
+            }
+
+        if member:
+            display = _advisory_member_display(member)
+            return {
+                "allowed": True,
+                "member": member,
+                "feedback": feedback,
+                "participant_display": display,
+                "participant_context": {
+                    "id": f"abm:{member.id}",
+                    "name": display,
+                    "email": member.email,
+                },
+            }
+
+        display = feedback.email or "Advisory board reviewer"
+        return {
+            "allowed": True,
+            "member": None,
+            "feedback": feedback,
+            "participant_display": display,
+            "participant_context": {
+                "id": f"abe:{display.lower()}",
+                "name": display,
+                "email": feedback.email,
+            },
+        }
+
+    if invitation_token:
+        try:
+            invitation = (
+                AdvisoryBoardInvitation.objects.select_related("member")
+                .get(token=invitation_token, project=project)
+            )
+        except (
+            AdvisoryBoardInvitation.DoesNotExist,
+            TypeError,
+            ValueError,
+            ValidationError,
+        ):
+            return {
+                "allowed": False,
+                "message": "This collaborative invitation link is not valid.",
+            }
+
+        if (
+            _collaborative_invitation_table_ready()
+            and session.invitations.exists()
+            and not session.invitations.filter(pk=invitation.pk).exists()
+        ):
+            return {
+                "allowed": False,
+                "message": "This invitation is not attached to the current collaborative session.",
+            }
+
+        if invitation.accepted is False:
+            return {
+                "allowed": False,
+                "message": "This collaborative link is no longer available because the invitation was declined.",
+            }
+
+        if invitation.due_date and timezone.localdate() > invitation.due_date:
+            return {
+                "allowed": False,
+                "message": f"This collaborative invitation link closed on {invitation.due_date:%Y-%m-%d}.",
+            }
+
+        member = invitation.member
+        if member and member.response == "N":
+            return {
+                "allowed": False,
+                "message": "This collaborative link is no longer available because the invitation was declined.",
+            }
+
+        if member:
+            display = _advisory_member_display(member)
+            participant_id = f"abm:{member.id}"
+            participant_email = member.email
+        else:
+            display = invitation.email or "Advisory board invitee"
+            participant_id = f"abe:{display.lower()}"
+            participant_email = invitation.email
+
+        return {
+            "allowed": True,
+            "member": member,
+            "invitation": invitation,
+            "participant_display": display,
+            "participant_context": {
+                "id": participant_id,
+                "name": display,
+                "email": participant_email,
+            },
+        }
+
+    if request.GET.get("member"):
+        return {
+            "allowed": False,
+            "message": "This older collaborative link is missing its secure review token. Ask the authors to resend the link.",
+        }
+
+    return {
+        "allowed": False,
+        "message": "Please sign in as a project author or use the secure collaborative link from your email.",
+    }
 
 
 def _document_requires_file(document) -> bool:
@@ -3845,7 +4032,6 @@ def collaborative_start(request, project_id, document_slug):
     )
 
 
-@login_required
 def collaborative_edit(request, project_id, document_slug, token):
     project = get_object_or_404(Project, pk=project_id)
     document_type = _normalize_document_type(document_slug)
@@ -3854,36 +4040,68 @@ def collaborative_edit(request, project_id, document_slug, token):
 
     document_label = _document_label(document_type)
     detail_url = _document_detail_url(project.id, document_type)
+    user_can_edit = _user_can_edit_project(request.user, project)
+    project_editor_detail_url = detail_url if user_can_edit else ""
 
     if not _onlyoffice_enabled():
-        messages.error(
+        if user_can_edit:
+            messages.error(
+                request,
+                "Collaborative editing is not configured. Please contact your administrator.",
+            )
+            return redirect(detail_url)
+        return _collaborative_access_closed_response(
             request,
+            project,
+            document_label,
             "Collaborative editing is not configured. Please contact your administrator.",
+            status=503,
         )
-        return redirect(detail_url)
 
     session = _collaborative_session_or_404(project, document_type, token)
     if session.has_expired():
         session.mark_inactive(reason="Session expired")
-        messages.warning(request, "This collaborative session has expired.")
-        return redirect(detail_url)
+        if user_can_edit:
+            messages.warning(request, "This collaborative session has expired.")
+            return redirect(detail_url)
+        return _collaborative_access_closed_response(
+            request,
+            project,
+            document_label,
+            "This collaborative session has expired. Ask the authors to resend the link.",
+        )
 
-    if not _user_can_edit_project(request.user, project):
-        messages.error(request, "You do not have access to this collaborative session.")
-        return redirect(detail_url)
+    external_access = _resolve_external_collaborative_access(
+        request, project, document_type, session
+    )
+    if not user_can_edit and not external_access.get("allowed"):
+        return _collaborative_access_closed_response(
+            request,
+            project,
+            document_label,
+            external_access.get("message")
+            or "You do not have access to this collaborative session.",
+        )
 
     document = _get_document_for_type(project, document_type)
     if not _document_requires_file(document):
-        messages.error(
+        if user_can_edit:
+            messages.error(
+                request,
+                f"No {_document_label(document_type).lower()} file is available to edit.",
+            )
+            return redirect(detail_url)
+        return _collaborative_access_closed_response(
             request,
+            project,
+            document_label,
             f"No {_document_label(document_type).lower()} file is available to edit.",
         )
-        return redirect(detail_url)
 
     if getattr(document, "feedback_closed_at", None):
         if session.is_active:
             session.mark_inactive(
-                ended_by=request.user if _user_can_edit_project(request.user, project) else None,
+                ended_by=request.user if user_can_edit else None,
                 reason=f"{document_label} feedback window closed",
             )
         closure_message = document.feedback_closure_message or (
@@ -3895,7 +4113,7 @@ def collaborative_edit(request, project_id, document_slug, token):
             {
                 "project": project,
                 "document_label": document_label,
-                "detail_url": detail_url,
+                "detail_url": project_editor_detail_url,
                 "window_closed_message": closure_message,
                 "can_force_end": False,
                 "force_end_url": "",
@@ -3905,7 +4123,7 @@ def collaborative_edit(request, project_id, document_slug, token):
         )
 
     if not session.is_active:
-        if _user_can_edit_project(request.user, project):
+        if user_can_edit:
             restart_url = _ensure_collaborative_invite_link(
                 request, project, document_type
             )
@@ -3915,35 +4133,42 @@ def collaborative_edit(request, project_id, document_slug, token):
                     "The previous collaborative session ended. A fresh editor has been opened.",
                 )
                 return redirect(restart_url)
-        messages.info(request, "This collaborative session is no longer active.")
-        return redirect(detail_url)
+            messages.info(request, "This collaborative session is no longer active.")
+            return redirect(detail_url)
+        return _collaborative_access_closed_response(
+            request,
+            project,
+            document_label,
+            "This collaborative session is no longer active. Ask the authors to resend the link.",
+        )
 
     editor_js_url = _onlyoffice_editor_js_url()
     if not editor_js_url:
-        messages.error(
+        if user_can_edit:
+            messages.error(
+                request,
+                "The OnlyOffice editor script URL is not configured. Please contact your administrator.",
+            )
+            return redirect(_document_detail_url(project.id, document_type))
+        return _collaborative_access_closed_response(
             request,
-            "The OnlyOffice editor script URL is not configured. Please contact your administrator.",
+            project,
+            document_label,
+            "The OnlyOffice editor script URL is not configured. Please contact the authors.",
+            status=503,
         )
-        return redirect(_document_detail_url(project.id, document_type))
 
     participant_member = None
     participant_feedback = None
-    feedback_token = request.GET.get("feedback")
-    if feedback_token:
-        feedback_model = (
-            ProtocolFeedback
-            if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
-            else ActionListFeedback
-        )
-        feedback_qs = feedback_model.objects.select_related("member")
-        try:
-            participant_feedback = feedback_qs.get(
-                token=feedback_token, project=project
-            )
-            participant_member = participant_feedback.member
-        except feedback_model.DoesNotExist:
-            participant_feedback = None
-    if not participant_member:
+    participant_display = ""
+    participant_context = None
+    if external_access.get("allowed"):
+        participant_member = external_access.get("member")
+        participant_feedback = external_access.get("feedback")
+        participant_display = external_access.get("participant_display", "")
+        participant_context = external_access.get("participant_context")
+
+    if not participant_member and not participant_context and user_can_edit:
         member_id = request.GET.get("member")
         if member_id:
             try:
@@ -3953,8 +4178,6 @@ def collaborative_edit(request, project_id, document_slug, token):
             except AdvisoryBoardMember.DoesNotExist:
                 participant_member = None
 
-    participant_display = ""
-    participant_context = None
     if participant_member:
         participant_display = _advisory_member_display(participant_member)
         participant_context = {
@@ -3962,7 +4185,7 @@ def collaborative_edit(request, project_id, document_slug, token):
             "name": participant_display,
             "email": participant_member.email,
         }
-    elif participant_feedback and participant_feedback.email:
+    elif participant_feedback and participant_feedback.email and not participant_context:
         participant_display = participant_feedback.email
         participant_context = {
             "id": f"abe:{participant_feedback.email.lower()}",
@@ -3980,8 +4203,15 @@ def collaborative_edit(request, project_id, document_slug, token):
             participant=participant_context,
         )
     except ValueError as exc:
-        messages.error(request, str(exc))
-        return redirect(_document_detail_url(project.id, document_type))
+        if user_can_edit:
+            messages.error(request, str(exc))
+            return redirect(_document_detail_url(project.id, document_type))
+        return _collaborative_access_closed_response(
+            request,
+            project,
+            document_label,
+            str(exc),
+        )
 
     session.last_activity_at = timezone.now()
     update_fields = ["last_activity_at"]
@@ -4005,7 +4235,7 @@ def collaborative_edit(request, project_id, document_slug, token):
             "document_label": document_label,
             "editor_config": config,
             "onlyoffice_js_url": editor_js_url,
-            "detail_url": _document_detail_url(project.id, document_type),
+            "detail_url": project_editor_detail_url,
             "can_force_end": can_force_end,
             "force_end_url": force_end_url,
             "participant_display": participant_display,
@@ -9276,6 +9506,7 @@ def advisory_invite_create(request, project_id, member_id=None):
                     request,
                     project,
                     CollaborativeSession.DOCUMENT_ACTION_LIST,
+                    inv,
                     member=member,
                 )
                 if collab_url:
@@ -9661,6 +9892,7 @@ def advisory_send_invites_bulk(request, project_id):
                     request,
                     project,
                     CollaborativeSession.DOCUMENT_ACTION_LIST,
+                    inv,
                     member=member,
                 )
                 if collab_url:
