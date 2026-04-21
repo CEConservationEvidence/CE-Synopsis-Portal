@@ -3540,6 +3540,36 @@ class CollaborativePanelViewTests(TestCase):
             "Closing this feedback window will stop advisory members from submitting action list feedback and will end collaborative editing for this action list. Are you sure?",
         )
 
+    def test_document_pages_show_reopen_feedback_window_confirmations(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+            feedback_closed_at=timezone.now(),
+        )
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+            feedback_closed_at=timezone.now(),
+        )
+
+        protocol_response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+        self.assertContains(protocol_response, "Reopen feedback")
+        self.assertContains(
+            protocol_response,
+            "Reopening this feedback window will allow advisory members to submit protocol feedback again and can allow collaborative editing for this protocol again. Are you sure?",
+        )
+
+        action_list_response = self.client.get(
+            reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+        self.assertContains(action_list_response, "Reopen feedback")
+        self.assertContains(
+            action_list_response,
+            "Reopening this feedback window will allow advisory members to submit action list feedback again and can allow collaborative editing for this action list again. Are you sure?",
+        )
+
 
 class AdvisoryBoardCustomColumnsTests(TestCase):
     def setUp(self):

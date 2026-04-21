@@ -387,7 +387,13 @@
                         <form method="post" action="{% url 'synopsis:advisory_action_list_feedback_close' project.id %}" class="d-flex flex-column gap-2">
                             {% csrf_token %}
                             <input type="hidden" name="action" value="reopen">
-                            <button class="btn btn-outline-secondary align-self-start">Reopen feedback</button>
+                            <button
+                                class="btn btn-outline-secondary align-self-start"
+                                type="submit"
+                                onclick="return confirm('Reopening this feedback window will allow advisory members to submit action list feedback again and can allow collaborative editing for this action list again. Are you sure?');"
+                            >
+                                Reopen feedback
+                            </button>
                             {% if action_list_feedback_state.deadline %}
                             <small class="text-muted">The deadline still blocks submissions after {{ action_list_feedback_state.deadline|date:"Y-m-d H:i" }}.</small>
                             {% endif %}
