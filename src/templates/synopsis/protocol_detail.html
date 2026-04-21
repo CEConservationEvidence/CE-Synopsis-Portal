@@ -316,7 +316,11 @@
             <div class="card-body">
                 <div class="d-flex flex-column flex-xl-row justify-content-between gap-4">
                     <div class="flex-grow-1">
-                        <p class="text-muted small mb-2">Set the feedback deadline here. Reminder emails go automatically two business days before that deadline.</p>
+                        {% if protocol_pending_count %}
+                        <p class="text-muted small mb-2">Set or update the feedback deadline here for advisory board members who have already been sent the protocol. Reminder emails go automatically two business days before that deadline.</p>
+                        {% else %}
+                        <p class="text-muted small mb-2">Send the protocol from the Advisory Board page first. You can set the first deadline while sending; after at least one member has the protocol, you can update the feedback deadline here.</p>
+                        {% endif %}
                         <div class="small mb-2">
                             Members with protocol:
                             <strong>{{ protocol_pending_count }}</strong>
@@ -353,6 +357,7 @@
                     </div>
                     <div class="flex-grow-1">
                         {% if can_edit_documents %}
+                        {% if protocol_pending_count %}
                         <form method="post" action="{% url 'synopsis:advisory_schedule_protocol_reminders' project.id %}" class="mb-3">
                             {% csrf_token %}
                             <div class="mb-2">
@@ -363,6 +368,14 @@
                             </div>
                             <button class="btn btn-outline-primary btn-sm">Set protocol deadline</button>
                         </form>
+                        {% else %}
+                        <div class="alert alert-info py-2 small">
+                            No protocol feedback deadline can be updated here yet because no accepted advisory board member has been sent the protocol.
+                            <div class="mt-2">
+                                <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:advisory_board_list' project.id %}">Go to Advisory Board</a>
+                            </div>
+                        </div>
+                        {% endif %}
                         {% if protocol_feedback_state.protocol %}
                             {% if protocol_feedback_state.is_closed %}
                         <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">

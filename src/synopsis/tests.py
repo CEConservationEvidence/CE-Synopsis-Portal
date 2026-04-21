@@ -1692,6 +1692,39 @@ class MemberReminderUpdateTests(TestCase):
         self.assertIsNone(member.feedback_on_protocol_deadline)
         self.assertContains(response, "at least one day in the future")
 
+    def test_protocol_page_deadline_warns_before_protocol_is_sent(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Paula",
+            email="paula@example.com",
+            response="Y",
+            participation_confirmed=True,
+        )
+        local_deadline = timezone.localtime(timezone.now() + timedelta(days=5)).replace(
+            second=0,
+            microsecond=0,
+        )
+
+        response = self.client.post(
+            reverse("synopsis:advisory_schedule_protocol_reminders", args=[self.project.id]),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+        member.refresh_from_db()
+        self.assertIsNone(member.feedback_on_protocol_deadline)
+        self.assertContains(
+            response,
+            "No protocol deadline was updated because no accepted advisory board member has been sent the protocol yet.",
+        )
+
     def test_update_action_list_deadline(self):
         action_list = ActionList.objects.create(
             project=self.project,
@@ -1739,6 +1772,42 @@ class MemberReminderUpdateTests(TestCase):
             ProjectChangeLog.objects.filter(
                 project=self.project, action="Updated action list reminder"
             ).exists()
+        )
+
+    def test_action_list_page_deadline_warns_before_action_list_is_sent(self):
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"action list"),
+        )
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Vanessa",
+            email="vanessa@example.com",
+            response="Y",
+            participation_confirmed=True,
+        )
+        local_deadline = timezone.localtime(timezone.now() + timedelta(days=5)).replace(
+            second=0,
+            microsecond=0,
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_schedule_action_list_reminders",
+                args=[self.project.id],
+            ),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+        member.refresh_from_db()
+        self.assertIsNone(member.feedback_on_action_list_deadline)
+        self.assertContains(
+            response,
+            "No action list deadline was updated because no accepted advisory board member has been sent the action list yet.",
         )
 
     def test_declined_member_cannot_schedule_invite(self):
@@ -3638,6 +3707,20 @@ class CollaborativePanelViewTests(TestCase):
             project=self.project,
             document=SimpleUploadedFile("action-list.docx", b"alist"),
         )
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Pia",
+            email="pia@example.com",
+            response="Y",
+            sent_protocol_at=timezone.now(),
+        )
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ali",
+            email="ali@example.com",
+            response="Y",
+            sent_action_list_at=timezone.now(),
+        )
 
         protocol_response = self.client.get(
             reverse("synopsis:protocol_detail", args=[self.project.id])
@@ -3664,6 +3747,42 @@ class CollaborativePanelViewTests(TestCase):
             action_list_response,
             "Closing this feedback window will stop advisory members from submitting action list feedback and will end collaborative editing for this action list. Are you sure?",
         )
+
+    def test_document_pages_explain_deadlines_require_sent_documents(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+
+        protocol_response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+        self.assertContains(
+            protocol_response,
+            "Send the protocol from the Advisory Board page first.",
+        )
+        self.assertContains(
+            protocol_response,
+            "No protocol feedback deadline can be updated here yet because no accepted advisory board member has been sent the protocol.",
+        )
+        self.assertNotContains(protocol_response, "Set protocol deadline")
+
+        action_list_response = self.client.get(
+            reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+        self.assertContains(
+            action_list_response,
+            "Send the action list from the Advisory Board page first.",
+        )
+        self.assertContains(
+            action_list_response,
+            "No action list feedback deadline can be updated here yet because no accepted advisory board member has been sent the action list.",
+        )
+        self.assertNotContains(action_list_response, "Set action list deadline")
 
     def test_document_pages_show_reopen_feedback_window_confirmations(self):
         Protocol.objects.create(

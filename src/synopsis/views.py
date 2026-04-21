@@ -5395,6 +5395,12 @@ def advisory_schedule_protocol_reminders(request, project_id):
         sent_protocol_at__isnull=False,
         response="Y",
     )
+    if not pending_members.exists():
+        messages.warning(
+            request,
+            "No protocol deadline was updated because no accepted advisory board member has been sent the protocol yet. Send the protocol from the Advisory Board page first, or set the deadline while sending.",
+        )
+        return redirect("synopsis:protocol_detail", project_id=project.id)
 
     if not form.is_valid():
         for errors in form.errors.values():
@@ -5470,6 +5476,12 @@ def advisory_schedule_action_list_reminders(request, project_id):
         sent_action_list_at__isnull=False,
         response="Y",
     )
+    if not pending_members.exists():
+        messages.warning(
+            request,
+            "No action list deadline was updated because no accepted advisory board member has been sent the action list yet. Send the action list from the Advisory Board page first, or set the deadline while sending.",
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     if not form.is_valid():
         for errors in form.errors.values():
