@@ -244,6 +244,13 @@
                 </div>
                 {% include "synopsis/includes/document_workflow_modal.html" with workflow_help_slug="action-list" document_label="Action list" %}
                 {% include "synopsis/includes/collaborative_panel.html" with document_label="Action list" collaborative_document_ready=collaborative_document_ready %}
+                <div class="alert alert-info mt-3 mb-0">
+                    <div class="fw-semibold">Sending the action list for review happens on the Advisory Board page.</div>
+                    <div class="small mt-1">
+                        Use this page to upload, revise, edit, and manage the action list file. When you are ready to send it to advisory board members, go to the Advisory Board page and use the action list sending controls there. The feedback window below controls deadlines, reminders, and closure after the action list has been sent.
+                    </div>
+                    <a class="btn btn-outline-primary btn-sm mt-2" href="{% url 'synopsis:advisory_board_list' project.id %}">Go to Advisory Board</a>
+                </div>
                 {% if current_revision_entry %}
                 <div class="mt-2">
                     <strong>File:</strong>
