@@ -54,6 +54,10 @@
     .tag-choice-panel input[type="checkbox"] {
         margin-top: 0.2rem;
     }
+    .tag-choice-panel .tag-choice-disabled label {
+        opacity: 0.65;
+        cursor: not-allowed;
+    }
     .tag-choice-panel .tag-choice-hidden {
         display: none;
     }
@@ -358,8 +362,9 @@
                                 {{ summary_form.action_description }}
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label">Study design</label>
+                                <label class="form-label">Study design phrase</label>
                                 {{ summary_form.study_design }}
+                                <div class="form-text">Short wording for the first sentence, such as replicated, controlled study.</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Number of sites/replications</label>
@@ -405,8 +410,9 @@
                                 {{ summary_form.action_methods }}
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label">Experimental design</label>
+                                <label class="form-label">Experimental design notes</label>
                                 {{ summary_form.experimental_design }}
+                                <div class="form-text">Brief methods notes on how the comparison was set up.</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Key details of site context</label>
@@ -500,9 +506,27 @@
                                 <label class="form-label">Location tags</label>
                                 {{ summary_form.location_tags }}
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Research design</label>
-                                {{ summary_form.research_design }}
+                            <div class="col-12">
+                                <div class="tag-picker" data-tag-picker data-tag-max-selected="4">
+                                    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+                                        <div>
+                                            <label class="form-label mb-1">Research design tags (CE)</label>
+                                            <div class="form-text mt-0">Controlled website tags. Select up to four terms that apply.</div>
+                                        </div>
+                                        <span class="badge text-bg-light" data-tag-count>0 of 4 selected</span>
+                                    </div>
+                                    <div class="tag-picker-toolbar">
+                                        <input type="search" class="form-control form-control-sm" data-tag-filter placeholder="Filter research design tags">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" data-tag-clear>Clear</button>
+                                    </div>
+                                    <div class="tag-choice-panel">
+                                        {{ summary_form.research_design }}
+                                    </div>
+                                    <div class="form-text text-primary d-none" data-tag-limit-message>Maximum reached. Clear one selected term to choose another.</div>
+                                </div>
+                                {% if summary_form.research_design.errors %}
+                                <div class="text-danger small mt-1">{{ summary_form.research_design.errors|join:", " }}</div>
+                                {% endif %}
                             </div>
                             <div class="col-md-12">
                                 <label class="form-label">Citation</label>
@@ -769,6 +793,8 @@
             const filter = picker.querySelector("[data-tag-filter]");
             const clearButton = picker.querySelector("[data-tag-clear]");
             const count = picker.querySelector("[data-tag-count]");
+            const limitMessage = picker.querySelector("[data-tag-limit-message]");
+            const maxSelected = parseInt(picker.getAttribute("data-tag-max-selected") || "0", 10);
             const checkboxes = Array.from(picker.querySelectorAll("input[type='checkbox']"));
             const rows = checkboxes.map((checkbox) => {
                 const label = picker.querySelector(`label[for="${checkbox.id}"]`) || checkbox.closest("label");
@@ -779,28 +805,47 @@
                     text: label ? label.textContent.trim().toLowerCase() : "",
                 };
             });
+            const selectedCount = () => checkboxes.filter((checkbox) => checkbox.checked).length;
 
             const update = () => {
                 const term = filter ? filter.value.trim().toLowerCase() : "";
-                let selected = 0;
+                const selected = selectedCount();
                 rows.forEach((item) => {
-                    if (item.checkbox.checked) selected += 1;
                     if (item.row) {
                         item.row.classList.toggle("tag-choice-selected", item.checkbox.checked);
                         item.row.classList.toggle(
                             "tag-choice-hidden",
                             Boolean(term) && !item.text.includes(term)
                         );
+                        item.row.classList.toggle(
+                            "tag-choice-disabled",
+                            Boolean(maxSelected) && selected >= maxSelected && !item.checkbox.checked
+                        );
                     }
+                    item.checkbox.disabled = Boolean(maxSelected) && selected >= maxSelected && !item.checkbox.checked;
                 });
                 if (count) {
-                    count.textContent = selected === 1 ? "1 selected" : `${selected} selected`;
+                    if (maxSelected) {
+                        count.textContent = `${selected} of ${maxSelected} selected`;
+                    } else {
+                        count.textContent = selected === 1 ? "1 selected" : `${selected} selected`;
+                    }
                     count.classList.toggle("text-bg-primary", selected > 0);
                     count.classList.toggle("text-bg-light", selected === 0);
                 }
+                if (limitMessage) {
+                    limitMessage.classList.toggle("d-none", !(maxSelected && selected >= maxSelected));
+                }
             };
 
-            checkboxes.forEach((checkbox) => checkbox.addEventListener("change", update));
+            checkboxes.forEach((checkbox) => {
+                checkbox.addEventListener("change", () => {
+                    if (maxSelected && checkbox.checked && selectedCount() > maxSelected) {
+                        checkbox.checked = false;
+                    }
+                    update();
+                });
+            });
             if (filter) filter.addEventListener("input", update);
             if (clearButton) {
                 clearButton.addEventListener("click", () => {
