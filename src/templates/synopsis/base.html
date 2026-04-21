@@ -65,6 +65,12 @@
                     target.addEventListener("hidden.bs.collapse", syncLabel);
                     syncLabel();
                 });
+
+                document.querySelectorAll("input[type='file'][data-reset-before-select]").forEach(function (input) {
+                    input.addEventListener("click", function () {
+                        input.value = "";
+                    });
+                });
             });
         </script>
     </body>
