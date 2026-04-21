@@ -344,13 +344,17 @@ class FunderContact(models.Model):
         return self.display_name()
 
 
+def protocol_upload_path(instance, filename):
+    return f"protocols/{instance.project_id}/{uuid.uuid4()}_{filename}"
+
+
 class Protocol(models.Model):
     """The protocol document for a project, drafted by an author and finalized by manager."""
 
     project = models.OneToOneField(
         Project, on_delete=models.CASCADE, related_name="protocol"
     )
-    document = models.FileField(upload_to="protocols/")
+    document = models.FileField(upload_to=protocol_upload_path)
     created_at = models.DateTimeField(auto_now_add=True)
     last_updated = models.DateTimeField(auto_now=True)
     text_version = models.TextField(blank=True)

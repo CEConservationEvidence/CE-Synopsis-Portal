@@ -376,7 +376,13 @@
                                 {{ protocol_feedback_close_form.message.errors }}
                                 <div class="form-text">Members will see this note when they open their feedback link after closure.</div>
                             </div>
-                            <button class="btn btn-outline-danger align-self-start">Close feedback now</button>
+                            <button
+                                class="btn btn-outline-danger align-self-start"
+                                type="submit"
+                                onclick="return confirm('Closing this feedback window will stop advisory members from submitting protocol feedback and will end collaborative editing for this protocol. Are you sure?');"
+                            >
+                                Close feedback now
+                            </button>
                         </form>
                             {% endif %}
                         {% endif %}

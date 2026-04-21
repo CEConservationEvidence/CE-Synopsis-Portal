@@ -3091,6 +3091,13 @@ def protocol_detail(request, project_id):
                     "Finalized protocols cannot be replaced. Switch the stage back to Draft to revise the document.",
                 )
 
+            active_file_missing = not bool(protocol and protocol.document)
+            if active_file_missing and not replacing_file:
+                form.add_error(
+                    "document",
+                    "Choose a protocol file to upload. You can reuse the same filename as a file you deleted.",
+                )
+
             needs_reason = (not is_new_protocol) and (stage_changed or replacing_file)
             if needs_reason and not reason:
                 form.add_error(
@@ -3243,6 +3250,11 @@ def protocol_detail(request, project_id):
     else:
         form.fields["change_reason"].help_text = (
             "Required when you replace the file or change the protocol stage."
+        )
+    if not protocol_document_ready:
+        form.fields["document"].widget.attrs["required"] = "required"
+        form.fields["document"].help_text = (
+            "Upload a PDF or DOCX version of the protocol. You can reuse the same filename after deleting a file."
         )
 
     protocol_members = project.advisory_board_members.filter(
@@ -3465,6 +3477,13 @@ def action_list_detail(request, project_id):
                     "Finalized action lists cannot be replaced. Switch the stage back to Draft to revise the document.",
                 )
 
+            active_file_missing = not bool(action_list and action_list.document)
+            if active_file_missing and not replacing_file:
+                form.add_error(
+                    "document",
+                    "Choose an action list file to upload. You can reuse the same filename as a file you deleted.",
+                )
+
             needs_reason = (not is_new_action_list) and (
                 stage_changed or replacing_file
             )
@@ -3621,6 +3640,11 @@ def action_list_detail(request, project_id):
     else:
         form.fields["change_reason"].help_text = (
             "Required when you replace the file or change the action list stage."
+        )
+    if not action_document_ready:
+        form.fields["document"].widget.attrs["required"] = "required"
+        form.fields["document"].help_text = (
+            "Upload a PDF or DOCX version of the action list. You can reuse the same filename after deleting a file."
         )
 
     action_list_members = project.advisory_board_members.filter(
@@ -4496,7 +4520,6 @@ def action_list_set_stage(request, project_id):
     return redirect("synopsis:action_list_detail", project_id=project.id)
 
 
-# TODO: #18 Investigate bug where uploading a new action list after deleting the file does not refresh the page with the latest document.
 @login_required
 def action_list_delete_file(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -4517,7 +4540,10 @@ def action_list_delete_file(request, project_id):
             "Removed action list file",
             f"File: {file_name}",
         )
-        messages.success(request, "Action list file removed.")
+        messages.success(
+            request,
+            "Action list file removed. Upload a replacement from Upload new version; it can use the same filename.",
+        )
         return redirect("synopsis:action_list_detail", project_id=project.id)
 
     return render(
@@ -4790,7 +4816,6 @@ def protocol_set_stage(request, project_id):
     return redirect("synopsis:protocol_detail", project_id=project.id)
 
 
-# TODO: #19 Investigate bug where uploading a new protocol after deleting the file does not refresh the page with the latest document.
 @login_required
 def protocol_delete_file(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -4811,7 +4836,10 @@ def protocol_delete_file(request, project_id):
             "Removed protocol file",
             f"File: {file_name}",
         )
-        messages.success(request, "Protocol file removed.")
+        messages.success(
+            request,
+            "Protocol file removed. Upload a replacement from Upload new version; it can use the same filename.",
+        )
         return redirect("synopsis:protocol_detail", project_id=project.id)
 
     return render(
