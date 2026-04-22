@@ -658,7 +658,7 @@
                                     <input type="hidden" name="action" value="add-assignment">
                                     <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
                                     <div class="row g-3 align-items-start">
-                                        <div class="col-12 col-xl-4">
+                                        <div class="col-12">
                                             <label class="form-label small text-muted mb-1" for="summary-filter-{{ intervention.id }}">Filter summary tabs</label>
                                             <input
                                                 type="text"
@@ -671,13 +671,13 @@
                                                 Grouped by reference author. Each option below is one summary tab, not a whole paper.
                                             </div>
                                         </div>
-                                        <div class="col-12 col-xl-5">
+                                        <div class="col-12">
                                             <label class="form-label small text-muted mb-1" for="summary-select-{{ intervention.id }}">Available summary tabs</label>
                                             <select
                                                 id="summary-select-{{ intervention.id }}"
                                                 name="summary"
                                                 class="form-select form-select-sm summary-picker-select"
-                                                size="8"
+                                                size="10"
                                                 data-preview-target="summary-preview-{{ intervention.id }}"
                                             >
                                                 <option
@@ -706,7 +706,7 @@
                                                 {% endfor %}
                                             </select>
                                         </div>
-                                        <div class="col-12 col-xl-3 d-flex flex-column gap-2">
+                                        <div class="col-12 d-flex flex-column gap-2">
                                             <div>
                                                 <label class="form-label small text-muted mb-1">Selected summary</label>
                                                 <div
@@ -717,7 +717,9 @@
                                                     Choose a summary tab to preview its reference and tab label.
                                                 </div>
                                             </div>
-                                            <button class="btn btn-outline-primary btn-sm">Add summary</button>
+                                            <div class="d-flex justify-content-end">
+                                                <button class="btn btn-outline-primary btn-sm">Add summary</button>
+                                            </div>
                                         </div>
                                     </div>
                                 </form>
