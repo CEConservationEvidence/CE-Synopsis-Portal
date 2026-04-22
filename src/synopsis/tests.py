@@ -499,12 +499,31 @@ class SynopsisStructureTests(TestCase):
             title="Mow more frequently",
             position=1,
         )
+        self.summary.synopsis_draft = (
+            "A replicated study found that mowing more frequently increased arable plant richness."
+        )
+        self.summary.save(update_fields=["synopsis_draft"])
+        SynopsisAssignment.objects.create(
+            intervention=SynopsisIntervention.objects.get(title="Mow more frequently"),
+            reference_summary=self.summary,
+            position=1,
+        )
 
         response = self.client.get(url)
 
         self.assertContains(response, "Add intervention to Arable")
         self.assertContains(response, "Intervention group")
         self.assertContains(response, "Move to group")
+        self.assertContains(response, "Edit metadata, background and key messages")
+        self.assertContains(response, "Metadata")
+        self.assertContains(response, "Background")
+        self.assertContains(response, "Key messages")
+        self.assertContains(response, "Assigned summaries")
+        self.assertContains(response, "Additional intervention text")
+        self.assertContains(response, "Most content should be added as background, key messages or assigned summaries.")
+        self.assertContains(response, "Assigned study summaries to review")
+        self.assertContains(response, "review the assigned summaries here first")
+        self.assertContains(response, "mowing more frequently increased arable plant richness")
 
     def test_text_chapter_blocks_subheading_and_intervention(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])

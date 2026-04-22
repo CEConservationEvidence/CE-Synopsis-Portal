@@ -8450,6 +8450,14 @@ def _project_synopsis_workspace(
                         "paper_title": assignment.paper_title,
                         "summary_label": assignment.summary_label,
                         "summary_display": assignment.summary_display,
+                        "paragraph": _reference_summary_paragraph(
+                            assignment.reference_summary,
+                            reference_identifier_override=(
+                                str(assignment.ce_reference_number)
+                                if assignment.ce_reference_number
+                                else None
+                            ),
+                        ),
                     }
                     for assignment in assignments
                 ]

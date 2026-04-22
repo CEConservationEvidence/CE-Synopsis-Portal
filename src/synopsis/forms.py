@@ -817,10 +817,10 @@ class SynopsisInterventionSynthesisForm(forms.Form):
             attrs={
                 "class": "form-control",
                 "rows": 5,
-                "placeholder": "Intervention-level evidence synthesis text used in compilation/export.",
+                "placeholder": "Optional text that should appear after key messages and before study paragraphs.",
             }
         ),
-        label="Synthesis text",
+        label="Additional intervention text",
     )
 
 

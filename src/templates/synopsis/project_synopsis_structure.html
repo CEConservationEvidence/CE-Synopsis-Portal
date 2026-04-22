@@ -68,7 +68,7 @@
             <a class="btn btn-success btn-sm" href="{% url 'synopsis:project_synopsis_export_docx' project.id %}">Export to DOCX</a>
         </div>
     </div>
-    <p class="text-muted small mb-0">Workflow: write chapter narrative text, group interventions using intervention groups (subheadings), then assign study summaries and compile intervention synthesis.</p>
+    <p class="text-muted small mb-0">Workflow: write chapter narrative text, group interventions using intervention groups (subheadings), then add background, key messages and assigned study summaries.</p>
 </div>
 
 <div class="row g-3">
@@ -97,7 +97,7 @@
                     <h2 class="h6 text-uppercase text-muted mb-2">How This Compiles</h2>
                     <div class="small mb-1"><strong>Chapter background</strong> appears once at the start of each chapter.</div>
                     <div class="small mb-1"><strong>Intervention group (subheading)</strong> is a level-2 heading used to organize interventions.</div>
-                    <div class="small mb-1"><strong>Intervention background + synthesis</strong> appears before intervention evidence.</div>
+                    <div class="small mb-1"><strong>Intervention background and optional intervention text</strong> appear before intervention evidence.</div>
                     <div class="small mb-1"><strong>Assigned summaries</strong> compile into numbered study paragraphs and intervention references.</div>
                     <div class="small mb-2"><strong>Key message supporting studies</strong> compile as numbered citations such as <code>(1; 3)</code>.</div>
                     <div class="small text-muted border-top pt-2">
@@ -413,8 +413,9 @@
                                 </form>
 
                                 <details class="mb-2">
-                                    <summary class="small text-muted">Edit metadata and background</summary>
+                                    <summary class="small text-muted">Edit metadata, background and key messages</summary>
                                     <div class="mt-2">
+                                        <div class="fw-semibold mb-1">Metadata</div>
                                         <form method="post" class="row g-2 align-items-end mb-2">
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="update-intervention-metadata">
@@ -462,6 +463,7 @@
                                             </div>
                                         </form>
 
+                                        <div class="fw-semibold mb-1">Background</div>
                                         <form method="post" class="d-flex flex-column gap-2">
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="update-intervention-background">
@@ -475,11 +477,12 @@
                                         </form>
 
                                         <hr>
+                                        <div class="fw-semibold mb-1">Optional intervention text</div>
                                         <form method="post" class="d-flex flex-column gap-2">
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="update-intervention-synthesis">
                                             <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
-                                            <div class="small text-muted">Main compiled narrative for this intervention.</div>
+                                            <div class="small text-muted">Use this only if you need extra text for the whole intervention. It appears after key messages and before the study paragraphs in the compiled synopsis. Most content should be added as background, key messages or assigned summaries.</div>
                                             <div class="row g-2">
                                                 <div class="col-12 col-lg-6">
                                                     <label class="form-label small text-muted mb-1">Conservation Evidence action URL</label>
@@ -498,17 +501,38 @@
                                                     </select>
                                                 </div>
                                             </div>
-                                            <label class="form-label small text-muted mb-1">Intervention synthesis text</label>
-                                            <textarea name="synthesis_text" class="form-control form-control-sm" rows="4" placeholder="Compiled intervention narrative for export/compilation.">{{ intervention.synthesis_text }}</textarea>
+                                            <label class="form-label small text-muted mb-1">Additional intervention text</label>
+                                            <textarea name="synthesis_text" class="form-control form-control-sm" rows="4" placeholder="Optional text that should appear after key messages and before study paragraphs.">{{ intervention.synthesis_text }}</textarea>
                                             <div class="d-flex justify-content-end">
-                                                <button class="btn btn-outline-primary btn-sm">Save synthesis</button>
+                                                <button class="btn btn-outline-primary btn-sm">Save intervention text</button>
                                             </div>
                                         </form>
 
                                         <hr>
                                         <div class="d-flex flex-column gap-2">
-                                            <div class="small text-muted text-uppercase">Key messages</div>
-                                            <div class="small text-muted">Compiled before study paragraphs. Link supporting studies to generate numbered citations.</div>
+                                            <div class="fw-semibold">Key messages</div>
+                                            <div class="small text-muted">In the exported synopsis, key messages appear before the study paragraphs. When writing them, review the assigned summaries here first, then link each key message to the studies that support it.</div>
+                                            <div class="border rounded p-2 bg-light">
+                                                <div class="fw-semibold small mb-1">Assigned study summaries to review</div>
+                                                <div class="small text-muted mb-2">These are the summaries currently assigned to this intervention below.</div>
+                                                {% for option in intervention.supporting_summary_options %}
+                                                <details class="border rounded bg-white p-2 mb-2">
+                                                    <summary class="small">
+                                                        {% if option.number %}
+                                                        <span class="badge text-bg-light me-1">({{ option.number }})</span>
+                                                        {% endif %}
+                                                        <strong>{{ option.reference_heading }}</strong> — {{ option.summary_display }}
+                                                    </summary>
+                                                    {% if option.paragraph %}
+                                                    <div class="small mt-2 text-body">{{ option.paragraph|linebreaksbr }}</div>
+                                                    {% else %}
+                                                    <div class="small mt-2 text-muted">No summary paragraph has been written yet.</div>
+                                                    {% endif %}
+                                                </details>
+                                                {% empty %}
+                                                <div class="small text-muted">No summaries are assigned to this intervention yet. Add summaries in the Assigned summaries section below before writing key messages.</div>
+                                                {% endfor %}
+                                            </div>
                                             {% for key_message in intervention.key_messages.all %}
                                             <div class="border rounded p-2 bg-white">
                                                 <form method="post" class="d-flex flex-column gap-2">
@@ -627,7 +651,7 @@
                                 </details>
 
                                 <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span class="text-muted small text-uppercase">Assigned summaries</span>
+                                    <span class="fw-semibold">Assigned summaries</span>
                                 </div>
                                 <form method="post" class="assignment-picker mb-2">
                                     {% csrf_token %}
