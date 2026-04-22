@@ -296,7 +296,7 @@
                         <span class="badge text-bg-light">{{ subheading.intervention_total|default:0 }} interventions</span>
                     </summary>
                     <div class="p-2 border-top">
-                        <div class="small text-muted mb-2">Intervention group heading (level 2) in export.</div>
+                        <div class="small text-muted mb-2">Intervention group heading (level 2) in export. Interventions listed inside this box are linked to this group.</div>
                         <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
                             <form method="post" class="d-inline">
                                 {% csrf_token %}
@@ -321,8 +321,8 @@
                         </div>
 
                         <div class="border rounded p-2 mb-2 bg-light">
-                            <div class="text-muted small text-uppercase mb-2">Add intervention</div>
-                            <div class="small text-muted mb-2">Intervention entries compile to full evidence sections.</div>
+                            <div class="text-muted small text-uppercase mb-2">Add intervention to {{ subheading.title }}</div>
+                            <div class="small text-muted mb-2">This will place the new intervention inside the {{ subheading.title }} group. Moving a group only changes the order of groups; it does not move interventions between groups.</div>
                             <form method="post" class="row g-2 align-items-end">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="create-intervention">
@@ -337,7 +337,7 @@
                                     <button class="btn btn-outline-primary btn-sm w-100">Add</button>
                                 </div>
                             </form>
-                            <div class="small text-muted mt-1">Set cross-reference options after creating the intervention.</div>
+                            <div class="small text-muted mt-1">Set cross-reference options or move the intervention to another group after creating it.</div>
                         </div>
 
                         {% for intervention in subheading.interventions.all %}
@@ -387,6 +387,30 @@
                                         <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Delete this intervention and its summaries?')">Delete intervention</button>
                                     </form>
                                 </div>
+
+                                <form method="post" class="border rounded p-2 mb-2 bg-light">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="move-intervention-to-subheading">
+                                    <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
+                                    <div class="row g-2 align-items-end">
+                                        <div class="col-12 col-lg-8">
+                                            <label class="form-label small text-muted mb-1">Intervention group</label>
+                                            <select name="target_subheading_id" class="form-select form-select-sm">
+                                                {% for target_subheading in chapter.subheadings.all %}
+                                                    {% if target_subheading.id == intervention.subheading_id %}
+                                                        <option value="{{ target_subheading.id }}" selected>{{ target_subheading.title }}</option>
+                                                    {% else %}
+                                                        <option value="{{ target_subheading.id }}">{{ target_subheading.title }}</option>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            </select>
+                                            <div class="form-text">Use this to move the intervention to another group in this chapter.</div>
+                                        </div>
+                                        <div class="col-12 col-lg-4">
+                                            <button class="btn btn-outline-primary btn-sm w-100">Move to group</button>
+                                        </div>
+                                    </div>
+                                </form>
 
                                 <details class="mb-2">
                                     <summary class="small text-muted">Edit metadata and background</summary>

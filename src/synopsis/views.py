@@ -8041,6 +8041,28 @@ def _project_synopsis_workspace(
             else:
                 messages.info(request, "Already at the edge.")
             return redirect(redirect_url)
+        elif action == "move-intervention-to-subheading":
+            intervention = _intervention_from_post()
+            old_subheading = intervention.subheading
+            target_subheading = get_object_or_404(
+                SynopsisSubheading,
+                pk=request.POST.get("target_subheading_id"),
+                chapter=old_subheading.chapter,
+                chapter__project=project,
+            )
+            if target_subheading.id == old_subheading.id:
+                messages.info(request, "Intervention is already in that group.")
+                return redirect(redirect_url)
+
+            intervention.subheading = target_subheading
+            intervention.position = _next_intervention_position(target_subheading)
+            intervention.save(update_fields=["subheading", "position", "updated_at"])
+            _resequence_intervention_positions(old_subheading)
+            _resequence_intervention_positions(target_subheading)
+            messages.success(
+                request, f"Moved intervention to “{target_subheading.title}”."
+            )
+            return redirect(redirect_url)
         elif action == "delete-intervention":
             intervention = _intervention_from_post()
             subheading = intervention.subheading

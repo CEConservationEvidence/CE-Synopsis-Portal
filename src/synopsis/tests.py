@@ -441,6 +441,71 @@ class SynopsisStructureTests(TestCase):
         )
         self.assertIn("Intervention A", intervention_titles)
 
+    def test_move_intervention_to_another_subheading(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        general = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        arable = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Arable",
+            position=2,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=general,
+            title="Mow more frequently",
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "move-intervention-to-subheading",
+                "intervention_id": intervention.id,
+                "target_subheading_id": arable.id,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        intervention.refresh_from_db()
+        self.assertEqual(intervention.subheading, arable)
+        self.assertEqual(intervention.position, 1)
+        self.assertEqual(general.interventions.count(), 0)
+        self.assertEqual(arable.interventions.count(), 1)
+
+    def test_structure_page_explains_intervention_group_linking(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Arable",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Mow more frequently",
+            position=1,
+        )
+
+        response = self.client.get(url)
+
+        self.assertContains(response, "Add intervention to Arable")
+        self.assertContains(response, "Intervention group")
+        self.assertContains(response, "Move to group")
+
     def test_text_chapter_blocks_subheading_and_intervention(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
         text_chapter = SynopsisChapter.objects.create(
