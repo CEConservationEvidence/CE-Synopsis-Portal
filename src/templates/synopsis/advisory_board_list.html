@@ -1537,7 +1537,7 @@
 </div>
 </div>
 </div>
-{% if form.errors %}
+{% if form.errors or open_add_member_modal %}
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     var modalElement = document.getElementById("addMemberModal");

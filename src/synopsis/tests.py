@@ -255,6 +255,30 @@ class AdvisoryBoardMemberAddUiTests(TestCase):
         self.assertContains(response, 'window.bootstrap.Modal.getOrCreateInstance')
         self.assertContains(response, "This field is required.")
 
+    def test_edit_details_from_confirm_page_reopens_add_member_modal(self):
+        response = self.client.post(
+            self.url,
+            {
+                "action": "add_member_back",
+                "title": "Dr",
+                "first_name": "Amira",
+                "middle_name": "",
+                "last_name": "Shah",
+                "organisation": "Conservation Lab",
+                "email": "amira@example.com",
+                "country": "UK",
+                "continent": "Europe",
+                "notes": "Review protocol section.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="addMemberModal"')
+        self.assertContains(response, 'window.bootstrap.Modal.getOrCreateInstance')
+        self.assertContains(response, 'value="Amira"')
+        self.assertContains(response, 'value="amira@example.com"')
+        self.assertTrue(response.context["open_add_member_modal"])
+
 
 class ReplyToListTests(TestCase):
     @override_settings(DEFAULT_FROM_EMAIL="fallback@example.com")

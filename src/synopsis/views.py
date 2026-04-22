@@ -5328,6 +5328,7 @@ def advisory_board_list(request, project_id):
         if action == "add_member_back":
             form = AdvisoryBoardMemberForm(request.POST)
             context = _advisory_board_context(project, user=request.user, member_form=form)
+            context["open_add_member_modal"] = True
             return render(request, "synopsis/advisory_board_list.html", context)
 
         if action == "add_member":
