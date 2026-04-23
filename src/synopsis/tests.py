@@ -2126,6 +2126,73 @@ class AdvisoryInviteFlowTests(TestCase):
         self.client.force_login(self.user)
         self.board_url = reverse("synopsis:advisory_board_list", args=[self.project.id])
 
+    def assert_public_nav_actions_hidden(self, response):
+        self.assertNotContains(response, ">Home</a>")
+        self.assertNotContains(response, ">Login</a>")
+        self.assertNotContains(response, ">Logout</button>")
+        self.assertNotContains(response, ">Create New Synopsis</a>")
+
+    def test_public_invitation_pages_hide_author_navigation_buttons(self):
+        self.client.logout()
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
+        )
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:advisory_invite_reply",
+                args=[str(invitation.token), "yes"],
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assert_public_nav_actions_hidden(response)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_invite_reply",
+                args=[str(invitation.token), "yes"],
+            ),
+            {"confirm_participation": "on", "statement": "Happy to help."},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assert_public_nav_actions_hidden(response)
+
+    def test_public_feedback_pages_hide_author_navigation_buttons(self):
+        self.client.logout()
+        protocol_feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            email="reviewer@example.com",
+        )
+        action_list_feedback = ActionListFeedback.objects.create(
+            project=self.project,
+            email="reviewer@example.com",
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:protocol_feedback",
+                args=[str(protocol_feedback.token)],
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assert_public_nav_actions_hidden(response)
+
+        response = self.client.get(
+            reverse(
+                "synopsis:action_list_feedback",
+                args=[str(action_list_feedback.token)],
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assert_public_nav_actions_hidden(response)
+
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_single_invite_sets_due_date_and_resets_flags(self, mock_email):
         mock_email.return_value = MagicMock()
