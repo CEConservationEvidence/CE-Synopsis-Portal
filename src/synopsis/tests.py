@@ -2193,6 +2193,74 @@ class AdvisoryInviteFlowTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assert_public_nav_actions_hidden(response)
 
+    def test_legacy_accept_link_redirects_to_participation_confirmation(self):
+        self.client.logout()
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
+        )
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:advisory_invite_accept", args=[str(invitation.token)])
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:advisory_invite_reply",
+                args=[str(invitation.token), "yes"],
+            )
+            + "?source=legacy_accept",
+        )
+        invitation.refresh_from_db()
+        member.refresh_from_db()
+        self.assertIsNone(invitation.accepted)
+        self.assertFalse(member.participation_confirmed)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Opened advisory invite link",
+                details__contains="Source: legacy accept link",
+            ).exists()
+        )
+
+    def test_participation_confirmation_page_explains_two_step_flow(self):
+        self.client.logout()
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
+        )
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:advisory_invite_reply",
+                args=[str(invitation.token), "yes"],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Step 1 of 2")
+        self.assertContains(
+            response,
+            "Your response is not recorded until you submit the form below.",
+        )
+        self.assertContains(
+            response,
+            "you will see a separate thank-you page confirming that your response has been recorded",
+        )
+
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_single_invite_sets_due_date_and_resets_flags(self, mock_email):
         mock_email.return_value = MagicMock()

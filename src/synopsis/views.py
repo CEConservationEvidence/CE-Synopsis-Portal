@@ -9689,36 +9689,14 @@ def advisory_invite_accept(request, token):
     New invites should use Yes/No links via advisory_invite_reply.
     """
     inv = get_object_or_404(AdvisoryBoardInvitation, token=token)
-    if inv.accepted is not True:
-        inv.accepted = True
-        inv.responded_at = timezone.now()
-        inv.save(update_fields=["accepted", "responded_at"])
-
-        if inv.member:
-            member = inv.member
-            member.response_date = timezone.localdate()
-            member.response = "Y"
-            member.participation_confirmed = True
-            member.participation_confirmed_at = timezone.now()
-            if not member.participation_statement:
-                member.participation_statement = (
-                    "Confirmed participation via legacy link"
-                )
-            member.save(
-                update_fields=[
-                    "response_date",
-                    "response",
-                    "participation_confirmed",
-                    "participation_confirmed_at",
-                    "participation_statement",
-                ]
-            )
-
-    return render(
-        request,
-        "synopsis/advisory_invite_accept.html",
-        {"project": inv.project, "invitation": inv},
+    _log_project_change(
+        inv.project,
+        request.user,
+        "Opened advisory invite link",
+        f"Source: legacy accept link | Email: {inv.email or '—'}",
     )
+    reply_url = reverse("synopsis:advisory_invite_reply", args=[str(inv.token), "yes"])
+    return redirect(f"{reply_url}?source=legacy_accept")
 
 
 def advisory_invite_reply(request, token, choice):
@@ -9734,6 +9712,7 @@ def advisory_invite_reply(request, token, choice):
 
     accepted = choice == "yes"
     member = inv.member
+    link_source = (request.GET.get("source") or "reply_link").strip() or "reply_link"
 
     if accepted:
         if member and member.participation_confirmed:
@@ -9741,6 +9720,12 @@ def advisory_invite_reply(request, token, choice):
                 inv.accepted = True
                 inv.responded_at = timezone.now()
                 inv.save(update_fields=["accepted", "responded_at"])
+            _log_project_change(
+                inv.project,
+                request.user,
+                "Opened advisory invite link",
+                f"Source: {link_source} | Choice: yes | Email: {inv.email or '—'} | Already confirmed: yes",
+            )
             return render(
                 request,
                 "synopsis/invite_thanks.html",
@@ -9748,6 +9733,13 @@ def advisory_invite_reply(request, token, choice):
             )
 
         form = ParticipationConfirmForm(request.POST or None)
+        if request.method != "POST":
+            _log_project_change(
+                inv.project,
+                request.user,
+                "Opened advisory invite link",
+                f"Source: {link_source} | Choice: yes | Email: {inv.email or '—'} | Showing participation form",
+            )
         if request.method == "POST":
             if form.is_valid():
                 statement = (form.cleaned_data.get("statement") or "").strip()
@@ -9788,6 +9780,12 @@ def advisory_invite_reply(request, token, choice):
                 inv.accepted = True
                 inv.responded_at = now
                 inv.save(update_fields=["accepted", "responded_at", "member"])
+                _log_project_change(
+                    inv.project,
+                    request.user,
+                    "Confirmed advisory participation",
+                    f"Source: {link_source} | Email: {inv.email or '—'}",
+                )
 
                 return render(
                     request,
@@ -9811,6 +9809,13 @@ def advisory_invite_reply(request, token, choice):
         )
 
     decline_form = ParticipationDeclineForm(request.POST or None)
+    if request.method != "POST":
+        _log_project_change(
+            inv.project,
+            request.user,
+            "Opened advisory invite link",
+            f"Source: {link_source} | Choice: no | Email: {inv.email or '—'} | Showing decline form",
+        )
 
     if request.method == "POST" and decline_form.is_valid():
         reason = (decline_form.cleaned_data.get("reason") or "").strip()
@@ -9832,6 +9837,12 @@ def advisory_invite_reply(request, token, choice):
         inv.accepted = False
         inv.responded_at = timezone.now()
         inv.save(update_fields=["accepted", "responded_at", "member"] if member else ["accepted", "responded_at"])
+        _log_project_change(
+            inv.project,
+            request.user,
+            "Declined advisory invitation",
+            f"Source: {link_source} | Email: {inv.email or '—'}",
+        )
 
         return render(
             request,
