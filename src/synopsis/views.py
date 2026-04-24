@@ -2499,6 +2499,53 @@ def project_create(request):
     )
 
 
+def _project_phase_context(project: Project, user):
+    phase_labels = dict(Project.PHASE_CHOICES)
+    order = [key for key, _label in Project.PHASE_CHOICES]
+    current_phase = project.phase
+    try:
+        current_index = order.index(current_phase)
+    except ValueError:
+        current_index = 0
+    next_phase = order[current_index + 1] if current_index + 1 < len(order) else None
+    last_event = project.phase_events.first()
+    can_update_phase = _user_can_confirm_phase(user, project)
+    total_phases = len(order)
+    current_step = current_index + 1 if total_phases else 0
+    phase_progress_percent = (
+        int(round((current_step / total_phases) * 100)) if total_phases else 0
+    )
+    phase_steps = []
+    for step_index, key in enumerate(order, start=1):
+        phase_steps.append(
+            {
+                "key": key,
+                "label": phase_labels.get(key, key),
+                "number": step_index,
+                "is_current": key == current_phase,
+                "is_manual": key == project.phase_manual,
+                "is_complete": step_index < current_step,
+                "is_upcoming": step_index > current_step,
+                "can_set": can_update_phase and key != current_phase,
+            }
+        )
+
+    return {
+        "phase_labels": phase_labels,
+        "current_phase": current_phase,
+        "current_phase_label": phase_labels.get(current_phase, current_phase),
+        "phase_is_manual": bool(project.phase_manual),
+        "phase_manual_updated": project.phase_manual_updated,
+        "phase_steps": phase_steps,
+        "phase_progress_percent": phase_progress_percent,
+        "phase_progress_text": f"Step {current_step} of {total_phases}",
+        "next_phase": next_phase,
+        "next_phase_label": phase_labels.get(next_phase) if next_phase else None,
+        "last_phase_event": last_event,
+        "can_update_phase": can_update_phase,
+    }
+
+
 @login_required
 def project_hub(request, project_id):
     project = get_object_or_404(
@@ -2601,16 +2648,7 @@ def project_hub(request, project_id):
         .count(),
     }
 
-    phase_labels = dict(Project.PHASE_CHOICES)
-    order = [k for k, _ in Project.PHASE_CHOICES]
-    current_phase = project.phase
-    try:
-        idx = order.index(current_phase)
-    except ValueError:
-        idx = 0
-    next_phase = order[idx + 1] if idx + 1 < len(order) else None
-    last_event = project.phase_events.first()
-    next_phase_label = phase_labels.get(next_phase) if next_phase else None
+    phase_context = _project_phase_context(project, request.user)
 
     change_log_entries = project.change_log.select_related("changed_by")[:10]
 
@@ -2626,26 +2664,25 @@ def project_hub(request, project_id):
             "reference_stats": reference_stats,
             "summary_stats": summary_stats,
             "structure_stats": structure_stats,
-            "phase_labels": phase_labels,
-            "next_phase": next_phase,
-            "next_phase_label": next_phase_label,
-            "last_phase_event": last_event,
             "authors": list(project.author_users),
             "change_log_entries": change_log_entries,
             "funders": funders,
             "funder_summary": funder_summary,
             "can_manage_project": _user_is_manager(request.user),
             "can_edit_project": _user_can_edit_project(request.user, project),
+            **phase_context,
         },
     )
 
 
 def _user_can_confirm_phase(user, project: Project) -> bool:
-    if not user.is_authenticated:
+    if not getattr(user, "is_authenticated", False):
         return False
-    if user.is_staff:
+    if _user_is_manager(user):
         return True
-    return UserRole.objects.filter(user=user, project=project, role="author").exists()
+    return UserRole.objects.filter(
+        user=user, project=project, role__in=["author", "manager"]
+    ).exists()
 
 
 @login_required
@@ -2660,21 +2697,18 @@ def project_phase_confirm(request, project_id, phase):
         )
         return redirect("synopsis:project_hub", project_id=project.id)
 
+    phase_labels = dict(Project.PHASE_CHOICES)
     valid_phases = [k for k, _ in Project.PHASE_CHOICES]
     if phase not in valid_phases:
         messages.error(request, "Invalid phase.")
         return redirect("synopsis:project_hub", project_id=project.id)
 
-    order = valid_phases
-    try:
-        cur_idx = order.index(project.phase)
-        tgt_idx = order.index(phase)
-    except ValueError:
-        messages.error(request, "Phase resolution error.")
-        return redirect("synopsis:project_hub", project_id=project.id)
-
-    if tgt_idx < cur_idx:
-        messages.error(request, "Cannot move the phase backwards.")
+    current_phase = project.phase
+    if current_phase == phase and project.phase_manual == phase:
+        messages.info(
+            request,
+            f"The current working phase is already set to {phase_labels[phase]}.",
+        )
         return redirect("synopsis:project_hub", project_id=project.id)
 
     project.phase_manual = phase
@@ -2683,10 +2717,25 @@ def project_phase_confirm(request, project_id, phase):
 
     note = (request.POST.get("note") or "").strip()
     ProjectPhaseEvent.objects.create(
-        project=project, phase=phase, confirmed_by=request.user, note=note
+        project=project,
+        phase=phase,
+        confirmed_by=request.user,
+        note=note
+        or (
+            f"Phase changed from {phase_labels.get(current_phase, current_phase)} to {phase_labels[phase]}."
+        ),
+    )
+    _log_project_change(
+        project,
+        request.user,
+        "Updated project phase",
+        note
+        or (
+            f"{phase_labels.get(current_phase, current_phase)} → {phase_labels[phase]}"
+        ),
     )
 
-    messages.success(request, f"Phase confirmed: {dict(Project.PHASE_CHOICES)[phase]}")
+    messages.success(request, f"Current phase set to: {phase_labels[phase]}")
     return redirect("synopsis:project_hub", project_id=project.id)
 
 
@@ -5196,6 +5245,8 @@ def project_settings(request, project_id):
         "project": project,
         "form": form,
         "previous_titles": previous_titles,
+        "phase_history_entries": project.phase_events.select_related("confirmed_by")[:10],
+        **_project_phase_context(project, request.user),
     }
 
     return render(
