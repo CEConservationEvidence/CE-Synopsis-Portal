@@ -306,44 +306,23 @@ class ProjectPhaseTests(TestCase):
     def setUp(self):
         self.project = Project.objects.create(title="Marine Study")
 
-    def _create_protocol(self):
-        Protocol.objects.create(
-            project=self.project,
-            document=SimpleUploadedFile("protocol.txt", b"Test content"),
-        )
-
-    def test_defaults_to_draft_protocol_without_protocol(self):
-        self.assertEqual(self.project.compute_phase(), "draft_protocol")
-
-    def test_requires_invites_after_protocol(self):
-        self._create_protocol()
-        self.assertEqual(self.project.compute_phase(), "invite_advisory_board")
-
-    def test_acceptance_moves_to_references_screening(self):
-        self._create_protocol()
-        AdvisoryBoardInvitation.objects.create(
-            project=self.project,
-            email="member@example.com",
-            accepted=True,
-        )
-        self.assertEqual(self.project.compute_phase(), "references_screening")
+    def test_defaults_to_draft_protocol_without_manual_phase(self):
+        self.assertEqual(self.project.phase, "draft_protocol")
+        self.assertEqual(self.project.get_phase_display(), "Draft protocol")
 
     def test_manual_phase_does_not_regress(self):
-        self._create_protocol()
-        AdvisoryBoardInvitation.objects.create(
-            project=self.project,
-            email="member@example.com",
-            accepted=True,
-        )
         self.project.phase_manual = "draft_protocol"
         self.project.save(update_fields=["phase_manual"])
-        self.assertEqual(self.project.phase, "references_screening")
+        self.assertEqual(self.project.phase, "draft_protocol")
 
     def test_manual_phase_can_advance(self):
-        self._create_protocol()
         self.project.phase_manual = "summary_writing"
         self.project.save(update_fields=["phase_manual"])
         self.assertEqual(self.project.phase, "summary_writing")
+        self.assertEqual(
+            self.project.get_phase_display(),
+            "Summary writing",
+        )
 
 
 class ProjectAuthorUsersTests(TestCase):
@@ -4453,6 +4432,9 @@ class ViewHelperTests(TestCase):
         author = User.objects.create_user(username="author")
         UserRole.objects.create(user=author, project=self.project, role="author")
         self.assertTrue(_user_can_confirm_phase(author, self.project))
+        manager = User.objects.create_user(username="manager")
+        UserRole.objects.create(user=manager, project=self.project, role="manager")
+        self.assertTrue(_user_can_confirm_phase(manager, self.project))
         outsider = User.objects.create_user(username="outsider")
         self.assertFalse(_user_can_confirm_phase(outsider, self.project))
         self.assertFalse(_user_can_confirm_phase(AnonymousUser(), self.project))
@@ -6489,5 +6471,131 @@ class ProjectDescriptionUiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "optional description")
+        self.assertContains(response, "Phase tracker")
         self.assertContains(response, "A pilot synopsis for forest restoration.")
         self.assertContains(response, 'value="Forest Restoration"', html=False)
+
+
+class ProjectPhaseUiTests(TestCase):
+    def setUp(self):
+        self.author = User.objects.create_user(
+            username="phase-author",
+            password="pass123",
+        )
+        self.project = Project.objects.create(title="Phase Tracker")
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        self.client.login(username="phase-author", password="pass123")
+
+    def test_project_hub_shows_phase_summary_and_shortcut_controls(self):
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Move to invite advisory board")
+        self.assertContains(response, "Manage phase tracker")
+        self.assertContains(response, "Default starting phase")
+        self.assertContains(response, "Step 1 of 8")
+        self.assertNotContains(response, "Set current phase")
+
+    def test_project_settings_shows_full_phase_tracker_controls(self):
+        response = self.client.get(
+            reverse("synopsis:project_settings", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Phase tracker")
+        self.assertContains(response, "Set current phase")
+        self.assertContains(response, "Default starting phase")
+
+    def test_author_can_set_phase_backwards_or_forwards(self):
+        self.project.phase_manual = "summary_writing"
+        self.project.phase_manual_updated = timezone.now()
+        self.project.save(update_fields=["phase_manual", "phase_manual_updated"])
+
+        response = self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "draft_protocol"],
+            )
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.phase_manual, "draft_protocol")
+        self.assertEqual(self.project.phase, "draft_protocol")
+        event = self.project.phase_events.first()
+        self.assertIsNotNone(event)
+        self.assertEqual(event.phase, "draft_protocol")
+
+    def test_project_settings_shows_phase_history_entries(self):
+        self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "invite_advisory_board"],
+            )
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_settings", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Phase history")
+        self.assertContains(response, "Invite advisory board")
+        self.assertContains(
+            response,
+            "Phase changed from Draft protocol to Invite advisory board.",
+        )
+
+    def test_project_hub_shortcut_moves_to_next_phase(self):
+        response = self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "invite_advisory_board"],
+            )
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.phase, "invite_advisory_board")
+
+    def test_phase_updates_are_logged_in_recent_changes(self):
+        response = self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "invite_advisory_board"],
+            )
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Updated project phase",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Draft protocol", change.details)
+        self.assertIn("Invite advisory board", change.details)
+
+    def test_manager_role_can_update_phase(self):
+        manager = User.objects.create_user(username="phase-manager", password="pass123")
+        UserRole.objects.create(user=manager, project=self.project, role="manager")
+        self.client.login(username="phase-manager", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "draft_synopsis"],
+            )
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.phase, "draft_synopsis")
