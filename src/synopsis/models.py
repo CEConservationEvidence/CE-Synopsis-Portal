@@ -57,73 +57,9 @@ class Project(models.Model):
     )
     phase_manual_updated = models.DateTimeField(null=True, blank=True)
 
-    def compute_phase(self):
-        """Infer a best-effort phase from related activity.
-        This does not persist; it is derived for UI.
-        """
-
-        proto = getattr(self, "protocol", None)
-        if not proto or not getattr(proto, "document", None):
-            return "draft_protocol"
-
-        has_invites = AdvisoryBoardInvitation.objects.filter(project=self).exists()
-        has_member_invites = AdvisoryBoardMember.objects.filter(
-            project=self, invite_sent=True
-        ).exists()
-        if not (has_invites or has_member_invites):
-            return "invite_advisory_board"
-
-        any_accept = (
-            AdvisoryBoardInvitation.objects.filter(project=self, accepted=True).exists()
-            or AdvisoryBoardMember.objects.filter(
-                project=self, response__in=["Y", "accepted"]
-            ).exists()
-        )
-        if any_accept:
-            if (
-                AdvisoryBoardMember.objects.filter(
-                    project=self,
-                    feedback_on_actions_received=True,
-                ).exists()
-                or AdvisoryBoardMember.objects.filter(
-                    project=self, feedback_on_list=True
-                ).exists()
-            ):
-                return "summary_writing"
-
-            if (
-                AdvisoryBoardMember.objects.filter(
-                    project=self,
-                    added_to_protocol_doc=True,
-                ).exists()
-                or AdvisoryBoardMember.objects.filter(
-                    project=self, feedback_on_protocol_received__isnull=False
-                ).exists()
-            ):
-                return "draft_chapters"
-
-            if AdvisoryBoardMember.objects.filter(
-                project=self, feedback_on_guidance=True
-            ).exists():
-                return "draft_synopsis"
-
-            return "references_screening"
-        return "invite_advisory_board"
-
-    def _phase_order(self):
-        return [p for p, _ in self.PHASE_CHOICES]
-
-    def _phase_index(self, key):
-        try:
-            return self._phase_order().index(key)
-        except ValueError:
-            return 0
-
     @property
     def phase(self):
-        auto = self.compute_phase()
-        manual = self.phase_manual or auto
-        return manual if self._phase_index(manual) >= self._phase_index(auto) else auto
+        return self.phase_manual or self.PHASE_CHOICES[0][0]
 
     def get_phase_display(self):
         mapping = dict(self.PHASE_CHOICES)
