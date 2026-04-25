@@ -2014,6 +2014,18 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         label="Outcome rows",
         help_text="One outcome per line, fields separated by |",
     )
+    methods_and_design = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 5,
+                "placeholder": "Describe the action methods and any experimental design details together.",
+            }
+        ),
+        label="Action methods and experimental design",
+        help_text="Use one box for the intervention methods and any notes on how the comparison was set up.",
+    )
     research_design = forms.MultipleChoiceField(
         required=False,
         choices=RESEARCH_DESIGN_TAG_CHOICES,
@@ -2055,6 +2067,14 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                 if any(part.strip() for part in parts):
                     lines.append(" | ".join(parts).strip())
             self.fields["outcomes_raw"].initial = "\n".join([line for line in lines if line.strip()])
+        if not self.is_bound and instance:
+            methods_parts = [
+                (instance.action_methods or "").strip(),
+                (instance.experimental_design or "").strip(),
+            ]
+            self.fields["methods_and_design"].initial = "\n\n".join(
+                [part for part in methods_parts if part]
+            )
         for field_name, (min_value, max_value, step) in self.QUALITY_SCORE_RANGES.items():
             field = self.fields.get(field_name)
             if not field:
@@ -2081,8 +2101,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "region",
             "country",
             "summary_of_results",
-            "action_methods",
-            "experimental_design",
             "site_context_details",
             "sampling_methods_details",
             "cost_summary",
@@ -2124,8 +2142,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "region": forms.TextInput(attrs={"class": "form-control"}),
             "country": forms.TextInput(attrs={"class": "form-control"}),
             "summary_of_results": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
-            "action_methods": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-            "experimental_design": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
             "site_context_details": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
             "sampling_methods_details": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
             "cost_summary": forms.Textarea(
@@ -2260,6 +2276,9 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
 
     def save(self, commit=True):
         instance = super().save(commit=False)
+        combined_methods = (self.cleaned_data.get("methods_and_design") or "").strip()
+        instance.action_methods = combined_methods
+        instance.experimental_design = ""
         instance.outcome_rows = self.cleaned_data.get("outcomes_raw", [])
         for field in [
             "action_tags",

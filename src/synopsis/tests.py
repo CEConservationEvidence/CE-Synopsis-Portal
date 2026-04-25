@@ -5800,6 +5800,54 @@ class ReferenceSummaryFormTests(TestCase):
             ["Replicated", "Controlled*"],
         )
 
+    def test_methods_and_design_initial_merges_existing_fields(self):
+        summary = ReferenceSummary(
+            action_methods="Used fenced plots and added seed.",
+            experimental_design="Compared treated and untreated plots over two years.",
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary)
+
+        self.assertEqual(
+            form["methods_and_design"].value(),
+            "Used fenced plots and added seed.\n\nCompared treated and untreated plots over two years.",
+        )
+
+    def test_methods_and_design_save_flattens_into_single_summary_field(self):
+        project = Project.objects.create(title="Methods Merge")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="m" * 40,
+            title="Methods reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            status=ReferenceSummary.STATUS_TODO,
+            action_methods="Old methods",
+            experimental_design="Old design",
+        )
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "methods_and_design": "Combined methods and design notes.",
+            },
+            instance=summary,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+
+        self.assertEqual(saved.action_methods, "Combined methods and design notes.")
+        self.assertEqual(saved.experimental_design, "")
+
     def test_draft_form_prefills_generated_summary_when_no_saved_draft_exists(self):
         project = Project.objects.create(title="Coral Reefs Synopsis")
         batch = ReferenceSourceBatch.objects.create(

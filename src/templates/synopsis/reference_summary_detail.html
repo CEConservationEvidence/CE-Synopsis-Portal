@@ -405,14 +405,10 @@
                             <div class="form-text">One outcome per line, fields separated by | (Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes).</div>
                         </div>
                         <div class="row g-3">
-                            <div class="col-md-6">
-                                <label class="form-label">Action methods</label>
-                                {{ summary_form.action_methods }}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Experimental design notes</label>
-                                {{ summary_form.experimental_design }}
-                                <div class="form-text">Brief methods notes on how the comparison was set up.</div>
+                            <div class="col-12">
+                                <label class="form-label">Action methods and experimental design</label>
+                                {{ summary_form.methods_and_design }}
+                                <div class="form-text">Use one box for the intervention methods and any notes on how the comparison was set up.</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Key details of site context</label>
