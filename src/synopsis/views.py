@@ -10166,27 +10166,33 @@ def reference_batch_detail(request, project_id, batch_id):
 
             updated = 0
             now = timezone.now()
+            bulk_folder = [
+                value for value in request.POST.getlist("reference_folder") if value
+            ]
+            apply_bulk_folder = "reference_folder" in request.POST and bool(bulk_folder)
             for ref in batch.references.filter(pk__in=selected_ids):
                 ref.screening_status = new_status
                 ref.screening_decision_at = now
                 if request.user.is_authenticated:
                     ref.screened_by = request.user
-                ref.save(
-                    update_fields=[
-                        "screening_status",
-                        "screening_decision_at",
-                        "screened_by",
-                        "updated_at",
-                    ]
-                )
+                update_fields = [
+                    "screening_status",
+                    "screening_decision_at",
+                    "screened_by",
+                    "updated_at",
+                ]
+                if apply_bulk_folder:
+                    ref.reference_folder = bulk_folder
+                    update_fields.append("reference_folder")
+                ref.save(update_fields=update_fields)
                 updated += 1
 
             if updated:
                 status_label = status_choices.get(new_status, new_status.title())
-                messages.success(
-                    request,
-                    f"Marked {updated} reference(s) as {status_label}.",
-                )
+                message = f"Marked {updated} reference(s) as {status_label}."
+                if apply_bulk_folder:
+                    message += " Applied the selected folders at the same time."
+                messages.success(request, message)
             else:
                 messages.info(request, "No references matched the selection.")
 
@@ -10248,6 +10254,8 @@ def reference_batch_detail(request, project_id, batch_id):
             )
             if redirect_params:
                 redirect_url = f"{redirect_url}?{urlencode(redirect_params)}"
+            if not is_focus_post:
+                redirect_url = f"{redirect_url}#ref-{ref.id}"
             return redirect(redirect_url)
         else:
             messages.error(

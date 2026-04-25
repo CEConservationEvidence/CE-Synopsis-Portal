@@ -89,6 +89,12 @@ details.abstract-details[open] .abstract-full {
     justify-content: space-between;
     margin-bottom: 0.35rem;
 }
+.screening-bulk-sticky {
+    position: sticky;
+    top: 0.75rem;
+    z-index: 1020;
+    box-shadow: 0 0.35rem 1rem rgba(0, 0, 0, 0.08);
+}
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3 align-items-center justify-content-between">
     <div class="d-flex flex-wrap gap-2">
@@ -109,7 +115,7 @@ details.abstract-details[open] .abstract-full {
     </div>
 </div>
 {% if not focus_mode %}
-<div class="card mb-3">
+<div class="card mb-3 screening-bulk-sticky">
     <div class="card-body">
         <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
             <h5 class="mb-0">Screening &amp; bulk actions</h5>
@@ -141,7 +147,7 @@ details.abstract-details[open] .abstract-full {
                 <input type="text" class="form-control form-control-sm" id="batch-filter-input" placeholder="Search title/author/DOI">
             </div>
             <div class="col-12 col-lg-7">
-                <div class="small text-muted mb-1">Pick one or more folders for the selected references. These folder tags are synopsis-specific, and you can still use them on excluded references to flag papers relevant to other taxa or habitats.</div>
+                <div class="small text-muted mb-1">Pick one or more folders for the selected references. These folder tags are synopsis-specific, and you can still use them on excluded references to flag papers relevant to other taxa or habitats. If folders are selected here, bulk include/exclude will apply them at the same time.</div>
                 <div class="folder-multi-group">
                     <div class="folder-select-tools">
                         <span class="small text-muted">Multiple folders are allowed.</span>
@@ -280,6 +286,7 @@ details.abstract-details[open] .abstract-full {
                     <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
                     <button class="btn btn-success" type="submit" name="screening_status" value="included">Include</button>
                     <button class="btn btn-outline-danger" type="submit" name="screening_status" value="excluded">Exclude</button>
+                    <button class="btn btn-outline-secondary" type="submit" name="screening_status" value="pending">Pending</button>
                 </form>
             </div>
         </div>
@@ -313,7 +320,7 @@ details.abstract-details[open] .abstract-full {
                     {% if not ref.canonical.abstract %}
                     <tr class="table-warning">
                     {% else %}
-                    <tr>
+                    <tr id="ref-{{ ref.id }}">
                     {% endif %}
                         <td class="text-center">
                             <input
@@ -418,6 +425,7 @@ details.abstract-details[open] .abstract-full {
                                     <div class="d-flex flex-wrap gap-2">
                                         <button class="btn btn-success btn-sm" type="submit" name="screening_status" value="included">Include</button>
                                         <button class="btn btn-outline-danger btn-sm" type="submit" name="screening_status" value="excluded">Exclude</button>
+                                        <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="pending">Pending</button>
                                     </div>
                                 </form>
                                 <form

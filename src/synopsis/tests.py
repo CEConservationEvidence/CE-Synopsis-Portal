@@ -5396,6 +5396,45 @@ class ReferenceBatchUploadParsingTests(TestCase):
             self.assertEqual(ref.screened_by, self.user)
             self.assertIsNotNone(ref.screening_decision_at)
 
+    def test_bulk_include_can_apply_selected_folders_at_same_time(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Bulk include folders batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        include_ids = [str(ref.id) for ref in batch.references.order_by("id")[:2]]
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+
+        response = self.client.post(
+            detail_url,
+            {
+                "bulk_action": "include",
+                "selected_references": include_ids,
+                "reference_folder": ["3a", "15"],
+            },
+            follow=True,
+        )
+
+        self.assertContains(
+            response,
+            "Applied the selected folders at the same time.",
+        )
+        for ref in Reference.objects.filter(pk__in=include_ids):
+            self.assertEqual(ref.screening_status, "included")
+            self.assertEqual(ref.reference_folder, ["3a", "15"])
+
     def test_screening_page_uses_resizable_folder_select_wrapper(self):
         upload = SimpleUploadedFile(
             "references.txt",
@@ -5422,6 +5461,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "folder-select-shell")
         self.assertContains(response, "folder-select")
+        self.assertContains(response, "screening-bulk-sticky")
         self.assertContains(response, "Apply folders")
         self.assertContains(response, "Multiple folders are allowed.")
         self.assertContains(
@@ -5504,12 +5544,9 @@ class ReferenceBatchUploadParsingTests(TestCase):
             },
         )
 
-        self.assertRedirects(
-            response,
-            reverse(
-                "synopsis:reference_batch_detail",
-                args=[self.project.id, batch.id],
-            ),
+        self.assertEqual(
+            response["Location"],
+            f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, batch.id])}#ref-{ref.id}",
         )
         ref.refresh_from_db()
         self.assertEqual(ref.screening_status, "included")
@@ -5547,16 +5584,55 @@ class ReferenceBatchUploadParsingTests(TestCase):
             },
         )
 
-        self.assertRedirects(
-            response,
-            reverse(
-                "synopsis:reference_batch_detail",
-                args=[self.project.id, batch.id],
-            ),
+        self.assertEqual(
+            response["Location"],
+            f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, batch.id])}#ref-{ref.id}",
         )
         ref.refresh_from_db()
         self.assertEqual(ref.reference_folder, ["15"])
         self.assertEqual(ref.screening_notes, "Keep these notes.")
+
+    def test_single_reference_can_be_reset_to_pending(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Pending reset batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        ref = batch.references.order_by("id").first()
+        ref.screening_status = "included"
+        ref.screening_decision_at = timezone.now()
+        ref.screened_by = self.user
+        ref.save(
+            update_fields=["screening_status", "screening_decision_at", "screened_by", "updated_at"]
+        )
+
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+        response = self.client.post(
+            detail_url,
+            {
+                "reference_id": ref.id,
+                "screening_status": "pending",
+            },
+        )
+
+        self.assertEqual(
+            response["Location"],
+            f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, batch.id])}#ref-{ref.id}",
+        )
+        ref.refresh_from_db()
+        self.assertEqual(ref.screening_status, "pending")
 
     def test_bulk_action_requires_selection(self):
         upload = SimpleUploadedFile(
