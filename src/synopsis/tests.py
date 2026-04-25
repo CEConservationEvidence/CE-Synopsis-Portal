@@ -5422,6 +5422,56 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "folder-select-shell")
         self.assertContains(response, "folder-select")
+        self.assertContains(response, "Apply folders")
+        self.assertContains(response, "Multiple folders are allowed.")
+        self.assertContains(
+            response,
+            "you can still use them on excluded references to flag papers relevant to other taxa or habitats",
+        )
+
+    def test_bulk_apply_folders_to_selected_references(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Bulk folder batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        references = list(batch.references.order_by("id"))
+        selected_ids = [str(ref.id) for ref in references[:2]]
+
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+        response = self.client.post(
+            detail_url,
+            {
+                "bulk_action": "save-folders",
+                "selected_references": selected_ids,
+                "reference_folder": ["3a", "15"],
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+        )
+
+        for ref in Reference.objects.filter(pk__in=selected_ids):
+            self.assertEqual(ref.reference_folder, ["3a", "15"])
+            self.assertEqual(ref.screened_by, self.user)
+            self.assertIsNotNone(ref.screening_decision_at)
 
     def test_single_screening_update_filters_blank_reference_folder_values(self):
         upload = SimpleUploadedFile(

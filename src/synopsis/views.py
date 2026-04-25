@@ -10114,6 +10114,39 @@ def reference_batch_detail(request, project_id, batch_id):
                     redirect_url = f"{redirect_url}?status={status_filter}"
                 return redirect(redirect_url)
 
+            if bulk_action == "save-folders":
+                folder = [
+                    value for value in request.POST.getlist("reference_folder") if value
+                ]
+                updated = 0
+                now = timezone.now()
+                for ref in batch.references.filter(pk__in=selected_ids):
+                    ref.reference_folder = folder
+                    ref.screening_decision_at = now
+                    if request.user.is_authenticated:
+                        ref.screened_by = request.user
+                    ref.save(
+                        update_fields=[
+                            "reference_folder",
+                            "screening_decision_at",
+                            "screened_by",
+                            "updated_at",
+                        ]
+                    )
+                    updated += 1
+
+                messages.success(
+                    request,
+                    f"Updated folders for {updated} reference(s).",
+                )
+                redirect_url = reverse(
+                    "synopsis:reference_batch_detail",
+                    kwargs={"project_id": project.id, "batch_id": batch.id},
+                )
+                if status_filter in status_choices:
+                    redirect_url = f"{redirect_url}?status={status_filter}"
+                return redirect(redirect_url)
+
             action_map = {
                 "include": "included",
                 "exclude": "excluded",

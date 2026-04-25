@@ -81,6 +81,14 @@ details.abstract-details[open] .abstract-full {
     width: 100%;
     min-width: 100%;
 }
+.folder-select-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.35rem;
+}
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3 align-items-center justify-content-between">
     <div class="d-flex flex-wrap gap-2">
@@ -124,12 +132,32 @@ details.abstract-details[open] .abstract-full {
                 <button class="btn btn-success btn-sm bulk-action-btn" type="submit" name="bulk_action" value="include" disabled>Mark as Include</button>
                 <button class="btn btn-outline-danger btn-sm bulk-action-btn" type="submit" name="bulk_action" value="exclude" disabled>Mark as Exclude</button>
                 <button class="btn btn-outline-secondary btn-sm bulk-action-btn" type="submit" name="bulk_action" value="pending" disabled>Reset to Pending</button>
+                <button class="btn btn-outline-secondary btn-sm bulk-action-btn" type="submit" name="bulk_action" value="save-folders" disabled>Apply folders</button>
             </form>
         </div>
         <div class="row g-2 align-items-end mt-2">
             <div class="col-12 col-md-8 col-lg-5 d-flex align-items-center gap-2">
                 <div class="fw-semibold" style="font-size: 1.05rem;">Filter</div>
                 <input type="text" class="form-control form-control-sm" id="batch-filter-input" placeholder="Search title/author/DOI">
+            </div>
+            <div class="col-12 col-lg-7">
+                <div class="small text-muted mb-1">Pick one or more folders for the selected references. These folder tags are synopsis-specific, and you can still use them on excluded references to flag papers relevant to other taxa or habitats.</div>
+                <div class="folder-multi-group">
+                    <div class="folder-select-tools">
+                        <span class="small text-muted">Multiple folders are allowed.</span>
+                        <div class="btn-group btn-group-sm" role="group" aria-label="Folder selection tools">
+                            <button type="button" class="btn btn-outline-secondary" data-folder-select-action="all">Select all</button>
+                            <button type="button" class="btn btn-outline-secondary" data-folder-select-action="clear">Clear</button>
+                        </div>
+                    </div>
+                    <div class="folder-select-shell">
+                        <select id="bulk-reference-folder" name="reference_folder" class="form-select form-select-sm folder-select" multiple style="height: 150px;" form="bulk-screening-form" data-folder-multi-select>
+                            {% for val,label in folder_choices %}
+                            <option value="{{ val }}">{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -192,16 +220,25 @@ details.abstract-details[open] .abstract-full {
                             <input type="hidden" name="next_ref_id" value="{{ focused_reference.id }}">
                             {% endif %}
                             <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
-                            <div class="folder-select-shell">
-                                <select name="reference_folder" class="form-select form-select-sm folder-select" multiple style="height: 150px;">
-                                    {% for val,label in folder_choices %}
-                                        {% if val in focused_reference.reference_folder %}
-                                            <option value="{{ val }}" selected>{{ label }}</option>
-                                        {% else %}
-                                            <option value="{{ val }}">{{ label }}</option>
-                                        {% endif %}
-                                    {% endfor %}
-                                </select>
+                            <div class="folder-multi-group">
+                                <div class="folder-select-tools">
+                                    <span class="small text-muted">Choose one or more folders.</span>
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Folder selection tools">
+                                        <button type="button" class="btn btn-outline-secondary" data-folder-select-action="all">Select all</button>
+                                        <button type="button" class="btn btn-outline-secondary" data-folder-select-action="clear">Clear</button>
+                                    </div>
+                                </div>
+                                <div class="folder-select-shell">
+                                    <select name="reference_folder" class="form-select form-select-sm folder-select" multiple style="height: 150px;" data-folder-multi-select>
+                                        {% for val,label in folder_choices %}
+                                            {% if val in focused_reference.reference_folder %}
+                                                <option value="{{ val }}" selected>{{ label }}</option>
+                                            {% else %}
+                                                <option value="{{ val }}">{{ label }}</option>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </select>
+                                </div>
                             </div>
                             <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ focused_reference.screening_status }}">Save folders</button>
                         </form>
@@ -350,16 +387,25 @@ details.abstract-details[open] .abstract-full {
                                 <input type="hidden" name="status_filter" value="{{ status_filter }}">
                                 {% endif %}
                                 <input type="hidden" name="reference_id" value="{{ ref.id }}">
-                                <div class="folder-select-shell">
-                                    <select name="reference_folder" class="form-select form-select-sm folder-select" multiple style="height: 150px;">
-                                        {% for val,label in folder_choices %}
-                                            {% if val in ref.reference_folder %}
-                                                <option value="{{ val }}" selected>{{ label }}</option>
-                                            {% else %}
-                                                <option value="{{ val }}">{{ label }}</option>
-                                            {% endif %}
-                                        {% endfor %}
-                                    </select>
+                                <div class="folder-multi-group">
+                                    <div class="folder-select-tools">
+                                        <span class="small text-muted">Choose one or more folders.</span>
+                                        <div class="btn-group btn-group-sm" role="group" aria-label="Folder selection tools">
+                                            <button type="button" class="btn btn-outline-secondary" data-folder-select-action="all">Select all</button>
+                                            <button type="button" class="btn btn-outline-secondary" data-folder-select-action="clear">Clear</button>
+                                        </div>
+                                    </div>
+                                    <div class="folder-select-shell">
+                                        <select name="reference_folder" class="form-select form-select-sm folder-select" multiple style="height: 150px;" data-folder-multi-select>
+                                            {% for val,label in folder_choices %}
+                                                {% if val in ref.reference_folder %}
+                                                    <option value="{{ val }}" selected>{{ label }}</option>
+                                                {% else %}
+                                                    <option value="{{ val }}">{{ label }}</option>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </select>
+                                    </div>
                                 </div>
                                 <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ ref.screening_status }}">Save folders</button>
                             </form>
@@ -591,6 +637,30 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     bulkCheckboxes.forEach((checkbox) => {
         checkbox.addEventListener("change", updateBulkButtons);
+    });
+
+    document.querySelectorAll("select[data-folder-multi-select]").forEach((selectEl) => {
+        selectEl.addEventListener("mousedown", function (event) {
+            const option = event.target.closest("option");
+            if (!option) return;
+            event.preventDefault();
+            option.selected = !option.selected;
+            selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+    });
+
+    document.querySelectorAll("[data-folder-select-action]").forEach((button) => {
+        button.addEventListener("click", function () {
+            const container = button.closest(".folder-multi-group");
+            if (!container) return;
+            const selectEl = container.querySelector("select[data-folder-multi-select]");
+            if (!selectEl) return;
+            const mode = button.getAttribute("data-folder-select-action");
+            Array.from(selectEl.options).forEach((option) => {
+                option.selected = mode === "all";
+            });
+            selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+        });
     });
 
     const input = document.getElementById("batch-filter-input");
