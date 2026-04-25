@@ -39,6 +39,9 @@ from .models import (
     ActionList,
     ActionListRevision,
     ActionListFeedback,
+    Guidance,
+    GuidanceRevision,
+    GuidanceFeedback,
     CollaborativeSession,
     UserRole,
     LibraryReference,
@@ -56,6 +59,8 @@ from .models import (
 from .forms import (
     ActionListReminderScheduleForm,
     ActionListSendForm,
+    GuidanceReminderScheduleForm,
+    GuidanceSendForm,
     AdvisoryBulkInviteForm,
     AdvisoryBoardMemberForm,
     AdvisoryInviteForm,
@@ -91,6 +96,7 @@ from .views import (
     _download_onlyoffice_file,
     _parse_onlyoffice_callback,
     _create_protocol_feedback,
+    _create_guidance_feedback,
     _format_deadline,
     _format_value,
     _funder_contact_label,
@@ -162,6 +168,22 @@ class EmailSubjectTests(TestCase):
         self.assertEqual(
             subject,
             f"[Action requested] Protocol for review — {self.project.title}",
+        )
+
+    def test_guidance_review_subject(self):
+        subject = email_subject("guidance_review", self.project)
+        self.assertEqual(
+            subject,
+            f"[Action requested] Guidance for review — {self.project.title}",
+        )
+
+    def test_guidance_reminder_subject(self):
+        due = timezone.make_aware(datetime(2025, 6, 7, 12, 0))
+        formatted = timezone.localtime(due).strftime("%d %b %Y %H:%M")
+        subject = email_subject("guidance_reminder", self.project, due)
+        self.assertEqual(
+            subject,
+            f"[Reminder] Guidance feedback due for {self.project.title} ({formatted})",
         )
 
     def test_advisory_invitation_email_escapes_urls_in_html_hrefs(self):
@@ -1268,6 +1290,16 @@ class SendDueRemindersTests(TestCase):
             sent_action_list_at=aware_now,
             feedback_on_action_list_deadline=self.action_list_deadline,
         )
+        self.guidance_deadline = aware_now + timedelta(days=7)
+        self.guidance_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Gia",
+            email="guidance@example.com",
+            invite_sent=True,
+            response="Y",
+            sent_guidance_at=aware_now,
+            feedback_on_guidance_deadline=self.guidance_deadline,
+        )
 
     @patch("synopsis.management.commands.send_due_reminders.EmailMultiAlternatives")
     @patch("synopsis.management.commands.send_due_reminders.minus_business_days")
@@ -1298,20 +1330,23 @@ class SendDueRemindersTests(TestCase):
 
         call_command("send_due_reminders")
 
-        self.assertEqual(len(email_calls), 3)
+        self.assertEqual(len(email_calls), 4)
         for _, _, instance in email_calls:
             instance.send.assert_called_once()
 
         self.invite_member.refresh_from_db()
         self.protocol_member.refresh_from_db()
         self.action_member.refresh_from_db()
+        self.guidance_member.refresh_from_db()
 
         self.assertTrue(self.invite_member.reminder_sent)
         self.assertTrue(self.protocol_member.protocol_reminder_sent)
         self.assertTrue(self.action_member.action_list_reminder_sent)
+        self.assertTrue(self.guidance_member.guidance_reminder_sent)
         self.assertIsNotNone(self.invite_member.reminder_sent_at)
         self.assertIsNotNone(self.protocol_member.protocol_reminder_sent_at)
         self.assertIsNotNone(self.action_member.action_list_reminder_sent_at)
+        self.assertIsNotNone(self.guidance_member.guidance_reminder_sent_at)
 
         subjects = [args[0] for args, _, _ in email_calls]
         self.assertIn(
@@ -1326,6 +1361,10 @@ class SendDueRemindersTests(TestCase):
             email_subject(
                 "action_list_reminder", self.project, self.action_list_deadline
             ),
+            subjects,
+        )
+        self.assertIn(
+            email_subject("guidance_reminder", self.project, self.guidance_deadline),
             subjects,
         )
 
@@ -1517,6 +1556,43 @@ class MemberReminderUpdateTests(TestCase):
         )
         self.assertContains(response, feedback.latest_document_label())
 
+    def test_board_page_shows_guidance_feedback_modal(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Gina",
+            last_name="Guidance",
+            email="gina@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_guidance_at=timezone.now(),
+        )
+        feedback = GuidanceFeedback.objects.create(
+            project=self.project,
+            member=member,
+            content="Please tighten the workflow notes for authors.",
+            submitted_at=timezone.now(),
+            uploaded_document=SimpleUploadedFile(
+                "gina-guidance-comments.docx",
+                b"guidance comments",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f"guidance-feedback-{member.id}")
+        self.assertContains(response, f"guidance-feedback-document-{member.id}")
+        self.assertContains(
+            response,
+            f'aria-label="View guidance feedback for {member.first_name} {member.last_name}"',
+        )
+        self.assertContains(
+            response,
+            "Please tighten the workflow notes for authors.",
+        )
+        self.assertContains(response, feedback.latest_document_label())
+
     def test_board_page_shows_action_list_feedback_deadline(self):
         deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=5)
         member = AdvisoryBoardMember.objects.create(
@@ -1541,11 +1617,21 @@ class MemberReminderUpdateTests(TestCase):
         )
 
     def test_board_page_shows_action_list_guidance_and_feedback_document_headers(self):
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Header",
+            last_name="Check",
+            email="header@example.com",
+            response="Y",
+            participation_confirmed=True,
+        )
+
         response = self.client.get(self.board_url)
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "GUIDANCE FEEDBACK", count=2)
-        self.assertContains(response, "FEEDBACK DOCUMENT", count=2)
+        self.assertContains(response, "FEEDBACK DOCUMENT", count=3)
+        self.assertContains(response, "GUIDANCE SENT")
 
     def test_can_toggle_action_list_author_replied_from_board(self):
         member = AdvisoryBoardMember.objects.create(
@@ -1658,6 +1744,37 @@ class MemberReminderUpdateTests(TestCase):
         self.assertContains(response, "Mark added")
         self.assertContains(response, "Not marked")
         self.assertContains(response, "Mark guidance")
+
+    def test_can_toggle_guidance_added_to_doc_from_board(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Gala",
+            last_name="Added",
+            email="gala@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_guidance_at=timezone.now(),
+            feedback_on_guidance_received=timezone.localdate(),
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_guidance_flag",
+                args=[self.project.id, member.id, "added-to-doc"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertTrue(member.added_to_guidance_doc)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Updated guidance tracking",
+                details__contains="Marked feedback added to the guidance document",
+            ).exists()
+        )
 
     def test_board_page_shows_action_list_author_replied_as_awaiting_before_feedback(self):
         AdvisoryBoardMember.objects.create(
@@ -1861,6 +1978,55 @@ class MemberReminderUpdateTests(TestCase):
             ).exists()
         )
 
+    def test_update_guidance_deadline(self):
+        guidance = Guidance.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("guidance.txt", b"test"),
+        )
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Gavin",
+            email="gavin@example.com",
+            response="Y",
+            sent_guidance_at=timezone.now(),
+            guidance_reminder_sent=True,
+            guidance_reminder_sent_at=timezone.now(),
+        )
+        GuidanceFeedback.objects.create(
+            project=self.project, member=member, guidance=guidance
+        )
+        deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=6)
+        local_deadline = timezone.localtime(deadline)
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "guidance"],
+            ),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+        )
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNotNone(member.feedback_on_guidance_deadline)
+        self.assertAlmostEqual(
+            member.feedback_on_guidance_deadline.timestamp(),
+            deadline.timestamp(),
+            delta=1,
+        )
+        self.assertFalse(member.guidance_reminder_sent)
+        self.assertIsNone(member.guidance_reminder_sent_at)
+        feedback = GuidanceFeedback.objects.get(project=self.project, member=member)
+        self.assertIsNotNone(feedback.feedback_deadline_at)
+        self.assertAlmostEqual(
+            feedback.feedback_deadline_at.timestamp(),
+            deadline.timestamp(),
+            delta=1,
+        )
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project, action="Updated guidance reminder"
+            ).exists()
+        )
+
     def test_action_list_page_deadline_warns_before_action_list_is_sent(self):
         ActionList.objects.create(
             project=self.project,
@@ -1895,6 +2061,42 @@ class MemberReminderUpdateTests(TestCase):
         self.assertContains(
             response,
             "No action list deadline was updated because no accepted advisory board member has been sent the action list yet.",
+        )
+
+    def test_guidance_page_deadline_warns_before_guidance_is_sent(self):
+        Guidance.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("guidance.docx", b"guidance"),
+        )
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Gita",
+            email="gita@example.com",
+            response="Y",
+            participation_confirmed=True,
+        )
+        local_deadline = timezone.localtime(timezone.now() + timedelta(days=5)).replace(
+            second=0,
+            microsecond=0,
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_schedule_guidance_reminders",
+                args=[self.project.id],
+            ),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:guidance_detail", args=[self.project.id])
+        )
+        member.refresh_from_db()
+        self.assertIsNone(member.feedback_on_guidance_deadline)
+        self.assertContains(
+            response,
+            "No guidance deadline was updated because no accepted advisory board member has been sent the guidance yet.",
         )
 
     def test_declined_member_cannot_schedule_invite(self):
@@ -2525,6 +2727,10 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
             project=self.project,
             document=SimpleUploadedFile("action-list.txt", b"action list"),
         )
+        self.guidance = Guidance.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("guidance.txt", b"guidance"),
+        )
         self.member = AdvisoryBoardMember.objects.create(
             project=self.project,
             first_name="Rebecca",
@@ -2589,6 +2795,36 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
         self.assertEqual(
             feedback.feedback_deadline_at,
             self.member.feedback_on_action_list_deadline,
+        )
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_guidance_member_send_defaults_deadline_to_configured_window(self, mock_email):
+        mock_email.return_value = MagicMock()
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_guidance_compose_member",
+                args=[self.project.id, self.member.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+                "include_guidance_document": "on",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        self.member.refresh_from_db()
+        self.assertEqual(
+            self.member.feedback_on_guidance_deadline.date(), self.expected_due
+        )
+        self.assertEqual(self.member.feedback_on_guidance_deadline.hour, 23)
+        self.assertEqual(self.member.feedback_on_guidance_deadline.minute, 59)
+        feedback = GuidanceFeedback.objects.get(project=self.project, member=self.member)
+        self.assertEqual(
+            feedback.feedback_deadline_at,
+            self.member.feedback_on_guidance_deadline,
         )
 
 
@@ -2793,6 +3029,13 @@ class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
             sections=[AdvisoryBoardCustomField.SECTION_PENDING],
             display_group=AdvisoryBoardCustomField.DISPLAY_GROUP_SYNOPSIS,
         )
+        guidance_field = AdvisoryBoardCustomField.objects.create(
+            project=self.project,
+            name="Guidance note",
+            data_type=AdvisoryBoardCustomField.TYPE_TEXT,
+            sections=[AdvisoryBoardCustomField.SECTION_ACCEPTED],
+            display_group=AdvisoryBoardCustomField.DISPLAY_GROUP_GUIDANCE,
+        )
 
         context = _advisory_board_context(self.project)
         sections = {section["key"]: section for section in context["member_sections"]}
@@ -2814,6 +3057,10 @@ class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
         self.assertEqual(
             [field.id for field in pending_groups[AdvisoryBoardCustomField.DISPLAY_GROUP_SYNOPSIS]],
             [synopsis_field.id],
+        )
+        self.assertEqual(
+            [field.id for field in accepted_groups[AdvisoryBoardCustomField.DISPLAY_GROUP_GUIDANCE]],
+            [guidance_field.id],
         )
         self.assertEqual(
             [field.id for field in pending_groups[AdvisoryBoardCustomField.DISPLAY_GROUP_CUSTOM]],
@@ -3702,6 +3949,58 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response.context["editor_config"]["editorConfig"]["user"]["id"],
             str(self.author.id),
         )
+
+class GuidanceUploadFlowTests(TestCase):
+    def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
+        override = override_settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+
+        self.project = Project.objects.create(title="Guidance Pilot")
+        self.author = User.objects.create_user(username="guidance-author", password="pw")
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        self.client.force_login(self.author)
+
+    def _docx_upload(self, name, content):
+        return SimpleUploadedFile(
+            name,
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+    def test_initial_guidance_upload_creates_revision_and_redirects(self):
+        response = self.client.post(
+            reverse("synopsis:guidance_detail", args=[self.project.id]),
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1.0",
+                "document": self._docx_upload("guidance.docx", b"guidance"),
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:guidance_detail", args=[self.project.id]),
+        )
+        guidance = Guidance.objects.get(project=self.project)
+        self.assertTrue(guidance.document.name.endswith(".docx"))
+        self.assertIsNotNone(guidance.current_revision)
+        self.assertEqual(guidance.current_revision.version_label, "v1.0")
+
+    def test_guidance_detail_page_renders_feedback_window(self):
+        Guidance.objects.create(
+            project=self.project,
+            document=self._docx_upload("guidance.docx", b"guidance"),
+        )
+
+        response = self.client.get(reverse("synopsis:guidance_detail", args=[self.project.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Guidance feedback window")
+        self.assertContains(response, "Upload or revise guidance")
 
 
 class CollaborativeForceSaveCloseTests(TestCase):

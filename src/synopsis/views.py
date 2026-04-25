@@ -48,6 +48,7 @@ from django.http import FileResponse
 from .forms import (
     ProtocolUpdateForm,
     ActionListUpdateForm,
+    GuidanceUpdateForm,
     CreateUserForm,
     AdvisoryBoardMemberForm,
     AdvisoryInviteForm,
@@ -58,15 +59,19 @@ from .forms import (
     AdvisoryBulkInviteForm,
     ProtocolSendForm,
     ActionListSendForm,
+    GuidanceSendForm,
     ReminderScheduleForm,
     ProtocolReminderScheduleForm,
     ActionListReminderScheduleForm,
+    GuidanceReminderScheduleForm,
     ParticipationConfirmForm,
     ParticipationDeclineForm,
     ProtocolFeedbackForm,
     ActionListFeedbackForm,
+    GuidanceFeedbackForm,
     ProtocolFeedbackCloseForm,
     ActionListFeedbackCloseForm,
+    GuidanceFeedbackCloseForm,
     ReferenceBatchUploadForm,
     LibraryReferenceBatchUploadForm,
     ReferenceScreeningForm,
@@ -96,6 +101,7 @@ from .models import (
     Project,
     Protocol,
     ActionList,
+    Guidance,
     AdvisoryBoardMember,
     AdvisoryBoardInvitation,
     AdvisoryBoardCustomField,
@@ -108,6 +114,7 @@ from .models import (
     ProjectChangeLog,
     ProtocolFeedback,
     ActionListFeedback,
+    GuidanceFeedback,
     LibraryImportBatch,
     LibraryReference,
     ReferenceSourceBatch,
@@ -119,6 +126,7 @@ from .models import (
     ReferenceActionSummary,
     ProtocolRevision,
     ActionListRevision,
+    GuidanceRevision,
     CollaborativeSession,
     SynopsisChapter,
     SynopsisSubheading,
@@ -363,6 +371,69 @@ def _member_glance_statuses(member: AdvisoryBoardMember) -> list[dict]:
         statuses.append(
             _status_badge(
                 "Action list",
+                "Not sent",
+                "secondary",
+            )
+        )
+
+    latest_guidance_feedback = getattr(member, "latest_guidance_feedback_obj", None)
+    if latest_guidance_feedback and getattr(
+        latest_guidance_feedback, "submitted_at", None
+    ):
+        statuses.append(
+            _status_badge(
+                "Guidance",
+                "Feedback received",
+                "success",
+                date=latest_guidance_feedback.submitted_at,
+                date_label="Received",
+            )
+        )
+    elif response == "N":
+        statuses.append(
+            _status_badge(
+                "Guidance",
+                "Not applicable",
+                "secondary",
+                note="Member declined",
+            )
+        )
+    elif getattr(member, "sent_guidance_at", None):
+        if getattr(member, "feedback_on_guidance_deadline", None):
+            if getattr(member, "guidance_reminder_sent", False):
+                statuses.append(
+                    _status_badge(
+                        "Guidance",
+                        "Reminder sent",
+                        "info",
+                        date=getattr(member, "guidance_reminder_sent_at", None),
+                        date_label="Reminded",
+                    )
+                )
+            else:
+                statuses.append(
+                    _status_badge(
+                        "Guidance",
+                        "Awaiting feedback",
+                        "warning",
+                        date=getattr(member, "feedback_on_guidance_deadline", None),
+                        date_label="Due",
+                    )
+                )
+        else:
+            statuses.append(
+                _status_badge(
+                    "Guidance",
+                    "Sent",
+                    "primary",
+                    date=getattr(member, "sent_guidance_at", None),
+                    date_label="Sent",
+                )
+            )
+    else:
+        statuses.append(
+            _status_badge(
+                "Guidance",
                 "Not sent",
                 "secondary",
             )
@@ -786,6 +857,24 @@ def _apply_revision_to_action_list(action_list, revision) -> tuple[str, str]:
     return base_name, _format_file_size(revision.file_size)
 
 
+def _apply_revision_to_guidance(guidance, revision) -> tuple[str, str]:
+    try:
+        with revision.file.open("rb") as source:
+            content = source.read()
+    except FileNotFoundError:
+        raise FileNotFoundError("Revision file missing")
+
+    if not content:
+        raise ValueError("Revision file empty")
+
+    base_name = revision.original_name or os.path.basename(revision.file.name)
+    new_filename = f"{uuid.uuid4()}_{base_name}"
+    guidance.document.save(new_filename, ContentFile(content), save=False)
+    guidance.current_revision = revision
+    guidance.save(update_fields=["document", "current_revision"])
+    return base_name, _format_file_size(revision.file_size)
+
+
 COLLAB_SESSION_DURATION = CollaborativeSession.DEFAULT_DURATION
 
 
@@ -796,6 +885,8 @@ def _normalize_document_type(document_type: str) -> str | None:
         "action-list": CollaborativeSession.DOCUMENT_ACTION_LIST,
         "action_list": CollaborativeSession.DOCUMENT_ACTION_LIST,
         "actionlist": CollaborativeSession.DOCUMENT_ACTION_LIST,
+        "guidance": CollaborativeSession.DOCUMENT_GUIDANCE,
+        "guidances": CollaborativeSession.DOCUMENT_GUIDANCE,
     }
     return mapping.get((document_type or "").lower())
 
@@ -805,6 +896,8 @@ def _get_document_for_type(project, document_type):
         return getattr(project, "protocol", None)
     if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST:
         return getattr(project, "action_list", None)
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        return getattr(project, "guidance", None)
     return None
 
 
@@ -876,6 +969,17 @@ def _ensure_collaborative_invite_link(
         )
         return ""
 
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE and getattr(
+        document, "feedback_closed_at", None
+    ):
+        _end_active_collaborative_session(
+            project,
+            document_type,
+            ended_by=getattr(request, "user", None),
+            reason="Guidance feedback window closed",
+        )
+        return ""
+
     session = _get_active_collaborative_session(project, document_type)
     created = False
 
@@ -943,23 +1047,25 @@ def _ensure_collaborative_invite_link(
 def _document_detail_url(project_id, document_type):
     if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
         return reverse("synopsis:protocol_detail", args=[project_id])
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        return reverse("synopsis:guidance_detail", args=[project_id])
     return reverse("synopsis:action_list_detail", args=[project_id])
 
 
 def _document_label(document_type):
-    return (
-        "Protocol"
-        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
-        else "Action list"
-    )
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        return "Protocol"
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        return "Guidance"
+    return "Action list"
 
 
 def _document_type_slug(document_type):
-    return (
-        "protocol"
-        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
-        else "action-list"
-    )
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        return "protocol"
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        return "guidance"
+    return "action-list"
 
 
 def _collaborative_session_or_404(project, document_type, token):
@@ -976,6 +1082,8 @@ def _feedback_model_for_document_type(document_type):
         return ProtocolFeedback
     if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST:
         return ActionListFeedback
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        return GuidanceFeedback
     return None
 
 
@@ -986,6 +1094,8 @@ def _member_feedback_deadline(member, document_type):
         return member.feedback_on_protocol_deadline
     if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST:
         return member.feedback_on_action_list_deadline
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        return member.feedback_on_guidance_deadline
     return None
 
 
@@ -1456,11 +1566,12 @@ def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[str,
 
 def _wait_for_collaborative_save(session, document_type, timeout_seconds: int) -> bool:
     deadline = time.monotonic() + max(timeout_seconds, 1)
-    result_field = (
-        "result_protocol_revision_id"
-        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
-        else "result_action_list_revision_id"
-    )
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        result_field = "result_protocol_revision_id"
+    elif document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        result_field = "result_guidance_revision_id"
+    else:
+        result_field = "result_action_list_revision_id"
 
     while time.monotonic() < deadline:
         session.refresh_from_db()
@@ -1575,6 +1686,36 @@ def _create_action_list_feedback(project, member=None, email=None, invitation=No
         )
     kwargs["feedback_deadline_at"] = deadline
     return ActionListFeedback.objects.create(**kwargs)
+
+
+def _create_guidance_feedback(project, member=None, email=None, invitation=None):
+    guidance = getattr(project, "guidance", None)
+    kwargs = {
+        "project": project,
+        "guidance": guidance,
+        "member": member,
+        "email": email or (member.email if member else ""),
+        "invitation": invitation,
+    }
+    deadline = None
+    if member:
+        if member.response == "Y" and member.feedback_on_guidance_deadline:
+            deadline = member.feedback_on_guidance_deadline
+    elif invitation and invitation.due_date:
+        combined = dt.datetime.combine(invitation.due_date, dt.time(23, 59))
+        deadline = (
+            timezone.make_aware(combined) if timezone.is_naive(combined) else combined
+        )
+    if guidance:
+        kwargs.update(
+            {
+                "guidance_document_name": getattr(guidance.document, "name", ""),
+                "guidance_document_last_updated": guidance.last_updated,
+                "guidance_stage_snapshot": guidance.stage,
+            }
+        )
+    kwargs["feedback_deadline_at"] = deadline
+    return GuidanceFeedback.objects.create(**kwargs)
 
 
 def _extract_reference_field(record: dict, key: str) -> str:
@@ -1860,7 +2001,7 @@ def _advisory_board_context(
     custom_field_form=None,
 ):
     members_qs = project.advisory_board_members.prefetch_related(
-        "protocol_feedback", "invitations"
+        "protocol_feedback", "action_list_feedback", "guidance_feedback", "invitations"
     ).order_by("last_name", "first_name")
     accepted_members = list(members_qs.filter(response="Y"))
     declined_members = list(members_qs.filter(response="N"))
@@ -1881,6 +2022,7 @@ def _advisory_board_context(
                 )
             ):
                 member.feedback_on_actions_received = True
+            member.latest_guidance_feedback_obj = member.latest_guidance_feedback
 
             invites = list(member.invitations.all())
 
@@ -2070,6 +2212,27 @@ def _advisory_board_context(
         "document_ready": action_list_document_ready,
     }
 
+    guidance_obj = getattr(project, "guidance", None)
+    guidance_document_ready = bool(guidance_obj and getattr(guidance_obj, "document", None))
+    guidance_members = project.advisory_board_members.filter(
+        sent_guidance_at__isnull=False,
+        response="Y",
+    )
+    guidance_pending_dates = [
+        d
+        for d in guidance_members.filter(feedback_on_guidance_deadline__isnull=False)
+        .order_by("feedback_on_guidance_deadline")
+        .values_list("feedback_on_guidance_deadline", flat=True)
+    ]
+    guidance_feedback_state = {
+        "guidance": guidance_obj,
+        "is_closed": bool(getattr(guidance_obj, "feedback_closed_at", None)),
+        "closed_at": getattr(guidance_obj, "feedback_closed_at", None),
+        "closure_message": getattr(guidance_obj, "feedback_closure_message", ""),
+        "deadline": guidance_pending_dates[0] if guidance_pending_dates else None,
+        "document_ready": guidance_document_ready,
+    }
+
     section_palette = {
         AdvisoryBoardCustomField.SECTION_ACCEPTED: {
             "title": "Accepted members",
@@ -2169,6 +2332,7 @@ def _advisory_board_context(
         "action",
         "protocol",
         "synopsis",
+        "guidance",
         "custom",
     ]
     combined_fields_by_group = {name: [] for name in group_names}
@@ -2214,6 +2378,13 @@ def _advisory_board_context(
             getattr(member, "latest_action_list_feedback_obj", None), "submitted_at", None
         )
     ]
+    guidance_feedback_members = [
+        member
+        for member in all_members
+        if getattr(
+            getattr(member, "latest_guidance_feedback_obj", None), "submitted_at", None
+        )
+    ]
 
     status_badges = {
         AdvisoryBoardCustomField.SECTION_ACCEPTED: {
@@ -2241,6 +2412,7 @@ def _advisory_board_context(
         "pending_members": pending_members,
         "protocol_feedback_members": protocol_feedback_members,
         "action_list_feedback_members": action_list_feedback_members,
+        "guidance_feedback_members": guidance_feedback_members,
         "member_sections": member_sections,
         "combined_fields_by_group": combined_fields_by_group,
         "member_status_badges": status_badges,
@@ -2277,6 +2449,14 @@ def _advisory_board_context(
         "can_edit_members": can_edit_members,
         "action_list_feedback_state": action_list_feedback_state,
         "action_list_feedback_close_form": action_list_feedback_close_form,
+        "guidance_pending_count": guidance_members.count(),
+        "guidance_pending_dates": guidance_pending_dates,
+        "initial_guidance_reminder_log": project.change_log.filter(
+            action="Scheduled guidance reminders"
+        )
+        .order_by("created_at")
+        .first(),
+        "guidance_feedback_state": guidance_feedback_state,
         "section_palette": section_palette,
         "custom_field_group_choices": AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
         "declined_members_with_reason": declined_with_reason,
@@ -2560,6 +2740,7 @@ def project_hub(request, project_id):
     )
     protocol = getattr(project, "protocol", None)
     action_list = getattr(project, "action_list", None)
+    guidance = getattr(project, "guidance", None)
     can_manage = _user_is_manager(request.user)
 
     funders = list(project.funders.all())
@@ -2659,6 +2840,7 @@ def project_hub(request, project_id):
             "project": project,
             "protocol": protocol,
             "action_list": action_list,
+            "guidance": guidance,
             "ab_stats": ab_stats,
             "ab_member_updates": ab_member_updates,
             "reference_stats": reference_stats,
@@ -3779,6 +3961,390 @@ def action_list_detail(request, project_id):
     )
 
 
+@login_required
+def guidance_detail(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    guidance = getattr(project, "guidance", None)
+    can_manage = _user_is_manager(request.user)
+    can_edit_documents = _user_can_edit_project(request.user, project)
+    history_queryset = (
+        project.change_log.filter(action__icontains="guidance")
+        .select_related("changed_by")
+        .order_by("-created_at", "-id")
+    )
+    history_entries = []
+    for log in history_queryset:
+        segments = [
+            segment.strip() for segment in log.details.split("|") if segment.strip()
+        ]
+        reason = ""
+        changes = []
+        for segment in segments:
+            if segment.lower().startswith("reason:"):
+                reason = segment.split(":", 1)[1].strip()
+            else:
+                changes.append(segment)
+        history_entries.append(
+            {
+                "log": log,
+                "changes": changes,
+                "reason": reason,
+                "actor": _user_display(log.changed_by) if log.changed_by else "System",
+            }
+        )
+
+    revision_entries = []
+    if guidance:
+        revision_queryset = guidance.revisions.select_related("uploaded_by")
+        for revision in revision_queryset:
+            file_name = revision.original_name or os.path.basename(revision.file.name)
+            try:
+                download_url = revision.file.url
+            except ValueError:
+                download_url = ""
+            revision_entries.append(
+                {
+                    "revision": revision,
+                    "is_current": guidance.current_revision_id == revision.id,
+                    "file_name": file_name,
+                    "file_size": _format_file_size(revision.file_size),
+                    "uploaded_by": (
+                        _user_display(revision.uploaded_by)
+                        if revision.uploaded_by
+                        else "—"
+                    ),
+                    "download_url": download_url,
+                    "can_mark_final": can_manage
+                    and (
+                        guidance.stage != "final"
+                        or guidance.current_revision_id != revision.id
+                    ),
+                    "version_label": revision.version_label or "",
+                }
+            )
+
+    current_revision_entry = next(
+        (entry for entry in revision_entries if entry["is_current"]), None
+    )
+    current_revision_download_url = ""
+    if current_revision_entry:
+        try:
+            current_revision_download_url = current_revision_entry["revision"].file.url
+        except ValueError:
+            current_revision_download_url = ""
+
+    guidance_document_ready = bool(guidance and getattr(guidance, "document", None))
+    existing_file_name = guidance.document.name if guidance_document_ready else ""
+    has_existing_file = bool(existing_file_name or revision_entries)
+    first_upload_pending = not has_existing_file
+    final_stage_locked = bool(
+        guidance and guidance.stage == "final" and has_existing_file
+    )
+
+    collaborative_enabled = _onlyoffice_enabled()
+    guidance_closed = bool(guidance and guidance.feedback_closed_at)
+    collaborative_session = None
+    collaborative_resume_url = ""
+    collaborative_force_end_url = ""
+    collaborative_slug = _document_type_slug(CollaborativeSession.DOCUMENT_GUIDANCE)
+    if collaborative_enabled:
+        collaborative_session = _get_active_collaborative_session(
+            project, CollaborativeSession.DOCUMENT_GUIDANCE
+        )
+        if collaborative_session and guidance_closed:
+            collaborative_session.mark_inactive(
+                ended_by=request.user if request.user.is_authenticated else None,
+                reason="Guidance feedback window closed",
+            )
+            collaborative_session = None
+        if collaborative_session:
+            collaborative_resume_url = reverse(
+                "synopsis:collaborative_edit",
+                args=[project.id, collaborative_slug, collaborative_session.token],
+            )
+            collaborative_force_end_url = reverse(
+                "synopsis:collaborative_force_end",
+                args=[project.id, collaborative_slug, collaborative_session.token],
+            )
+    if collaborative_session:
+        collaborative_can_override = _user_can_force_end_session(
+            request.user, project, collaborative_session
+        )
+    else:
+        collaborative_can_override = False
+    if guidance_closed:
+        collaborative_enabled = False
+        collaborative_session = None
+        collaborative_resume_url = ""
+        collaborative_force_end_url = ""
+        collaborative_can_override = False
+
+    if request.method == "POST":
+        form = GuidanceUpdateForm(request.POST, request.FILES, instance=guidance)
+        if form.is_valid():
+            new_stage = form.cleaned_data.get("stage")
+            uploaded_file = form.cleaned_data.get("document")
+            reason = form.cleaned_data.get("change_reason", "")
+            version_label = form.cleaned_data.get("version_label", "")
+
+            is_new_guidance = guidance is None
+            stage_changed = bool(guidance) and guidance.stage != new_stage
+            replacing_file = bool(uploaded_file)
+            previous_label = (
+                (guidance.current_revision.version_label or "")
+                if guidance and guidance.current_revision
+                else ""
+            )
+
+            if final_stage_locked and new_stage == "final" and replacing_file:
+                form.add_error(
+                    "document",
+                    "Finalized guidance documents cannot be replaced. Switch the stage back to Draft to revise the document.",
+                )
+
+            active_file_missing = not bool(guidance and guidance.document)
+            if active_file_missing and not replacing_file:
+                form.add_error(
+                    "document",
+                    "Choose a guidance document file to upload. You can reuse the same filename as a file you deleted.",
+                )
+
+            needs_reason = (not is_new_guidance) and (stage_changed or replacing_file)
+            if needs_reason and not reason:
+                form.add_error(
+                    "change_reason",
+                    "Please capture the reason for this revision so the team has context.",
+                )
+
+            if not form.errors:
+                old_stage = guidance.stage if guidance else None
+                old_file = (
+                    guidance.document.name if guidance and guidance.document else None
+                )
+
+                revision_content = None
+                revision_filename = ""
+                if uploaded_file:
+                    uploaded_file.seek(0)
+                    revision_content = ContentFile(uploaded_file.read())
+                    uploaded_file.seek(0)
+                    revision_filename = os.path.basename(
+                        uploaded_file.name or "guidance_upload"
+                    )
+
+                obj = form.save(commit=False)
+                obj.project = project
+                obj.save()
+                form.save_m2m()
+
+                guidance = obj
+                new_file = obj.document.name if obj.document else None
+                changes = []
+
+                if is_new_guidance:
+                    changes.append("Created guidance record")
+                elif old_stage != obj.stage:
+                    changes.append(
+                        f"Stage: {_format_value(old_stage)} → {_format_value(obj.stage)}"
+                    )
+
+                if old_file != new_file:
+                    if new_file and old_file:
+                        changes.append(f"File replaced: {old_file} → {new_file}")
+                    elif new_file:
+                        changes.append(f"File uploaded: {new_file}")
+                    elif old_file:
+                        changes.append(f"File removed: {old_file}")
+
+                revision_instance = None
+                if revision_content is not None:
+                    revision_instance = GuidanceRevision(
+                        guidance=obj,
+                        stage=obj.stage,
+                        change_reason=(
+                            reason if reason else ("Initial upload" if is_new_guidance else "")
+                        ),
+                        uploaded_by=(
+                            request.user if request.user.is_authenticated else None
+                        ),
+                    )
+                    original_name = os.path.basename(
+                        uploaded_file.name or revision_filename
+                    )
+                    revision_instance.original_name = original_name
+                    file_size = getattr(uploaded_file, "size", None)
+                    if file_size in (None, ""):
+                        file_size = getattr(revision_content, "size", None)
+                    try:
+                        revision_instance.file_size = int(file_size or 0)
+                    except (TypeError, ValueError):
+                        revision_instance.file_size = 0
+                    revision_instance.version_label = version_label
+                    revision_instance.file.save(
+                        revision_filename, revision_content, save=True
+                    )
+                    obj.current_revision = revision_instance
+                    obj.save(update_fields=["current_revision"])
+                elif obj.current_revision:
+                    update_fields = []
+                    if stage_changed and obj.current_revision.stage != obj.stage:
+                        obj.current_revision.stage = obj.stage
+                        update_fields.append("stage")
+                    current_label = obj.current_revision.version_label or ""
+                    if current_label != version_label:
+                        obj.current_revision.version_label = version_label
+                        update_fields.append("version_label")
+                    if reason and (stage_changed or current_label != version_label):
+                        obj.current_revision.change_reason = reason
+                        update_fields.append("change_reason")
+                    if update_fields:
+                        obj.current_revision.save(update_fields=update_fields)
+
+                if obj.stage == "final" and obj.current_revision:
+                    GuidanceRevision.objects.filter(guidance=obj).exclude(
+                        pk=obj.current_revision_id
+                    ).update(stage="draft")
+                    if obj.current_revision.stage != "final":
+                        obj.current_revision.stage = "final"
+                        obj.current_revision.save(update_fields=["stage"])
+
+                new_label = (
+                    (obj.current_revision.version_label or "")
+                    if obj.current_revision
+                    else ""
+                )
+                if previous_label != new_label:
+                    changes.append(
+                        f"Version label: {_format_value(previous_label)} → {_format_value(new_label)}"
+                    )
+
+                detail_parts = []
+                if changes:
+                    detail_parts.append("; ".join(changes))
+                if reason:
+                    detail_parts.append(f"Reason: {reason}")
+                if not detail_parts:
+                    detail_parts.append(
+                        "Guidance saved without detectable field changes"
+                    )
+
+                _log_project_change(
+                    project,
+                    request.user,
+                    "Guidance updated",
+                    " | ".join(detail_parts),
+                )
+                success_message = "Guidance updated."
+                if obj.stage == "final" and (
+                    is_new_guidance or stage_changed or replacing_file
+                ):
+                    success_message = "Guidance updated and marked as final. Switch to Draft before uploading further revisions."
+                messages.success(request, success_message)
+                return redirect("synopsis:guidance_detail", project_id=project.id)
+    else:
+        form = GuidanceUpdateForm(instance=guidance)
+
+    if (
+        guidance
+        and getattr(guidance, "current_revision", None)
+        and request.method != "POST"
+    ):
+        form.fields["version_label"].initial = guidance.current_revision.version_label
+
+    if first_upload_pending:
+        form.fields["change_reason"].help_text = (
+            "Optional for the first upload. Provide details when you revise an existing guidance document."
+        )
+    else:
+        form.fields["change_reason"].help_text = (
+            "Required when you replace the file or change the guidance stage."
+        )
+    if not guidance_document_ready:
+        form.fields["document"].widget.attrs["required"] = "required"
+        form.fields["document"].help_text = (
+            "Upload a PDF or DOCX version of the guidance document. You can reuse the same filename after deleting a file."
+        )
+
+    guidance_members = project.advisory_board_members.filter(
+        sent_guidance_at__isnull=False,
+        response="Y",
+    )
+    guidance_pending_dates = [
+        d
+        for d in guidance_members.filter(feedback_on_guidance_deadline__isnull=False)
+        .order_by("feedback_on_guidance_deadline")
+        .values_list("feedback_on_guidance_deadline", flat=True)
+    ]
+    guidance_reminder_initial = {}
+    if guidance_pending_dates:
+        first_deadline = guidance_pending_dates[0]
+        try:
+            guidance_reminder_initial["deadline"] = timezone.localtime(first_deadline)
+        except (ValueError, TypeError):
+            guidance_reminder_initial["deadline"] = first_deadline
+    else:
+        guidance_reminder_initial["deadline"] = timezone.localtime(
+            _default_document_feedback_deadline()
+        )
+    guidance_reminder_form = GuidanceReminderScheduleForm(
+        initial=guidance_reminder_initial
+    )
+    guidance_feedback_close_initial = {}
+    if guidance and guidance.feedback_closure_message:
+        guidance_feedback_close_initial["message"] = (
+            guidance.feedback_closure_message
+        )
+    guidance_feedback_close_form = GuidanceFeedbackCloseForm(
+        initial=guidance_feedback_close_initial
+    )
+    guidance_feedback_state = {
+        "guidance": guidance,
+        "is_closed": bool(getattr(guidance, "feedback_closed_at", None)),
+        "closed_at": getattr(guidance, "feedback_closed_at", None),
+        "closure_message": getattr(guidance, "feedback_closure_message", ""),
+        "deadline": guidance_pending_dates[0] if guidance_pending_dates else None,
+        "document_ready": guidance_document_ready,
+    }
+
+    return render(
+        request,
+        "synopsis/guidance_detail.html",
+        {
+            "project": project,
+            "guidance": guidance,
+            "form": form,
+            "guidance_history_entries": history_entries,
+            "guidance_revision_entries": revision_entries,
+            "current_revision_entry": current_revision_entry,
+            "current_revision_download_url": current_revision_download_url,
+            "final_stage_locked": final_stage_locked,
+            "first_upload_pending": first_upload_pending,
+            "can_manage_project": can_manage,
+            "can_edit_documents": can_edit_documents,
+            "can_toggle_stage": can_edit_documents,
+            "collaborative_enabled": collaborative_enabled,
+            "collaborative_session": collaborative_session,
+            "collaborative_start_url": reverse(
+                "synopsis:collaborative_start", args=[project.id, collaborative_slug]
+            ),
+            "collaborative_resume_url": collaborative_resume_url,
+            "collaborative_force_end_url": collaborative_force_end_url,
+            "collaborative_can_override": collaborative_can_override,
+            "collaborative_document_ready": guidance_document_ready,
+            "guidance_reminder_form": guidance_reminder_form,
+            "guidance_pending_count": guidance_members.count(),
+            "guidance_pending_dates": guidance_pending_dates,
+            "initial_guidance_reminder_log": project.change_log.filter(
+                action="Scheduled guidance reminders"
+            )
+            .order_by("created_at")
+            .first(),
+            "guidance_feedback_state": guidance_feedback_state,
+            "guidance_feedback_close_form": guidance_feedback_close_form,
+        },
+    )
+
+
 def _resolve_collaborative_users(user_ids) -> tuple[list[User], list[str]]:
     if not user_ids:
         return [], []
@@ -3863,6 +4429,27 @@ def _persist_collaborative_revision(
         base_name, size_text = _apply_revision_to_protocol(document, revision)
         if document.stage == "final":
             ProtocolRevision.objects.filter(protocol=document).exclude(
+                pk=revision.pk
+            ).update(stage="draft")
+            if revision.stage != "final":
+                revision.stage = "final"
+                revision.save(update_fields=["stage"])
+        return revision, base_name, size_text
+
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        revision = GuidanceRevision(
+            guidance=document,
+            stage=document.stage,
+            change_reason=change_reason,
+            uploaded_by=uploader,
+        )
+        revision.file.save(safe_name, content_file, save=False)
+        revision.original_name = safe_name
+        revision.file_size = file_length
+        revision.save()
+        base_name, size_text = _apply_revision_to_guidance(document, revision)
+        if document.stage == "final":
+            GuidanceRevision.objects.filter(guidance=document).exclude(
                 pk=revision.pk
             ).update(stage="draft")
             if revision.stage != "final":
@@ -3968,6 +4555,9 @@ def _handle_collaborative_save(
     if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
         session.result_protocol_revision = revision
         extra_updates = ["change_summary", "result_protocol_revision"]
+    elif document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        session.result_guidance_revision = revision
+        extra_updates = ["change_summary", "result_guidance_revision"]
     else:
         session.result_action_list_revision = revision
         extra_updates = ["change_summary", "result_action_list_revision"]
@@ -4049,6 +4639,21 @@ def collaborative_start(request, project_id, document_slug):
         )
         return redirect(_document_detail_url(project.id, document_type))
 
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE and getattr(
+        document, "feedback_closed_at", None
+    ):
+        _end_active_collaborative_session(
+            project,
+            document_type,
+            ended_by=request.user,
+            reason="Guidance feedback window closed",
+        )
+        messages.info(
+            request,
+            "Collaborative editing is disabled because the guidance feedback window is closed.",
+        )
+        return redirect(_document_detail_url(project.id, document_type))
+
     # TODO: #17 need to guard against race conditions by wrapping this check/create in a transaction
     # or enforcing a uniqueness constraint so concurrent POSTs cannot spawn two sessions.
     active_session = _get_active_collaborative_session(project, document_type)
@@ -4075,6 +4680,17 @@ def collaborative_start(request, project_id, document_slug):
             started_by=request.user,
             last_activity_at=timezone.now(),
             initial_protocol_revision=initial_revision,
+        )
+    elif document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        initial_revision = (
+            getattr(document, "current_revision", None) or document.latest_revision()
+        )
+        session = CollaborativeSession.objects.create(
+            project=project,
+            document_type=document_type,
+            started_by=request.user,
+            last_activity_at=timezone.now(),
+            initial_guidance_revision=initial_revision,
         )
     else:
         initial_revision = (
@@ -4743,6 +5359,312 @@ def action_list_delete(request, project_id):
         {
             "project": project,
             "action_list": action_list,
+            "mode": "delete",
+        },
+    )
+
+
+@login_required
+def guidance_set_stage(request, project_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("Invalid request method.")
+
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        messages.error(
+            request, "You do not have permission to update the guidance stage."
+        )
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    guidance = getattr(project, "guidance", None)
+    if not guidance:
+        messages.error(request, "No guidance exists yet.")
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    target_stage = (request.POST.get("stage") or "").strip()
+    if target_stage not in {"draft", "final"}:
+        return HttpResponseBadRequest("Invalid stage value.")
+
+    reason = (request.POST.get("reason") or "").strip()
+    old_stage = guidance.stage
+
+    revision = None
+    revision_id = request.POST.get("revision_id")
+    if revision_id:
+        revision = get_object_or_404(GuidanceRevision, pk=revision_id, guidance=guidance)
+    elif guidance.current_revision:
+        revision = guidance.current_revision
+    else:
+        revision = guidance.revisions.order_by("-uploaded_at", "-id").first()
+
+    if guidance.stage == target_stage and not (
+        target_stage == "final"
+        and revision
+        and guidance.current_revision
+        and revision.id != guidance.current_revision_id
+    ):
+        messages.info(request, f"Guidance is already marked as {target_stage}.")
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    if target_stage == "final":
+        if not revision:
+            messages.error(
+                request,
+                "No revision found to mark as final. Please upload a guidance document first.",
+            )
+            return redirect("synopsis:guidance_detail", project_id=project.id)
+        if not reason:
+            messages.error(
+                request,
+                "Please provide a brief reason for marking the guidance as final.",
+            )
+            return redirect("synopsis:guidance_detail", project_id=project.id)
+
+        try:
+            base_name, size_text = _apply_revision_to_guidance(guidance, revision)
+        except FileNotFoundError:
+            messages.error(
+                request,
+                "The selected revision file could not be found. Please choose another revision or upload a new version.",
+            )
+            return redirect("synopsis:guidance_detail", project_id=project.id)
+        except ValueError:
+            messages.error(
+                request,
+                "The selected revision file is empty. Please choose another revision or upload a new version.",
+            )
+            return redirect("synopsis:guidance_detail", project_id=project.id)
+
+        guidance.stage = "final"
+        guidance.save(update_fields=["stage"])
+
+        GuidanceRevision.objects.filter(guidance=guidance).exclude(pk=revision.pk).update(
+            stage="draft"
+        )
+        update_fields = ["stage"]
+        if revision.stage != "final":
+            revision.stage = "final"
+        if reason:
+            revision.change_reason = reason
+            if "change_reason" not in update_fields:
+                update_fields.append("change_reason")
+        revision.save(update_fields=update_fields)
+
+        detail_parts = [
+            f"Stage: {_format_value(old_stage)} → Final",
+            f"File: {base_name}",
+        ]
+        if size_text != "—":
+            detail_parts.append(f"Size: {size_text}")
+        if reason:
+            detail_parts.append(f"Reason: {reason}")
+
+        _log_project_change(
+            project,
+            request.user,
+            "Guidance marked final",
+            " | ".join(detail_parts),
+        )
+
+        messages.success(
+            request,
+            "Guidance marked as final. Switch back to Draft before uploading new revisions.",
+        )
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    guidance.stage = "draft"
+    guidance.save(update_fields=["stage"])
+    if guidance.current_revision and guidance.current_revision.stage != "draft":
+        guidance.current_revision.stage = "draft"
+        guidance.current_revision.save(update_fields=["stage"])
+
+    detail_parts = [f"Stage: {_format_value(old_stage)} → Draft"]
+    if reason:
+        detail_parts.append(f"Reason: {reason}")
+
+    _log_project_change(
+        project,
+        request.user,
+        "Guidance stage updated",
+        " | ".join(detail_parts),
+    )
+
+    messages.success(request, "Guidance stage set to draft.")
+    return redirect("synopsis:guidance_detail", project_id=project.id)
+
+
+@login_required
+def guidance_delete_file(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    guidance = getattr(project, "guidance", None)
+    if not guidance or not guidance.document:
+        messages.info(request, "No guidance file to delete.")
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    if request.method == "POST":
+        file_name = guidance.document.name
+        guidance.document.delete(save=False)
+        guidance.document = ""
+        guidance.current_revision = None
+        guidance.save(update_fields=["document", "current_revision"])
+        ended_session = _end_active_collaborative_session(
+            project,
+            CollaborativeSession.DOCUMENT_GUIDANCE,
+            ended_by=request.user,
+            reason="Guidance file deleted",
+        )
+        _log_project_change(
+            project,
+            request.user,
+            "Removed guidance file",
+            f"File: {file_name}"
+            + ("; Collaborative session closed" if ended_session else ""),
+        )
+        messages.success(
+            request,
+            "Guidance file removed. Upload a replacement from Upload new version; it can use the same filename.",
+        )
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    return render(
+        request,
+        "synopsis/guidance_confirm_delete.html",
+        {
+            "project": project,
+            "guidance": guidance,
+            "mode": "file",
+        },
+    )
+
+
+@login_required
+def guidance_restore_revision(request, project_id, revision_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("Invalid request method.")
+
+    project = get_object_or_404(Project, pk=project_id)
+    guidance = getattr(project, "guidance", None)
+    if not guidance:
+        messages.error(request, "No guidance exists to restore.")
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    revision = get_object_or_404(GuidanceRevision, pk=revision_id, guidance=guidance)
+
+    try:
+        base_name, size_text = _apply_revision_to_guidance(guidance, revision)
+    except FileNotFoundError:
+        messages.error(
+            request,
+            "The selected revision file could not be found. Please upload a new version instead.",
+        )
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+    except ValueError:
+        messages.error(
+            request,
+            "The selected revision file is empty. Please choose another revision or upload a new version.",
+        )
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    guidance.stage = revision.stage
+    guidance.save(update_fields=["stage"])
+
+    restored_at = timezone.localtime(revision.uploaded_at).strftime("%Y-%m-%d %H:%M")
+    detail_parts = [
+        f"Restored revision uploaded {restored_at}",
+        f"Stage reset to {_format_value(revision.stage)}",
+        f"File: {base_name}",
+    ]
+    if size_text != "—":
+        detail_parts.append(f"Size: {size_text}")
+    if revision.change_reason:
+        detail_parts.append(f"Original reason: {revision.change_reason}")
+
+    _log_project_change(
+        project,
+        request.user,
+        "Guidance restored",
+        " | ".join(detail_parts),
+    )
+
+    messages.success(request, "Guidance reverted to the selected revision.")
+    return redirect("synopsis:guidance_detail", project_id=project.id)
+
+
+@login_required
+def guidance_clear_text(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    guidance = getattr(project, "guidance", None)
+    if not guidance or not (guidance.text_version or "").strip():
+        messages.info(request, "No guidance notes to clear.")
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    if request.method == "POST":
+        old_length = len(guidance.text_version or "")
+        guidance.text_version = ""
+        guidance.save(update_fields=["text_version"])
+        _log_project_change(
+            project,
+            request.user,
+            "Cleared guidance notes",
+            f"Removed rich text content (previous length {old_length} chars)",
+        )
+        messages.success(request, "Guidance notes cleared.")
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    return render(
+        request,
+        "synopsis/guidance_confirm_delete.html",
+        {
+            "project": project,
+            "guidance": guidance,
+            "mode": "text",
+        },
+    )
+
+
+@login_required
+def guidance_delete(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    guidance = getattr(project, "guidance", None)
+    if not guidance:
+        messages.info(request, "No guidance to delete.")
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    if request.method == "POST":
+        file_name = guidance.document.name if guidance.document else None
+        text_len = len(guidance.text_version or "")
+        revision_count = guidance.revisions.count()
+        if guidance.document:
+            guidance.document.delete(save=False)
+        ended_session = _end_active_collaborative_session(
+            project,
+            CollaborativeSession.DOCUMENT_GUIDANCE,
+            ended_by=request.user,
+            reason="Guidance deleted",
+        )
+        guidance.delete()
+        details = []
+        if file_name:
+            details.append(f"File: {file_name}")
+        details.append(f"Text length removed: {text_len} chars")
+        details.append(f"Revisions removed: {revision_count}")
+        if ended_session:
+            details.append("Collaborative session closed")
+        _log_project_change(
+            project,
+            request.user,
+            "Deleted guidance",
+            "; ".join(details),
+        )
+        messages.success(request, "Guidance deleted.")
+        return redirect("synopsis:project_hub", project_id=project.id)
+
+    return render(
+        request,
+        "synopsis/guidance_confirm_delete.html",
+        {
+            "project": project,
+            "guidance": guidance,
             "mode": "delete",
         },
     )
@@ -5595,6 +6517,87 @@ def advisory_schedule_action_list_reminders(request, project_id):
 
 
 @login_required
+def advisory_schedule_guidance_reminders(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    if not getattr(project, "guidance", None):
+        messages.error(request, "No guidance configured for this project.")
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    form = GuidanceReminderScheduleForm(request.POST)
+    pending_members = project.advisory_board_members.filter(
+        sent_guidance_at__isnull=False,
+        response="Y",
+    )
+    if not pending_members.exists():
+        messages.warning(
+            request,
+            "No guidance deadline was updated because no accepted advisory board member has been sent the guidance yet. Send the guidance from the Advisory Board page first, or set the deadline while sending.",
+        )
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    if not form.is_valid():
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    deadline = form.cleaned_data["deadline"]
+    if timezone.is_naive(deadline):
+        deadline = timezone.make_aware(deadline)
+    updated = 0
+    for member in pending_members:
+        member.feedback_on_guidance_deadline = deadline
+        member.guidance_reminder_sent = False
+        member.guidance_reminder_sent_at = None
+        member.save(
+            update_fields=[
+                "feedback_on_guidance_deadline",
+                "guidance_reminder_sent",
+                "guidance_reminder_sent_at",
+            ]
+        )
+        GuidanceFeedback.objects.filter(project=project, member=member).update(
+            feedback_deadline_at=deadline
+        )
+        updated += 1
+
+    skipped_members = project.advisory_board_members.filter(
+        sent_guidance_at__isnull=False
+    ).exclude(response="Y")
+    skipped_ids = list(skipped_members.values_list("id", flat=True))
+    if skipped_ids:
+        project.advisory_board_members.filter(id__in=skipped_ids).update(
+            feedback_on_guidance_deadline=None,
+            guidance_reminder_sent=False,
+            guidance_reminder_sent_at=None,
+        )
+        GuidanceFeedback.objects.filter(
+            project=project, member_id__in=skipped_ids
+        ).update(feedback_deadline_at=None)
+        messages.info(
+            request,
+            "Deadline kept unset for members who have not accepted the invitation yet.",
+        )
+
+    if updated:
+        _log_project_change(
+            project,
+            request.user,
+            "Scheduled guidance reminders",
+            f"Guidance deadline {timezone.localtime(deadline).strftime('%Y-%m-%d %H:%M')} for {updated} member(s)",
+        )
+
+    messages.success(
+        request,
+        f"Guidance reminder scheduled for {updated} member(s). Reminder now set as required.",
+    )
+    return redirect("synopsis:guidance_detail", project_id=project.id)
+
+
+@login_required
 def advisory_member_set_deadline(request, project_id, member_id, kind):
     project = get_object_or_404(Project, pk=project_id)
     member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
@@ -5611,6 +6614,7 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
         "invite": ReminderScheduleForm,
         "protocol": ProtocolReminderScheduleForm,
         "action_list": ActionListReminderScheduleForm,
+        "guidance": GuidanceReminderScheduleForm,
     }
     if kind not in form_map:
         return HttpResponseBadRequest("Unknown reminder type")
@@ -5640,6 +6644,16 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
             messages.error(
                 request,
                 "This member needs an accepted invitation and the action list before setting an action list deadline.",
+            )
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    if kind == "guidance":
+        if not getattr(project, "guidance", None):
+            messages.error(request, "No guidance configured for this project.")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+        if member.sent_guidance_at is None or response_code != "Y":
+            messages.error(
+                request,
+                "This member needs an accepted invitation and the guidance before setting a guidance deadline.",
             )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
 
@@ -5718,6 +6732,42 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
             "Protocol deadline updated."
             if not clearing
             else "Protocol deadline cleared.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if kind == "guidance":
+        member.feedback_on_guidance_deadline = value if not clearing else None
+        member.guidance_reminder_sent = False
+        member.guidance_reminder_sent_at = None
+        member.save(
+            update_fields=[
+                "feedback_on_guidance_deadline",
+                "guidance_reminder_sent",
+                "guidance_reminder_sent_at",
+            ]
+        )
+        GuidanceFeedback.objects.filter(project=project, member=member).update(
+            feedback_deadline_at=value if not clearing else None
+        )
+        detail_value = (
+            timezone.localtime(value).strftime("%Y-%m-%d %H:%M") if value else None
+        )
+        detail = (
+            f"Guidance deadline {detail_value} for {human_name}"
+            if not clearing
+            else f"Cleared guidance deadline for {human_name}"
+        )
+        _log_project_change(
+            project,
+            request.user,
+            "Updated guidance reminder",
+            detail,
+        )
+        messages.success(
+            request,
+            "Guidance deadline updated."
+            if not clearing
+            else "Guidance deadline cleared.",
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
@@ -5821,6 +6871,70 @@ def advisory_member_set_action_list_flag(request, project_id, member_id, flag):
             f"{state} {label} for {human_name}",
         )
 
+    return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
+def advisory_member_set_guidance_flag(request, project_id, member_id, flag):
+    project = get_object_or_404(Project, pk=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
+
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    if not _user_can_edit_project(request.user, project):
+        messages.error(request, "You do not have permission to update this member.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if member.sent_guidance_at is None or (member.response or "").upper() != "Y":
+        messages.error(
+            request,
+            "This member needs an accepted invitation and sent guidance before updating guidance tracking.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    normalized_flag = (flag or "").lower().replace("-", "_")
+    flag_map = {
+        "added_to_doc": (
+            "added_to_guidance_doc",
+            "feedback added to the guidance document",
+        ),
+    }
+    if normalized_flag not in flag_map:
+        return HttpResponseBadRequest("Unknown guidance tracking field")
+
+    has_feedback = bool(
+        member.feedback_on_guidance_received
+        or getattr(
+            getattr(member, "latest_guidance_feedback_obj", None), "submitted_at", None
+        )
+    )
+    if not has_feedback:
+        messages.error(
+            request,
+            "Guidance tracking can only be updated after feedback has been received.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    field_name, label = flag_map[normalized_flag]
+    raw_value = request.POST.get("value", "")
+    new_value = str(raw_value).lower() in {"1", "true", "on", "yes"}
+    current_value = getattr(member, field_name)
+    if current_value != new_value:
+        setattr(member, field_name, new_value)
+        member.save(update_fields=[field_name])
+        human_name = " ".join(
+            part for part in (member.first_name, member.last_name) if part
+        ).strip() or member.email
+        state = "Marked" if new_value else "Cleared"
+        _log_project_change(
+            project,
+            request.user,
+            "Updated guidance tracking",
+            f"{state} {label} for {human_name}",
+        )
+
+    messages.success(request, "Guidance tracking updated.")
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -9582,6 +10696,83 @@ def advisory_action_list_feedback_close(request, project_id):
 
 
 @login_required
+def advisory_guidance_feedback_close(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    guidance = getattr(project, "guidance", None)
+    if not guidance:
+        messages.error(request, "No guidance configured for this project.")
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    action = request.POST.get("action")
+    if action == "reopen":
+        if request.method != "POST":
+            return HttpResponseBadRequest("POST required")
+        guidance.feedback_closed_at = None
+        guidance.feedback_closure_message = ""
+        guidance.save(update_fields=["feedback_closed_at", "feedback_closure_message"])
+        _log_project_change(
+            project,
+            request.user,
+            "Guidance feedback reopened",
+        )
+        messages.success(request, "Guidance feedback reopened for advisory members.")
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    form = GuidanceFeedbackCloseForm(request.POST)
+    if not form.is_valid():
+        for errors in form.errors.values():
+            for error in errors:
+                messages.error(request, error)
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    message = form.cleaned_data.get("message", "")
+    now = timezone.now()
+    already_closed = guidance.feedback_closed_at is not None
+    guidance.feedback_closed_at = guidance.feedback_closed_at or now
+    guidance.feedback_closure_message = message
+    update_fields = ["feedback_closure_message"]
+    if not already_closed:
+        update_fields.append("feedback_closed_at")
+    guidance.save(update_fields=update_fields)
+
+    ended_session = _end_active_collaborative_session(
+        project,
+        CollaborativeSession.DOCUMENT_GUIDANCE,
+        ended_by=request.user if getattr(request.user, "is_authenticated", False) else None,
+        reason="Guidance feedback window closed",
+    )
+
+    if already_closed:
+        _log_project_change(
+            project,
+            request.user,
+            "Guidance feedback closure message updated",
+            message,
+        )
+        messages.info(request, "Closure message updated.")
+    else:
+        _log_project_change(
+            project,
+            request.user,
+            "Guidance feedback closed",
+            message,
+        )
+        messages.success(request, "Guidance feedback links are now closed.")
+
+    if ended_session:
+        _log_project_change(
+            project,
+            request.user,
+            "Guidance collaborative session closed",
+            f"Session {ended_session.token} marked inactive.",
+        )
+    return redirect("synopsis:guidance_detail", project_id=project.id)
+
+
+@login_required
 def advisory_invite_create(request, project_id, member_id=None):
     """
     Invite by email. If member_id is provided, the invite links to that member
@@ -10919,6 +12110,301 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
 
 
 @login_required
+def advisory_send_guidance_compose_all(request, project_id):
+    project = get_object_or_404(Project, id=project_id)
+    guidance = getattr(project, "guidance", None)
+    if not guidance:
+        messages.error(request, "No guidance configured for this project.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    guidance_document_available = bool(getattr(guidance, "document", None))
+    guidance_closed = bool(getattr(guidance, "feedback_closed_at", None))
+    collaborative_enabled = (
+        _onlyoffice_enabled()
+        and _document_requires_file(guidance)
+        and not guidance_closed
+    )
+    if request.method == "POST":
+        form = GuidanceSendForm(
+            request.POST,
+            collaborative_enabled=collaborative_enabled,
+            document_available=guidance_document_available,
+        )
+        if form.is_valid():
+            members = (
+                AdvisoryBoardMember.objects.filter(
+                    project=project,
+                    response="Y",
+                    participation_confirmed=True,
+                )
+                .exclude(email__isnull=True)
+                .exclude(email__exact="")
+            )
+            if not members:
+                messages.info(
+                    request,
+                    "No eligible members found. Only members who accepted and confirmed participation can receive the guidance.",
+                )
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
+            message_body = form.cleaned_data.get("message") or ""
+            include_document = guidance_document_available and form.cleaned_data.get(
+                "include_guidance_document"
+            )
+            include_collab = collaborative_enabled and form.cleaned_data.get(
+                "include_collaborative_link"
+            )
+            doc_url = (
+                request.build_absolute_uri(guidance.document.url)
+                if include_document and guidance_document_available
+                else ""
+            )
+            text_version = (guidance.text_version or "").strip()
+            guidance_label = _current_revision_label(guidance)
+            label_snippet = f" ({guidance_label})" if guidance_label else ""
+            sent = 0
+            for member in members:
+                member_deadline = member.feedback_on_guidance_deadline
+                deadline_changed = False
+                resolved_deadline = _resolve_document_feedback_deadline(
+                    form.cleaned_data.get("due_date"),
+                    current_deadline=member_deadline,
+                )
+                if member_deadline != resolved_deadline:
+                    member_deadline = resolved_deadline
+                    member.feedback_on_guidance_deadline = resolved_deadline
+                    member.guidance_reminder_sent = False
+                    member.guidance_reminder_sent_at = None
+                    deadline_changed = True
+                fb = _create_guidance_feedback(project, member=member, email=member.email)
+                feedback_url = request.build_absolute_uri(
+                    reverse("synopsis:guidance_feedback", args=[str(fb.token)])
+                )
+                subject = email_subject("guidance_review", project)
+                text = f"Dear {member.first_name or 'colleague'},\n\n"
+                html = f"<p>Dear {member.first_name or 'colleague'},</p>"
+                if message_body:
+                    text += f"{message_body}\n\n"
+                    html += f"<p>{message_body}</p>"
+                if doc_url:
+                    text += f"Please review the guidance{label_snippet}: {doc_url}\n\n"
+                    html += (
+                        "<p>Please review the guidance"
+                        f"{label_snippet}: <a href='{doc_url}'>View document</a></p>"
+                    )
+                elif text_version:
+                    html += "<hr>" + text_version
+                deadline_text = _format_deadline(member_deadline)
+                if deadline_text:
+                    text += f"Deadline for guidance feedback: {deadline_text}\n"
+                    html += f"<p>Deadline for guidance feedback: {deadline_text}</p>"
+                text += f"Provide feedback: {feedback_url}\n"
+                html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
+                if include_collab:
+                    collaborative_url = _ensure_collaborative_invite_link(
+                        request,
+                        project,
+                        CollaborativeSession.DOCUMENT_GUIDANCE,
+                        None,
+                        member=member,
+                        feedback=fb,
+                    )
+                    if collaborative_url:
+                        text += f"Collaborative editor: {collaborative_url}\n"
+                        html += (
+                            "<p><strong>Collaborative editor:</strong> "
+                            f"<a href='{collaborative_url}'>Open live editor</a></p>"
+                        )
+
+                msg = EmailMultiAlternatives(
+                    subject,
+                    text,
+                    to=[member.email],
+                    reply_to=reply_to_list(getattr(request.user, "email", None)),
+                )
+                msg.attach_alternative(html, "text/html")
+                inviter_email = getattr(request.user, "email", None)
+                if inviter_email:
+                    msg.extra_headers = msg.extra_headers or {}
+                    msg.extra_headers["List-Unsubscribe"] = f"<mailto:{inviter_email}>"
+                msg.send()
+                member.sent_guidance_at = timezone.now()
+                member.guidance_reminder_sent = False
+                member.guidance_reminder_sent_at = None
+                update_fields = [
+                    "sent_guidance_at",
+                    "guidance_reminder_sent",
+                    "guidance_reminder_sent_at",
+                ]
+                if deadline_changed:
+                    update_fields.append("feedback_on_guidance_deadline")
+                member.save(update_fields=update_fields)
+                sent += 1
+            messages.success(request, f"Sent guidance to {sent} member(s).")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    else:
+        form = GuidanceSendForm(
+            initial={"due_date": _default_document_feedback_due_date()},
+            collaborative_enabled=collaborative_enabled,
+            document_available=guidance_document_available,
+        )
+    return render(
+        request,
+        "synopsis/guidance_send_compose.html",
+        {
+            "project": project,
+            "form": form,
+            "scope": "all",
+            "member": None,
+            "collaborative_available": collaborative_enabled,
+        },
+    )
+
+
+@login_required
+def advisory_send_guidance_compose_member(request, project_id, member_id):
+    project = get_object_or_404(Project, id=project_id)
+    guidance = getattr(project, "guidance", None)
+    if not guidance:
+        messages.error(request, "No guidance configured for this project.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    guidance_document_available = bool(getattr(guidance, "document", None))
+    member = get_object_or_404(AdvisoryBoardMember, id=member_id, project=project)
+    if not member.email:
+        messages.error(request, "This member has no email.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    if member.response != "Y" or not member.participation_confirmed:
+        messages.error(
+            request,
+            "This member has not accepted the invitation or has declined participation.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    guidance_closed = bool(getattr(guidance, "feedback_closed_at", None))
+    collaborative_enabled = (
+        _onlyoffice_enabled()
+        and _document_requires_file(guidance)
+        and not guidance_closed
+    )
+    if request.method == "POST":
+        form = GuidanceSendForm(
+            request.POST,
+            collaborative_enabled=collaborative_enabled,
+            document_available=guidance_document_available,
+        )
+        if form.is_valid():
+            message_body = form.cleaned_data.get("message") or ""
+            include_document = guidance_document_available and form.cleaned_data.get(
+                "include_guidance_document"
+            )
+            include_collab = collaborative_enabled and form.cleaned_data.get(
+                "include_collaborative_link"
+            )
+            member_deadline = member.feedback_on_guidance_deadline
+            deadline_changed = False
+            resolved_deadline = _resolve_document_feedback_deadline(
+                form.cleaned_data.get("due_date"),
+                current_deadline=member_deadline,
+            )
+            if member_deadline != resolved_deadline:
+                member_deadline = resolved_deadline
+                member.feedback_on_guidance_deadline = resolved_deadline
+                member.guidance_reminder_sent = False
+                member.guidance_reminder_sent_at = None
+                deadline_changed = True
+            fb = _create_guidance_feedback(project, member=member, email=member.email)
+            feedback_url = request.build_absolute_uri(
+                reverse("synopsis:guidance_feedback", args=[str(fb.token)])
+            )
+            subject = email_subject("guidance_review", project)
+            text = f"Dear {member.first_name or 'colleague'},\n\n"
+            html = f"<p>Dear {member.first_name or 'colleague'},</p>"
+            if message_body:
+                text += f"{message_body}\n\n"
+                html += f"<p>{message_body}</p>"
+            doc_url = (
+                request.build_absolute_uri(guidance.document.url)
+                if include_document and guidance_document_available
+                else ""
+            )
+            text_version = (guidance.text_version or "").strip()
+            guidance_label = _current_revision_label(guidance)
+            label_snippet = f" ({guidance_label})" if guidance_label else ""
+            if doc_url:
+                text += f"Please review the guidance{label_snippet}: {doc_url}\n\n"
+                html += (
+                    "<p>Please review the guidance"
+                    f"{label_snippet}: <a href='{doc_url}'>View document</a></p>"
+                )
+            elif text_version:
+                html += "<hr>" + text_version
+            deadline_text = _format_deadline(member_deadline)
+            if deadline_text:
+                text += f"Deadline for guidance feedback: {deadline_text}\n"
+                html += f"<p>Deadline for guidance feedback: {deadline_text}</p>"
+            text += f"Provide feedback: {feedback_url}\n"
+            html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
+            if include_collab:
+                collaborative_url = _ensure_collaborative_invite_link(
+                    request,
+                    project,
+                    CollaborativeSession.DOCUMENT_GUIDANCE,
+                    None,
+                    member=member,
+                    feedback=fb,
+                )
+                if collaborative_url:
+                    text += f"Collaborative editor: {collaborative_url}\n"
+                    html += (
+                        "<p><strong>Collaborative editor:</strong> "
+                        f"<a href='{collaborative_url}'>Open live editor</a></p>"
+                    )
+
+            msg = EmailMultiAlternatives(
+                subject,
+                text,
+                to=[member.email],
+                reply_to=reply_to_list(getattr(request.user, "email", None)),
+            )
+            msg.attach_alternative(html, "text/html")
+            msg.send()
+
+            member.sent_guidance_at = timezone.now()
+            member.guidance_reminder_sent = False
+            member.guidance_reminder_sent_at = None
+            update_fields = [
+                "sent_guidance_at",
+                "guidance_reminder_sent",
+                "guidance_reminder_sent_at",
+            ]
+            if deadline_changed:
+                update_fields.append("feedback_on_guidance_deadline")
+            member.save(update_fields=update_fields)
+            messages.success(request, f"Sent guidance to {member.email}.")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    else:
+        deadline_initial = None
+        if member.feedback_on_guidance_deadline:
+            local_deadline = timezone.localtime(member.feedback_on_guidance_deadline)
+            deadline_initial = local_deadline.date()
+        else:
+            deadline_initial = _default_document_feedback_due_date()
+        form = GuidanceSendForm(
+            initial={"due_date": deadline_initial},
+            collaborative_enabled=collaborative_enabled,
+            document_available=guidance_document_available,
+        )
+    return render(
+        request,
+        "synopsis/guidance_send_compose.html",
+        {
+            "project": project,
+            "form": form,
+            "scope": "member",
+            "member": member,
+            "collaborative_available": collaborative_enabled,
+        },
+    )
+
+
+@login_required
 def advisory_member_custom_data(request, project_id, member_id):
     project = get_object_or_404(Project, pk=project_id)
     member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
@@ -11273,6 +12759,136 @@ def action_list_feedback(request, token):
     )
 
 
+def guidance_feedback(request, token):
+    fb = get_object_or_404(GuidanceFeedback, token=token)
+    member = fb.member
+    project = fb.project
+    guidance = fb.guidance or getattr(project, "guidance", None)
+
+    deadline = fb.feedback_deadline_at
+    if member and member.feedback_on_guidance_deadline:
+        deadline = member.feedback_on_guidance_deadline
+        if fb.feedback_deadline_at != deadline:
+            fb.feedback_deadline_at = deadline
+            fb.save(update_fields=["feedback_deadline_at"])
+    if member and member.response != "Y":
+        if fb.feedback_deadline_at:
+            fb.feedback_deadline_at = None
+            fb.save(update_fields=["feedback_deadline_at"])
+        deadline = None
+    closure_message = None
+    now = timezone.now()
+
+    if member and member.response == "N":
+        return render(
+            request,
+            "synopsis/guidance_feedback_thanks.html",
+            {
+                "project": project,
+                "error": "This link is no longer available because you declined the invitation.",
+            },
+        )
+
+    if guidance and guidance.feedback_closed_at:
+        closure_message = guidance.feedback_closure_message or (
+            "The authors have closed feedback for this guidance document."
+        )
+        return render(
+            request,
+            "synopsis/guidance_feedback_thanks.html",
+            {
+                "project": project,
+                "feedback": fb,
+                "closed_message": closure_message,
+                "deadline": deadline,
+                "closed": True,
+            },
+        )
+
+    if deadline and now >= deadline:
+        closure_message = (
+            "The feedback deadline has passed (" f"{_format_deadline(deadline)})."
+        )
+        return render(
+            request,
+            "synopsis/guidance_feedback_thanks.html",
+            {
+                "project": project,
+                "feedback": fb,
+                "closed_message": closure_message,
+                "deadline": deadline,
+                "closed": True,
+            },
+        )
+
+    if request.method == "POST":
+        form = GuidanceFeedbackForm(request.POST, request.FILES)
+        if form.is_valid():
+            content = form.cleaned_data["content"].strip()
+            uploaded_doc = form.cleaned_data["uploaded_document"]
+            updates = []
+            if content:
+                fb.content = content
+                updates.append("content")
+            if uploaded_doc:
+                fb.uploaded_document = uploaded_doc
+                updates.append("uploaded_document")
+            if updates:
+                fb.submitted_at = timezone.now()
+                updates.append("submitted_at")
+                fb.save(update_fields=updates)
+
+                if member:
+                    member_updates = set()
+                    today = timezone.localdate()
+                    if member.feedback_on_guidance_received != today:
+                        member.feedback_on_guidance_received = today
+                        member_updates.add("feedback_on_guidance_received")
+                    if member_updates:
+                        member.save(update_fields=list(member_updates))
+
+                details = []
+                if uploaded_doc:
+                    details.append(
+                        f"Document uploaded: {fb.latest_document_label or uploaded_doc.name}"
+                    )
+                if content:
+                    snippet = (content[:97] + "…") if len(content) > 100 else content
+                    details.append(f"Comments provided: {snippet}")
+                if details:
+                    _log_project_change(
+                        project,
+                        request.user,
+                        "Guidance feedback submitted",
+                        " | ".join(details),
+                    )
+
+            return render(
+                request,
+                "synopsis/guidance_feedback_thanks.html",
+                {
+                    "project": project,
+                    "feedback": fb,
+                    "deadline": deadline,
+                },
+            )
+    else:
+        form = GuidanceFeedbackForm(initial={"content": fb.content})
+
+    return render(
+        request,
+        "synopsis/guidance_feedback_form.html",
+        {
+            "project": project,
+            "token": fb.token,
+            "feedback": fb,
+            "deadline": deadline,
+            "guidance": guidance,
+            "form": form,
+        },
+    )
+
+
 @login_required
 def action_list_delete_revision(request, project_id, revision_id):
     if request.method != "POST":
@@ -11336,6 +12952,65 @@ def action_list_delete_revision(request, project_id, revision_id):
 
     messages.success(request, "Action list revision deleted.")
     return redirect("synopsis:action_list_detail", project_id=project.id)
+
+
+@login_required
+def guidance_delete_revision(request, project_id, revision_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("Invalid request method.")
+
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        messages.error(
+            request,
+            "Only assigned authors or managers can delete guidance revisions.",
+        )
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    guidance = getattr(project, "guidance", None)
+    if not guidance:
+        messages.error(request, "No guidance exists for this project.")
+        return redirect("synopsis:guidance_detail", project_id=project.id)
+
+    revision = get_object_or_404(GuidanceRevision, pk=revision_id, guidance=guidance)
+
+    was_current = guidance.current_revision_id == revision.id
+    file_name = revision.file.name
+    revision.delete()
+
+    next_revision = (
+        guidance.revisions.exclude(pk=revision_id).order_by("-uploaded_at", "-id").first()
+    )
+
+    if was_current:
+        if next_revision:
+            try:
+                base_name, size_text = _apply_revision_to_guidance(guidance, next_revision)
+            except (FileNotFoundError, ValueError):
+                guidance.current_revision = next_revision
+                guidance.save(update_fields=["current_revision"])
+                base_name = next_revision.original_name or os.path.basename(
+                    next_revision.file.name
+                )
+                size_text = _format_file_size(next_revision.file_size)
+        else:
+            guidance.current_revision = None
+            guidance.save(update_fields=["current_revision"])
+            base_name = "none"
+            size_text = "—"
+    else:
+        base_name = revision.original_name or os.path.basename(file_name)
+        size_text = _format_file_size(revision.file_size)
+
+    _log_project_change(
+        project,
+        request.user,
+        "Guidance revision deleted",
+        f"Revision file: {file_name or 'unknown'}; Remaining current: {base_name} ({size_text})",
+    )
+
+    messages.success(request, "Guidance revision deleted.")
+    return redirect("synopsis:guidance_detail", project_id=project.id)
 
 
 @login_required

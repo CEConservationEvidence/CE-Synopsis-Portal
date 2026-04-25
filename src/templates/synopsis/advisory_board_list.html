@@ -19,6 +19,7 @@
         --ab-action-bg: var(--bs-info-bg-subtle, #d7f3fe);
         --ab-protocol-bg: #f1e7ff;
         --ab-synopsis-bg: #e4f4ec;
+        --ab-guidance-bg: #fdebd7;
         border-collapse: separate;
         border-spacing: 0;
     }
@@ -66,6 +67,10 @@
 
     .advisory-board-table :is(th, td).ab-status-synopsis {
         background-color: var(--ab-synopsis-bg);
+    }
+
+    .advisory-board-table :is(th, td).ab-status-guidance {
+        background-color: var(--ab-guidance-bg);
     }
 
     .ab-row-status-accepted {
@@ -189,6 +194,29 @@
             Send action list to all
         </button>
         <small class="text-muted">Upload the action list file to enable bulk sending.</small>
+    </div>
+    {% endif %}
+    {% endwith %}
+    {% with has_guidance=guidance_feedback_state.document_ready %}
+    {% if has_guidance %}
+    <a
+        class="btn btn-outline-primary"
+        href="{% url 'synopsis:advisory_send_guidance_compose_all' project.id %}"
+        title="Send the latest guidance to all eligible members"
+    >
+        Send guidance to all
+    </a>
+    {% else %}
+    <div class="d-flex flex-column">
+        <button
+            type="button"
+            class="btn btn-outline-primary disabled"
+            tabindex="-1"
+            aria-disabled="true"
+        >
+            Send guidance to all
+        </button>
+        <small class="text-muted">Upload the guidance file to enable bulk sending.</small>
     </div>
     {% endif %}
     {% endwith %}
@@ -336,6 +364,9 @@
                         {% with synopsis_extra=combined_fields_by_group.synopsis|length %}
                         <th class="ab-group-header text-start ab-status-synopsis" scope="colgroup" colspan="{{ synopsis_extra|add:5 }}">SYNOPSIS</th>
                         {% endwith %}
+                        {% with guidance_extra=combined_fields_by_group.guidance|length %}
+                        <th class="ab-group-header text-start ab-status-guidance" scope="colgroup" colspan="{{ guidance_extra|add:6 }}">GUIDANCE</th>
+                        {% endwith %}
                         {% with custom_extra=combined_fields_by_group.custom|length %}
                         {% if custom_extra %}
                         <th class="ab-group-header text-start" scope="colgroup" colspan="{{ custom_extra }}">CUSTOM COLUMNS</th>
@@ -413,6 +444,21 @@
                         <th class="ab-status-synopsis text-start" scope="col">ADDED TO DOC</th>
                         {% for field in combined_fields_by_group.synopsis %}
                         <th class="ab-status-synopsis text-start" scope="col">
+                            <div class="fw-semibold">{{ field.name }}</div>
+                            {% if field.description %}
+                            <small class="text-muted d-block">{{ field.description }}</small>
+                            {% endif %}
+                            <small class="text-muted">{{ field.get_data_type_display }}</small>
+                        </th>
+                        {% endfor %}
+                        <th class="ab-status-guidance text-start" scope="col">GUIDANCE SENT</th>
+                        <th class="ab-status-guidance text-start" scope="col">FEEDBACK DEADLINE</th>
+                        <th class="ab-status-guidance text-start" scope="col">REMINDER SENT</th>
+                        <th class="ab-status-guidance text-start" scope="col">FEEDBACK RECEIVED</th>
+                        <th class="ab-status-guidance text-start" scope="col">ADDED TO DOC</th>
+                        <th class="ab-status-guidance text-start" scope="col">FEEDBACK DOCUMENT</th>
+                        {% for field in combined_fields_by_group.guidance %}
+                        <th class="ab-status-guidance text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
                             {% if field.description %}
                             <small class="text-muted d-block">{{ field.description }}</small>
@@ -1130,6 +1176,161 @@
                                     <td class="ab-status-synopsis"><span class="text-muted">—</span></td>
                                         {% endif %}
                                     {% endfor %}
+                                    <td class="ab-status-guidance">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.sent_guidance_at %}
+                                        <span class="badge text-bg-success">Sent</span>
+                                        <div class="small text-muted">{{ m.sent_guidance_at|date:"Y-m-d" }}</div>
+                                        {% else %}
+                                        {% if guidance_feedback_state.document_ready %}
+                                        <a
+                                            class="btn btn-sm btn-outline-secondary"
+                                            href="{% url 'synopsis:advisory_send_guidance_compose_member' project.id m.id %}"
+                                            title="Send the latest guidance to this member"
+                                        >Send</a>
+                                        {% else %}
+                                        <div class="d-inline-flex flex-column align-items-center gap-1">
+                                            <button
+                                                class="btn btn-sm btn-outline-secondary disabled"
+                                                type="button"
+                                                tabindex="-1"
+                                                aria-disabled="true"
+                                                disabled
+                                            >Send</button>
+                                            <small class="text-muted text-nowrap">Upload guidance first.</small>
+                                        </div>
+                                        {% endif %}
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-guidance">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.feedback_on_guidance_deadline %}
+                                        {{ m.feedback_on_guidance_deadline|date:"Y-m-d H:i" }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-guidance">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.guidance_reminder_sent %}
+                                        <span class="badge text-bg-success">Sent</span>
+                                        {% if m.guidance_reminder_sent_at %}
+                                        <div class="small text-muted">{{ m.guidance_reminder_sent_at|date:"Y-m-d" }}</div>
+                                        {% endif %}
+                                        {% elif m.feedback_on_guidance_deadline %}
+                                        <span class="badge text-bg-warning">Scheduled</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-guidance">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_guidance_feedback_obj and m.latest_guidance_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.latest_guidance_feedback_obj.submitted_at|date:"Y-m-d" }}</div>
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#guidance-feedback-{{ m.id }}"
+                                                aria-label="View guidance feedback for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View feedback
+                                            </button>
+                                        </div>
+                                        {% elif m.feedback_on_guidance_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.feedback_on_guidance_received|date:"Y-m-d" }}</div>
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-guidance">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_guidance_feedback_obj or m.feedback_on_guidance_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            {% if m.added_to_guidance_doc %}
+                                            <span class="badge text-bg-success">Added</span>
+                                            {% else %}
+                                            <span class="badge text-bg-secondary">Not added</span>
+                                            {% endif %}
+                                            {% if can_edit_members %}
+                                            <form
+                                                method="post"
+                                                action="{% url 'synopsis:advisory_member_set_guidance_flag' project.id m.id 'added-to-doc' %}"
+                                                class="d-inline-flex justify-content-center"
+                                            >
+                                                {% csrf_token %}
+                                                <input type="hidden" name="value" value="{% if m.added_to_guidance_doc %}0{% else %}1{% endif %}">
+                                                <button
+                                                    class="btn btn-link btn-sm p-0"
+                                                    type="submit"
+                                                    aria-label="{% if m.added_to_guidance_doc %}Clear feedback added to guidance document{% else %}Mark feedback added to guidance document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                                >
+                                                    {% if m.added_to_guidance_doc %}Clear{% else %}Mark added{% endif %}
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-guidance">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_guidance_feedback_obj and m.latest_guidance_feedback_obj.uploaded_document %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span class="badge text-bg-success">Document received</span>
+                                            {% if m.latest_guidance_feedback_obj.submitted_at %}
+                                            <div class="text-muted small">{{ m.latest_guidance_feedback_obj.submitted_at|date:"Y-m-d H:i" }}</div>
+                                            {% endif %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#guidance-feedback-document-{{ m.id }}"
+                                                aria-label="View guidance feedback document for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View document
+                                            </button>
+                                        </div>
+                                        {% elif m.latest_guidance_feedback_obj and m.latest_guidance_feedback_obj.content %}
+                                        <span class="text-muted small">No document</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    {% for field in combined_fields_by_group.guidance %}
+                                        {% if field.id in section.field_ids_by_group.guidance %}
+                                            {% with value=m.custom_field_values|get_item:field.id %}
+                                    <td class="ab-status-guidance">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif value and value != '—' %}
+                                        {{ value }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                        {% if not m.is_declined %}
+                                        <div>
+                                            <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                            {% endwith %}
+                                        {% else %}
+                                    <td class="ab-status-guidance"><span class="text-muted">—</span></td>
+                                        {% endif %}
+                                    {% endfor %}
                                     {% for field in combined_fields_by_group.custom %}
                                         {% if field.id in section.field_ids_by_group.custom %}
                                             {% with value=m.custom_field_values|get_item:field.id %}
@@ -1178,7 +1379,7 @@
                 <div class="alert alert-light border mb-4">
                     <div class="fw-semibold mb-1">How this works</div>
                     <div class="small text-muted">
-                        Set the invitation response deadline here. Protocol and action list feedback windows now live on their respective document pages.
+                        Set the invitation response deadline here. Protocol, action list, and guidance feedback windows now live on their respective document pages.
                     </div>
                 </div>
                 <div class="card border-warning-subtle">
@@ -1519,6 +1720,82 @@
                     <div class="border rounded bg-light p-3 mb-3 text-break">
                         <div class="fw-semibold">{{ feedback.latest_document_label }}</div>
                         <div class="small text-muted">Stored with this protocol feedback submission.</div>
+                    </div>
+                    <a class="btn btn-outline-primary" href="{{ feedback.uploaded_document.url }}" target="_blank" rel="noopener">Open document</a>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+            {% endif %}
+        {% endwith %}
+    {% endfor %}
+{% endif %}
+{% if guidance_feedback_members %}
+    {% for guidance_feedback_member in guidance_feedback_members %}
+    <div class="modal fade" id="guidance-feedback-{{ guidance_feedback_member.id }}" tabindex="-1" aria-labelledby="guidance-feedback-{{ guidance_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="guidance-feedback-{{ guidance_feedback_member.id }}-label">Guidance feedback</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% with feedback=guidance_feedback_member.latest_guidance_feedback_obj %}
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="mb-3">
+                        <h6 class="mb-2">Comments</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.content %}
+                            <p class="mb-0" style="white-space: pre-wrap;">{{ feedback.content }}</p>
+                            {% else %}
+                            <p class="text-muted mb-0">No written comments were provided.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <h6 class="mb-2">Uploaded document</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.uploaded_document %}
+                            <a href="{{ feedback.uploaded_document.url }}">{{ feedback.latest_document_label }}</a>
+                            {% else %}
+                            <p class="text-muted mb-0">No document was uploaded.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endwith %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+{% if guidance_feedback_members %}
+    {% for guidance_feedback_member in guidance_feedback_members %}
+        {% with feedback=guidance_feedback_member.latest_guidance_feedback_obj %}
+            {% if feedback.uploaded_document %}
+    <div class="modal fade" id="guidance-feedback-document-{{ guidance_feedback_member.id }}" tabindex="-1" aria-labelledby="guidance-feedback-document-{{ guidance_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="guidance-feedback-document-{{ guidance_feedback_member.id }}-label">Guidance feedback document</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="border rounded bg-light p-3 mb-3 text-break">
+                        <div class="fw-semibold">{{ feedback.latest_document_label }}</div>
+                        <div class="small text-muted">Stored with this guidance feedback submission.</div>
                     </div>
                     <a class="btn btn-outline-primary" href="{{ feedback.uploaded_document.url }}" target="_blank" rel="noopener">Open document</a>
                 </div>
