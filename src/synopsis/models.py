@@ -24,6 +24,8 @@ class Project(models.Model):
 
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
+    protocol_relevant = models.BooleanField(default=True)
+    advisory_board_relevant = models.BooleanField(default=True)
     advisory_invitation_message = models.TextField(blank=True, default="")
     start_date = models.DateField(null=True, blank=True)
     status = models.CharField(
@@ -57,12 +59,38 @@ class Project(models.Model):
     )
     phase_manual_updated = models.DateTimeField(null=True, blank=True)
 
+    def available_phase_choices(self):
+        phase_choices = list(self.PHASE_CHOICES)
+        if not self.protocol_relevant:
+            phase_choices = [
+                choice for choice in phase_choices if choice[0] != "draft_protocol"
+            ]
+        if not self.advisory_board_relevant:
+            phase_choices = [
+                choice
+                for choice in phase_choices
+                if choice[0] != "invite_advisory_board"
+            ]
+        return phase_choices or list(self.PHASE_CHOICES)
+
+    def available_phase_keys(self):
+        return [key for key, _label in self.available_phase_choices()]
+
+    def default_phase_key(self):
+        return self.available_phase_keys()[0]
+
     @property
     def phase(self):
-        return self.phase_manual or self.PHASE_CHOICES[0][0]
+        if self.phase_manual and self.phase_manual in self.available_phase_keys():
+            return self.phase_manual
+        return self.default_phase_key()
 
     def get_phase_display(self):
-        mapping = dict(self.PHASE_CHOICES)
+        mapping = dict(self.available_phase_choices())
+        if self.phase_manual and self.phase_manual not in mapping:
+            mapping[self.phase_manual] = dict(self.PHASE_CHOICES).get(
+                self.phase_manual, self.phase_manual
+            )
         return mapping.get(self.phase, self.phase)
 
     @property

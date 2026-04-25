@@ -7028,6 +7028,17 @@ class ProjectDescriptionUiTests(TestCase):
         self.assertContains(response, "A pilot synopsis for forest restoration.")
         self.assertContains(response, 'value="Forest Restoration"', html=False)
 
+    def test_project_settings_shows_protocol_and_advisory_relevance_fields(self):
+        self.client.login(username="manager", password="pass123")
+
+        response = self.client.get(
+            reverse("synopsis:project_settings", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Protocol is relevant for this project")
+        self.assertContains(response, "Advisory board is relevant for this project")
+
 
 class ProjectPhaseUiTests(TestCase):
     def setUp(self):
@@ -7050,6 +7061,36 @@ class ProjectPhaseUiTests(TestCase):
         self.assertContains(response, "Default starting phase")
         self.assertContains(response, "Step 1 of 8")
         self.assertNotContains(response, "Set current phase")
+
+    def test_phase_tracker_skips_protocol_and_advisory_when_not_relevant(self):
+        self.project.protocol_relevant = False
+        self.project.advisory_board_relevant = False
+        self.project.save(update_fields=["protocol_relevant", "advisory_board_relevant"])
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "References screening")
+        self.assertContains(response, "Move to summary writing")
+        self.assertContains(response, "Step 1 of 6")
+        self.assertNotContains(response, "Move to draft protocol")
+        self.assertNotContains(response, "Move to invite advisory board")
+
+    def test_protocol_and_advisory_cards_show_not_relevant_state(self):
+        self.project.protocol_relevant = False
+        self.project.advisory_board_relevant = False
+        self.project.save(update_fields=["protocol_relevant", "advisory_board_relevant"])
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Protocol")
+        self.assertContains(response, "This synopsis is not using the protocol workflow in the portal.")
+        self.assertContains(response, "Advisory Board")
+        self.assertContains(response, "This synopsis is not using an advisory board in the portal.")
 
     def test_project_settings_shows_full_phase_tracker_controls(self):
         response = self.client.get(
@@ -7152,3 +7193,89 @@ class ProjectPhaseUiTests(TestCase):
         )
         self.project.refresh_from_db()
         self.assertEqual(self.project.phase, "draft_synopsis")
+
+    def test_cannot_set_phase_to_disabled_step(self):
+        self.project.protocol_relevant = False
+        self.project.save(update_fields=["protocol_relevant"])
+
+        response = self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "draft_protocol"],
+            )
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("That phase is not available for this project.", messages)
+
+
+class ProjectWorkflowApplicabilityTests(TestCase):
+    def setUp(self):
+        self.author = User.objects.create_user(
+            username="workflow-author",
+            password="pass123",
+        )
+        self.project = Project.objects.create(title="Workflow flexibility")
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        self.client.login(username="workflow-author", password="pass123")
+
+    def test_project_settings_can_mark_protocol_and_advisory_not_relevant(self):
+        response = self.client.post(
+            reverse("synopsis:project_settings", args=[self.project.id]),
+            {
+                "title": self.project.title,
+                "description": "",
+                "protocol_relevant": "",
+                "advisory_board_relevant": "",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.protocol_relevant)
+        self.assertFalse(self.project.advisory_board_relevant)
+        change = ProjectChangeLog.objects.filter(
+            project=self.project, action="Updated project settings"
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Protocol: relevant → not relevant", change.details)
+        self.assertIn("Advisory board: relevant → not relevant", change.details)
+
+    def test_protocol_page_redirects_when_protocol_not_relevant(self):
+        self.project.protocol_relevant = False
+        self.project.save(update_fields=["protocol_relevant"])
+
+        response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(
+            "Protocol is marked as not relevant for this project. Update Project settings if you want to use the protocol workflow.",
+            messages,
+        )
+
+    def test_advisory_board_page_redirects_when_not_relevant(self):
+        self.project.advisory_board_relevant = False
+        self.project.save(update_fields=["advisory_board_relevant"])
+
+        response = self.client.get(
+            reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(
+            "Advisory board is marked as not relevant for this project. Update Project settings if you want to use the advisory board workflow.",
+            messages,
+        )

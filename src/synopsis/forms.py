@@ -1164,7 +1164,12 @@ class ProjectSettingsForm(forms.ModelForm):
 
     class Meta:
         model = Project
-        fields = ["title", "description"]
+        fields = [
+            "title",
+            "description",
+            "protocol_relevant",
+            "advisory_board_relevant",
+        ]
         widgets = {
             "title": forms.TextInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(
@@ -1174,11 +1179,26 @@ class ProjectSettingsForm(forms.ModelForm):
                     "placeholder": "Optional short description of the synopsis",
                 }
             ),
+            "protocol_relevant": forms.CheckboxInput(
+                attrs={"class": "form-check-input"}
+            ),
+            "advisory_board_relevant": forms.CheckboxInput(
+                attrs={"class": "form-check-input"}
+            ),
         }
         error_messages = {
             "title": {
                 "required": "Enter a title for the synopsis.",
             }
+        }
+        labels = {
+            "description": "Description (optional)",
+            "protocol_relevant": "Protocol is relevant for this project",
+            "advisory_board_relevant": "Advisory board is relevant for this project",
+        }
+        help_texts = {
+            "protocol_relevant": "Untick this if this synopsis will not use a protocol in the portal.",
+            "advisory_board_relevant": "Untick this if this synopsis will not use an advisory board in the portal.",
         }
 
     def clean_title(self):

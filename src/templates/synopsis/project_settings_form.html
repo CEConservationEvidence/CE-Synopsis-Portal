@@ -6,7 +6,7 @@
     <p class="text-muted text-center">
         Update the core details for
         <strong>{{ project.title }}</strong>
-        . You can modify the synopsis title, optional description, and project phase tracker here.
+        . You can modify the synopsis title, optional description, whether protocol and advisory board are relevant for this project, and the project phase tracker here.
     </p>
     <div class="col-lg-8 col-md-10 mx-auto mb-4" id="phase-tracker">
         <div class="card shadow-sm">
@@ -26,7 +26,7 @@
                         {% if phase_is_manual %}
                         <p class="small text-muted mb-0">This is the current working phase chosen by the authors.</p>
                         {% else %}
-                        <p class="small text-muted mb-0">No phase has been manually set yet, so the tracker starts at <strong>Draft protocol</strong> until an author changes it.</p>
+                        <p class="small text-muted mb-0">No phase has been manually set yet, so the tracker starts at <strong>{{ current_phase_label }}</strong> until an author changes it.</p>
                         {% endif %}
                     </div>
                 </div>
@@ -113,6 +113,25 @@
             {% for error in form.description.errors %}
             <div class="text-danger small mt-1">{{ error }}</div>
             {% endfor %}
+        </div>
+        <div class="mb-4">
+            <div class="fw-semibold mb-2">Workflow components</div>
+            <div class="form-check mb-3">
+                {{ form.protocol_relevant }}
+                <label class="form-check-label" for="{{ form.protocol_relevant.id_for_label }}">{{ form.protocol_relevant.label }}</label>
+                <div class="form-text">{{ form.protocol_relevant.help_text }}</div>
+                {% for error in form.protocol_relevant.errors %}
+                <div class="text-danger small mt-1">{{ error }}</div>
+                {% endfor %}
+            </div>
+            <div class="form-check">
+                {{ form.advisory_board_relevant }}
+                <label class="form-check-label" for="{{ form.advisory_board_relevant.id_for_label }}">{{ form.advisory_board_relevant.label }}</label>
+                <div class="form-text">{{ form.advisory_board_relevant.help_text }}</div>
+                {% for error in form.advisory_board_relevant.errors %}
+                <div class="text-danger small mt-1">{{ error }}</div>
+                {% endfor %}
+            </div>
         </div>
         <div class="d-flex justify-content-between">
             <button class="btn btn-primary" type="submit">Save Changes</button>

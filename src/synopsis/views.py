@@ -2708,7 +2708,7 @@ def project_create(request):
 
 def _project_phase_context(project: Project, user):
     phase_labels = dict(Project.PHASE_CHOICES)
-    order = [key for key, _label in Project.PHASE_CHOICES]
+    order = project.available_phase_keys()
     current_phase = project.phase
     try:
         current_index = order.index(current_phase)
@@ -2741,7 +2741,7 @@ def _project_phase_context(project: Project, user):
         "phase_labels": phase_labels,
         "current_phase": current_phase,
         "current_phase_label": phase_labels.get(current_phase, current_phase),
-        "phase_is_manual": bool(project.phase_manual),
+        "phase_is_manual": bool(project.phase_manual and project.phase_manual in order),
         "phase_manual_updated": project.phase_manual_updated,
         "phase_steps": phase_steps,
         "phase_progress_percent": phase_progress_percent,
@@ -2907,9 +2907,9 @@ def project_phase_confirm(request, project_id, phase):
         return redirect("synopsis:project_hub", project_id=project.id)
 
     phase_labels = dict(Project.PHASE_CHOICES)
-    valid_phases = [k for k, _ in Project.PHASE_CHOICES]
+    valid_phases = project.available_phase_keys()
     if phase not in valid_phases:
-        messages.error(request, "Invalid phase.")
+        messages.error(request, "That phase is not available for this project.")
         return redirect("synopsis:project_hub", project_id=project.id)
 
     current_phase = project.phase
@@ -3211,6 +3211,12 @@ def project_delete(request, project_id):
 @login_required
 def protocol_detail(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not project.protocol_relevant:
+        messages.info(
+            request,
+            "Protocol is marked as not relevant for this project. Update Project settings if you want to use the protocol workflow.",
+        )
+        return redirect("synopsis:project_hub", project_id=project.id)
     protocol = getattr(project, "protocol", None)
     can_manage = _user_is_manager(request.user)
     can_edit_documents = _user_can_edit_project(request.user, project)
@@ -6115,6 +6121,8 @@ def project_settings(request, project_id):
     if request.method == "POST":
         original_title = project.title
         original_description = project.description
+        original_protocol_relevant = project.protocol_relevant
+        original_advisory_board_relevant = project.advisory_board_relevant
         form = ProjectSettingsForm(request.POST, instance=project, project=project)
         if form.is_valid():
             updated_project = form.save()
@@ -6125,6 +6133,45 @@ def project_settings(request, project_id):
                 changes.append(
                     "Description: "
                     f"{_format_value(original_description)} → {_format_value(updated_project.description)}"
+                )
+            if original_protocol_relevant != updated_project.protocol_relevant:
+                changes.append(
+                    "Protocol: "
+                    f"{'relevant' if original_protocol_relevant else 'not relevant'} → "
+                    f"{'relevant' if updated_project.protocol_relevant else 'not relevant'}"
+                )
+            if (
+                original_advisory_board_relevant
+                != updated_project.advisory_board_relevant
+            ):
+                changes.append(
+                    "Advisory board: "
+                    f"{'relevant' if original_advisory_board_relevant else 'not relevant'} → "
+                    f"{'relevant' if updated_project.advisory_board_relevant else 'not relevant'}"
+                )
+            if (
+                updated_project.phase_manual
+                and updated_project.phase_manual not in updated_project.available_phase_keys()
+            ):
+                old_phase = updated_project.phase_manual
+                new_phase = updated_project.default_phase_key()
+                updated_project.phase_manual = new_phase
+                updated_project.phase_manual_updated = timezone.now()
+                updated_project.save(
+                    update_fields=["phase_manual", "phase_manual_updated"]
+                )
+                ProjectPhaseEvent.objects.create(
+                    project=updated_project,
+                    phase=new_phase,
+                    confirmed_by=request.user,
+                    note=(
+                        "Phase reset because project settings removed an earlier phase from this workflow."
+                    ),
+                )
+                changes.append(
+                    "Phase reset: "
+                    f"{dict(Project.PHASE_CHOICES).get(old_phase, old_phase)} → "
+                    f"{dict(Project.PHASE_CHOICES).get(new_phase, new_phase)}"
                 )
             if changes:
                 _log_project_change(
@@ -6263,6 +6310,12 @@ def user_create(request):
 @login_required
 def advisory_board_list(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not project.advisory_board_relevant:
+        messages.info(
+            request,
+            "Advisory board is marked as not relevant for this project. Update Project settings if you want to use the advisory board workflow.",
+        )
+        return redirect("synopsis:project_hub", project_id=project.id)
 
     if request.method == "POST":
         action = request.POST.get("action")
