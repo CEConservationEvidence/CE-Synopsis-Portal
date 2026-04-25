@@ -821,6 +821,24 @@ def _format_file_size(size_bytes):
         size /= 1024
 
 
+_UUID_PREFIX_RE = re.compile(
+    r"^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}_)+"
+)
+
+
+def _normalized_document_filename(filename: str, fallback: str = "document.docx") -> str:
+    base_name = os.path.basename(filename or "").strip()
+    if not base_name:
+        return fallback
+    cleaned = base_name
+    while True:
+        updated = _UUID_PREFIX_RE.sub("", cleaned)
+        if updated == cleaned:
+            break
+        cleaned = updated
+    return cleaned or fallback
+
+
 def _apply_revision_to_protocol(protocol, revision) -> tuple[str, str]:
     try:
         with revision.file.open("rb") as source:
@@ -831,7 +849,10 @@ def _apply_revision_to_protocol(protocol, revision) -> tuple[str, str]:
     if not content:
         raise ValueError("Revision file empty")
 
-    base_name = revision.original_name or os.path.basename(revision.file.name)
+    base_name = _normalized_document_filename(
+        revision.original_name or os.path.basename(revision.file.name),
+        fallback="protocol.docx",
+    )
     new_filename = f"{uuid.uuid4()}_{base_name}"
     protocol.document.save(new_filename, ContentFile(content), save=False)
     protocol.current_revision = revision
@@ -849,7 +870,10 @@ def _apply_revision_to_action_list(action_list, revision) -> tuple[str, str]:
     if not content:
         raise ValueError("Revision file empty")
 
-    base_name = revision.original_name or os.path.basename(revision.file.name)
+    base_name = _normalized_document_filename(
+        revision.original_name or os.path.basename(revision.file.name),
+        fallback="action-list.docx",
+    )
     new_filename = f"{uuid.uuid4()}_{base_name}"
     action_list.document.save(new_filename, ContentFile(content), save=False)
     action_list.current_revision = revision
@@ -867,7 +891,10 @@ def _apply_revision_to_guidance(guidance, revision) -> tuple[str, str]:
     if not content:
         raise ValueError("Revision file empty")
 
-    base_name = revision.original_name or os.path.basename(revision.file.name)
+    base_name = _normalized_document_filename(
+        revision.original_name or os.path.basename(revision.file.name),
+        fallback="guidance.docx",
+    )
     new_filename = f"{uuid.uuid4()}_{base_name}"
     guidance.document.save(new_filename, ContentFile(content), save=False)
     guidance.current_revision = revision
@@ -4499,11 +4526,13 @@ def _handle_collaborative_save(
         logger.error("Failed to download OnlyOffice file: %s", exc)
         return False
 
-    original_name = payload.get("filename") or os.path.basename(
-        getattr(getattr(document, "document", None), "name", "")
+    current_revision = getattr(document, "current_revision", None) or document.latest_revision()
+    original_name = _normalized_document_filename(
+        payload.get("filename")
+        or getattr(current_revision, "original_name", "")
+        or getattr(getattr(document, "document", None), "name", ""),
+        fallback=f"{_document_type_slug(document_type)}.docx",
     )
-    if not original_name:
-        original_name = f"{_document_type_slug(document_type)}.docx"
 
     resolved_users, user_labels = _resolve_collaborative_users(payload.get("users", []))
     uploader = resolved_users[0] if resolved_users else session.started_by

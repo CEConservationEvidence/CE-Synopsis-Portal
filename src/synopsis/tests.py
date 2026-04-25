@@ -3374,6 +3374,59 @@ class CollaborativeClosureTests(TestCase):
         request.user = self.manager
         return request
 
+    @patch("synopsis.views._download_onlyoffice_file", return_value=b"updated-doc")
+    def test_collaborative_save_keeps_clean_filename_from_current_revision(self, mock_download):
+        revision = ProtocolRevision.objects.create(
+            protocol=self.protocol,
+            file=SimpleUploadedFile(
+                "protocol.docx",
+                b"original-doc",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+            stage="draft",
+            original_name="protocol.docx",
+            uploaded_by=self.manager,
+            file_size=len(b"original-doc"),
+        )
+        self.protocol.current_revision = revision
+        self.protocol.document.name = (
+            f"protocols/{self.project.id}/"
+            "11111111-1111-1111-1111-111111111111_"
+            "22222222-2222-2222-2222-222222222222_protocol.docx"
+        )
+        self.protocol.save(update_fields=["current_revision", "document"])
+
+        session = CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            started_by=self.manager,
+            last_activity_at=timezone.now(),
+            initial_protocol_revision=revision,
+        )
+
+        success = self.views._handle_collaborative_save(
+            self.project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+            self.protocol,
+            session,
+            {"url": "https://onlyoffice.example.com/office/storage/protocol.docx"},
+            2,
+        )
+
+        self.assertTrue(success)
+        self.protocol.refresh_from_db()
+        self.assertEqual(self.protocol.current_revision.original_name, "protocol.docx")
+        self.assertNotIn(
+            "22222222-2222-2222-2222-222222222222_protocol.docx",
+            self.protocol.current_revision.original_name,
+        )
+        self.assertTrue(self.protocol.document.name.endswith("_protocol.docx"))
+        self.assertNotIn(
+            "11111111-1111-1111-1111-111111111111_22222222-2222-2222-2222-222222222222_protocol.docx",
+            self.protocol.document.name,
+        )
+        mock_download.assert_called_once()
+
     def test_closing_protocol_disables_collaborative_session(self):
         request = self._build_request()
         url = self.views._ensure_collaborative_invite_link(
