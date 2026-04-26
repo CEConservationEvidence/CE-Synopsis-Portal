@@ -359,7 +359,19 @@
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Action</label>
-                                {{ summary_form.action_description }}
+                                {{ summary_form.action_choice }}
+                                <div class="form-text">Choose an action already added to the project intervention list. If it is not there yet, enter it below.</div>
+                                {% if summary_form.action_choice.errors %}
+                                <div class="text-danger small mt-1">{{ summary_form.action_choice.errors|join:", " }}</div>
+                                {% endif %}
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">Custom action (optional)</label>
+                                {{ summary_form.action_custom }}
+                                <div class="form-text">Use this only if the action is not yet available in the dropdown.</div>
+                                {% if summary_form.action_custom.errors %}
+                                <div class="text-danger small mt-1">{{ summary_form.action_custom.errors|join:", " }}</div>
+                                {% endif %}
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Study design phrase</label>
@@ -598,7 +610,7 @@
             </div>
             <div class="card-body">
                 {% if generated_summary %}
-                    <p class="text-muted small mb-3">This field starts with the auto-generated paragraph from the structured fields above. Edit it directly if you want compilation and export to use revised wording.</p>
+                    <p class="text-muted small mb-3">This field starts with the auto-generated paragraph from the structured fields above. If you change those structured fields later, the paragraph will refresh automatically unless you have already saved manual edits here.</p>
                 {% else %}
                     <p class="text-muted small mb-3">Fill in the structured fields above to generate a paragraph automatically, or write a custom summary paragraph here.</p>
                 {% endif %}

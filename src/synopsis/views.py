@@ -8640,6 +8640,7 @@ def reference_summary_detail(request, project_id, summary_id):
     summary_form = ReferenceSummaryUpdateForm(
         request.POST if active_action == "save-summary" else None,
         instance=summary,
+        project=project,
     )
     assignment_initial = {
         "assigned_to": summary.assigned_to_id,
@@ -8716,6 +8717,8 @@ def reference_summary_detail(request, project_id, summary_id):
                 summary_id=next_summary.id,
             )
         if action == "save-summary" and summary_form.is_valid():
+            previous_generated_summary = generated_summary.strip()
+            previous_saved_draft = (summary.synopsis_draft or "").strip()
             summary = summary_form.save(commit=False)
             if not summary.summary_author:
                 summary.summary_author = (
@@ -8724,7 +8727,19 @@ def reference_summary_detail(request, project_id, summary_id):
             summary.save()
             _sync_reference_summary_identifiers_for_reference(summary.reference, save=True)
             summary_form.save_m2m()
-            messages.success(request, "Summary updated.")
+            refreshed_saved_draft = False
+            if previous_saved_draft and previous_saved_draft == previous_generated_summary:
+                updated_generated_summary = _structured_summary_paragraph(summary).strip()
+                summary.synopsis_draft = updated_generated_summary
+                summary.save(update_fields=["synopsis_draft", "updated_at"])
+                refreshed_saved_draft = True
+            if refreshed_saved_draft:
+                messages.success(
+                    request,
+                    "Summary updated. The saved paragraph draft was refreshed automatically.",
+                )
+            else:
+                messages.success(request, "Summary updated.")
             return redirect(
                 "synopsis:reference_summary_detail",
                 project_id=project.id,

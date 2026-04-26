@@ -6019,6 +6019,124 @@ class ReferenceSummaryFormTests(TestCase):
             "Used fenced plots and added seed.\n\nCompared treated and untreated plots over two years.",
         )
 
+    def test_action_dropdown_uses_project_interventions(self):
+        project = Project.objects.create(title="Action choices")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="a" * 40,
+            title="Action reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            action_description="Install nest boxes",
+        )
+        chapter = SynopsisChapter.objects.create(
+            project=project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Install nest boxes",
+            position=1,
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=project)
+
+        choice_values = [value for value, _label in form.fields["action_choice"].choices]
+        self.assertIn("Install nest boxes", choice_values)
+        self.assertEqual(form["action_choice"].value(), "Install nest boxes")
+        self.assertEqual(form["action_custom"].value(), None)
+
+    def test_action_dropdown_supports_custom_value_when_not_in_structure(self):
+        project = Project.objects.create(title="Custom action choice")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="b" * 40,
+            title="Custom action reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            action_description="Reduce ditch dredging",
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=project)
+
+        self.assertEqual(
+            form["action_choice"].value(),
+            ReferenceSummaryUpdateForm.ACTION_CUSTOM_VALUE,
+        )
+        self.assertEqual(form["action_custom"].value(), "Reduce ditch dredging")
+
+    def test_action_dropdown_save_uses_selected_intervention_title(self):
+        project = Project.objects.create(title="Dropdown save")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="c" * 40,
+            title="Save action reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+        chapter = SynopsisChapter.objects.create(
+            project=project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Install nest boxes",
+            position=1,
+        )
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "action_choice": "Install nest boxes",
+                "action_custom": "",
+            },
+            instance=summary,
+            project=project,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(saved.action_description, "Install nest boxes")
+
     def test_methods_and_design_save_flattens_into_single_summary_field(self):
         project = Project.objects.create(title="Methods Merge")
         batch = ReferenceSourceBatch.objects.create(
@@ -6162,6 +6280,35 @@ class ReferenceSummaryDetailViewTests(TestCase):
             status=ReferenceSummary.STATUS_TODO,
         )
 
+    def test_detail_page_shows_project_action_dropdown_options(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Install nest boxes",
+            position=1,
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "Choose an action already added to the project intervention list.")
+        self.assertContains(response, '<option value="Install nest boxes">Install nest boxes</option>', html=False)
+
     def test_save_summary_persists_changes(self):
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
@@ -6179,6 +6326,40 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.summary.habitat_and_sites, "New habitat info")
         messages = list(get_messages(resp.wsgi_request))
         self.assertTrue(any("Summary updated" in str(m) for m in messages))
+
+    def test_save_summary_can_store_selected_project_action(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Install nest boxes",
+            position=1,
+        )
+
+        self.client.login(username="author", password="pass123")
+        url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "action_choice": "Install nest boxes",
+                "action_custom": "",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.action_description, "Install nest boxes")
 
     def test_save_summary_does_not_clear_saved_paragraph_draft(self):
         self.summary.synopsis_draft = "Edited summary paragraph."
@@ -6198,6 +6379,53 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.synopsis_draft, "Edited summary paragraph.")
+
+    def test_save_summary_refreshes_saved_generated_paragraph_after_field_changes(self):
+        self.summary.study_design = "replicated, controlled study"
+        self.summary.year_range = "2018-2020"
+        self.summary.summary_of_results = "installing nest boxes increased occupancy."
+        self.summary.habitat_and_sites = "woodland sites"
+        self.summary.country = "UK"
+        generated_before = _structured_summary_paragraph(self.summary)
+        self.summary.synopsis_draft = generated_before
+        self.summary.save(
+            update_fields=[
+                "study_design",
+                "year_range",
+                "summary_of_results",
+                "habitat_and_sites",
+                "country",
+                "synopsis_draft",
+                "updated_at",
+            ]
+        )
+
+        self.client.login(username="author", password="pass123")
+        url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        response = self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "study_design": "replicated, controlled study",
+                "year_range": "2018-2020",
+                "summary_of_results": "installing nest boxes increased occupancy.",
+                "habitat_and_sites": "wetland sites",
+                "country": "UK",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        generated_after = _structured_summary_paragraph(self.summary)
+        self.assertEqual(self.summary.synopsis_draft, generated_after)
+        messages = [str(message) for message in get_messages(response.wsgi_request)]
+        self.assertTrue(
+            any(
+                "saved paragraph draft was refreshed automatically" in message.lower()
+                for message in messages
+            )
+        )
 
     def test_save_summary_paragraph_draft_persists_changes(self):
         self.client.login(username="author", password="pass123")

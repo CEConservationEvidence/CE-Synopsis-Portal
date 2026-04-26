@@ -1961,6 +1961,23 @@ class ReferenceSummaryAssignmentForm(forms.Form):
 
 
 class ReferenceSummaryUpdateForm(forms.ModelForm):
+    ACTION_CUSTOM_VALUE = "__custom__"
+
+    action_choice = forms.ChoiceField(
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Action",
+    )
+    action_custom = forms.CharField(
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "Enter an action if it is not in the project action list yet",
+            }
+        ),
+        label="Custom action",
+    )
     action_tags = forms.MultipleChoiceField(
         required=False,
         choices=IUCN_ACTION_CHOICES,
@@ -2059,9 +2076,32 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         "relevance_score": (0.0, 1.0, "0.01"),
     }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
         instance = getattr(self, "instance", None)
+        action_choices = [("", "Select an action")]
+        if project is not None:
+            seen_titles = set()
+            interventions = (
+                SynopsisIntervention.objects.filter(
+                    subheading__chapter__project=project
+                )
+                .order_by(
+                    "subheading__chapter__position",
+                    "subheading__position",
+                    "position",
+                    "id",
+                )
+                .values_list("title", flat=True)
+            )
+            for title in interventions:
+                label = (title or "").strip()
+                if not label or label in seen_titles:
+                    continue
+                action_choices.append((label, label))
+                seen_titles.add(label)
+        action_choices.append((self.ACTION_CUSTOM_VALUE, "Other / enter custom action"))
+        self.fields["action_choice"].choices = action_choices
         self._existing_status = instance.status if instance else None
         if not self.is_bound and instance and instance.research_design:
             self.initial["research_design"] = self._split_research_design_value(
@@ -2088,6 +2128,14 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                     lines.append(" | ".join(parts).strip())
             self.fields["outcomes_raw"].initial = "\n".join([line for line in lines if line.strip()])
         if not self.is_bound and instance:
+            current_action = (instance.action_description or "").strip()
+            available_values = {value for value, _label in action_choices}
+            if current_action:
+                if current_action in available_values:
+                    self.initial["action_choice"] = current_action
+                else:
+                    self.initial["action_choice"] = self.ACTION_CUSTOM_VALUE
+                    self.initial["action_custom"] = current_action
             methods_parts = [
                 (instance.action_methods or "").strip(),
                 (instance.experimental_design or "").strip(),
@@ -2113,7 +2161,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         model = ReferenceSummary
         fields = [
             "status",
-            "action_description",
             "study_design",
             "sites_replications",
             "year_range",
@@ -2144,7 +2191,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         ]
         widgets = {
             "status": forms.Select(attrs={"class": "form-select"}),
-            "action_description": forms.TextInput(attrs={"class": "form-control"}),
             "study_design": forms.TextInput(attrs={"class": "form-control"}),
             "sites_replications": forms.TextInput(
                 attrs={
@@ -2246,6 +2292,9 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             return value
         return self._existing_status
 
+    def clean_action_custom(self):
+        return (self.cleaned_data.get("action_custom") or "").strip()
+
     def clean_outcomes_raw(self):
         raw = self.cleaned_data.get("outcomes_raw", "") or ""
         lines = [line.strip() for line in raw.splitlines() if line.strip()]
@@ -2294,8 +2343,28 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
     def clean_relevance_score(self):
         return self._clean_score_in_range("relevance_score")
 
+    def clean(self):
+        cleaned = super().clean()
+        action_choice = (cleaned.get("action_choice") or "").strip()
+        action_custom = (cleaned.get("action_custom") or "").strip()
+        if action_choice == self.ACTION_CUSTOM_VALUE:
+            if not action_custom:
+                self.add_error(
+                    "action_custom",
+                    "Enter the action name if you choose a custom action.",
+                )
+            cleaned["action_description"] = action_custom
+        elif action_choice:
+            cleaned["action_description"] = action_choice
+        else:
+            cleaned["action_description"] = action_custom
+        return cleaned
+
     def save(self, commit=True):
         instance = super().save(commit=False)
+        instance.action_description = (
+            self.cleaned_data.get("action_description", "").strip()
+        )
         combined_methods = (self.cleaned_data.get("methods_and_design") or "").strip()
         instance.action_methods = combined_methods
         instance.experimental_design = ""
