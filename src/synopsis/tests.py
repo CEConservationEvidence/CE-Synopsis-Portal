@@ -6361,6 +6361,14 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.action_description, "Install nest boxes")
 
+    def test_summary_status_choices_include_excluded_after_full_text(self):
+        labels = dict(ReferenceSummary.STATUS_CHOICES)
+        self.assertIn(ReferenceSummary.STATUS_EXCLUDED, labels)
+        self.assertEqual(
+            labels[ReferenceSummary.STATUS_EXCLUDED],
+            "Excluded after full text",
+        )
+
     def test_save_summary_does_not_clear_saved_paragraph_draft(self):
         self.summary.synopsis_draft = "Edited summary paragraph."
         self.summary.save(update_fields=["synopsis_draft", "updated_at"])
@@ -6445,8 +6453,97 @@ class ReferenceSummaryDetailViewTests(TestCase):
             self.summary.synopsis_draft,
             "A revised summary paragraph written by the author.",
         )
+
+    def test_detail_status_update_requires_reason_for_summary_phase_exclusion(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-status",
+                "status": ReferenceSummary.STATUS_EXCLUDED,
+                "needs_help": "",
+                "exclusion_reason": "",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.status, ReferenceSummary.STATUS_TODO)
+        self.assertContains(
+            response,
+            "Provide a reason before excluding this summary after full-text review.",
+        )
+
+    def test_detail_status_exclusion_removes_only_that_summary_from_synopsis(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Intervention",
+            position=1,
+        )
+        assignment = SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        key_message = SynopsisInterventionKeyMessage.objects.create(
+            intervention=intervention,
+            response_group=SynopsisInterventionKeyMessage.GROUP_POPULATION,
+            statement="Supported by this study.",
+            position=1,
+        )
+        key_message.supporting_summaries.set([self.summary])
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-status",
+                "status": ReferenceSummary.STATUS_EXCLUDED,
+                "needs_help": "",
+                "exclusion_reason": "Full text shows this is not an intervention study.",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        key_message.refresh_from_db()
+        self.assertEqual(self.summary.status, ReferenceSummary.STATUS_EXCLUDED)
+        self.assertEqual(
+            self.summary.exclusion_reason,
+            "Full text shows this is not an intervention study.",
+        )
+        self.assertFalse(SynopsisAssignment.objects.filter(pk=assignment.id).exists())
+        self.assertEqual(key_message.supporting_summaries.count(), 0)
+        self.assertContains(
+            response,
+            "Summary excluded after full-text review.",
+        )
         messages = list(get_messages(response.wsgi_request))
-        self.assertTrue(any("paragraph draft saved" in str(m).lower() for m in messages))
+        self.assertTrue(
+            any("excluded after full-text review" in str(m).lower() for m in messages)
+        )
 
     def test_saved_summary_paragraph_draft_is_used_for_compilation(self):
         self.summary.reference_identifier = "CR1000"
@@ -6882,6 +6979,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ),
             {
                 "action": "update-classification",
+                "classification_command": "save",
                 "screening_status": "included",
                 "reference_folder": ["3a"],
                 "screening_notes": "Freshwater fish evidence.",
@@ -6907,6 +7005,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ),
             {
                 "action": "update-classification",
+                "classification_command": "save",
                 "screening_status": "included",
                 "reference_folder": ["", "3a"],
                 "screening_notes": "Freshwater fish evidence.",
@@ -6930,6 +7029,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ),
             {
                 "action": "update-classification",
+                "classification_command": "exclude",
                 "screening_status": "excluded",
                 "reference_folder": [],
                 "screening_notes": "",
@@ -6983,6 +7083,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ),
             {
                 "action": "update-classification",
+                "classification_command": "exclude",
                 "screening_status": "excluded",
                 "reference_folder": ["3a"],
                 "screening_notes": "Not relevant to this synopsis.",
@@ -6998,9 +7099,54 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(key_message.supporting_summaries.count(), 0)
         self.assertRedirects(
             response,
-            f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, self.batch.id])}?focus=1&ref={self.reference.id}",
+            f"{reverse('synopsis:reference_summary_detail', args=[self.project.id, self.summary.id])}?panel=management",
             fetch_redirect_response=False,
         )
+
+    def test_summary_detail_reference_management_panel_reopens_after_classification_update(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "classification_command": "exclude",
+                "screening_status": "excluded",
+                "reference_folder": ["3a"],
+                "screening_notes": "Not relevant to this synopsis.",
+            },
+            follow=True,
+        )
+
+        self.assertContains(response, "Re-include this reference")
+        self.assertTrue(response.context["open_management_panel"])
+        self.assertContains(response, "Reference excluded from this synopsis.")
+
+    def test_reference_management_explains_difference_between_summary_and_reference_exclusion(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.summary.status = ReferenceSummary.STATUS_EXCLUDED
+        self.summary.exclusion_reason = "Full text exclusion reason."
+        self.summary.save(update_fields=["status", "exclusion_reason", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(
+            response,
+            "All summary tabs for this reference are excluded after full-text review, but the whole reference is still marked as included for this synopsis.",
+        )
+        self.assertContains(response, "Exclude whole reference from synopsis too")
 
     def test_board_context_workload_counts_are_aggregated_correctly(self):
         other_author = User.objects.create_user(
@@ -7060,6 +7206,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
                 "summarised": row["summarised"],
                 "summarised_percent": row["summarised_percent"],
                 "needs_help": row["needs_help"],
+                "excluded_after_full_text": row["excluded_after_full_text"],
             }
             for row in response.context["workload"]
         }
@@ -7070,6 +7217,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
                 "summarised": 2,
                 "summarised_percent": 100,
                 "needs_help": 1,
+                "excluded_after_full_text": 0,
             },
         )
         self.assertEqual(
@@ -7079,10 +7227,51 @@ class ReferenceSummaryDetailViewTests(TestCase):
                 "summarised": 0,
                 "summarised_percent": 0,
                 "needs_help": 0,
+                "excluded_after_full_text": 0,
             },
         )
         self.assertEqual(response.context["unassigned_count"], 0)
         self.assertEqual(response.context["needs_help_count"], 1)
+
+    def test_summary_board_shows_excluded_column_reason_and_progress_ignores_excluded(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status"])
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="d" * 40,
+            title="Excluded summary reference",
+            screening_status="included",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            assigned_to=self.user,
+            status=ReferenceSummary.STATUS_EXCLUDED,
+            exclusion_reason="Full text did not test a conservation intervention.",
+        )
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.save(update_fields=["status", "updated_at"])
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse("synopsis:reference_summary_board", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Excluded after full text")
+        self.assertContains(response, "Jump to excluded after full text")
+        self.assertContains(response, 'id="summary-column-excluded"', html=False)
+        self.assertContains(
+            response,
+            "Full text did not test a conservation intervention.",
+        )
+        self.assertContains(response, "1 excluded after full text")
+        self.assertEqual(response.context["excluded_after_full_text_count"], 1)
+        self.assertEqual(response.context["summary_count"], 1)
+        self.assertEqual(response.context["completed"], 1)
+        workload = {row["author"].id: row for row in response.context["workload"]}
+        self.assertEqual(workload[self.user.id]["excluded_after_full_text"], 1)
 
 
 class GlobalReferenceLibraryAccessTests(TestCase):

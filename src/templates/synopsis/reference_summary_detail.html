@@ -147,7 +147,7 @@
                     class="btn btn-sm {% if tab.is_active %}btn-primary{% else %}btn-outline-secondary{% endif %}"
                 >
                     {{ tab.label|truncatechars:45 }}
-                    <span class="ms-1 badge {% if tab.summary.status == 'done' %}text-bg-success{% elif tab.summary.status == 'review' %}text-bg-warning text-dark{% elif tab.summary.status == 'draft' %}text-bg-light{% else %}text-bg-secondary{% endif %}">
+                    <span class="ms-1 badge {% if tab.summary.status == 'done' %}text-bg-success{% elif tab.summary.status == 'review' %}text-bg-warning text-dark{% elif tab.summary.status == 'draft' %}text-bg-light{% elif tab.summary.status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
                         {{ tab.index }}
                     </span>
                 </a>
@@ -169,7 +169,7 @@
                 <span class="badge {% if reference.screening_status == 'included' %}text-bg-success{% elif reference.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
                     {{ reference.get_screening_status_display }}
                 </span>
-                <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'review' %}text-bg-warning{% elif summary.status == 'draft' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">
+                <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'review' %}text-bg-warning{% elif summary.status == 'draft' %}text-bg-primary{% elif summary.status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">
                     {{ summary.get_status_display }}
                 </span>
             </div>
@@ -180,6 +180,14 @@
         {% if reference.screening_status == 'excluded' %}
         <div class="alert alert-warning small mb-0">
             This reference is currently excluded from this synopsis. It will not appear in the summary board or synopsis compilation until it is re-included.
+        </div>
+        {% endif %}
+        {% if summary.status == 'excluded' %}
+        <div class="alert alert-danger small mb-0">
+            This summary tab has been excluded after full-text review. It will not be included in the evidence workspace or exported synopsis while it remains excluded.
+            {% if summary.exclusion_reason %}
+            <div class="mt-2"><strong>Reason:</strong> {{ summary.exclusion_reason|linebreaksbr }}</div>
+            {% endif %}
         </div>
         {% endif %}
         <form method="post" class="d-flex flex-column gap-3">
@@ -209,6 +217,10 @@
                 {% endif %}
                 <label class="form-check-label small" for="needs-help">Needs help</label>
             </div>
+            <div>
+                <label class="form-label small">Reason for excluding after full-text review</label>
+                <textarea name="exclusion_reason" class="form-control form-control-sm" rows="3" placeholder="Required only if this summary tab is marked as excluded.">{{ summary.exclusion_reason }}</textarea>
+            </div>
             <div class="d-flex flex-wrap gap-2">
                 <button class="btn btn-primary btn-sm" type="submit">Save status</button>
                 <button class="btn btn-outline-success btn-sm" type="submit" name="quick_done" value="1">Mark as summarised</button>
@@ -222,7 +234,20 @@
                 <div class="small text-muted">
                     These changes apply only to this synopsis copy of the reference. They do not change the global Reference Database record.
                 </div>
+                <div class="small text-muted mt-1">
+                    Use this section to exclude or re-include the whole reference for this synopsis. This is separate from excluding a single summary tab after full-text review.
+                </div>
             </div>
+            {% if summary.status == 'excluded' and reference.screening_status == 'included' %}
+            <div class="alert alert-warning small mb-0">
+                {% if all_summary_tabs_excluded %}
+                All summary tabs for this reference are excluded after full-text review, but the whole reference is still marked as included for this synopsis.
+                {% else %}
+                This summary tab is excluded after full-text review, but the whole reference is still marked as included for this synopsis because other summary tabs may still be active.
+                {% endif %}
+                Use the reference-level exclude button below if you want to exclude the whole reference as well.
+            </div>
+            {% endif %}
             <div>
                 <label class="form-label small" for="{{ classification_form.screening_status.id_for_label }}">Synopsis status</label>
                 {{ classification_form.screening_status }}
@@ -246,7 +271,18 @@
                 {% endif %}
             </div>
             <div class="d-flex flex-wrap gap-2">
-                <button class="btn btn-outline-primary btn-sm" type="submit">Save classification</button>
+                <button class="btn btn-outline-primary btn-sm" type="submit" name="classification_command" value="save">Save classification details</button>
+                {% if reference.screening_status == 'excluded' %}
+                <button class="btn btn-outline-success btn-sm" type="submit" name="classification_command" value="include">Re-include this reference</button>
+                {% else %}
+                <button class="btn btn-outline-danger btn-sm" type="submit" name="classification_command" value="exclude">
+                    {% if summary.status == 'excluded' %}
+                    Exclude whole reference from synopsis too
+                    {% else %}
+                    Exclude this reference from synopsis
+                    {% endif %}
+                </button>
+                {% endif %}
                 {% if reference.batch_id %}
                 <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:reference_batch_detail' project.id reference.batch_id %}?focus=1&ref={{ reference.id }}">Open in screening view</a>
                 {% endif %}
@@ -652,7 +688,7 @@
       </div>
       <div class="modal-body">
         <div class="mb-3 d-flex flex-wrap align-items-center gap-2">
-            <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'in_progress' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">{{ summary.get_status_display }}</span>
+            <span class="badge {% if summary.status == 'done' %}text-bg-success{% elif summary.status == 'draft' %}text-bg-primary{% elif summary.status == 'review' %}text-bg-warning text-dark{% elif summary.status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ summary.get_status_display }}</span>
             {% if summary.needs_help %}<span class="badge text-bg-warning text-dark">Needs help</span>{% endif %}
             <span class="badge text-bg-light">Ref ID: {{ generated_reference_id }}</span>
             <span class="badge text-bg-light">Summary ID: {{ generated_summary_id }}</span>
@@ -924,7 +960,7 @@
     (() => {
         const managementPanel = document.getElementById("referenceManagementPanel");
         if (managementPanel && window.bootstrap && bootstrap.Offcanvas) {
-            {% if classification_form.errors %}
+            {% if open_management_panel %}
             bootstrap.Offcanvas.getOrCreateInstance(managementPanel).show();
             {% endif %}
         }

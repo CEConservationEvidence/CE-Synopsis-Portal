@@ -8261,6 +8261,37 @@ def _remove_reference_from_synopsis(reference):
     return len(assignments)
 
 
+def _remove_summary_from_synopsis(summary):
+    assignments = list(
+        SynopsisAssignment.objects.filter(reference_summary=summary).select_related(
+            "intervention"
+        )
+    )
+    if not assignments:
+        return 0
+
+    touched_interventions = {}
+    assignment_ids = []
+    for assignment in assignments:
+        touched_interventions[assignment.intervention_id] = assignment.intervention
+        assignment_ids.append(assignment.id)
+
+    supporting_summary_through = (
+        SynopsisInterventionKeyMessage.supporting_summaries.through
+    )
+    with transaction.atomic():
+        supporting_summary_through.objects.filter(
+            synopsisinterventionkeymessage__intervention_id__in=touched_interventions.keys(),
+            referencesummary_id=summary.id,
+        ).delete()
+        SynopsisAssignment.objects.filter(pk__in=assignment_ids).delete()
+
+    for intervention in touched_interventions.values():
+        _resequence_assignment_positions(intervention)
+
+    return len(assignments)
+
+
 def _structured_summary_paragraph(
     summary: ReferenceSummary, reference_identifier_override: str | None = None
 ) -> str:
@@ -8430,6 +8461,8 @@ def reference_summary_board(request, project_id):
                 project=project,
                 reference__screening_status="included",
                 assigned_to__isnull=True,
+            ).exclude(
+                status=ReferenceSummary.STATUS_EXCLUDED,
             )
             if selected_ids:
                 base_qs = base_qs.filter(id__in=selected_ids)
@@ -8459,7 +8492,7 @@ def reference_summary_board(request, project_id):
             qs = ReferenceSummary.objects.filter(
                 project=project,
                 reference__screening_status="included",
-            )
+            ).exclude(status=ReferenceSummary.STATUS_EXCLUDED)
             if selected_ids:
                 qs = qs.filter(id__in=selected_ids)
             else:
@@ -8478,7 +8511,7 @@ def reference_summary_board(request, project_id):
                 project=project,
                 reference__screening_status="included",
                 assigned_to__isnull=False,
-            )
+            ).exclude(status=ReferenceSummary.STATUS_EXCLUDED)
             if selected_ids:
                 qs = qs.filter(id__in=selected_ids)
             updated = qs.update(assigned_to=None, updated_at=timezone.now())
@@ -8504,9 +8537,37 @@ def reference_summary_board(request, project_id):
             status = request.POST.get("status")
             valid_statuses = {choice[0] for choice in ReferenceSummary.STATUS_CHOICES}
             if status in valid_statuses:
+                exclusion_reason = (request.POST.get("exclusion_reason") or "").strip()
+                if status == ReferenceSummary.STATUS_EXCLUDED and not exclusion_reason:
+                    messages.error(
+                        request,
+                        "Provide a reason before excluding this summary after full-text review.",
+                    )
+                    return redirect(
+                        "synopsis:reference_summary_board", project_id=project.id
+                    )
                 summary.status = status
-                summary.save(update_fields=["status", "updated_at"])
-                messages.success(request, "Summary status updated.")
+                if status == ReferenceSummary.STATUS_EXCLUDED:
+                    summary.exclusion_reason = exclusion_reason
+                    removed_assignments = _remove_summary_from_synopsis(summary)
+                    summary.save(
+                        update_fields=["status", "exclusion_reason", "updated_at"]
+                    )
+                    messages.success(
+                        request,
+                        "Summary excluded after full-text review."
+                        + (
+                            f" Removed it from {removed_assignments} intervention assignment(s)."
+                            if removed_assignments
+                            else ""
+                        ),
+                    )
+                else:
+                    summary.exclusion_reason = exclusion_reason if summary.status == ReferenceSummary.STATUS_EXCLUDED else summary.exclusion_reason
+                    summary.save(
+                        update_fields=["status", "exclusion_reason", "updated_at"]
+                    )
+                    messages.success(request, "Summary status updated.")
             else:
                 messages.error(request, "Invalid summary status selected.")
         return redirect("synopsis:reference_summary_board", project_id=project.id)
@@ -8528,12 +8589,20 @@ def reference_summary_board(request, project_id):
             item.variant_label = _reference_summary_display_label(item, index)
             item.variant_count = group_size
 
+    active_summaries = [
+        item for item in summaries if item.status != ReferenceSummary.STATUS_EXCLUDED
+    ]
+    excluded_after_full_text = [
+        item for item in summaries if item.status == ReferenceSummary.STATUS_EXCLUDED
+    ]
+
     assigned_counts = Counter()
     needs_help_by_author = Counter()
     summarised_by_author = Counter()
+    excluded_by_author = Counter()
     unassigned_count = 0
     needs_help_count = 0
-    for item in summaries:
+    for item in active_summaries:
         if item.assigned_to_id is None:
             unassigned_count += 1
         else:
@@ -8544,6 +8613,9 @@ def reference_summary_board(request, project_id):
                 summarised_by_author[item.assigned_to_id] += 1
         if item.needs_help:
             needs_help_count += 1
+    for item in excluded_after_full_text:
+        if item.assigned_to_id is not None:
+            excluded_by_author[item.assigned_to_id] += 1
 
     author_options = list(project.author_users.order_by("first_name", "last_name"))
     workload = []
@@ -8559,6 +8631,7 @@ def reference_summary_board(request, project_id):
                 if assigned
                 else 0,
                 "needs_help": needs_help_by_author.get(author.id, 0),
+                "excluded_after_full_text": excluded_by_author.get(author.id, 0),
             }
         )
 
@@ -8579,7 +8652,7 @@ def reference_summary_board(request, project_id):
         for code, label in ReferenceSummary.STATUS_CHOICES
     ]
 
-    total_summaries = len(summaries)
+    total_summaries = len(active_summaries)
     total_included = len(included_references)
     completed = len(status_map.get(ReferenceSummary.STATUS_DONE, {}).get("items", []))
     progress = int((completed / total_summaries) * 100) if total_summaries else 0
@@ -8593,6 +8666,7 @@ def reference_summary_board(request, project_id):
             "total_included": total_summaries,
             "completed": completed,
             "progress": progress,
+            "excluded_after_full_text_count": len(excluded_after_full_text),
             "author_options": author_options,
             "status_choices": ReferenceSummary.STATUS_CHOICES,
             "reference_count": total_included,
@@ -8656,8 +8730,16 @@ def reference_summary_detail(request, project_id, summary_id):
         "reference_folder": summary.reference.reference_folder,
         "screening_notes": summary.reference.screening_notes,
     }
+    classification_data = None
+    if active_action == "update-classification":
+        classification_data = request.POST.copy()
+        classification_command = (classification_data.get("classification_command") or "").strip()
+        if classification_command == "exclude":
+            classification_data["screening_status"] = "excluded"
+        elif classification_command == "include":
+            classification_data["screening_status"] = "included"
     classification_form = ReferenceClassificationForm(
-        request.POST if active_action == "update-classification" else None,
+        classification_data,
         initial=classification_initial,
     )
     draft_form = ReferenceSummaryDraftForm(
@@ -8829,7 +8911,7 @@ def reference_summary_detail(request, project_id, summary_id):
                     ),
                 )
                 return redirect(
-                    f"{reverse('synopsis:reference_batch_detail', args=[project.id, reference.batch_id])}?focus=1&ref={reference.id}"
+                    f"{reverse('synopsis:reference_summary_detail', args=[project.id, summary.id])}?panel=management"
                 )
 
             if previous_status == "excluded":
@@ -8840,9 +8922,7 @@ def reference_summary_detail(request, project_id, summary_id):
             else:
                 messages.success(request, "Reference classification updated.")
             return redirect(
-                "synopsis:reference_summary_detail",
-                project_id=project.id,
-                summary_id=summary.id,
+                f"{reverse('synopsis:reference_summary_detail', args=[project.id, summary.id])}?panel=management"
             )
         if action == "assign" and assignment_form.is_valid():
             summary.assigned_to = assignment_form.cleaned_data["assigned_to"]
@@ -8880,13 +8960,55 @@ def reference_summary_detail(request, project_id, summary_id):
             else:
                 messages.error(request, "Could not add comment.")
         if action == "update-status":
+            previous_status = summary.status
             if request.POST.get("quick_done") == "1":
                 summary.status = ReferenceSummary.STATUS_DONE
             elif request.POST.get("status") in dict(ReferenceSummary.STATUS_CHOICES):
                 summary.status = request.POST.get("status")
+            exclusion_reason = (request.POST.get("exclusion_reason") or "").strip()
+            if summary.status == ReferenceSummary.STATUS_EXCLUDED and not exclusion_reason:
+                messages.error(
+                    request,
+                    "Provide a reason before excluding this summary after full-text review.",
+                )
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
             summary.needs_help = bool(request.POST.get("needs_help"))
-            summary.save(update_fields=["status", "needs_help", "updated_at"])
-            messages.success(request, "Status updated.")
+            summary.exclusion_reason = (
+                exclusion_reason
+                if summary.status == ReferenceSummary.STATUS_EXCLUDED
+                else summary.exclusion_reason
+            )
+            if (
+                summary.status == ReferenceSummary.STATUS_EXCLUDED
+                and previous_status != ReferenceSummary.STATUS_EXCLUDED
+            ):
+                removed_assignments = _remove_summary_from_synopsis(summary)
+            else:
+                removed_assignments = 0
+            summary.save(
+                update_fields=[
+                    "status",
+                    "needs_help",
+                    "exclusion_reason",
+                    "updated_at",
+                ]
+            )
+            if summary.status == ReferenceSummary.STATUS_EXCLUDED:
+                messages.success(
+                    request,
+                    "Summary excluded after full-text review."
+                    + (
+                        f" Removed it from {removed_assignments} intervention assignment(s)."
+                        if removed_assignments
+                        else ""
+                    ),
+                )
+            else:
+                messages.success(request, "Status updated.")
             return redirect(
                 "synopsis:reference_summary_detail",
                 project_id=project.id,
@@ -9002,6 +9124,13 @@ def reference_summary_detail(request, project_id, summary_id):
             "generated_summary": generated_summary,
             "current_summary_paragraph": current_summary_paragraph,
             "status_choices": ReferenceSummary.STATUS_CHOICES,
+            "all_summary_tabs_excluded": not summary.reference.summaries.exclude(
+                status=ReferenceSummary.STATUS_EXCLUDED
+            ).exists(),
+            "open_management_panel": (
+                request.GET.get("panel") == "management"
+                or bool(classification_form.errors)
+            ),
         },
     )
 

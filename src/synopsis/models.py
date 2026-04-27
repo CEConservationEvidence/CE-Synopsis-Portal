@@ -1499,11 +1499,13 @@ class ReferenceSummary(models.Model):
     STATUS_DRAFT = "draft"
     STATUS_REVIEW = "review"
     STATUS_DONE = "done"
+    STATUS_EXCLUDED = "excluded"
     STATUS_CHOICES = [
         (STATUS_TODO, "To summarise"),
         (STATUS_DRAFT, "In progress"),
         (STATUS_REVIEW, "Needs review/help"),
         (STATUS_DONE, "Summarised"),
+        (STATUS_EXCLUDED, "Excluded after full text"),
     ]
 
     project = models.ForeignKey(
@@ -1542,6 +1544,7 @@ class ReferenceSummary(models.Model):
     summary_text = models.TextField(blank=True)
     key_findings = models.TextField(blank=True)
     synopsis_draft = models.TextField(blank=True)
+    exclusion_reason = models.TextField(blank=True)
     summary_author = models.CharField(max_length=255, blank=True)
     broad_category = models.CharField(max_length=255, blank=True)
     keywords = models.JSONField(default=list, blank=True)
