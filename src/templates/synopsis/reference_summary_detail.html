@@ -237,6 +237,9 @@
                 <div class="small text-muted mt-1">
                     Use this section to exclude or re-include the whole reference for this synopsis. This is separate from excluding a single summary tab after full-text review.
                 </div>
+                <div class="small text-muted mt-1">
+                    CE subject folders are stored on the reference, not on this individual summary tab. Changing them here updates the whole reference for this synopsis, including any other summary tabs for the same paper.
+                </div>
             </div>
             {% if summary.status == 'excluded' and reference.screening_status == 'included' %}
             <div class="alert alert-warning small mb-0">
@@ -256,8 +259,9 @@
                 {% endif %}
             </div>
             <div>
-                <label class="form-label small" for="{{ classification_form.reference_folder.id_for_label }}">Reference folders</label>
+                <label class="form-label small" for="{{ classification_form.reference_folder.id_for_label }}">CE subject folders for this synopsis copy</label>
                 {{ classification_form.reference_folder }}
+                <div class="form-text">{{ classification_form.reference_folder.help_text }}</div>
                 {% if classification_form.reference_folder.errors %}
                 <div class="text-danger small">{{ classification_form.reference_folder.errors|join:", " }}</div>
                 {% endif %}

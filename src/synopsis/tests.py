@@ -5466,7 +5466,11 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertContains(response, "Multiple folders are allowed.")
         self.assertContains(
             response,
-            "you can still use them on excluded references to flag papers relevant to other taxa or habitats",
+            "This is the main folder-classification step for this synopsis.",
+        )
+        self.assertContains(
+            response,
+            "These folders belong to the synopsis copy of each reference, not the shared library record.",
         )
 
     def test_bulk_apply_folders_to_selected_references(self):
@@ -7147,6 +7151,14 @@ class ReferenceSummaryDetailViewTests(TestCase):
             "All summary tabs for this reference are excluded after full-text review, but the whole reference is still marked as included for this synopsis.",
         )
         self.assertContains(response, "Exclude whole reference from synopsis too")
+        self.assertContains(
+            response,
+            "CE subject folders are stored on the reference, not on this individual summary tab.",
+        )
+        self.assertContains(
+            response,
+            "Changing it here updates the whole reference, including any other summary tabs for this paper.",
+        )
 
     def test_board_context_workload_counts_are_aggregated_correctly(self):
         other_author = User.objects.create_user(

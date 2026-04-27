@@ -86,12 +86,13 @@
                     </select>
                 </div>
                 <div class="d-flex flex-column gap-1">
-                    <label class="fw-semibold mb-0" for="library-folders">Folders (optional)</label>
+                    <label class="fw-semibold mb-0" for="library-folders">Initial CE subject folders for the project copy (optional)</label>
                     <select id="library-folders" name="reference_folder" class="form-select form-select-sm" multiple style="max-width: 260px; height: 120px;">
                         {% for val,label in folder_choices %}
                         <option value="{{ val }}">{{ label }}</option>
                         {% endfor %}
                     </select>
+                    <span class="small text-muted">These folders are applied to the synopsis copy created when you link the reference.</span>
                 </div>
                 <div class="d-flex flex-column gap-1">
                     <span class="small text-muted">Selected: <span id="selected-count">0</span></span>

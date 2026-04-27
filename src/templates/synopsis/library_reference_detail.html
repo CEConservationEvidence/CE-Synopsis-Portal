@@ -94,12 +94,13 @@
                         <option value="{{ proj.id }}">{{ proj.title }}</option>
                         {% endfor %}
                     </select>
-                    <label class="form-label">Initial folders</label>
+                    <label class="form-label">Initial CE subject folders for the project copy</label>
                     <select name="reference_folder" class="form-select" multiple style="height: 160px;">
                         {% for val,label in folder_choices %}
                         <option value="{{ val }}">{{ label }}</option>
                         {% endfor %}
                     </select>
+                    <div class="form-text">These folders are applied only to the synopsis copy created when this reference is linked.</div>
                     <button class="btn btn-outline-secondary" type="submit">Link reference</button>
                 </form>
                 {% else %}

@@ -1797,7 +1797,11 @@ class ReferenceScreeningForm(forms.Form):
         choices=Reference.FOLDER_CHOICES,
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "form-select form-select-sm", "size": "6"}),
-        label="Reference folders",
+        label="CE subject folders for this synopsis copy",
+        help_text=(
+            "These folders belong to this reference in this synopsis. "
+            "They do not change the shared library record."
+        ),
     )
     screening_notes = forms.CharField(
         required=False,
@@ -1824,7 +1828,11 @@ class ReferenceClassificationForm(forms.Form):
         choices=Reference.FOLDER_CHOICES,
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "6"}),
-        label="Reference folders",
+        label="CE subject folders for this synopsis copy",
+        help_text=(
+            "This is a reference-level setting for this synopsis copy. "
+            "Changing it here updates the whole reference, including any other summary tabs for this paper."
+        ),
     )
     screening_notes = forms.CharField(
         required=False,
