@@ -1633,6 +1633,8 @@ class MemberReminderUpdateTests(TestCase):
         self.assertContains(response, "GUIDANCE FEEDBACK", count=2)
         self.assertContains(response, "FEEDBACK DOCUMENT", count=3)
         self.assertContains(response, "GUIDANCE SENT")
+        self.assertContains(response, "AUTHOR REPLIED", count=4)
+        self.assertContains(response, "REMINDER SENT", count=5)
 
     def test_can_toggle_action_list_author_replied_from_board(self):
         member = AdvisoryBoardMember.objects.create(
@@ -1776,6 +1778,168 @@ class MemberReminderUpdateTests(TestCase):
                 details__contains="Marked feedback added to the guidance document",
             ).exists()
         )
+
+    def test_can_toggle_protocol_tracking_flags_from_board(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Pia",
+            last_name="Protocol",
+            email="pia@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_protocol_at=timezone.now(),
+            feedback_on_protocol_received=timezone.localdate(),
+        )
+
+        author_response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_protocol_flag",
+                args=[self.project.id, member.id, "author-replied"],
+            ),
+            {"value": "1"},
+        )
+        added_response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_protocol_flag",
+                args=[self.project.id, member.id, "added-to-doc"],
+            ),
+            {"value": "1"},
+        )
+        guidance_response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_protocol_flag",
+                args=[self.project.id, member.id, "guidance-feedback"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertRedirects(author_response, self.board_url)
+        self.assertRedirects(added_response, self.board_url)
+        self.assertRedirects(guidance_response, self.board_url)
+        member.refresh_from_db()
+        self.assertTrue(member.protocol_author_replied)
+        self.assertTrue(member.added_to_protocol_doc)
+        self.assertTrue(member.feedback_on_guidance)
+
+    def test_can_toggle_guidance_author_replied_from_board(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Gia",
+            last_name="Guidance",
+            email="gia@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_guidance_at=timezone.now(),
+            feedback_on_guidance_received=timezone.localdate(),
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_guidance_flag",
+                args=[self.project.id, member.id, "author-replied"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertTrue(member.guidance_author_replied)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Updated guidance tracking",
+                details__contains="Marked author replied to guidance feedback",
+            ).exists()
+        )
+
+    def test_can_toggle_synopsis_tracking_flags_from_board(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sia",
+            last_name="Synopsis",
+            email="sia@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+            feedback_on_synopsis_received=timezone.localdate(),
+        )
+
+        author_response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_synopsis_flag",
+                args=[self.project.id, member.id, "author-replied"],
+            ),
+            {"value": "1"},
+        )
+        added_response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_synopsis_flag",
+                args=[self.project.id, member.id, "added-to-doc"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertRedirects(author_response, self.board_url)
+        self.assertRedirects(added_response, self.board_url)
+        member.refresh_from_db()
+        self.assertTrue(member.synopsis_author_replied)
+        self.assertTrue(member.added_to_synopsis_doc)
+
+    def test_board_page_shows_readable_protocol_guidance_and_synopsis_tracking_controls(self):
+        protocol_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Paul",
+            email="paul@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_protocol_at=timezone.now(),
+            feedback_on_protocol_received=timezone.localdate(),
+        )
+        guidance_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Gail",
+            email="gail@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_guidance_at=timezone.now(),
+            feedback_on_guidance_received=timezone.localdate(),
+        )
+        synopsis_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sara",
+            email="sara@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+            feedback_on_synopsis_received=timezone.localdate(),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            reverse(
+                "synopsis:advisory_member_set_protocol_flag",
+                args=[self.project.id, protocol_member.id, "author-replied"],
+            ),
+        )
+        self.assertContains(
+            response,
+            reverse(
+                "synopsis:advisory_member_set_guidance_flag",
+                args=[self.project.id, guidance_member.id, "author-replied"],
+            ),
+        )
+        self.assertContains(
+            response,
+            reverse(
+                "synopsis:advisory_member_set_synopsis_flag",
+                args=[self.project.id, synopsis_member.id, "author-replied"],
+            ),
+        )
+        self.assertContains(response, "Mark replied", count=3)
+        self.assertContains(response, "Not added", count=3)
 
     def test_board_page_shows_action_list_author_replied_as_awaiting_before_feedback(self):
         AdvisoryBoardMember.objects.create(

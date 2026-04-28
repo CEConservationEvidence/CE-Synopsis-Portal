@@ -216,9 +216,19 @@ urlpatterns = [
         name="advisory_member_set_action_list_flag",
     ),
     path(
+        "project/<int:project_id>/advisory-board/member/<int:member_id>/protocol/<str:flag>/",
+        views.advisory_member_set_protocol_flag,
+        name="advisory_member_set_protocol_flag",
+    ),
+    path(
         "project/<int:project_id>/advisory-board/member/<int:member_id>/guidance/<str:flag>/",
         views.advisory_member_set_guidance_flag,
         name="advisory_member_set_guidance_flag",
+    ),
+    path(
+        "project/<int:project_id>/advisory-board/member/<int:member_id>/synopsis/<str:flag>/",
+        views.advisory_member_set_synopsis_flag,
+        name="advisory_member_set_synopsis_flag",
     ),
     path(
         "project/<int:project_id>/advisory-board/member/<int:member_id>/edit/",

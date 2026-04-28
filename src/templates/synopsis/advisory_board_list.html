@@ -359,13 +359,13 @@
                         <th class="ab-group-header text-start ab-status-action" scope="colgroup" colspan="{{ action_extra|add:7 }}">ACTION LIST</th>
                         {% endwith %}
                         {% with protocol_extra=combined_fields_by_group.protocol|length %}
-                        <th class="ab-group-header text-start ab-status-protocol" scope="colgroup" colspan="{{ protocol_extra|add:7 }}">PROTOCOL</th>
+                        <th class="ab-group-header text-start ab-status-protocol" scope="colgroup" colspan="{{ protocol_extra|add:8 }}">PROTOCOL</th>
                         {% endwith %}
                         {% with synopsis_extra=combined_fields_by_group.synopsis|length %}
-                        <th class="ab-group-header text-start ab-status-synopsis" scope="colgroup" colspan="{{ synopsis_extra|add:5 }}">SYNOPSIS</th>
+                        <th class="ab-group-header text-start ab-status-synopsis" scope="colgroup" colspan="{{ synopsis_extra|add:6 }}">SYNOPSIS</th>
                         {% endwith %}
                         {% with guidance_extra=combined_fields_by_group.guidance|length %}
-                        <th class="ab-group-header text-start ab-status-guidance" scope="colgroup" colspan="{{ guidance_extra|add:6 }}">GUIDANCE</th>
+                        <th class="ab-group-header text-start ab-status-guidance" scope="colgroup" colspan="{{ guidance_extra|add:7 }}">GUIDANCE</th>
                         {% endwith %}
                         {% with custom_extra=combined_fields_by_group.custom|length %}
                         {% if custom_extra %}
@@ -407,6 +407,7 @@
                         {% endfor %}
                         <th class="ab-status-action text-start" scope="col">ACTION LIST SENT</th>
                         <th class="ab-status-action text-start" scope="col">FEEDBACK DEADLINE</th>
+                        <th class="ab-status-action text-start" scope="col">REMINDER SENT</th>
                         <th class="ab-status-action text-start" scope="col">FEEDBACK RECEIVED</th>
                         <th class="ab-status-action text-start" scope="col">AUTHOR REPLIED</th>
                         <th class="ab-status-action text-start" scope="col">FEEDBACK ADDED TO DOC</th>
@@ -425,6 +426,7 @@
                         <th class="ab-status-protocol text-start" scope="col">FEEDBACK DEADLINE</th>
                         <th class="ab-status-protocol text-start" scope="col">REMINDER SENT</th>
                         <th class="ab-status-protocol text-start" scope="col">FEEDBACK RECEIVED</th>
+                        <th class="ab-status-protocol text-start" scope="col">AUTHOR REPLIED</th>
                         <th class="ab-status-protocol text-start" scope="col">ADDED TO DOC</th>
                         <th class="ab-status-protocol text-start" scope="col">GUIDANCE FEEDBACK</th>
                         <th class="ab-status-protocol text-start" scope="col">FEEDBACK DOCUMENT</th>
@@ -441,6 +443,7 @@
                         <th class="ab-status-synopsis text-start" scope="col">FEEDBACK DEADLINE</th>
                         <th class="ab-status-synopsis text-start" scope="col">REMINDER SENT</th>
                         <th class="ab-status-synopsis text-start" scope="col">FEEDBACK RECEIVED</th>
+                        <th class="ab-status-synopsis text-start" scope="col">AUTHOR REPLIED</th>
                         <th class="ab-status-synopsis text-start" scope="col">ADDED TO DOC</th>
                         {% for field in combined_fields_by_group.synopsis %}
                         <th class="ab-status-synopsis text-start" scope="col">
@@ -455,6 +458,7 @@
                         <th class="ab-status-guidance text-start" scope="col">FEEDBACK DEADLINE</th>
                         <th class="ab-status-guidance text-start" scope="col">REMINDER SENT</th>
                         <th class="ab-status-guidance text-start" scope="col">FEEDBACK RECEIVED</th>
+                        <th class="ab-status-guidance text-start" scope="col">AUTHOR REPLIED</th>
                         <th class="ab-status-guidance text-start" scope="col">ADDED TO DOC</th>
                         <th class="ab-status-guidance text-start" scope="col">FEEDBACK DOCUMENT</th>
                         {% for field in combined_fields_by_group.guidance %}
@@ -710,6 +714,20 @@
                                         <span class="text-muted">—</span>
                                         {% elif m.feedback_on_action_list_deadline %}
                                         {{ m.feedback_on_action_list_deadline|date:"Y-m-d H:i" }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.action_list_reminder_sent %}
+                                        <span class="badge text-bg-success">Sent</span>
+                                        {% if m.action_list_reminder_sent_at %}
+                                        <div class="small text-muted">{{ m.action_list_reminder_sent_at|date:"Y-m-d" }}</div>
+                                        {% endif %}
+                                        {% elif m.feedback_on_action_list_deadline %}
+                                        <span class="badge text-bg-warning">Scheduled</span>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
@@ -1034,6 +1052,8 @@
                                             <span aria-hidden="true">✅</span>
                                             <div class="small text-muted">{{ m.feedback_on_protocol_received|date:"Y-m-d" }}</div>
                                         </div>
+                                        {% elif m.feedback_on_protocol_deadline %}
+                                        <span class="badge text-bg-warning">Awaiting</span>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
@@ -1041,19 +1061,174 @@
                                     <td class="ab-status-protocol">
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
-                                        {% elif m.added_to_protocol_doc %}
-                                        ✅
+                                        {% elif m.latest_feedback and m.latest_feedback.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.protocol_author_replied %}
+                                        <span class="badge text-bg-success">Replied</span>
                                         {% else %}
-                                        —
+                                        <span class="badge text-bg-secondary">Not yet</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_protocol_flag' project.id m.id 'author-replied' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.protocol_author_replied %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.protocol_author_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.protocol_author_replied %}Clear{% else %}Mark replied{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_protocol_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.protocol_author_replied %}
+                                        <span class="badge text-bg-success">Replied</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not yet</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_protocol_flag' project.id m.id 'author-replied' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.protocol_author_replied %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.protocol_author_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.protocol_author_replied %}Clear{% else %}Mark replied{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.sent_protocol_at %}
+                                        <span class="text-muted small">Awaiting feedback</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-protocol">
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
-                                        {% elif m.feedback_on_guidance %}
-                                        ✅
+                                        {% elif m.latest_feedback and m.latest_feedback.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.added_to_protocol_doc %}
+                                        <span class="badge text-bg-success">Added</span>
                                         {% else %}
-                                        —
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_protocol_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_protocol_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_protocol_doc %}Clear feedback added to protocol document{% else %}Mark feedback added to protocol document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_protocol_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_protocol_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.added_to_protocol_doc %}
+                                        <span class="badge text-bg-success">Added</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_protocol_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_protocol_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_protocol_doc %}Clear feedback added to protocol document{% else %}Mark feedback added to protocol document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_protocol_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-protocol">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_feedback and m.latest_feedback.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.feedback_on_guidance %}
+                                        <span class="badge text-bg-success">Guidance</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not marked</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_protocol_flag' project.id m.id 'guidance-feedback' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.feedback_on_guidance %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.feedback_on_guidance %}Clear guidance feedback{% else %}Mark guidance feedback{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.feedback_on_guidance %}Clear{% else %}Mark guidance{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_protocol_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.feedback_on_guidance %}
+                                        <span class="badge text-bg-success">Guidance</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not marked</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_protocol_flag' project.id m.id 'guidance-feedback' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.feedback_on_guidance %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.feedback_on_guidance %}Clear guidance feedback{% else %}Mark guidance feedback{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.feedback_on_guidance %}Clear{% else %}Mark guidance{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-protocol">
@@ -1140,7 +1315,12 @@
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
                                         {% elif m.feedback_on_synopsis_received %}
-                                        {{ m.feedback_on_synopsis_received|date:"Y-m-d" }}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.feedback_on_synopsis_received|date:"Y-m-d" }}</div>
+                                        </div>
+                                        {% elif m.feedback_on_synopsis_deadline %}
+                                        <span class="badge text-bg-warning">Awaiting</span>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
@@ -1148,10 +1328,67 @@
                                     <td class="ab-status-synopsis">
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
-                                        {% elif m.added_to_synopsis_doc %}
-                                        ✅
+                                        {% elif m.feedback_on_synopsis_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.synopsis_author_replied %}
+                                        <span class="badge text-bg-success">Replied</span>
                                         {% else %}
-                                        —
+                                        <span class="badge text-bg-secondary">Not yet</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'author-replied' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.synopsis_author_replied %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.synopsis_author_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.synopsis_author_replied %}Clear{% else %}Mark replied{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.sent_synopsis_at %}
+                                        <span class="text-muted small">Awaiting feedback</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-synopsis">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.feedback_on_synopsis_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.added_to_synopsis_doc %}
+                                        <span class="badge text-bg-success">Added</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_synopsis_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_synopsis_doc %}Clear feedback added to synopsis document{% else %}Mark feedback added to synopsis document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_synopsis_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
                                         {% endif %}
                                     </td>
                                     {% for field in combined_fields_by_group.synopsis %}
@@ -1248,6 +1485,8 @@
                                             <span aria-hidden="true">✅</span>
                                             <div class="small text-muted">{{ m.feedback_on_guidance_received|date:"Y-m-d" }}</div>
                                         </div>
+                                        {% elif m.feedback_on_guidance_deadline %}
+                                        <span class="badge text-bg-warning">Awaiting</span>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
@@ -1255,7 +1494,91 @@
                                     <td class="ab-status-guidance">
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
-                                        {% elif m.latest_guidance_feedback_obj or m.feedback_on_guidance_received %}
+                                        {% elif m.latest_guidance_feedback_obj and m.latest_guidance_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            {% if m.guidance_author_replied %}
+                                            <span class="badge text-bg-success">Replied</span>
+                                            {% else %}
+                                            <span class="badge text-bg-secondary">Not yet</span>
+                                            {% endif %}
+                                            {% if can_edit_members %}
+                                            <form
+                                                method="post"
+                                                action="{% url 'synopsis:advisory_member_set_guidance_flag' project.id m.id 'author-replied' %}"
+                                                class="d-inline-flex justify-content-center"
+                                            >
+                                                {% csrf_token %}
+                                                <input type="hidden" name="value" value="{% if m.guidance_author_replied %}0{% else %}1{% endif %}">
+                                                <button
+                                                    class="btn btn-link btn-sm p-0"
+                                                    type="submit"
+                                                    aria-label="{% if m.guidance_author_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                                >
+                                                    {% if m.guidance_author_replied %}Clear{% else %}Mark replied{% endif %}
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_guidance_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            {% if m.guidance_author_replied %}
+                                            <span class="badge text-bg-success">Replied</span>
+                                            {% else %}
+                                            <span class="badge text-bg-secondary">Not yet</span>
+                                            {% endif %}
+                                            {% if can_edit_members %}
+                                            <form
+                                                method="post"
+                                                action="{% url 'synopsis:advisory_member_set_guidance_flag' project.id m.id 'author-replied' %}"
+                                                class="d-inline-flex justify-content-center"
+                                            >
+                                                {% csrf_token %}
+                                                <input type="hidden" name="value" value="{% if m.guidance_author_replied %}0{% else %}1{% endif %}">
+                                                <button
+                                                    class="btn btn-link btn-sm p-0"
+                                                    type="submit"
+                                                    aria-label="{% if m.guidance_author_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                                >
+                                                    {% if m.guidance_author_replied %}Clear{% else %}Mark replied{% endif %}
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                        {% elif m.sent_guidance_at %}
+                                        <span class="text-muted small">Awaiting feedback</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-guidance">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_guidance_feedback_obj and m.latest_guidance_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            {% if m.added_to_guidance_doc %}
+                                            <span class="badge text-bg-success">Added</span>
+                                            {% else %}
+                                            <span class="badge text-bg-secondary">Not added</span>
+                                            {% endif %}
+                                            {% if can_edit_members %}
+                                            <form
+                                                method="post"
+                                                action="{% url 'synopsis:advisory_member_set_guidance_flag' project.id m.id 'added-to-doc' %}"
+                                                class="d-inline-flex justify-content-center"
+                                            >
+                                                {% csrf_token %}
+                                                <input type="hidden" name="value" value="{% if m.added_to_guidance_doc %}0{% else %}1{% endif %}">
+                                                <button
+                                                    class="btn btn-link btn-sm p-0"
+                                                    type="submit"
+                                                    aria-label="{% if m.added_to_guidance_doc %}Clear feedback added to guidance document{% else %}Mark feedback added to guidance document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                                >
+                                                    {% if m.added_to_guidance_doc %}Clear{% else %}Mark added{% endif %}
+                                                </button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_guidance_received %}
                                         <div class="d-flex flex-column align-items-center gap-1">
                                             {% if m.added_to_guidance_doc %}
                                             <span class="badge text-bg-success">Added</span>

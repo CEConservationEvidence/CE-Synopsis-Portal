@@ -741,6 +741,7 @@ class AdvisoryBoardMember(models.Model):
     guidance_reminder_sent_at = models.DateTimeField(null=True, blank=True)
     feedback_on_guidance_deadline = models.DateTimeField(null=True, blank=True)
     feedback_on_guidance_received = models.DateField(null=True, blank=True)
+    guidance_author_replied = models.BooleanField(default=False)
     added_to_guidance_doc = models.BooleanField(default=False)
 
     # Protocol interaction
@@ -749,6 +750,7 @@ class AdvisoryBoardMember(models.Model):
     protocol_reminder_sent_at = models.DateTimeField(null=True, blank=True)
     feedback_on_protocol_deadline = models.DateTimeField(null=True, blank=True)
     feedback_on_protocol_received = models.DateField(null=True, blank=True)
+    protocol_author_replied = models.BooleanField(default=False)
     added_to_protocol_doc = models.BooleanField(default=False)
     feedback_on_guidance = models.BooleanField(default=False)
 
@@ -758,6 +760,7 @@ class AdvisoryBoardMember(models.Model):
     synopsis_reminder_sent_at = models.DateTimeField(null=True, blank=True)
     feedback_on_synopsis_deadline = models.DateTimeField(null=True, blank=True)
     feedback_on_synopsis_received = models.DateField(null=True, blank=True)
+    synopsis_author_replied = models.BooleanField(default=False)
     added_to_synopsis_doc = models.BooleanField(default=False)
 
     # Participation confirmation

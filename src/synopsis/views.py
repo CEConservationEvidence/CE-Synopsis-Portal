@@ -6937,11 +6937,20 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
-@login_required
-def advisory_member_set_action_list_flag(request, project_id, member_id, flag):
-    project = get_object_or_404(Project, pk=project_id)
-    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
-
+def _advisory_member_set_tracking_flag(
+    request,
+    project,
+    member,
+    *,
+    document_name,
+    sent_field,
+    feedback_received_field,
+    latest_feedback,
+    flag,
+    flag_map,
+    log_action,
+    success_message,
+):
     if request.method != "POST":
         return HttpResponseBadRequest("POST required")
 
@@ -6949,36 +6958,25 @@ def advisory_member_set_action_list_flag(request, project_id, member_id, flag):
         messages.error(request, "You do not have permission to update this member.")
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
-    if member.sent_action_list_at is None or (member.response or "").upper() != "Y":
+    if getattr(member, sent_field) is None or (member.response or "").upper() != "Y":
         messages.error(
             request,
-            "This member needs an accepted invitation and a sent action list before updating action list tracking.",
+            f"This member needs an accepted invitation and sent {document_name} before updating {document_name} tracking.",
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
     normalized_flag = (flag or "").lower().replace("-", "_")
-    flag_map = {
-        "author_replied": ("wm_replied", "author replied"),
-        "added_to_doc": (
-            "added_to_action_list_doc",
-            "feedback added to the action list document",
-        ),
-        "guidance_feedback": (
-            "action_list_feedback_on_guidance",
-            "guidance feedback recorded",
-        ),
-    }
     if normalized_flag not in flag_map:
-        return HttpResponseBadRequest("Unknown action list tracking field")
+        return HttpResponseBadRequest(f"Unknown {document_name} tracking field")
 
     has_feedback = bool(
-        member.feedback_on_action_list_received
-        or getattr(getattr(member, "latest_action_list_feedback", None), "submitted_at", None)
+        getattr(member, feedback_received_field)
+        or getattr(latest_feedback, "submitted_at", None)
     )
     if not has_feedback:
         messages.error(
             request,
-            "Action list tracking can only be updated after feedback has been received.",
+            f"{document_name.capitalize()} tracking can only be updated after feedback has been received.",
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
@@ -6996,75 +6994,129 @@ def advisory_member_set_action_list_flag(request, project_id, member_id, flag):
         _log_project_change(
             project,
             request.user,
-            "Updated action list tracking",
+            log_action,
             f"{state} {label} for {human_name}",
         )
 
+    messages.success(request, success_message)
     return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
+def advisory_member_set_action_list_flag(request, project_id, member_id, flag):
+    project = get_object_or_404(Project, pk=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
+    return _advisory_member_set_tracking_flag(
+        request,
+        project,
+        member,
+        document_name="action list",
+        sent_field="sent_action_list_at",
+        feedback_received_field="feedback_on_action_list_received",
+        latest_feedback=member.latest_action_list_feedback,
+        flag=flag,
+        flag_map={
+            "author_replied": ("wm_replied", "author replied"),
+            "added_to_doc": (
+                "added_to_action_list_doc",
+                "feedback added to the action list document",
+            ),
+            "guidance_feedback": (
+                "action_list_feedback_on_guidance",
+                "guidance feedback recorded",
+            ),
+        },
+        log_action="Updated action list tracking",
+        success_message="Action list tracking updated.",
+    )
+
+
+@login_required
+def advisory_member_set_protocol_flag(request, project_id, member_id, flag):
+    project = get_object_or_404(Project, pk=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
+    return _advisory_member_set_tracking_flag(
+        request,
+        project,
+        member,
+        document_name="protocol",
+        sent_field="sent_protocol_at",
+        feedback_received_field="feedback_on_protocol_received",
+        latest_feedback=member.latest_protocol_feedback,
+        flag=flag,
+        flag_map={
+            "author_replied": (
+                "protocol_author_replied",
+                "author replied to protocol feedback",
+            ),
+            "added_to_doc": (
+                "added_to_protocol_doc",
+                "feedback added to the protocol document",
+            ),
+            "guidance_feedback": (
+                "feedback_on_guidance",
+                "guidance feedback recorded for the protocol",
+            ),
+        },
+        log_action="Updated protocol tracking",
+        success_message="Protocol tracking updated.",
+    )
 
 
 @login_required
 def advisory_member_set_guidance_flag(request, project_id, member_id, flag):
     project = get_object_or_404(Project, pk=project_id)
     member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
-
-    if request.method != "POST":
-        return HttpResponseBadRequest("POST required")
-
-    if not _user_can_edit_project(request.user, project):
-        messages.error(request, "You do not have permission to update this member.")
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
-
-    if member.sent_guidance_at is None or (member.response or "").upper() != "Y":
-        messages.error(
-            request,
-            "This member needs an accepted invitation and sent guidance before updating guidance tracking.",
-        )
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
-
-    normalized_flag = (flag or "").lower().replace("-", "_")
-    flag_map = {
-        "added_to_doc": (
-            "added_to_guidance_doc",
-            "feedback added to the guidance document",
-        ),
-    }
-    if normalized_flag not in flag_map:
-        return HttpResponseBadRequest("Unknown guidance tracking field")
-
-    has_feedback = bool(
-        member.feedback_on_guidance_received
-        or getattr(
-            getattr(member, "latest_guidance_feedback_obj", None), "submitted_at", None
-        )
+    return _advisory_member_set_tracking_flag(
+        request,
+        project,
+        member,
+        document_name="guidance",
+        sent_field="sent_guidance_at",
+        feedback_received_field="feedback_on_guidance_received",
+        latest_feedback=member.latest_guidance_feedback,
+        flag=flag,
+        flag_map={
+            "author_replied": (
+                "guidance_author_replied",
+                "author replied to guidance feedback",
+            ),
+            "added_to_doc": (
+                "added_to_guidance_doc",
+                "feedback added to the guidance document",
+            ),
+        },
+        log_action="Updated guidance tracking",
+        success_message="Guidance tracking updated.",
     )
-    if not has_feedback:
-        messages.error(
-            request,
-            "Guidance tracking can only be updated after feedback has been received.",
-        )
-        return redirect("synopsis:advisory_board_list", project_id=project.id)
 
-    field_name, label = flag_map[normalized_flag]
-    raw_value = request.POST.get("value", "")
-    new_value = str(raw_value).lower() in {"1", "true", "on", "yes"}
-    current_value = getattr(member, field_name)
-    if current_value != new_value:
-        setattr(member, field_name, new_value)
-        member.save(update_fields=[field_name])
-        human_name = " ".join(
-            part for part in (member.first_name, member.last_name) if part
-        ).strip() or member.email
-        state = "Marked" if new_value else "Cleared"
-        _log_project_change(
-            project,
-            request.user,
-            "Updated guidance tracking",
-            f"{state} {label} for {human_name}",
-        )
 
-    messages.success(request, "Guidance tracking updated.")
-    return redirect("synopsis:advisory_board_list", project_id=project.id)
+@login_required
+def advisory_member_set_synopsis_flag(request, project_id, member_id, flag):
+    project = get_object_or_404(Project, pk=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
+    return _advisory_member_set_tracking_flag(
+        request,
+        project,
+        member,
+        document_name="synopsis",
+        sent_field="sent_synopsis_at",
+        feedback_received_field="feedback_on_synopsis_received",
+        latest_feedback=None,
+        flag=flag,
+        flag_map={
+            "author_replied": (
+                "synopsis_author_replied",
+                "author replied to synopsis feedback",
+            ),
+            "added_to_doc": (
+                "added_to_synopsis_doc",
+                "feedback added to the synopsis document",
+            ),
+        },
+        log_action="Updated synopsis tracking",
+        success_message="Synopsis tracking updated.",
+    )
 
 
 @login_required
