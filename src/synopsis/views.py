@@ -8571,6 +8571,76 @@ def _reference_summary_paragraph(
     )
 
 
+def _reference_summary_has_meaningful_progress(summary: ReferenceSummary) -> bool:
+    text_fields = [
+        "action_description",
+        "study_design",
+        "study_type",
+        "sites_replications",
+        "year_range",
+        "habitat_and_sites",
+        "region",
+        "country",
+        "summary_of_results",
+        "action_methods",
+        "experimental_design",
+        "site_context_details",
+        "sampling_methods_details",
+        "cost_summary",
+        "summary_text",
+        "key_findings",
+        "synopsis_draft",
+        "broad_category",
+        "source_url",
+        "crop_type",
+        "research_design",
+        "citation",
+    ]
+    list_fields = [
+        "outcome_rows",
+        "keywords",
+        "action_tags",
+        "threat_tags",
+        "taxon_tags",
+        "habitat_tags",
+        "location_tags",
+    ]
+    score_fields = [
+        "benefits_score",
+        "harms_score",
+        "reliability_score",
+        "relevance_score",
+    ]
+
+    for field_name in text_fields:
+        value = getattr(summary, field_name, "")
+        if isinstance(value, str) and value.strip():
+            return True
+
+    for field_name in list_fields:
+        value = getattr(summary, field_name, None)
+        if value:
+            return True
+
+    for field_name in score_fields:
+        if getattr(summary, field_name, None) is not None:
+            return True
+
+    return False
+
+
+def _auto_promote_summary_from_todo(summary: ReferenceSummary, previous_status: str) -> bool:
+    if previous_status != ReferenceSummary.STATUS_TODO:
+        return False
+    if summary.status != ReferenceSummary.STATUS_TODO:
+        return False
+    if not _reference_summary_has_meaningful_progress(summary):
+        return False
+    summary.status = ReferenceSummary.STATUS_DRAFT
+    summary.save(update_fields=["status", "updated_at"])
+    return True
+
+
 @login_required
 def reference_summary_board(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -8946,6 +9016,7 @@ def reference_summary_detail(request, project_id, summary_id):
                 summary_id=next_summary.id,
             )
         if action == "save-summary" and summary_form.is_valid():
+            previous_status = summary.status
             previous_generated_summary = generated_summary.strip()
             previous_saved_draft = (summary.synopsis_draft or "").strip()
             summary = summary_form.save(commit=False)
@@ -8962,10 +9033,21 @@ def reference_summary_detail(request, project_id, summary_id):
                 summary.synopsis_draft = updated_generated_summary
                 summary.save(update_fields=["synopsis_draft", "updated_at"])
                 refreshed_saved_draft = True
-            if refreshed_saved_draft:
+            auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
+            if refreshed_saved_draft and auto_promoted:
+                messages.success(
+                    request,
+                    "Summary updated. Status moved to In progress automatically. The saved paragraph draft was refreshed automatically.",
+                )
+            elif refreshed_saved_draft:
                 messages.success(
                     request,
                     "Summary updated. The saved paragraph draft was refreshed automatically.",
+                )
+            elif auto_promoted:
+                messages.success(
+                    request,
+                    "Summary updated. Status moved to In progress automatically.",
                 )
             else:
                 messages.success(request, "Summary updated.")
@@ -8987,14 +9069,22 @@ def reference_summary_detail(request, project_id, summary_id):
                 error_list.append("Unable to save summary. Please review your inputs.")
             messages.error(request, " ".join(error_list))
         if action == "save-synopsis-draft":
+            previous_status = summary.status
             draft_command = request.POST.get("draft_command") or "save"
             if draft_command == "use-generated":
                 summary.synopsis_draft = generated_summary
                 summary.save(update_fields=["synopsis_draft", "updated_at"])
-                messages.success(
-                    request,
-                    "Generated paragraph copied into the editable draft.",
-                )
+                auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
+                if auto_promoted:
+                    messages.success(
+                        request,
+                        "Generated paragraph copied into the editable draft. Status moved to In progress automatically.",
+                    )
+                else:
+                    messages.success(
+                        request,
+                        "Generated paragraph copied into the editable draft.",
+                    )
                 return redirect(
                     "synopsis:reference_summary_detail",
                     project_id=project.id,
@@ -9015,7 +9105,14 @@ def reference_summary_detail(request, project_id, summary_id):
             if draft_form.is_valid():
                 summary = draft_form.save(commit=False)
                 summary.save(update_fields=["synopsis_draft", "updated_at"])
-                messages.success(request, "Summary paragraph draft saved.")
+                auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
+                if auto_promoted:
+                    messages.success(
+                        request,
+                        "Summary paragraph draft saved. Status moved to In progress automatically.",
+                    )
+                else:
+                    messages.success(request, "Summary paragraph draft saved.")
                 return redirect(
                     "synopsis:reference_summary_detail",
                     project_id=project.id,

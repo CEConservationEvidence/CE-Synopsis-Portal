@@ -6657,6 +6657,28 @@ class ReferenceSummaryDetailViewTests(TestCase):
         messages = list(get_messages(resp.wsgi_request))
         self.assertTrue(any("Summary updated" in str(m) for m in messages))
 
+    def test_save_summary_auto_moves_todo_tab_to_in_progress_when_content_saved(self):
+        self.client.login(username="author", password="pass123")
+        url = reverse(
+            "synopsis:reference_summary_detail", args=[self.project.id, self.summary.id]
+        )
+        response = self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "status": ReferenceSummary.STATUS_TODO,
+                "habitat_and_sites": "New habitat info",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.status, ReferenceSummary.STATUS_DRAFT)
+        self.assertContains(
+            response,
+            "Status moved to In progress automatically.",
+        )
+
     def test_save_summary_can_store_selected_project_action(self):
         chapter = SynopsisChapter.objects.create(
             project=self.project,
@@ -6782,6 +6804,28 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(
             self.summary.synopsis_draft,
             "A revised summary paragraph written by the author.",
+        )
+
+    def test_save_summary_paragraph_draft_auto_moves_todo_tab_to_in_progress(self):
+        self.client.login(username="author", password="pass123")
+        url = reverse(
+            "synopsis:reference_summary_detail", args=[self.project.id, self.summary.id]
+        )
+        response = self.client.post(
+            url,
+            {
+                "action": "save-synopsis-draft",
+                "draft_command": "save",
+                "synopsis_draft": "A revised summary paragraph written by the author.",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.status, ReferenceSummary.STATUS_DRAFT)
+        self.assertContains(
+            response,
+            "Summary paragraph draft saved. Status moved to In progress automatically.",
         )
 
     def test_detail_status_update_requires_reason_for_summary_phase_exclusion(self):
