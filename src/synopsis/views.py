@@ -1,3 +1,4 @@
+import copy
 import datetime as dt
 import io
 import hashlib
@@ -8209,6 +8210,64 @@ def _clone_reference_summary(source_summary, user=None):
     return next((item for item in synced if item.id == new_summary.id), new_summary)
 
 
+def _duplicate_reference_summary(source_summary, user=None):
+    summary_author = (
+        source_summary.summary_author
+        or (user.get_full_name() or user.username if user and user.is_authenticated else "")
+    )
+    duplicate_status = (
+        ReferenceSummary.STATUS_TODO
+        if source_summary.status == ReferenceSummary.STATUS_TODO
+        else ReferenceSummary.STATUS_DRAFT
+    )
+    new_summary = ReferenceSummary.objects.create(
+        project=source_summary.project,
+        reference=source_summary.reference,
+        assigned_to=source_summary.assigned_to,
+        status=duplicate_status,
+        needs_help=False,
+        reference_label=source_summary.reference_label,
+        action_description=source_summary.action_description,
+        study_design=source_summary.study_design,
+        study_type=source_summary.study_type,
+        sites_replications=source_summary.sites_replications,
+        year_range=source_summary.year_range,
+        habitat_and_sites=source_summary.habitat_and_sites,
+        region=source_summary.region,
+        country=source_summary.country,
+        summary_of_results=source_summary.summary_of_results,
+        action_methods=source_summary.action_methods,
+        experimental_design=source_summary.experimental_design,
+        site_context_details=source_summary.site_context_details,
+        sampling_methods_details=source_summary.sampling_methods_details,
+        cost_summary=source_summary.cost_summary,
+        outcome_rows=copy.deepcopy(source_summary.outcome_rows or []),
+        benefits_score=source_summary.benefits_score,
+        harms_score=source_summary.harms_score,
+        reliability_score=source_summary.reliability_score,
+        relevance_score=source_summary.relevance_score,
+        summary_text=source_summary.summary_text,
+        key_findings=source_summary.key_findings,
+        synopsis_draft=source_summary.synopsis_draft,
+        summary_author=summary_author,
+        broad_category=source_summary.broad_category,
+        keywords=copy.deepcopy(source_summary.keywords or []),
+        source_url=source_summary.source_url,
+        crop_type=source_summary.crop_type,
+        action_tags=copy.deepcopy(source_summary.action_tags or []),
+        threat_tags=copy.deepcopy(source_summary.threat_tags or []),
+        taxon_tags=copy.deepcopy(source_summary.taxon_tags or []),
+        habitat_tags=copy.deepcopy(source_summary.habitat_tags or []),
+        location_tags=copy.deepcopy(source_summary.location_tags or []),
+        research_design=source_summary.research_design,
+        citation=source_summary.citation or _reference_summary_citation(source_summary.reference),
+    )
+    synced = _sync_reference_summary_identifiers_for_reference(
+        source_summary.reference, save=True
+    )
+    return next((item for item in synced if item.id == new_summary.id), new_summary)
+
+
 def _next_chapter_position(project):
     max_pos = (
         SynopsisChapter.objects.filter(project=project).aggregate(Max("position"))[
@@ -8835,6 +8894,17 @@ def reference_summary_detail(request, project_id, summary_id):
             messages.success(
                 request,
                 "New summary tab created for this reference. Use it for a distinct intervention or study summary.",
+            )
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=new_summary.id,
+            )
+        if action == "duplicate-summary-tab":
+            new_summary = _duplicate_reference_summary(summary, request.user)
+            messages.success(
+                request,
+                "Summary tab duplicated. Review the copied text and adjust it for the new intervention or study summary.",
             )
             return redirect(
                 "synopsis:reference_summary_detail",

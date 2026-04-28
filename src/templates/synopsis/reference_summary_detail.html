@@ -116,6 +116,11 @@
                     <input type="hidden" name="action" value="create-summary-tab">
                     <button class="btn btn-outline-primary btn-sm" type="submit">Add summary tab</button>
                 </form>
+                <form method="post" class="mb-0">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="duplicate-summary-tab">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">Duplicate this tab</button>
+                </form>
                 {% if summary_tabs|length > 1 %}
                 <form method="post" class="mb-0">
                     {% csrf_token %}
@@ -133,11 +138,11 @@
         </div>
         {% if summary_tabs|length == 1 %}
         <div class="small text-muted">
-            At least one summary tab must remain for each reference.
+            At least one summary tab must remain for each reference. Duplicating copies the current summary content into a new tab without copying comments, action summaries, or synopsis assignments.
         </div>
         {% else %}
         <div class="small text-muted">
-            Deleting the current tab removes its linked comments, action summaries, and synopsis assignments.
+            Duplicating copies the current summary content into a new tab. Comments, action summaries, and synopsis assignments are not copied. Deleting the current tab removes its linked comments, action summaries, and synopsis assignments.
         </div>
         {% endif %}
         <div class="d-flex flex-wrap gap-2">

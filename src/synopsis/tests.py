@@ -51,6 +51,8 @@ from .models import (
     ReferenceSourceBatchNoteHistory,
     Reference,
     ReferenceSummary,
+    ReferenceSummaryComment,
+    ReferenceActionSummary,
     SynopsisChapter,
     SynopsisSubheading,
     SynopsisIntervention,
@@ -6937,6 +6939,138 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(new_summary.summary_identifier, "manual-ref.a")
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.citation, "Author (2024)")
+
+    def test_duplicate_summary_tab_copies_current_summary_content(self):
+        self.summary.assigned_to = self.user
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.reference_identifier = "manual-ref"
+        self.summary.summary_identifier = "manual-summary"
+        self.summary.reference_label = "Test reference label"
+        self.summary.action_description = "Install nest boxes"
+        self.summary.study_design = "Replicated study"
+        self.summary.summary_of_results = "Occupancy increased."
+        self.summary.action_methods = "Installed wooden boxes."
+        self.summary.outcome_rows = [{"outcome": "Occupancy", "notes": "Higher"}]
+        self.summary.synopsis_draft = "Draft paragraph copied from the first tab."
+        self.summary.summary_author = "Existing Author"
+        self.summary.keywords = ["boxes", "occupancy"]
+        self.summary.action_tags = ["Land/water protection-Area protection"]
+        self.summary.research_design = "Replicated; Controlled*"
+        self.summary.citation = "Author (2024)"
+        self.summary.save()
+
+        self.client.login(username="author", password="pass123")
+        url = reverse(
+            "synopsis:reference_summary_detail", args=[self.project.id, self.summary.id]
+        )
+        resp = self.client.post(
+            url,
+            {"action": "duplicate-summary-tab"},
+            follow=False,
+        )
+
+        new_summary = (
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            )
+            .exclude(pk=self.summary.id)
+            .get()
+        )
+        self.assertRedirects(
+            resp,
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, new_summary.id],
+            ),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(new_summary.assigned_to, self.user)
+        self.assertEqual(new_summary.status, ReferenceSummary.STATUS_DRAFT)
+        self.assertEqual(new_summary.reference_identifier, "manual-ref")
+        self.assertEqual(new_summary.summary_identifier, "manual-ref.a")
+        self.assertEqual(new_summary.reference_label, "Test reference label")
+        self.assertEqual(new_summary.action_description, "Install nest boxes")
+        self.assertEqual(new_summary.study_design, "Replicated study")
+        self.assertEqual(new_summary.summary_of_results, "Occupancy increased.")
+        self.assertEqual(new_summary.action_methods, "Installed wooden boxes.")
+        self.assertEqual(new_summary.outcome_rows, [{"outcome": "Occupancy", "notes": "Higher"}])
+        self.assertEqual(
+            new_summary.synopsis_draft,
+            "Draft paragraph copied from the first tab.",
+        )
+        self.assertEqual(new_summary.summary_author, "Existing Author")
+        self.assertEqual(new_summary.keywords, ["boxes", "occupancy"])
+        self.assertEqual(
+            new_summary.action_tags,
+            ["Land/water protection-Area protection"],
+        )
+        self.assertEqual(new_summary.research_design, "Replicated; Controlled*")
+        self.assertEqual(new_summary.citation, "Author (2024)")
+
+    def test_duplicate_summary_tab_does_not_copy_comments_assignments_or_exclusion_state(self):
+        self.summary.status = ReferenceSummary.STATUS_EXCLUDED
+        self.summary.needs_help = True
+        self.summary.exclusion_reason = "Not really an intervention."
+        self.summary.save(update_fields=["status", "needs_help", "exclusion_reason", "updated_at"])
+        ReferenceSummaryComment.objects.create(
+            summary=self.summary,
+            author=self.user,
+            body="Keep this note on the original tab only.",
+        )
+        ReferenceActionSummary.objects.create(
+            reference_summary=self.summary,
+            action_name="Install nest boxes",
+            summary_text="Action-specific wording.",
+            created_by=self.user,
+        )
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Intervention",
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {"action": "duplicate-summary-tab"},
+            follow=True,
+        )
+
+        duplicated = (
+            ReferenceSummary.objects.filter(project=self.project, reference=self.reference)
+            .exclude(pk=self.summary.id)
+            .get()
+        )
+        self.assertEqual(duplicated.status, ReferenceSummary.STATUS_DRAFT)
+        self.assertFalse(duplicated.needs_help)
+        self.assertEqual(duplicated.exclusion_reason, "")
+        self.assertEqual(duplicated.comments.count(), 0)
+        self.assertEqual(duplicated.action_summaries.count(), 0)
+        self.assertEqual(duplicated.synopsis_assignments.count(), 0)
+        self.assertContains(
+            response,
+            "Summary tab duplicated. Review the copied text and adjust it for the new intervention or study summary.",
+        )
 
     def test_delete_summary_tab_removes_extra_tab_and_redirects_to_remaining_tab(self):
         extra_summary = ReferenceSummary.objects.create(
