@@ -6336,6 +6336,84 @@ class ReferenceSummaryFormTests(TestCase):
             ["Replicated", "Controlled*"],
         )
 
+    def test_blank_study_design_is_built_from_research_design_tags(self):
+        project = Project.objects.create(title="Auto design")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="d" * 40,
+            title="Auto design reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "study_design": "",
+                "research_design": [
+                    "Replicated",
+                    "Randomized",
+                    "Controlled*",
+                ],
+            },
+            instance=summary,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(
+            saved.study_design,
+            "replicated, randomized, controlled study",
+        )
+
+    def test_manual_study_design_overrides_research_design_tags(self):
+        project = Project.objects.create(title="Manual design")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="e" * 40,
+            title="Manual design reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "study_design": "replicated, randomized, controlled, before-and-after study",
+                "research_design": [
+                    "Replicated",
+                    "Randomized",
+                    "Controlled*",
+                ],
+            },
+            instance=summary,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(
+            saved.study_design,
+            "replicated, randomized, controlled, before-and-after study",
+        )
+
     def test_methods_and_design_initial_merges_existing_fields(self):
         summary = ReferenceSummary(
             action_methods="Used fenced plots and added seed.",

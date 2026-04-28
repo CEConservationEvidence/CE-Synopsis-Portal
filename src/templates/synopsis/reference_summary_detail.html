@@ -421,7 +421,7 @@
                             <div class="col-md-6">
                                 <label class="form-label">Study design phrase</label>
                                 {{ summary_form.study_design }}
-                                <div class="form-text">Short wording for the first sentence, such as replicated, controlled study.</div>
+                                <div class="form-text">{{ summary_form.study_design.help_text }}</div>
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label">Number of sites/replications</label>
@@ -485,7 +485,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Tags & design</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">Tags</div>
                         <div class="row g-3">
                             <div class="col-12">
                                 <div class="tag-picker" data-tag-picker>
@@ -559,12 +559,21 @@
                                 <label class="form-label">Location tags</label>
                                 {{ summary_form.location_tags }}
                             </div>
+                            <div class="col-md-12">
+                                <label class="form-label">Citation</label>
+                                {{ summary_form.citation }}
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2">CE metadata</div>
+                        <div class="row g-3">
                             <div class="col-12">
                                 <div class="tag-picker" data-tag-picker data-tag-max-selected="4">
                                     <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
                                         <div>
                                             <label class="form-label mb-1">Research design tags (CE)</label>
-                                            <div class="form-text mt-0">Controlled website tags. Select up to four terms that apply.</div>
+                                            <div class="form-text mt-0">Select all study design terms that apply, up to four. If the study design phrase above is left blank, it will be built automatically from these tags.</div>
                                         </div>
                                         <span class="badge text-bg-light" data-tag-count>0 of 4 selected</span>
                                     </div>
@@ -581,15 +590,6 @@
                                 <div class="text-danger small mt-1">{{ summary_form.research_design.errors|join:", " }}</div>
                                 {% endif %}
                             </div>
-                            <div class="col-md-12">
-                                <label class="form-label">Citation</label>
-                                {{ summary_form.citation }}
-                            </div>
-                        </div>
-                    </div>
-                    <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">CE metadata</div>
-                        <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Summary author</label>
                                 {{ summary_form.summary_author }}

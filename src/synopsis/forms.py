@@ -2122,6 +2122,11 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
     def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
         instance = getattr(self, "instance", None)
+        self.fields["study_design"].required = False
+        self.fields["study_design"].help_text = (
+            "Optional. Used in the first sentence of the summary paragraph. "
+            "If you leave it blank, the system will build it from the CE research design tags below."
+        )
         action_choices = [("", "Select an action")]
         if project is not None:
             seen_titles = set()
@@ -2301,6 +2306,26 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             )
         return "; ".join(values)
 
+    @staticmethod
+    def _build_study_design_from_research_design(value):
+        tags = ReferenceSummaryUpdateForm._split_research_design_value(value)
+        normalized = [
+            str(tag).replace("*", "").strip().lower()
+            for tag in tags
+            if str(tag).replace("*", "").strip()
+        ]
+        if not normalized:
+            return ""
+        if len(normalized) == 1:
+            label = normalized[0]
+            if label.endswith("study") or label.endswith("review"):
+                return label
+            return f"{label} study"
+        phrase = ", ".join(normalized)
+        if not (phrase.endswith("study") or phrase.endswith("review")):
+            phrase = f"{phrase} study"
+        return phrase
+
     def clean_location_tags(self):
         raw = self.cleaned_data.get("location_tags", "") or ""
         lines = [line.strip() for line in str(raw).splitlines() if line.strip()]
@@ -2401,6 +2426,13 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             cleaned["action_description"] = action_choice
         else:
             cleaned["action_description"] = action_custom
+        study_design = (cleaned.get("study_design") or "").strip()
+        if study_design:
+            cleaned["study_design"] = study_design
+        else:
+            cleaned["study_design"] = self._build_study_design_from_research_design(
+                cleaned.get("research_design")
+            )
         return cleaned
 
     def save(self, commit=True):
