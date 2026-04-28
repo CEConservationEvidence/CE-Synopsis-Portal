@@ -18,6 +18,62 @@ TODO: #63 Add audit trails to track changes made to critical fields in models (d
 TODO: #64 Add comments to models where necessary to explain their purpose and usage (for other teams adapting this).
 """
 
+CE_REFERENCE_FOLDER_CHOICES = [
+    ("", "—"),
+    ("1", "1. Amphibians"),
+    ("2", "2. Birds"),
+    ("3a", "3a. Fish - Fresh Water"),
+    ("3b", "3b. Fish - Marine"),
+    ("3", "3. Fish (legacy - recategorise)"),
+    ("4", "4. Terrestrial invertebrates"),
+    ("5", "5. Marine invertebrates"),
+    ("6", "6. Mammals"),
+    ("7", "7. Reptiles"),
+    ("8", "8. Animals ex-situ"),
+    ("9", "9. Individual plant/algae populations"),
+    ("10", "10. Plants/algae ex situ"),
+    ("11", "11. Fungi"),
+    ("12", "12. Bacteria/other living agents"),
+    ("13", "13. Coastal (plants/algae communities)"),
+    ("14", "14. Farmland (plants/algae communities)"),
+    ("15", "15. Forests/Woodland"),
+    ("16", "16. Rivers, lakes and lagoons"),
+    ("17", "17. Grassland/Savanna"),
+    ("18", "18. Marine (plants/algae communities)"),
+    ("19", "19. Shrubland"),
+    ("20", "20. Wetlands"),
+    ("21", "21. Invasive/problem amphibians"),
+    ("22", "22. Invasive/problem birds"),
+    ("23", "23. Invasive/problem fish"),
+    ("24", "24. Invasive/problem invertebrates"),
+    ("25", "25. Invasive/problem mammals"),
+    ("26", "26. Invasive/problem reptiles"),
+    ("27", "27. Invasive/problem plants/algae"),
+    ("28", "28. Invasive/problem fungi"),
+    ("29", "29. Invasive/problem bacteria/agents"),
+    ("30", "30. Behaviour change"),
+]
+CE_REFERENCE_FOLDER_MAP = {
+    value: label for value, label in CE_REFERENCE_FOLDER_CHOICES if value
+}
+CE_REFERENCE_FOLDER_ORDER = {
+    value: index for index, (value, _label) in enumerate(CE_REFERENCE_FOLDER_CHOICES) if value
+}
+
+
+def normalize_reference_folder_values(values):
+    if not values:
+        return []
+    cleaned = []
+    seen = set()
+    for value in values:
+        if not value or value not in CE_REFERENCE_FOLDER_MAP or value in seen:
+            continue
+        seen.add(value)
+        cleaned.append(value)
+    cleaned.sort(key=lambda value: CE_REFERENCE_FOLDER_ORDER.get(value, 10_000))
+    return cleaned
+
 
 class Project(models.Model):
     """A singular 'project' class (reusable by other living evidence teams hence the term is open here)."""
@@ -1337,12 +1393,79 @@ class LibraryReference(models.Model):
         help_text="Optional uploaded PDF of the reference.",
     )
     reference_document_uploaded_at = models.DateTimeField(null=True, blank=True)
+    reference_folder = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Shared CE subject folders assigned to this reference across the library.",
+    )
 
     class Meta:
         ordering = ["title"]
 
     def __str__(self):
         return self.title[:120]
+
+    def folder_labels(self):
+        return [
+            CE_REFERENCE_FOLDER_MAP.get(value, value)
+            for value in normalize_reference_folder_values(self.reference_folder)
+        ]
+
+
+class LibraryReferenceFolderHistory(models.Model):
+    library_reference = models.ForeignKey(
+        LibraryReference,
+        on_delete=models.CASCADE,
+        related_name="folder_history",
+    )
+    previous_folders = models.JSONField(default=list, blank=True)
+    new_folders = models.JSONField(default=list, blank=True)
+    changed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="library_reference_folder_changes",
+    )
+    source_project = models.ForeignKey(
+        Project,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="library_reference_folder_changes",
+    )
+    source_reference = models.ForeignKey(
+        "Reference",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="library_folder_history_entries",
+    )
+    change_source = models.CharField(max_length=50, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return (
+            f"Folders for {self.library_reference_id} @ {self.created_at:%Y-%m-%d %H:%M}"
+        )
+
+    def previous_folder_labels(self):
+        return [
+            CE_REFERENCE_FOLDER_MAP.get(value, value)
+            for value in normalize_reference_folder_values(self.previous_folders)
+        ]
+
+    def new_folder_labels(self):
+        return [
+            CE_REFERENCE_FOLDER_MAP.get(value, value)
+            for value in normalize_reference_folder_values(self.new_folders)
+        ]
+
+    def change_source_label(self):
+        return (self.change_source or "").replace("_", " ").strip()
 
 
 class Reference(models.Model):
@@ -1353,41 +1476,7 @@ class Reference(models.Model):
         ("included", "Include"),
         ("excluded", "Exclude"),
     ]
-    FOLDER_CHOICES = [
-        ("", "—"),
-        ("1", "1. Amphibians"),
-        ("2", "2. Birds"),
-        ("3a", "3a. Fish - Fresh Water"),
-        ("3b", "3b. Fish - Marine"),
-        ("3", "3. Fish (legacy - recategorise)"),
-        ("4", "4. Terrestrial invertebrates"),
-        ("5", "5. Marine invertebrates"),
-        ("6", "6. Mammals"),
-        ("7", "7. Reptiles"),
-        ("8", "8. Animals ex-situ"),
-        ("9", "9. Individual plant/algae populations"),
-        ("10", "10. Plants/algae ex situ"),
-        ("11", "11. Fungi"),
-        ("12", "12. Bacteria/other living agents"),
-        ("13", "13. Coastal (plants/algae communities)"),
-        ("14", "14. Farmland (plants/algae communities)"),
-        ("15", "15. Forests/Woodland"),
-        ("16", "16. Rivers, lakes and lagoons"),
-        ("17", "17. Grassland/Savanna"),
-        ("18", "18. Marine (plants/algae communities)"),
-        ("19", "19. Shrubland"),
-        ("20", "20. Wetlands"),
-        ("21", "21. Invasive/problem amphibians"),
-        ("22", "22. Invasive/problem birds"),
-        ("23", "23. Invasive/problem fish"),
-        ("24", "24. Invasive/problem invertebrates"),
-        ("25", "25. Invasive/problem mammals"),
-        ("26", "26. Invasive/problem reptiles"),
-        ("27", "27. Invasive/problem plants/algae"),
-        ("28", "28. Invasive/problem fungi"),
-        ("29", "29. Invasive/problem bacteria/agents"),
-        ("30", "30. Behaviour change"),
-    ]
+    FOLDER_CHOICES = CE_REFERENCE_FOLDER_CHOICES
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="references"
@@ -1467,6 +1556,12 @@ class Reference(models.Model):
 
     def __str__(self):
         return self.title[:120]
+
+    def folder_labels(self):
+        return [
+            CE_REFERENCE_FOLDER_MAP.get(value, value)
+            for value in normalize_reference_folder_values(self.reference_folder)
+        ]
 
     @property
     def canonical(self):

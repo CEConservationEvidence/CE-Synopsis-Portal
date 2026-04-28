@@ -45,6 +45,7 @@ from .models import (
     CollaborativeSession,
     UserRole,
     LibraryReference,
+    LibraryReferenceFolderHistory,
     LibraryImportBatch,
     ReferenceSourceBatch,
     ReferenceSourceBatchNoteHistory,
@@ -5256,6 +5257,40 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         self.assertEqual(project_ref.library_reference_id, existing_library_ref.id)
 
+    def test_project_import_prefills_project_reference_from_shared_library_folders(self):
+        existing_hash = reference_hash(
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            "2002",
+            "",
+        )
+        existing_library_ref = LibraryReference.objects.create(
+            hash_key=existing_hash,
+            title="Existing canonical title",
+            publication_year=2002,
+            reference_folder=["2", "15"],
+        )
+
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Reuse shared folders batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+
+        project_ref = Reference.objects.get(
+            project=self.project,
+            hash_key=existing_hash,
+        )
+        self.assertEqual(project_ref.library_reference_id, existing_library_ref.id)
+        self.assertEqual(project_ref.reference_folder, ["2", "15"])
+
     def test_can_delete_reference_from_batch(self):
         upload = SimpleUploadedFile(
             "references.txt",
@@ -5435,6 +5470,18 @@ class ReferenceBatchUploadParsingTests(TestCase):
             self.assertEqual(ref.screening_status, "included")
             self.assertEqual(ref.reference_folder, ["3a", "15"])
 
+        linked_library_refs = list(
+            LibraryReference.objects.filter(project_references__id__in=include_ids).distinct()
+        )
+        self.assertTrue(linked_library_refs)
+        for library_ref in linked_library_refs:
+            self.assertEqual(library_ref.reference_folder, ["3a", "15"])
+        self.assertTrue(
+            LibraryReferenceFolderHistory.objects.filter(
+                library_reference__in=linked_library_refs
+            ).exists()
+        )
+
     def test_screening_page_uses_resizable_folder_select_wrapper(self):
         upload = SimpleUploadedFile(
             "references.txt",
@@ -5466,11 +5513,11 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertContains(response, "Multiple folders are allowed.")
         self.assertContains(
             response,
-            "This is the main folder-classification step for this synopsis.",
+            "This is the main folder-classification step while screening.",
         )
         self.assertContains(
             response,
-            "These folders belong to the synopsis copy of each reference, not the shared library record.",
+            "changing folders here updates the shared reference library record and linked synopsis copies in other projects",
         )
 
     def test_bulk_apply_folders_to_selected_references(self):
@@ -5555,6 +5602,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
         ref.refresh_from_db()
         self.assertEqual(ref.screening_status, "included")
         self.assertEqual(ref.reference_folder, ["3a"])
+        self.assertEqual(ref.library_reference.reference_folder, ["3a"])
 
     def test_save_folders_preserves_existing_screening_notes(self):
         upload = SimpleUploadedFile(
@@ -5873,6 +5921,128 @@ class LibraryLinkBatchTests(TestCase):
                 source_type="library_link",
             ).count(),
             batch_count_before,
+        )
+
+    def test_link_uses_existing_shared_library_folders_by_default(self):
+        lib_ref = LibraryReference.objects.create(
+            title="Shared folders default",
+            publication_year=2024,
+            doi="10.1000/shared-default",
+            hash_key="lib-hash-shared-default",
+            reference_folder=["2", "15"],
+        )
+
+        linked, reused, batch = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [lib_ref.id],
+            [],
+        )
+
+        self.assertEqual((linked, reused), (1, 0))
+        self.assertIsNotNone(batch)
+        project_ref = Reference.objects.get(project=self.project, library_reference=lib_ref)
+        self.assertEqual(project_ref.reference_folder, ["2", "15"])
+
+    def test_link_folder_override_updates_shared_library_record(self):
+        lib_ref = LibraryReference.objects.create(
+            title="Shared folders override",
+            publication_year=2024,
+            doi="10.1000/shared-override",
+            hash_key="lib-hash-shared-override",
+            reference_folder=["2"],
+        )
+
+        linked, reused, _batch = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [lib_ref.id],
+            ["15", "2"],
+        )
+
+        self.assertEqual((linked, reused), (1, 0))
+        lib_ref.refresh_from_db()
+        self.assertEqual(lib_ref.reference_folder, ["2", "15"])
+        project_ref = Reference.objects.get(project=self.project, library_reference=lib_ref)
+        self.assertEqual(project_ref.reference_folder, ["2", "15"])
+        self.assertTrue(
+            LibraryReferenceFolderHistory.objects.filter(
+                library_reference=lib_ref,
+                new_folders=["2", "15"],
+            ).exists()
+        )
+
+
+class LibraryReferenceDetailTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="libeditor", password="pw")
+        self.project = Project.objects.create(title="Library Sync Project")
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.library_reference = LibraryReference.objects.create(
+            title="Library reference",
+            publication_year=2024,
+            doi="10.1000/library-detail",
+            hash_key="lib-detail-hash",
+            reference_folder=["2"],
+        )
+        self.batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Linked batch",
+            source_type="library_link",
+            uploaded_by=self.user,
+        )
+        self.project_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            library_reference=self.library_reference,
+            hash_key="lib-detail-hash",
+            title="Project copy",
+            reference_folder=["2"],
+        )
+        self.client.force_login(self.user)
+
+    def test_library_detail_updates_shared_folders_and_syncs_project_copies(self):
+        response = self.client.post(
+            reverse(
+                "synopsis:library_reference_detail",
+                args=[self.library_reference.id],
+            ),
+            {
+                "action": "edit",
+                "title": "Library reference",
+                "authors": "",
+                "publication_year": 2024,
+                "journal": "",
+                "volume": "",
+                "issue": "",
+                "pages": "",
+                "doi": "10.1000/library-detail",
+                "url": "",
+                "language": "",
+                "abstract": "",
+                "reference_folder": ["15", "2"],
+            },
+            follow=True,
+        )
+
+        self.library_reference.refresh_from_db()
+        self.project_reference.refresh_from_db()
+        self.assertEqual(self.library_reference.reference_folder, ["2", "15"])
+        self.assertEqual(self.project_reference.reference_folder, ["2", "15"])
+        self.assertContains(
+            response,
+            "Shared CE subject folders were updated.",
+        )
+        self.assertContains(
+            response,
+            "Synced 1 linked synopsis copy/copies.",
+        )
+        self.assertTrue(
+            LibraryReferenceFolderHistory.objects.filter(
+                library_reference=self.library_reference,
+                new_folders=["2", "15"],
+                change_source="library_detail",
+            ).exists()
         )
 
 
@@ -6997,6 +7167,78 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.reference.screening_notes, "Freshwater fish evidence.")
         self.assertContains(response, "Reference classification updated.")
 
+    def test_summary_detail_folder_update_syncs_shared_library_reference(self):
+        canonical = LibraryReference.objects.create(
+            title="Canonical library title",
+            authors="Alhas, Ibrahim",
+            publication_year=2024,
+            hash_key="summary-shared-sync",
+            reference_folder=["2"],
+        )
+        self.reference.library_reference = canonical
+        self.reference.hash_key = "summary-shared-sync"
+        self.reference.screening_status = "included"
+        self.reference.reference_folder = ["2"]
+        self.reference.save(
+            update_fields=[
+                "library_reference",
+                "hash_key",
+                "screening_status",
+                "reference_folder",
+                "updated_at",
+            ]
+        )
+        other_project = Project.objects.create(title="Other project")
+        other_batch = ReferenceSourceBatch.objects.create(
+            project=other_project,
+            label="Other batch",
+            source_type="library_link",
+        )
+        other_reference = Reference.objects.create(
+            project=other_project,
+            batch=other_batch,
+            library_reference=canonical,
+            hash_key="summary-shared-sync",
+            title="Other project copy",
+            reference_folder=["2"],
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "classification_command": "save",
+                "screening_status": "included",
+                "reference_folder": ["15", "2"],
+                "screening_notes": "Freshwater fish evidence.",
+            },
+            follow=True,
+        )
+
+        canonical.refresh_from_db()
+        self.reference.refresh_from_db()
+        other_reference.refresh_from_db()
+        self.assertEqual(canonical.reference_folder, ["2", "15"])
+        self.assertEqual(self.reference.reference_folder, ["2", "15"])
+        self.assertEqual(other_reference.reference_folder, ["2", "15"])
+        self.assertContains(
+            response,
+            "Shared CE subject folders were updated and synced to 1 linked synopsis copy/copies.",
+        )
+        self.assertTrue(
+            LibraryReferenceFolderHistory.objects.filter(
+                library_reference=canonical,
+                new_folders=["2", "15"],
+                source_project=self.project,
+                source_reference=self.reference,
+                change_source="summary_reference_management",
+            ).exists()
+        )
+
     def test_summary_detail_filters_blank_reference_folder_values(self):
         self.reference.screening_status = "included"
         self.reference.save(update_fields=["screening_status", "updated_at"])
@@ -7153,11 +7395,11 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Exclude whole reference from synopsis too")
         self.assertContains(
             response,
-            "CE subject folders are stored on the reference, not on this individual summary tab.",
+            "Shared CE subject folders are stored on the reference, not on this individual summary tab.",
         )
         self.assertContains(
             response,
-            "Changing it here updates the whole reference, including any other summary tabs for this paper.",
+            "changing them here updates the shared reference record and linked synopsis copies",
         )
 
     def test_board_context_workload_counts_are_aggregated_correctly(self):

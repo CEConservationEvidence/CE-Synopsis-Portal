@@ -69,6 +69,7 @@ from .models import (
     ActionList,
     AdvisoryBoardMember,
     AdvisoryBoardCustomField,
+    CE_REFERENCE_FOLDER_CHOICES,
     Funder,
     FunderContact,
     Guidance,
@@ -84,6 +85,7 @@ from .models import (
     SynopsisIntervention,
     SynopsisInterventionKeyMessage,
     UserRole,
+    normalize_reference_folder_values,
 )
 
 RESEARCH_DESIGN_CHOICES = [
@@ -1797,10 +1799,9 @@ class ReferenceScreeningForm(forms.Form):
         choices=Reference.FOLDER_CHOICES,
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "form-select form-select-sm", "size": "6"}),
-        label="CE subject folders for this synopsis copy",
+        label="Shared CE subject folders",
         help_text=(
-            "These folders belong to this reference in this synopsis. "
-            "They do not change the shared library record."
+            "For library-linked references, changing these folders updates the shared library record and linked synopsis copies."
         ),
     )
     screening_notes = forms.CharField(
@@ -1813,6 +1814,11 @@ class ReferenceScreeningForm(forms.Form):
             }
         ),
     )
+
+    def clean_reference_folder(self):
+        return normalize_reference_folder_values(
+            self.cleaned_data.get("reference_folder") or []
+        )
 
 
 class ReferenceClassificationForm(forms.Form):
@@ -1828,10 +1834,9 @@ class ReferenceClassificationForm(forms.Form):
         choices=Reference.FOLDER_CHOICES,
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "6"}),
-        label="CE subject folders for this synopsis copy",
+        label="Shared CE subject folders",
         help_text=(
-            "This is a reference-level setting for this synopsis copy. "
-            "Changing it here updates the whole reference, including any other summary tabs for this paper."
+            "This is a reference-level setting. For library-linked references, changing these folders updates the shared library record and linked synopsis copies."
         ),
     )
     screening_notes = forms.CharField(
@@ -1850,6 +1855,11 @@ class ReferenceClassificationForm(forms.Form):
     def clean_screening_notes(self):
         return (self.cleaned_data.get("screening_notes") or "").strip()
 
+    def clean_reference_folder(self):
+        return normalize_reference_folder_values(
+            self.cleaned_data.get("reference_folder") or []
+        )
+
     def clean(self):
         cleaned = super().clean()
         status = cleaned.get("screening_status")
@@ -1863,6 +1873,16 @@ class ReferenceClassificationForm(forms.Form):
 
 
 class LibraryReferenceUpdateForm(forms.ModelForm):
+    reference_folder = forms.MultipleChoiceField(
+        choices=CE_REFERENCE_FOLDER_CHOICES,
+        required=False,
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "8"}),
+        label="Shared CE subject folders",
+        help_text=(
+            "These shared folders apply across the CE reference database and are reused when the reference is linked into synopses."
+        ),
+    )
+
     class Meta:
         model = LibraryReference
         fields = [
@@ -1877,6 +1897,7 @@ class LibraryReferenceUpdateForm(forms.ModelForm):
             "url",
             "language",
             "abstract",
+            "reference_folder",
         ]
         widgets = {
             "title": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
@@ -1891,6 +1912,11 @@ class LibraryReferenceUpdateForm(forms.ModelForm):
             "language": forms.TextInput(attrs={"class": "form-control"}),
             "abstract": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
         }
+
+    def clean_reference_folder(self):
+        return normalize_reference_folder_values(
+            self.cleaned_data.get("reference_folder") or []
+        )
 
 
 class ActionListFeedbackCloseForm(forms.Form):

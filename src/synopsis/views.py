@@ -117,6 +117,7 @@ from .models import (
     GuidanceFeedback,
     LibraryImportBatch,
     LibraryReference,
+    LibraryReferenceFolderHistory,
     ReferenceSourceBatch,
     ReferenceSourceBatchNoteHistory,
     Reference,
@@ -135,6 +136,7 @@ from .models import (
     SynopsisAssignment,
     IUCNCategory,
     SynopsisExportLog,
+    normalize_reference_folder_values,
 )
 from .presets import PRESETS
 from .utils import (
@@ -166,6 +168,51 @@ def _decode_entities(text):
 
 
 _COLLAB_INVITE_TABLE_EXISTS = None
+
+
+def _sync_project_reference_folders_from_library(library_reference):
+    shared_folders = normalize_reference_folder_values(library_reference.reference_folder)
+    synced = 0
+    for project_reference in Reference.objects.filter(library_reference=library_reference):
+        if normalize_reference_folder_values(project_reference.reference_folder) == shared_folders:
+            continue
+        project_reference.reference_folder = shared_folders
+        project_reference.save(update_fields=["reference_folder", "updated_at"])
+        synced += 1
+    return synced
+
+
+def _update_shared_library_reference_folders(
+    library_reference,
+    folder_values,
+    *,
+    changed_by=None,
+    source_project=None,
+    source_reference=None,
+    change_source="",
+    previous_folders=None,
+):
+    shared_folders = normalize_reference_folder_values(folder_values)
+    previous_values = (
+        normalize_reference_folder_values(previous_folders)
+        if previous_folders is not None
+        else normalize_reference_folder_values(library_reference.reference_folder)
+    )
+    changed = previous_values != shared_folders
+    if changed:
+        library_reference.reference_folder = shared_folders
+        library_reference.save(update_fields=["reference_folder", "updated_at"])
+        LibraryReferenceFolderHistory.objects.create(
+            library_reference=library_reference,
+            previous_folders=previous_values,
+            new_folders=shared_folders,
+            changed_by=changed_by if getattr(changed_by, "is_authenticated", False) else None,
+            source_project=source_project,
+            source_reference=source_reference,
+            change_source=change_source,
+        )
+    synced_project_refs = _sync_project_reference_folders_from_library(library_reference)
+    return changed, synced_project_refs, previous_values, shared_folders
 
 
 def _collaborative_invitation_table_ready():
@@ -7165,7 +7212,7 @@ def reference_batch_list(request, project_id):
 
 
 def _link_library_references_to_project(user, target_project, ref_ids, folder):
-    folder = folder or []
+    folder = normalize_reference_folder_values(folder or [])
     batch = None
 
     linked = 0
@@ -7190,6 +7237,15 @@ def _link_library_references_to_project(user, target_project, ref_ids, folder):
         ).exists():
             reused += 1
             continue
+
+        if folder:
+            _update_shared_library_reference_folders(
+                lib_ref,
+                folder,
+                changed_by=user,
+                source_project=target_project,
+                change_source="library_link",
+            )
 
         if batch is None:
             now = timezone.now()
@@ -7222,7 +7278,7 @@ def _link_library_references_to_project(user, target_project, ref_ids, folder):
             reference_document=lib_ref.reference_document,
             reference_document_uploaded_at=lib_ref.reference_document_uploaded_at,
             screening_status="pending",
-            reference_folder=folder,
+            reference_folder=normalize_reference_folder_values(lib_ref.reference_folder),
         )
         linked += 1
 
@@ -7291,6 +7347,8 @@ def reference_library(request):
                 if reused:
                     parts.append(f"Reused {reused} existing reference(s)")
                 msg = " and ".join(parts) + f" into {target_project.title}."
+                if folder:
+                    msg += " Shared CE subject folders were updated before linking."
                 messages.success(request, msg)
             else:
                 messages.info(request, "No references were linked (possible duplicates).")
@@ -7396,6 +7454,8 @@ def library_batch_detail(request, batch_id):
                 if reused:
                     parts.append(f"Reused {reused} existing reference(s)")
                 msg = " and ".join(parts) + f" into {target_project.title}."
+                if folder:
+                    msg += " Shared CE subject folders were updated before linking."
                 messages.success(request, msg)
             else:
                 messages.info(request, "No references were linked (possible duplicates).")
@@ -7583,10 +7643,10 @@ def library_reference_detail(request, reference_id):
                 request.user, target_project, [library_reference.id], folder
             )
             if linked:
-                messages.success(
-                    request,
-                    f"Linked reference to {target_project.title}.",
-                )
+                message = f"Linked reference to {target_project.title}."
+                if folder:
+                    message += " Shared CE subject folders were updated before linking."
+                messages.success(request, message)
                 return redirect(
                     "synopsis:library_reference_detail",
                     reference_id=library_reference.id,
@@ -7595,10 +7655,35 @@ def library_reference_detail(request, reference_id):
                 link_message = "This reference already exists in that project."
             form = LibraryReferenceUpdateForm(instance=library_reference)
         else:
+            previous_folders = normalize_reference_folder_values(
+                library_reference.reference_folder
+            )
             form = LibraryReferenceUpdateForm(request.POST, instance=library_reference)
             if form.is_valid():
-                form.save()
-                messages.success(request, "Library reference updated.")
+                library_reference = form.save()
+                shared_changed, synced_count, old_folders, new_folders = (
+                    False,
+                    0,
+                    previous_folders,
+                    normalize_reference_folder_values(library_reference.reference_folder),
+                )
+                if previous_folders != new_folders:
+                    shared_changed, synced_count, old_folders, new_folders = (
+                        _update_shared_library_reference_folders(
+                            library_reference,
+                            new_folders,
+                            changed_by=request.user,
+                            change_source="library_detail",
+                            previous_folders=previous_folders,
+                        )
+                    )
+                if shared_changed:
+                    message = "Library reference updated. Shared CE subject folders were updated."
+                    if synced_count:
+                        message += f" Synced {synced_count} linked synopsis copy/copies."
+                    messages.success(request, message)
+                else:
+                    messages.success(request, "Library reference updated.")
                 return redirect(
                     "synopsis:library_reference_detail",
                     reference_id=library_reference.id,
@@ -7619,6 +7704,9 @@ def library_reference_detail(request, reference_id):
             "form": form,
             "project_options": project_options,
             "folder_choices": Reference.FOLDER_CHOICES,
+            "folder_history": library_reference.folder_history.select_related(
+                "changed_by", "source_project", "source_reference"
+            )[:10],
         },
     )
 
@@ -8878,11 +8966,13 @@ def reference_summary_detail(request, project_id, summary_id):
         if action == "update-classification" and classification_form.is_valid():
             reference = summary.reference
             previous_status = reference.screening_status
-            folders = classification_form.cleaned_data.get("reference_folder") or []
+            folders = normalize_reference_folder_values(
+                classification_form.cleaned_data.get("reference_folder") or []
+            )
             reference.screening_status = classification_form.cleaned_data[
                 "screening_status"
             ]
-            reference.reference_folder = [folder for folder in folders if folder]
+            reference.reference_folder = folders
             reference.screening_notes = (
                 classification_form.cleaned_data.get("screening_notes") or ""
             )
@@ -8898,29 +8988,51 @@ def reference_summary_detail(request, project_id, summary_id):
                     "updated_at",
                 ]
             )
+            shared_folder_changed = False
+            shared_synced_count = 0
+            if reference.library_reference_id:
+                (
+                    shared_folder_changed,
+                    shared_synced_count,
+                    _previous_shared_folders,
+                    _new_shared_folders,
+                ) = _update_shared_library_reference_folders(
+                    reference.library_reference,
+                    folders,
+                    changed_by=request.user,
+                    source_project=project,
+                    source_reference=reference,
+                    change_source="summary_reference_management",
+                )
 
             if reference.screening_status == "excluded":
                 removed_assignments = _remove_reference_from_synopsis(reference)
-                messages.success(
-                    request,
-                    "Reference excluded from this synopsis."
-                    + (
-                        f" Removed it from {removed_assignments} intervention assignment(s)."
-                        if removed_assignments
-                        else ""
-                    ),
-                )
+                message = "Reference excluded from this synopsis."
+                if removed_assignments:
+                    message += f" Removed it from {removed_assignments} intervention assignment(s)."
+                if shared_folder_changed:
+                    message += (
+                        f" Shared CE subject folders were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                    )
+                messages.success(request, message)
                 return redirect(
                     f"{reverse('synopsis:reference_summary_detail', args=[project.id, summary.id])}?panel=management"
                 )
 
             if previous_status == "excluded":
-                messages.success(
-                    request,
-                    "Reference re-included in this synopsis. You can now continue summarising it.",
-                )
+                message = "Reference re-included in this synopsis. You can now continue summarising it."
+                if shared_folder_changed:
+                    message += (
+                        f" Shared CE subject folders were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                    )
+                messages.success(request, message)
             else:
-                messages.success(request, "Reference classification updated.")
+                message = "Reference classification updated."
+                if shared_folder_changed:
+                    message += (
+                        f" Shared CE subject folders were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                    )
+                messages.success(request, message)
             return redirect(
                 f"{reverse('synopsis:reference_summary_detail', args=[project.id, summary.id])}?panel=management"
             )
@@ -10312,10 +10424,12 @@ def reference_batch_detail(request, project_id, batch_id):
                 return redirect(redirect_url)
 
             if bulk_action == "save-folders":
-                folder = [
-                    value for value in request.POST.getlist("reference_folder") if value
-                ]
+                folder = normalize_reference_folder_values(
+                    request.POST.getlist("reference_folder")
+                )
                 updated = 0
+                shared_updated = 0
+                synced_project_refs = 0
                 now = timezone.now()
                 for ref in batch.references.filter(pk__in=selected_ids):
                     ref.reference_folder = folder
@@ -10330,12 +10444,29 @@ def reference_batch_detail(request, project_id, batch_id):
                             "updated_at",
                         ]
                     )
+                    if ref.library_reference_id:
+                        changed, synced_count, _previous, _new = (
+                            _update_shared_library_reference_folders(
+                                ref.library_reference,
+                                folder,
+                                changed_by=request.user,
+                                source_project=project,
+                                source_reference=ref,
+                                change_source="screening_bulk_save_folders",
+                            )
+                        )
+                        if changed:
+                            shared_updated += 1
+                        synced_project_refs += synced_count
                     updated += 1
 
-                messages.success(
-                    request,
-                    f"Updated folders for {updated} reference(s).",
-                )
+                message = f"Updated folders for {updated} reference(s)."
+                if shared_updated:
+                    message += (
+                        f" Updated the shared library folders for {shared_updated} linked reference(s)"
+                        f" and synced {synced_project_refs} linked synopsis copy/copies."
+                    )
+                messages.success(request, message)
                 redirect_url = reverse(
                     "synopsis:reference_batch_detail",
                     kwargs={"project_id": project.id, "batch_id": batch.id},
@@ -10363,10 +10494,12 @@ def reference_batch_detail(request, project_id, batch_id):
 
             updated = 0
             now = timezone.now()
-            bulk_folder = [
-                value for value in request.POST.getlist("reference_folder") if value
-            ]
+            bulk_folder = normalize_reference_folder_values(
+                request.POST.getlist("reference_folder")
+            )
             apply_bulk_folder = "reference_folder" in request.POST and bool(bulk_folder)
+            shared_updated = 0
+            synced_project_refs = 0
             for ref in batch.references.filter(pk__in=selected_ids):
                 ref.screening_status = new_status
                 ref.screening_decision_at = now
@@ -10382,6 +10515,20 @@ def reference_batch_detail(request, project_id, batch_id):
                     ref.reference_folder = bulk_folder
                     update_fields.append("reference_folder")
                 ref.save(update_fields=update_fields)
+                if apply_bulk_folder and ref.library_reference_id:
+                    changed, synced_count, _previous, _new = (
+                        _update_shared_library_reference_folders(
+                            ref.library_reference,
+                            bulk_folder,
+                            changed_by=request.user,
+                            source_project=project,
+                            source_reference=ref,
+                            change_source=f"screening_bulk_{new_status}",
+                        )
+                    )
+                    if changed:
+                        shared_updated += 1
+                    synced_project_refs += synced_count
                 updated += 1
 
             if updated:
@@ -10389,6 +10536,11 @@ def reference_batch_detail(request, project_id, batch_id):
                 message = f"Marked {updated} reference(s) as {status_label}."
                 if apply_bulk_folder:
                     message += " Applied the selected folders at the same time."
+                    if shared_updated:
+                        message += (
+                            f" Updated the shared library folders for {shared_updated} linked reference(s)"
+                            f" and synced {synced_project_refs} linked synopsis copy/copies."
+                        )
                 messages.success(request, message)
             else:
                 messages.info(request, "No references matched the selection.")
@@ -10416,8 +10568,9 @@ def reference_batch_detail(request, project_id, batch_id):
                 project=project,
             )
             status = form.cleaned_data["screening_status"]
-            raw_folder = form.cleaned_data.get("reference_folder") or []
-            folder = [value for value in raw_folder if value]
+            folder = normalize_reference_folder_values(
+                form.cleaned_data.get("reference_folder") or []
+            )
             ref.screening_status = status
             update_fields = [
                 "screening_status",
@@ -10434,10 +10587,23 @@ def reference_batch_detail(request, project_id, batch_id):
             ref.screening_decision_at = timezone.now()
             ref.screened_by = request.user
             ref.save(update_fields=update_fields)
-            messages.success(
-                request,
-                f"Updated screening status for '{ref.canonical.title[:80]}'.",
-            )
+            message = f"Updated screening status for '{ref.canonical.title[:80]}'."
+            if "reference_folder" in request.POST and ref.library_reference_id:
+                shared_changed, synced_count, _previous, _new = (
+                    _update_shared_library_reference_folders(
+                        ref.library_reference,
+                        folder,
+                        changed_by=request.user,
+                        source_project=project,
+                        source_reference=ref,
+                        change_source="screening_single",
+                    )
+                )
+                if shared_changed:
+                    message += (
+                        f" Shared CE subject folders were updated and synced to {synced_count} linked synopsis copy/copies."
+                    )
+            messages.success(request, message)
             redirect_params = []
             if status_filter:
                 redirect_params.append(("status", status_filter))
@@ -10772,7 +10938,9 @@ def reference_batch_upload(request, project_id):
                                 url=data["url"],
                                 language=data["language"],
                                 raw_ris=record,
-                                reference_folder=[],
+                                reference_folder=normalize_reference_folder_values(
+                                    library_ref.reference_folder
+                                ),
                             )
                             imported += 1
 
