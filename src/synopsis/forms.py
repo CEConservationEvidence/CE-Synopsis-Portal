@@ -88,6 +88,12 @@ from .models import (
     normalize_reference_folder_values,
 )
 
+ADVISORY_DISPLAY_GROUP_CHOICES_WITHOUT_GUIDANCE = [
+    choice
+    for choice in AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES
+    if choice[0] != AdvisoryBoardCustomField.DISPLAY_GROUP_GUIDANCE
+]
+
 RESEARCH_DESIGN_CHOICES = [
     ("", "Choose"),
     ("Replicated", "Replicated"),
@@ -601,6 +607,9 @@ class AdvisoryCustomFieldForm(forms.ModelForm):
     def __init__(self, project, *args, **kwargs):
         self.project = project
         super().__init__(*args, **kwargs)
+        self.fields["display_group"].choices = (
+            ADVISORY_DISPLAY_GROUP_CHOICES_WITHOUT_GUIDANCE
+        )
 
     def clean_name(self):
         name = (self.cleaned_data.get("name") or "").strip()
@@ -626,7 +635,7 @@ class AdvisoryCustomFieldForm(forms.ModelForm):
 
 class AdvisoryCustomFieldPlacementForm(forms.Form):
     display_group = forms.ChoiceField(
-        choices=AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
+        choices=ADVISORY_DISPLAY_GROUP_CHOICES_WITHOUT_GUIDANCE,
         widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
         label="Show in section",
     )

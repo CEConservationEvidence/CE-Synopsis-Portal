@@ -423,69 +423,6 @@ def _member_glance_statuses(member: AdvisoryBoardMember) -> list[dict]:
             )
         )
 
-    latest_guidance_feedback = getattr(member, "latest_guidance_feedback_obj", None)
-    if latest_guidance_feedback and getattr(
-        latest_guidance_feedback, "submitted_at", None
-    ):
-        statuses.append(
-            _status_badge(
-                "Guidance",
-                "Feedback received",
-                "success",
-                date=latest_guidance_feedback.submitted_at,
-                date_label="Received",
-            )
-        )
-    elif response == "N":
-        statuses.append(
-            _status_badge(
-                "Guidance",
-                "Not applicable",
-                "secondary",
-                note="Member declined",
-            )
-        )
-    elif getattr(member, "sent_guidance_at", None):
-        if getattr(member, "feedback_on_guidance_deadline", None):
-            if getattr(member, "guidance_reminder_sent", False):
-                statuses.append(
-                    _status_badge(
-                        "Guidance",
-                        "Reminder sent",
-                        "info",
-                        date=getattr(member, "guidance_reminder_sent_at", None),
-                        date_label="Reminded",
-                    )
-                )
-            else:
-                statuses.append(
-                    _status_badge(
-                        "Guidance",
-                        "Awaiting feedback",
-                        "warning",
-                        date=getattr(member, "feedback_on_guidance_deadline", None),
-                        date_label="Due",
-                    )
-                )
-        else:
-            statuses.append(
-                _status_badge(
-                    "Guidance",
-                    "Sent",
-                    "primary",
-                    date=getattr(member, "sent_guidance_at", None),
-                    date_label="Sent",
-                )
-            )
-    else:
-        statuses.append(
-            _status_badge(
-                "Guidance",
-                "Not sent",
-                "secondary",
-            )
-        )
-
     protocol_feedback_received = getattr(member, "feedback_on_protocol_received", None)
     if protocol_feedback_received:
         statuses.append(
@@ -1017,6 +954,9 @@ def _ensure_collaborative_invite_link(
     if not _onlyoffice_enabled():
         return ""
 
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        return ""
+
     document = _get_document_for_type(project, document_type)
     if not _document_requires_file(document):
         return ""
@@ -1342,6 +1282,14 @@ def _resolve_external_collaborative_access(request, project, document_type, sess
 
 def _document_requires_file(document) -> bool:
     return bool(document and getattr(document, "document", None))
+
+
+def _guidance_feature_removed_redirect(request, project, *, target="project_hub"):
+    messages.info(
+        request,
+        "The guidance document workflow has been removed from the current portal interface.",
+    )
+    return redirect(f"synopsis:{target}", project_id=project.id)
 
 
 def _onlyoffice_editor_js_url() -> str:
@@ -2137,7 +2085,9 @@ def _advisory_board_context(
     ]
 
     custom_fields = list(
-        AdvisoryBoardCustomField.objects.filter(project=project).order_by(
+        AdvisoryBoardCustomField.objects.filter(project=project)
+        .exclude(display_group=AdvisoryBoardCustomField.DISPLAY_GROUP_GUIDANCE)
+        .order_by(
             "display_order", "name", "id"
         )
     )
@@ -2286,27 +2236,6 @@ def _advisory_board_context(
         "document_ready": action_list_document_ready,
     }
 
-    guidance_obj = getattr(project, "guidance", None)
-    guidance_document_ready = bool(guidance_obj and getattr(guidance_obj, "document", None))
-    guidance_members = project.advisory_board_members.filter(
-        sent_guidance_at__isnull=False,
-        response="Y",
-    )
-    guidance_pending_dates = [
-        d
-        for d in guidance_members.filter(feedback_on_guidance_deadline__isnull=False)
-        .order_by("feedback_on_guidance_deadline")
-        .values_list("feedback_on_guidance_deadline", flat=True)
-    ]
-    guidance_feedback_state = {
-        "guidance": guidance_obj,
-        "is_closed": bool(getattr(guidance_obj, "feedback_closed_at", None)),
-        "closed_at": getattr(guidance_obj, "feedback_closed_at", None),
-        "closure_message": getattr(guidance_obj, "feedback_closure_message", ""),
-        "deadline": guidance_pending_dates[0] if guidance_pending_dates else None,
-        "document_ready": guidance_document_ready,
-    }
-
     section_palette = {
         AdvisoryBoardCustomField.SECTION_ACCEPTED: {
             "title": "Accepted members",
@@ -2406,7 +2335,6 @@ def _advisory_board_context(
         "action",
         "protocol",
         "synopsis",
-        "guidance",
         "custom",
     ]
     combined_fields_by_group = {name: [] for name in group_names}
@@ -2452,14 +2380,6 @@ def _advisory_board_context(
             getattr(member, "latest_action_list_feedback_obj", None), "submitted_at", None
         )
     ]
-    guidance_feedback_members = [
-        member
-        for member in all_members
-        if getattr(
-            getattr(member, "latest_guidance_feedback_obj", None), "submitted_at", None
-        )
-    ]
-
     status_badges = {
         AdvisoryBoardCustomField.SECTION_ACCEPTED: {
             "label": "Accepted",
@@ -2486,7 +2406,6 @@ def _advisory_board_context(
         "pending_members": pending_members,
         "protocol_feedback_members": protocol_feedback_members,
         "action_list_feedback_members": action_list_feedback_members,
-        "guidance_feedback_members": guidance_feedback_members,
         "member_sections": member_sections,
         "combined_fields_by_group": combined_fields_by_group,
         "member_status_badges": status_badges,
@@ -2523,16 +2442,12 @@ def _advisory_board_context(
         "can_edit_members": can_edit_members,
         "action_list_feedback_state": action_list_feedback_state,
         "action_list_feedback_close_form": action_list_feedback_close_form,
-        "guidance_pending_count": guidance_members.count(),
-        "guidance_pending_dates": guidance_pending_dates,
-        "initial_guidance_reminder_log": project.change_log.filter(
-            action="Scheduled guidance reminders"
-        )
-        .order_by("created_at")
-        .first(),
-        "guidance_feedback_state": guidance_feedback_state,
         "section_palette": section_palette,
-        "custom_field_group_choices": AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
+        "custom_field_group_choices": [
+            choice
+            for choice in AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES
+            if choice[0] != AdvisoryBoardCustomField.DISPLAY_GROUP_GUIDANCE
+        ],
         "declined_members_with_reason": declined_with_reason,
         "minimum_allowed_deadline_date": minimum_allowed_deadline_date(),
     }
@@ -4044,6 +3959,7 @@ def action_list_detail(request, project_id):
 @login_required
 def guidance_detail(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    return _guidance_feature_removed_redirect(request, project, target="project_hub")
     guidance = getattr(project, "guidance", None)
     can_manage = _user_is_manager(request.user)
     can_edit_documents = _user_can_edit_project(request.user, project)
@@ -4670,6 +4586,11 @@ def collaborative_start(request, project_id, document_slug):
     if not document_type:
         raise Http404("Unknown document type")
 
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        return _guidance_feature_removed_redirect(
+            request, project, target="project_hub"
+        )
+
     if not _onlyoffice_enabled():
         messages.error(
             request,
@@ -4808,6 +4729,19 @@ def collaborative_edit(request, project_id, document_slug, token):
     document_type = _normalize_document_type(document_slug)
     if not document_type:
         raise Http404("Unknown document type")
+
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        if _user_can_edit_project(request.user, project):
+            return _guidance_feature_removed_redirect(
+                request, project, target="project_hub"
+            )
+        return _collaborative_access_closed_response(
+            request,
+            project,
+            "Guidance",
+            "The guidance document workflow is not available in the current portal interface.",
+            status=410,
+        )
 
     document_label = _document_label(document_type)
     detail_url = _document_detail_url(project.id, document_type)
@@ -5024,6 +4958,11 @@ def collaborative_force_end(request, project_id, document_slug, token):
     if not document_type:
         raise Http404("Unknown document type")
 
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        return _guidance_feature_removed_redirect(
+            request, project, target="project_hub"
+        )
+
     session = _collaborative_session_or_404(project, document_type, token)
     if not session.is_active:
         messages.info(request, "The collaborative session is already closed.")
@@ -5089,6 +5028,11 @@ def collaborative_edit_callback(request, project_id, document_slug, token):
         return JsonResponse({"error": 1, "message": "Unknown document"}, status=404)
 
     session = _collaborative_session_or_404(project, document_type, token)
+
+    if document_type == CollaborativeSession.DOCUMENT_GUIDANCE:
+        if session.is_active:
+            session.mark_inactive(reason="Guidance workflow removed from portal")
+        return JsonResponse({"error": 0})
 
     try:
         payload = _parse_onlyoffice_callback(request)
@@ -5452,6 +5396,7 @@ def guidance_set_stage(request, project_id):
         return HttpResponseBadRequest("Invalid request method.")
 
     project = get_object_or_404(Project, pk=project_id)
+    return _guidance_feature_removed_redirect(request, project, target="project_hub")
     if not _user_can_edit_project(request.user, project):
         messages.error(
             request, "You do not have permission to update the guidance stage."
@@ -5578,6 +5523,7 @@ def guidance_set_stage(request, project_id):
 @login_required
 def guidance_delete_file(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    return _guidance_feature_removed_redirect(request, project, target="project_hub")
     guidance = getattr(project, "guidance", None)
     if not guidance or not guidance.document:
         messages.info(request, "No guidance file to delete.")
@@ -5625,6 +5571,7 @@ def guidance_restore_revision(request, project_id, revision_id):
         return HttpResponseBadRequest("Invalid request method.")
 
     project = get_object_or_404(Project, pk=project_id)
+    return _guidance_feature_removed_redirect(request, project, target="project_hub")
     guidance = getattr(project, "guidance", None)
     if not guidance:
         messages.error(request, "No guidance exists to restore.")
@@ -5675,6 +5622,7 @@ def guidance_restore_revision(request, project_id, revision_id):
 @login_required
 def guidance_clear_text(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    return _guidance_feature_removed_redirect(request, project, target="project_hub")
     guidance = getattr(project, "guidance", None)
     if not guidance or not (guidance.text_version or "").strip():
         messages.info(request, "No guidance notes to clear.")
@@ -5707,6 +5655,7 @@ def guidance_clear_text(request, project_id):
 @login_required
 def guidance_delete(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    return _guidance_feature_removed_redirect(request, project, target="project_hub")
     guidance = getattr(project, "guidance", None)
     if not guidance:
         messages.info(request, "No guidance to delete.")
@@ -6648,6 +6597,9 @@ def advisory_schedule_action_list_reminders(request, project_id):
 @login_required
 def advisory_schedule_guidance_reminders(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    return _guidance_feature_removed_redirect(
+        request, project, target="advisory_board_list"
+    )
     if request.method != "POST":
         return HttpResponseBadRequest("POST required")
 
@@ -6776,15 +6728,9 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
             )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     if kind == "guidance":
-        if not getattr(project, "guidance", None):
-            messages.error(request, "No guidance configured for this project.")
-            return redirect("synopsis:advisory_board_list", project_id=project.id)
-        if member.sent_guidance_at is None or response_code != "Y":
-            messages.error(
-                request,
-                "This member needs an accepted invitation and the guidance before setting a guidance deadline.",
-            )
-            return redirect("synopsis:advisory_board_list", project_id=project.id)
+        return _guidance_feature_removed_redirect(
+            request, project, target="advisory_board_list"
+        )
 
     value = None
     if not clearing:
@@ -7021,10 +6967,6 @@ def advisory_member_set_action_list_flag(request, project_id, member_id, flag):
                 "added_to_action_list_doc",
                 "feedback added to the action list document",
             ),
-            "guidance_feedback": (
-                "action_list_feedback_on_guidance",
-                "guidance feedback recorded",
-            ),
         },
         log_action="Updated action list tracking",
         success_message="Action list tracking updated.",
@@ -7053,10 +6995,6 @@ def advisory_member_set_protocol_flag(request, project_id, member_id, flag):
                 "added_to_protocol_doc",
                 "feedback added to the protocol document",
             ),
-            "guidance_feedback": (
-                "feedback_on_guidance",
-                "guidance feedback recorded for the protocol",
-            ),
         },
         log_action="Updated protocol tracking",
         success_message="Protocol tracking updated.",
@@ -7066,6 +7004,9 @@ def advisory_member_set_protocol_flag(request, project_id, member_id, flag):
 @login_required
 def advisory_member_set_guidance_flag(request, project_id, member_id, flag):
     project = get_object_or_404(Project, pk=project_id)
+    return _guidance_feature_removed_redirect(
+        request, project, target="advisory_board_list"
+    )
     member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
     return _advisory_member_set_tracking_flag(
         request,
@@ -7077,10 +7018,6 @@ def advisory_member_set_guidance_flag(request, project_id, member_id, flag):
         latest_feedback=member.latest_guidance_feedback,
         flag=flag,
         flag_map={
-            "author_replied": (
-                "guidance_author_replied",
-                "author replied to guidance feedback",
-            ),
             "added_to_doc": (
                 "added_to_guidance_doc",
                 "feedback added to the guidance document",
@@ -11185,6 +11122,9 @@ def advisory_action_list_feedback_close(request, project_id):
 @login_required
 def advisory_guidance_feedback_close(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    return _guidance_feature_removed_redirect(
+        request, project, target="advisory_board_list"
+    )
     guidance = getattr(project, "guidance", None)
     if not guidance:
         messages.error(request, "No guidance configured for this project.")
@@ -12599,6 +12539,9 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
 @login_required
 def advisory_send_guidance_compose_all(request, project_id):
     project = get_object_or_404(Project, id=project_id)
+    return _guidance_feature_removed_redirect(
+        request, project, target="advisory_board_list"
+    )
     guidance = getattr(project, "guidance", None)
     if not guidance:
         messages.error(request, "No guidance configured for this project.")
@@ -12749,6 +12692,9 @@ def advisory_send_guidance_compose_all(request, project_id):
 @login_required
 def advisory_send_guidance_compose_member(request, project_id, member_id):
     project = get_object_or_404(Project, id=project_id)
+    return _guidance_feature_removed_redirect(
+        request, project, target="advisory_board_list"
+    )
     guidance = getattr(project, "guidance", None)
     if not guidance:
         messages.error(request, "No guidance configured for this project.")
@@ -13250,6 +13196,17 @@ def guidance_feedback(request, token):
     fb = get_object_or_404(GuidanceFeedback, token=token)
     member = fb.member
     project = fb.project
+    return render(
+        request,
+        "synopsis/guidance_feedback_thanks.html",
+        {
+            "project": project,
+            "feedback": fb,
+            "closed_message": "The guidance document workflow is not available in the current portal interface.",
+            "closed": True,
+        },
+        status=410,
+    )
     guidance = fb.guidance or getattr(project, "guidance", None)
 
     deadline = fb.feedback_deadline_at
@@ -13447,6 +13404,7 @@ def guidance_delete_revision(request, project_id, revision_id):
         return HttpResponseBadRequest("Invalid request method.")
 
     project = get_object_or_404(Project, pk=project_id)
+    return _guidance_feature_removed_redirect(request, project, target="project_hub")
     if not _user_can_edit_project(request.user, project):
         messages.error(
             request,
