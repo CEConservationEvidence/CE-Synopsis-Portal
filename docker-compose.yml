@@ -29,12 +29,31 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       SERVE_MEDIA: "True"
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-8}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-300}
+      GUNICORN_GRACEFUL_TIMEOUT: ${GUNICORN_GRACEFUL_TIMEOUT:-30}
+      GUNICORN_KEEP_ALIVE: ${GUNICORN_KEEP_ALIVE:-5}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,host.docker.internal}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://host.docker.internal:8000}
       ONLYOFFICE_URL: ${ONLYOFFICE_URL:-}
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-change-me}
       ONLYOFFICE_CALLBACK_TIMEOUT: ${ONLYOFFICE_CALLBACK_TIMEOUT:-10}
       ONLYOFFICE_TRUSTED_DOWNLOAD_URLS: ${ONLYOFFICE_TRUSTED_DOWNLOAD_URLS:-}
+    command:
+      - sh
+      - -c
+      - >
+        exec gunicorn ce_portal.wsgi:application
+        --bind 0.0.0.0:8000
+        --worker-class gthread
+        --workers "$${GUNICORN_WORKERS:-3}"
+        --threads "$${GUNICORN_THREADS:-8}"
+        --timeout "$${GUNICORN_TIMEOUT:-300}"
+        --graceful-timeout "$${GUNICORN_GRACEFUL_TIMEOUT:-30}"
+        --keep-alive "$${GUNICORN_KEEP_ALIVE:-5}"
+        --access-logfile -
+        --error-logfile -
     ports:
       - "${WEB_BIND_HOST:-0.0.0.0}:${WEB_PORT:-8000}:8000"
     volumes:
