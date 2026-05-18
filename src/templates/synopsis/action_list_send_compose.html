@@ -24,13 +24,21 @@
             <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title">Schedule &amp; message</h5>
-                    <p class="text-muted small mb-3">Apply a deadline and optional note that will be reused for every member.</p>
+                    <p class="text-muted small mb-3">Apply a deadline and review message that will be reused for every member.</p>
                     <div class="mb-3">
                         <label class="form-label" for="{{ form.due_date.id_for_label }}">Response due date</label>
                         {{ form.due_date }}
                         <div class="form-text">{{ form.due_date.help_text }}</div>
                         {% if form.due_date.errors %}
                         <div class="invalid-feedback d-block">{{ form.due_date.errors|join:", " }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="{{ form.standard_message.id_for_label }}">Standard message</label>
+                        {{ form.standard_message }}
+                        <div class="form-text">{{ form.standard_message.help_text }}</div>
+                        {% if form.standard_message.errors %}
+                        <div class="invalid-feedback d-block">{{ form.standard_message.errors|join:", " }}</div>
                         {% endif %}
                     </div>
                     <div class="mb-0">
@@ -70,6 +78,7 @@
             </div>
         </div>
     </div>
+    {% include "synopsis/includes/advisory_document_email_preview.html" with preview_document_kind="action list" preview_document_label="action list" %}
     <div class="mt-4 d-flex gap-2">
         <button class="btn btn-primary" type="submit">Send action lists</button>
         <a class="btn btn-outline-secondary" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>

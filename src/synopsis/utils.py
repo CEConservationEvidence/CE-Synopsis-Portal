@@ -11,6 +11,18 @@ DEFAULT_ADVISORY_INVITATION_MESSAGE = (
     "Your input will help strengthen the final output for the wider "
     "conservation community."
 )
+DEFAULT_PROTOCOL_REVIEW_MESSAGE = (
+    "Please review the protocol for this synopsis and provide any comments "
+    "using the feedback link below."
+)
+DEFAULT_ACTION_LIST_REVIEW_MESSAGE = (
+    "Please review the action list for this synopsis and provide any comments "
+    "using the feedback link below."
+)
+DEFAULT_SYNOPSIS_REVIEW_MESSAGE = (
+    "Please review the synopsis document and provide any comments using the "
+    "feedback link below."
+)
 
 
 def email_subject(kind: str, project, due_date=None) -> str:
@@ -65,6 +77,29 @@ def reply_to_list(user_email: str | None) -> list[str]:
 
 def default_advisory_invitation_message() -> str:
     return DEFAULT_ADVISORY_INVITATION_MESSAGE
+
+
+def default_protocol_review_message() -> str:
+    return DEFAULT_PROTOCOL_REVIEW_MESSAGE
+
+
+def default_action_list_review_message() -> str:
+    return DEFAULT_ACTION_LIST_REVIEW_MESSAGE
+
+
+def default_synopsis_review_message() -> str:
+    return DEFAULT_SYNOPSIS_REVIEW_MESSAGE
+
+
+def advisory_member_display_name(member) -> str:
+    if not member:
+        return "advisory board member"
+    name_parts = [
+        getattr(member, "first_name", ""),
+        getattr(member, "last_name", ""),
+    ]
+    name = " ".join(part.strip() for part in name_parts if part and part.strip())
+    return name or getattr(member, "email", "") or "advisory board member"
 
 
 def minimum_allowed_deadline_date():

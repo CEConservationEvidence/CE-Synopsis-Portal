@@ -15,6 +15,7 @@ import jwt
 import requests
 import rispy
 import html
+import html as html_lib
 import time
 from defusedxml import ElementTree as ET
 
@@ -137,7 +138,11 @@ from .models import (
 )
 from .presets import PRESETS
 from .utils import (
+    advisory_member_display_name,
+    default_action_list_review_message,
     default_advisory_invitation_message,
+    default_protocol_review_message,
+    default_synopsis_review_message,
     ensure_global_groups,
     email_subject,
     minimum_allowed_deadline_date,
@@ -739,6 +744,43 @@ def _project_advisory_invitation_message(project, override=None):
     return stored or default_advisory_invitation_message()
 
 
+def _default_document_review_message(document_kind):
+    if document_kind == "protocol":
+        return default_protocol_review_message()
+    if document_kind == "action_list":
+        return default_action_list_review_message()
+    if document_kind == "synopsis":
+        return default_synopsis_review_message()
+    return ""
+
+
+def _document_review_message(document_kind, override=None):
+    return (
+        _normalise_advisory_message(override)
+        or _default_document_review_message(document_kind)
+    )
+
+
+def _eligible_advisory_members(project):
+    return (
+        AdvisoryBoardMember.objects.filter(
+            project=project,
+            response="Y",
+            participation_confirmed=True,
+        )
+        .exclude(email__isnull=True)
+        .exclude(email__exact="")
+    )
+
+
+def _document_preview_recipient_name(project):
+    return "advisory board member"
+
+
+def _invite_preview_recipient_name(project):
+    return "advisory board member"
+
+
 def _html_message_blocks(text):
     blocks = []
     for block in re.split(r"\n\s*\n", _normalise_advisory_message(text)):
@@ -760,7 +802,7 @@ def _build_advisory_invitation_email(
     attachment_lines=None,
 ):
     deadline_txt = due_date.strftime("%d %b %Y") if due_date else "—"
-    recipient_label = recipient_name or "colleague"
+    recipient_label = recipient_name or "advisory board member"
     safe_yes_url = html.escape(yes_url, quote=True)
     safe_no_url = html.escape(no_url, quote=True)
     standard_text = _project_advisory_invitation_message(
@@ -10694,7 +10736,7 @@ def advisory_invite_create(request, project_id, member_id=None):
 
             text, html = _build_advisory_invitation_email(
                 project=project,
-                recipient_name=member.first_name if member else "",
+                recipient_name=advisory_member_display_name(member),
                 due_date=due_date,
                 yes_url=yes_url,
                 no_url=no_url,
@@ -10738,7 +10780,7 @@ def advisory_invite_create(request, project_id, member_id=None):
             "collaborative_available": collaborative_available,
             "default_invitation_message": default_advisory_invitation_message(),
             "preview_recipient_name": (
-                member.first_name if member and member.first_name else "colleague"
+                advisory_member_display_name(member)
             ),
             "preview_is_bulk": False,
         },
@@ -10969,7 +11011,7 @@ def send_advisory_invites(request, project_id):
         subject = email_subject("invite", project, m.response_date)
         text, html = _build_advisory_invitation_email(
             project=project,
-            recipient_name=m.first_name,
+            recipient_name="advisory board member",
             due_date=m.response_date,
             yes_url=yes_url,
             no_url=no_url,
@@ -11091,7 +11133,7 @@ def advisory_send_invites_bulk(request, project_id):
 
             text, html = _build_advisory_invitation_email(
                 project=project,
-                recipient_name=member.first_name or "colleague",
+                recipient_name="advisory board member",
                 due_date=due_date,
                 yes_url=yes_url,
                 no_url=no_url,
@@ -11136,7 +11178,7 @@ def advisory_send_invites_bulk(request, project_id):
             "action_list_available": action_document_available,
             "collaborative_available": collaborative_available,
             "default_invitation_message": default_advisory_invitation_message(),
-            "preview_recipient_name": "colleague",
+            "preview_recipient_name": _invite_preview_recipient_name(project),
             "preview_is_bulk": True,
         },
     )
@@ -11158,7 +11200,7 @@ def send_protocol(request, project_id):
     subject = email_subject("protocol_review", project)
     for m in members:
         text = (
-            f"Dear {m.first_name or 'colleague'},\n\n"
+            "Dear advisory board member,\n\n"
             f"Please review the protocol{label_snippet} for '{project.title}':\n{proto_url}\n\n"
             f"Deadline for protocol feedback: "
             f"{_format_deadline(m.feedback_on_protocol_deadline)}\n"
@@ -11216,7 +11258,7 @@ def advisory_send_protocol_bulk(request, project_id):
     sent = 0
     for m in members:
         text = (
-            f"Dear {m.first_name or 'colleague'},\n\n"
+            "Dear advisory board member,\n\n"
             f"Please review the protocol{label_snippet} for '{project.title}':\n{proto_url}\n\n"
             f"Deadline for protocol feedback: "
             f"{_format_deadline(m.feedback_on_protocol_deadline)}\n"
@@ -11273,7 +11315,7 @@ def advisory_send_protocol_member(request, project_id, member_id):
     )
 
     text = (
-        f"Dear {m.first_name or 'colleague'},\n\n"
+        f"Dear {advisory_member_display_name(m)},\n\n"
         f"Please review the protocol{label_snippet} for '{project.title}':\n{proto_url}\n\n"
         f"Deadline for protocol feedback: {deadline_text}\n"
         f"Provide feedback: {feedback_url}\n"
@@ -11304,7 +11346,7 @@ def advisory_send_protocol_member(request, project_id, member_id):
         reply_to=reply_to_list(getattr(request.user, "email", None)),
     )
     html = (
-        f"<p>Dear {m.first_name or 'colleague'},</p>"
+        f"<p>Dear {html_lib.escape(advisory_member_display_name(m))},</p>"
         f"<p>Please review the protocol{label_snippet} for '<strong>{project.title}</strong>': "
         f"<a href='{proto_url}'>View document</a></p>"
         f"<p>Deadline for protocol feedback: {deadline_text}</p>"
@@ -11355,21 +11397,16 @@ def advisory_send_protocol_compose_all(request, project_id):
             document_available=protocol_document_available,
         )
         if form.is_valid():
-            members = (
-                AdvisoryBoardMember.objects.filter(
-                    project=project,
-                    response="Y",
-                    participation_confirmed=True,
-                )
-                .exclude(email__isnull=True)
-                .exclude(email__exact="")
-            )
+            members = _eligible_advisory_members(project)
             if not members:
                 messages.info(
                     request,
                     "No eligible members found. Only members who accepted and confirmed participation can receive the protocol.",
                 )
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
+            standard_message = _document_review_message(
+                "protocol", form.cleaned_data.get("standard_message")
+            )
             message_body = form.cleaned_data.get("message") or ""
             include_collab = collaborative_enabled and form.cleaned_data.get(
                 "include_collaborative_link"
@@ -11406,15 +11443,19 @@ def advisory_send_protocol_compose_all(request, project_id):
                     reverse("synopsis:protocol_feedback", args=[str(fb.token)])
                 )
                 subject = email_subject("protocol_review", project)
-                text = f"Dear {m.first_name or 'colleague'},\n\n"
-                html = f"<p>Dear {m.first_name or 'colleague'},</p>"
+                recipient_name = "advisory board member"
+                text = f"Dear {recipient_name},\n\n"
+                html = f"<p>Dear {html_lib.escape(recipient_name)},</p>"
+                if standard_message:
+                    text += f"{standard_message}\n\n"
+                    html += _html_message_blocks(standard_message)
                 if message_body:
                     text += f"{message_body}\n\n"
-                    html += f"<p>{message_body}</p>"
+                    html += _html_message_blocks(message_body)
                 if proto_url:
-                    text += f"Please review the protocol{label_snippet}: {proto_url}\n\n"
+                    text += f"Protocol document{label_snippet}: {proto_url}\n\n"
                     html += (
-                        "<p>Please review the protocol"
+                        "<p>Protocol document"
                         f"{label_snippet}: <a href='{proto_url}'>View document</a></p>"
                     )
                 elif proto_text:
@@ -11481,6 +11522,8 @@ def advisory_send_protocol_compose_all(request, project_id):
             "form": form,
             "scope": "all",
             "collaborative_available": collaborative_enabled,
+            "preview_recipient_name": _document_preview_recipient_name(project),
+            "preview_is_bulk": True,
         },
     )
 
@@ -11514,6 +11557,9 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             document_available=protocol_document_available,
         )
         if form.is_valid():
+            standard_message = _document_review_message(
+                "protocol", form.cleaned_data.get("standard_message")
+            )
             message_body = form.cleaned_data.get("message") or ""
             include_document = protocol_document_available and form.cleaned_data.get(
                 "include_protocol_document"
@@ -11535,11 +11581,15 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
                 reverse("synopsis:protocol_feedback", args=[str(fb.token)])
             )
             subject = email_subject("protocol_review", project)
-            text = f"Dear {m.first_name or 'colleague'},\n\n"
-            html = f"<p>Dear {m.first_name or 'colleague'},</p>"
+            recipient_name = advisory_member_display_name(m)
+            text = f"Dear {recipient_name},\n\n"
+            html = f"<p>Dear {html_lib.escape(recipient_name)},</p>"
+            if standard_message:
+                text += f"{standard_message}\n\n"
+                html += _html_message_blocks(standard_message)
             if message_body:
                 text += f"{message_body}\n\n"
-                html += f"<p>{message_body}</p>"
+                html += _html_message_blocks(message_body)
             proto_url = (
                 request.build_absolute_uri(proto_doc.url)
                 if include_document and proto_doc
@@ -11549,9 +11599,9 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             proto_label = _current_revision_label(proto)
             label_snippet = f" ({proto_label})" if proto_label else ""
             if proto_url:
-                text += f"Please review the protocol{label_snippet}: {proto_url}\n\n"
+                text += f"Protocol document{label_snippet}: {proto_url}\n\n"
                 html += (
-                    "<p>Please review the protocol"
+                    "<p>Protocol document"
                     f"{label_snippet}: <a href='{proto_url}'>View document</a></p>"
                 )
             elif proto_text:
@@ -11625,6 +11675,8 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             "scope": "member",
             "member": m,
             "collaborative_available": collaborative_enabled,
+            "preview_recipient_name": advisory_member_display_name(m),
+            "preview_is_bulk": False,
         },
     )
 
@@ -11650,21 +11702,16 @@ def advisory_send_action_list_compose_all(request, project_id):
             document_available=action_document_available,
         )
         if form.is_valid():
-            members = (
-                AdvisoryBoardMember.objects.filter(
-                    project=project,
-                    response="Y",
-                    participation_confirmed=True,
-                )
-                .exclude(email__isnull=True)
-                .exclude(email__exact="")
-            )
+            members = _eligible_advisory_members(project)
             if not members:
                 messages.info(
                     request,
                     "No eligible members found. Only members who accepted and confirmed participation can receive the action list.",
                 )
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
+            standard_message = _document_review_message(
+                "action_list", form.cleaned_data.get("standard_message")
+            )
             message_body = form.cleaned_data.get("message") or ""
             include_document = action_document_available and form.cleaned_data.get(
                 "include_action_list_document"
@@ -11699,15 +11746,19 @@ def advisory_send_action_list_compose_all(request, project_id):
                     reverse("synopsis:action_list_feedback", args=[str(fb.token)])
                 )
                 subject = email_subject("action_list_review", project)
-                text = f"Dear {m.first_name or 'colleague'},\n\n"
-                html = f"<p>Dear {m.first_name or 'colleague'},</p>"
+                recipient_name = "advisory board member"
+                text = f"Dear {recipient_name},\n\n"
+                html = f"<p>Dear {html_lib.escape(recipient_name)},</p>"
+                if standard_message:
+                    text += f"{standard_message}\n\n"
+                    html += _html_message_blocks(standard_message)
                 if message_body:
                     text += f"{message_body}\n\n"
-                    html += f"<p>{message_body}</p>"
+                    html += _html_message_blocks(message_body)
                 if doc_url:
-                    text += f"Please review the action list{label_snippet}: {doc_url}\n\n"
+                    text += f"Action list document{label_snippet}: {doc_url}\n\n"
                     html += (
-                        "<p>Please review the action list"
+                        "<p>Action list document"
                         f"{label_snippet}: <a href='{doc_url}'>View document</a></p>"
                     )
                 elif text_version:
@@ -11775,6 +11826,8 @@ def advisory_send_action_list_compose_all(request, project_id):
             "scope": "all",
             "member": None,
             "collaborative_available": collaborative_enabled,
+            "preview_recipient_name": _document_preview_recipient_name(project),
+            "preview_is_bulk": True,
         },
     )
 
@@ -11810,6 +11863,9 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             document_available=action_document_available,
         )
         if form.is_valid():
+            standard_message = _document_review_message(
+                "action_list", form.cleaned_data.get("standard_message")
+            )
             message_body = form.cleaned_data.get("message") or ""
             include_document = action_document_available and form.cleaned_data.get(
                 "include_action_list_document"
@@ -11836,13 +11892,15 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
                 reverse("synopsis:action_list_feedback", args=[str(fb.token)])
             )
             subject = email_subject("action_list_review", project)
-            text = f"Dear {member.first_name or 'colleague'},\n\n"
-            html = (
-                f"<p>Dear {member.first_name or 'colleague'},</p>"
-            )
+            recipient_name = advisory_member_display_name(member)
+            text = f"Dear {recipient_name},\n\n"
+            html = f"<p>Dear {html_lib.escape(recipient_name)},</p>"
+            if standard_message:
+                text += f"{standard_message}\n\n"
+                html += _html_message_blocks(standard_message)
             if message_body:
                 text += f"{message_body}\n\n"
-                html += f"<p>{message_body}</p>"
+                html += _html_message_blocks(message_body)
             doc_url = (
                 request.build_absolute_uri(action_list.document.url)
                 if include_document and action_document_available
@@ -11852,9 +11910,9 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             action_label = _current_revision_label(action_list)
             label_snippet = f" ({action_label})" if action_label else ""
             if doc_url:
-                text += f"Please review the action list{label_snippet}: {doc_url}\n\n"
+                text += f"Action list document{label_snippet}: {doc_url}\n\n"
                 html += (
-                    "<p>Please review the action list"
+                    "<p>Action list document"
                     f"{label_snippet}: <a href='{doc_url}'>View document</a></p>"
                 )
             elif text_version:
@@ -11926,6 +11984,8 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             "scope": "member",
             "member": member,
             "collaborative_available": collaborative_enabled,
+            "preview_recipient_name": advisory_member_display_name(member),
+            "preview_is_bulk": False,
         },
     )
 
@@ -11957,26 +12017,30 @@ def _send_synopsis_review_email(
     project,
     member,
     *,
+    standard_message="",
     message_body="",
     deadline=None,
     attachment_filename=None,
     attachment_payload=None,
     attachment_content_type=None,
     feedback_url="",
+    recipient_name=None,
 ):
     subject = email_subject("synopsis_review", project)
     deadline_text = _format_deadline(deadline)
-    text = f"Dear {member.first_name or 'colleague'},\n\n"
-    html = f"<p>Dear {member.first_name or 'colleague'},</p>"
+    recipient_name = recipient_name or advisory_member_display_name(member)
+    text = f"Dear {recipient_name},\n\n"
+    html = f"<p>Dear {html_lib.escape(recipient_name)},</p>"
+    if standard_message:
+        text += f"{standard_message}\n\n"
+        html += _html_message_blocks(standard_message)
     if message_body:
         text += f"{message_body}\n\n"
-        html += f"<p>{message_body}</p>"
-    text += (
-        f"Please review the attached synopsis document for '{project.title}'.\n\n"
-    )
+        html += _html_message_blocks(message_body)
+    text += f"Synopsis document for '{project.title}' is attached to this email.\n\n"
     html += (
-        "<p>Please review the attached synopsis document for "
-        f"'<strong>{project.title}</strong>'.</p>"
+        "<p>Synopsis document for "
+        f"'<strong>{project.title}</strong>' is attached to this email.</p>"
     )
     if deadline_text:
         text += f"Deadline for synopsis feedback: {deadline_text}\n"
@@ -12014,15 +12078,7 @@ def advisory_send_synopsis_compose_all(request, project_id):
     if request.method == "POST":
         form = SynopsisSendForm(request.POST, request.FILES)
         if form.is_valid():
-            members = (
-                AdvisoryBoardMember.objects.filter(
-                    project=project,
-                    response="Y",
-                    participation_confirmed=True,
-                )
-                .exclude(email__isnull=True)
-                .exclude(email__exact="")
-            )
+            members = _eligible_advisory_members(project)
             if not members:
                 messages.info(
                     request,
@@ -12039,6 +12095,9 @@ def advisory_send_synopsis_compose_all(request, project_id):
                 messages.error(request, str(exc))
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
 
+            standard_message = _document_review_message(
+                "synopsis", form.cleaned_data.get("standard_message")
+            )
             message_body = form.cleaned_data.get("message") or ""
             sent = 0
             for member in members:
@@ -12063,12 +12122,14 @@ def advisory_send_synopsis_compose_all(request, project_id):
                     request,
                     project,
                     member,
+                    standard_message=standard_message,
                     message_body=message_body,
                     deadline=member_deadline,
                     attachment_filename=attachment_filename,
                     attachment_payload=attachment_payload,
                     attachment_content_type=attachment_content_type,
                     feedback_url=feedback_url,
+                    recipient_name="advisory board member",
                 )
                 member.sent_synopsis_at = timezone.now()
                 member.synopsis_reminder_sent = False
@@ -12096,6 +12157,8 @@ def advisory_send_synopsis_compose_all(request, project_id):
             "form": form,
             "scope": "all",
             "member": None,
+            "preview_recipient_name": _document_preview_recipient_name(project),
+            "preview_is_bulk": True,
         },
     )
 
@@ -12148,6 +12211,9 @@ def advisory_send_synopsis_compose_member(request, project_id, member_id):
                 request,
                 project,
                 member,
+                standard_message=_document_review_message(
+                    "synopsis", form.cleaned_data.get("standard_message")
+                ),
                 message_body=form.cleaned_data.get("message") or "",
                 deadline=member_deadline,
                 attachment_filename=attachment_filename,
@@ -12183,6 +12249,8 @@ def advisory_send_synopsis_compose_member(request, project_id, member_id):
             "form": form,
             "scope": "member",
             "member": member,
+            "preview_recipient_name": advisory_member_display_name(member),
+            "preview_is_bulk": False,
         },
     )
 
@@ -12744,7 +12812,7 @@ def advisory_send_invite_member(request, project_id, member_id):
     subject = email_subject("invite", project, due_date)
     text, html = _build_advisory_invitation_email(
         project=project,
-        recipient_name=m.first_name or "colleague",
+        recipient_name=advisory_member_display_name(m),
         due_date=due_date,
         yes_url=yes_url,
         no_url=no_url,

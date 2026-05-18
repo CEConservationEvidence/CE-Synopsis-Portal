@@ -1,14 +1,16 @@
 <div
     class="card mt-4"
-    data-advisory-invite-preview
+    data-advisory-document-preview
+    data-document-kind="{{ preview_document_kind|default:'document'|escape }}"
+    data-document-label="{{ preview_document_label|default:'document'|escape }}"
     data-project-title="{{ project.title|escape }}"
     data-recipient-name="{{ preview_recipient_name|default:'advisory board member'|escape }}"
+    data-is-bulk="{% if preview_is_bulk %}1{% else %}0{% endif %}"
 >
     <div class="card-body">
-        <h5 class="card-title mb-1">Invitation preview</h5>
+        <h5 class="card-title mb-1">{{ preview_document_label|default:"Document"|capfirst }} email preview</h5>
         <p class="text-muted small mb-0">
-            This shows the standard invitation text, any additional note, and the
-            core email wording that will be sent.
+            This shows the message, deadline, feedback link text, and resources that will be sent.
         </p>
         {% if preview_is_bulk %}
         <p class="text-muted small mt-2 mb-0">
@@ -27,7 +29,6 @@
 </div>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
-    const defaultStandardMessage = "{{ default_invitation_message|escapejs }}";
     const monthAbbreviations = [
         "Jan",
         "Feb",
@@ -57,7 +58,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return month ? day + " " + month + " " + year : value;
     };
 
-    document.querySelectorAll("[data-advisory-invite-preview]").forEach(function (preview) {
+    document.querySelectorAll("[data-advisory-document-preview]").forEach(function (preview) {
         const form = preview.closest("form");
         if (!form) {
             return;
@@ -67,54 +68,64 @@ document.addEventListener("DOMContentLoaded", function () {
         const dueInput = form.querySelector('[name="due_date"]');
         const standardInput = form.querySelector('[name="standard_message"]');
         const additionalInput = form.querySelector('[name="message"]');
-        const actionListInput = form.querySelector('[name="include_action_list"]');
+        const protocolDocumentInput = form.querySelector('[name="include_protocol_document"]');
+        const actionListDocumentInput = form.querySelector('[name="include_action_list_document"]');
         const collaborativeInput = form.querySelector('[name="include_collaborative_link"]');
+        const synopsisUploadInput = form.querySelector('[name="synopsis_document"]');
         const projectTitle = preview.dataset.projectTitle || "";
         const recipientName = preview.dataset.recipientName || "advisory board member";
+        const documentKind = preview.dataset.documentKind || "document";
+        const documentLabel = preview.dataset.documentLabel || "document";
+
+        const isSelected = function (input) {
+            return Boolean(input && input.checked && !input.disabled);
+        };
 
         const selectedResources = function () {
             const resources = [];
-            if (actionListInput && actionListInput.checked && !actionListInput.disabled) {
-                resources.push("Action list: link will be included on send.");
+            if (isSelected(protocolDocumentInput)) {
+                resources.push("Protocol document: link will be included on send.");
             }
-            if (
-                collaborativeInput
-                && collaborativeInput.checked
-                && !collaborativeInput.disabled
-            ) {
+            if (isSelected(actionListDocumentInput)) {
+                resources.push("Action list document: link will be included on send.");
+            }
+            if (isSelected(collaborativeInput)) {
                 resources.push("Collaborative editor: link will be included on send.");
+            }
+            if (synopsisUploadInput) {
+                const fileName = synopsisUploadInput.files && synopsisUploadInput.files.length
+                    ? synopsisUploadInput.files[0].name
+                    : "generated synopsis DOCX export";
+                resources.push("Synopsis attachment: " + fileName + ".");
             }
             return resources;
         };
 
         const updatePreview = function () {
             const dueText = formatDueDate(dueInput ? dueInput.value : "");
-            const standardText = ((standardInput && standardInput.value) || "").trim()
-                || defaultStandardMessage;
+            const standardText = ((standardInput && standardInput.value) || "").trim();
             const additionalText = ((additionalInput && additionalInput.value) || "").trim();
             const resources = selectedResources();
-            const dueSuffix = dueText === "—" ? "" : " (reply by " + dueText + ")";
 
             subjectEl.textContent =
-                "[CE Synopsis] Invitation to advise on " + projectTitle + dueSuffix;
+                "[Action requested] " + documentLabel.charAt(0).toUpperCase()
+                + documentLabel.slice(1) + " for review — " + projectTitle;
 
             const bodyLines = [
                 "Dear " + recipientName + ",",
                 "",
-                "You are invited to advise on '" + projectTitle + "'.",
-                "Please reply by: " + dueText,
-                "",
-                standardText,
             ];
+            if (standardText) {
+                bodyLines.push(standardText, "");
+            }
             if (additionalText) {
-                bodyLines.push("", additionalText);
+                bodyLines.push(additionalText, "");
             }
             bodyLines.push(
-                "",
-                "Yes: unique response link generated on send",
-                "No:  unique response link generated on send",
-                "",
-                "After clicking Yes you'll be asked to confirm you can actively participate and provide valuable input."
+                documentLabel.charAt(0).toUpperCase() + documentLabel.slice(1)
+                    + " for '" + projectTitle + "'.",
+                "Deadline for " + documentKind + " feedback: " + dueText,
+                "Provide feedback: unique feedback link generated on send"
             );
             if (resources.length) {
                 bodyLines.push("", ...resources);
@@ -123,7 +134,15 @@ document.addEventListener("DOMContentLoaded", function () {
             bodyEl.textContent = bodyLines.join("\n");
         };
 
-        [dueInput, standardInput, additionalInput, actionListInput, collaborativeInput]
+        [
+            dueInput,
+            standardInput,
+            additionalInput,
+            protocolDocumentInput,
+            actionListDocumentInput,
+            collaborativeInput,
+            synopsisUploadInput,
+        ]
             .filter(Boolean)
             .forEach(function (input) {
                 input.addEventListener("input", updatePreview);

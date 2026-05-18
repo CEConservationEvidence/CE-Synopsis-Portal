@@ -82,7 +82,10 @@ from .email_backends import AttachmentSummaryConsoleEmailBackend
 from .utils import (
     BRAND,
     GLOBAL_GROUPS,
+    default_action_list_review_message,
     default_advisory_invitation_message,
+    default_protocol_review_message,
+    default_synopsis_review_message,
     email_subject,
     ensure_global_groups,
     reference_hash,
@@ -2875,6 +2878,7 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
         self.member = AdvisoryBoardMember.objects.create(
             project=self.project,
             first_name="Rebecca",
+            last_name="Smith",
             email="rebecca@example.com",
             response="Y",
             participation_confirmed=True,
@@ -2882,6 +2886,45 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
         self.expected_due = timezone.localdate() + timedelta(
             days=settings.ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS
         )
+
+    def test_document_send_pages_show_email_previews(self):
+        pages = [
+            (
+                reverse(
+                    "synopsis:advisory_send_protocol_compose_member",
+                    args=[self.project.id, self.member.id],
+                ),
+                "Protocol email preview",
+                "data-document-kind=\"protocol\"",
+            ),
+            (
+                reverse(
+                    "synopsis:advisory_send_action_list_compose_member",
+                    args=[self.project.id, self.member.id],
+                ),
+                "Action list email preview",
+                "data-document-kind=\"action list\"",
+            ),
+            (
+                reverse(
+                    "synopsis:advisory_send_synopsis_compose_member",
+                    args=[self.project.id, self.member.id],
+                ),
+                "Synopsis email preview",
+                "data-document-kind=\"synopsis\"",
+            ),
+        ]
+
+        for url, heading, kind_attr in pages:
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, heading)
+                self.assertContains(response, kind_attr)
+                self.assertContains(response, "data-preview-subject")
+                self.assertContains(response, "data-preview-body")
+                self.assertContains(response, "Standard message")
+                self.assertContains(response, "Rebecca Smith")
 
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_protocol_member_send_defaults_deadline_to_configured_window(self, mock_email):
@@ -2907,6 +2950,32 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
         self.assertEqual(self.member.feedback_on_protocol_deadline.minute, 59)
         feedback = ProtocolFeedback.objects.get(project=self.project, member=self.member)
         self.assertEqual(feedback.feedback_deadline_at, self.member.feedback_on_protocol_deadline)
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear Rebecca Smith", email_body)
+        self.assertIn(default_protocol_review_message(), email_body)
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_protocol_bulk_send_uses_generic_greeting(self, mock_email):
+        mock_email.return_value = MagicMock()
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_protocol_compose_all",
+                args=[self.project.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+                "include_protocol_document": "on",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear advisory board member", email_body)
+        self.assertNotIn("Dear Rebecca Smith", email_body)
 
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_action_list_member_send_defaults_deadline_to_configured_window(self, mock_email):
@@ -2937,6 +3006,32 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
             feedback.feedback_deadline_at,
             self.member.feedback_on_action_list_deadline,
         )
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear Rebecca Smith", email_body)
+        self.assertIn(default_action_list_review_message(), email_body)
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_action_list_bulk_send_uses_generic_greeting(self, mock_email):
+        mock_email.return_value = MagicMock()
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_action_list_compose_all",
+                args=[self.project.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+                "include_action_list_document": "on",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear advisory board member", email_body)
+        self.assertNotIn("Dear Rebecca Smith", email_body)
 
     @patch("synopsis.views._generate_synopsis_docx", return_value=b"docx")
     @patch("synopsis.views.EmailMultiAlternatives")
@@ -2973,8 +3068,38 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
             self.member.feedback_on_synopsis_deadline,
         )
         email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear Rebecca Smith", email_body)
+        self.assertIn(default_synopsis_review_message(), email_body)
         self.assertIn(str(feedback.token), email_body)
         self.assertIn("Provide feedback:", email_body)
+        mock_generate.assert_called_once_with(self.project)
+        email_instance.attach.assert_called_once()
+
+    @patch("synopsis.views._generate_synopsis_docx", return_value=b"docx")
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_synopsis_bulk_send_uses_generic_greeting(
+        self, mock_email, mock_generate
+    ):
+        email_instance = MagicMock()
+        mock_email.return_value = email_instance
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_synopsis_compose_all",
+                args=[self.project.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear advisory board member", email_body)
+        self.assertNotIn("Dear Rebecca Smith", email_body)
         mock_generate.assert_called_once_with(self.project)
         email_instance.attach.assert_called_once()
 
@@ -2998,6 +3123,7 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
             ),
             {
                 "due_date": "",
+                "standard_message": "Please review this final draft.",
                 "message": "Please review this version.",
                 "synopsis_document": uploaded_doc,
             },
@@ -3007,6 +3133,9 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
             response, reverse("synopsis:advisory_board_list", args=[self.project.id])
         )
         mock_generate.assert_not_called()
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Please review this final draft.", email_body)
+        self.assertIn("Please review this version.", email_body)
         email_instance.attach.assert_called_once_with(
             "review-draft.pdf",
             b"uploaded synopsis",

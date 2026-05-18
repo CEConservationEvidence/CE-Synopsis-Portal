@@ -9,7 +9,10 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 from .utils import (
+    default_action_list_review_message,
     default_advisory_invitation_message,
+    default_protocol_review_message,
+    default_synopsis_review_message,
     minimum_allowed_deadline_date,
 )
 
@@ -498,7 +501,7 @@ class AdvisoryInviteForm(forms.Form):
         widget=forms.Textarea(
             attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
         ),
-        help_text="Included after the default invitation copy.",
+        help_text="Included after the standard message.",
     )
     include_action_list = forms.BooleanField(
         required=False,
@@ -1201,7 +1204,7 @@ class AdvisoryBulkInviteForm(forms.Form):
         widget=forms.Textarea(
             attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
         ),
-        help_text="Included after the default invitation copy.",
+        help_text="Included after the standard message.",
     )
     include_action_list = forms.BooleanField(
         required=False,
@@ -1253,13 +1256,24 @@ class ProtocolSendForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text="",
     )
+    standard_message = forms.CharField(
+        required=False,
+        label="Standard message",
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 5}
+        ),
+        help_text=(
+            "The main review request included in the email. You can edit it "
+            "before sending."
+        ),
+    )
     message = forms.CharField(
         required=False,
         label="Additional message",
         widget=forms.Textarea(
             attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
         ),
-        help_text="Included after the default invitation copy.",
+        help_text="Included after the standard message.",
     )
     include_protocol_document = forms.BooleanField(
         required=False,
@@ -1281,6 +1295,10 @@ class ProtocolSendForm(forms.Form):
     ):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["due_date"])
+        if not self.is_bound:
+            self.fields["standard_message"].initial = (
+                default_protocol_review_message()
+            )
         self.fields["due_date"].help_text = (
             "Defaults to "
             f"{_advisory_document_feedback_window_days()} days from today if no "
@@ -1340,13 +1358,24 @@ class ActionListSendForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text="",
     )
+    standard_message = forms.CharField(
+        required=False,
+        label="Standard message",
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 5}
+        ),
+        help_text=(
+            "The main review request included in the email. You can edit it "
+            "before sending."
+        ),
+    )
     message = forms.CharField(
         required=False,
         label="Additional message",
         widget=forms.Textarea(
             attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
         ),
-        help_text="Included after the default invitation copy.",
+        help_text="Included after the standard message.",
     )
     include_action_list_document = forms.BooleanField(
         required=False,
@@ -1368,6 +1397,10 @@ class ActionListSendForm(forms.Form):
     ):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["due_date"])
+        if not self.is_bound:
+            self.fields["standard_message"].initial = (
+                default_action_list_review_message()
+            )
         self.fields["due_date"].help_text = (
             "Defaults to "
             f"{_advisory_document_feedback_window_days()} days from today if no "
@@ -1426,13 +1459,24 @@ class SynopsisSendForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text="",
     )
+    standard_message = forms.CharField(
+        required=False,
+        label="Standard message",
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 5}
+        ),
+        help_text=(
+            "The main review request included in the email. You can edit it "
+            "before sending."
+        ),
+    )
     message = forms.CharField(
         required=False,
         label="Additional message",
         widget=forms.Textarea(
             attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
         ),
-        help_text="Included after the default synopsis review copy.",
+        help_text="Included after the standard message.",
     )
     synopsis_document = forms.FileField(
         required=False,
@@ -1448,6 +1492,10 @@ class SynopsisSendForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["due_date"])
+        if not self.is_bound:
+            self.fields["standard_message"].initial = (
+                default_synopsis_review_message()
+            )
         self.fields["due_date"].help_text = (
             "Defaults to "
             f"{_advisory_document_feedback_window_days()} days from today if no "
