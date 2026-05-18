@@ -59,13 +59,16 @@ from .forms import (
     AdvisoryBulkInviteForm,
     ProtocolSendForm,
     ActionListSendForm,
+    SynopsisSendForm,
     ReminderScheduleForm,
     ProtocolReminderScheduleForm,
     ActionListReminderScheduleForm,
+    SynopsisReminderScheduleForm,
     ParticipationConfirmForm,
     ParticipationDeclineForm,
     ProtocolFeedbackForm,
     ActionListFeedbackForm,
+    SynopsisFeedbackForm,
     ProtocolFeedbackCloseForm,
     ActionListFeedbackCloseForm,
     ReferenceBatchUploadForm,
@@ -109,6 +112,7 @@ from .models import (
     ProjectChangeLog,
     ProtocolFeedback,
     ActionListFeedback,
+    SynopsisFeedback,
     LibraryImportBatch,
     LibraryReference,
     LibraryReferenceFolderHistory,
@@ -472,6 +476,67 @@ def _member_glance_statuses(member: AdvisoryBoardMember) -> list[dict]:
         statuses.append(
             _status_badge(
                 "Protocol",
+                "Not sent",
+                "secondary",
+            )
+        )
+
+    synopsis_feedback_received = getattr(member, "feedback_on_synopsis_received", None)
+    if synopsis_feedback_received:
+        statuses.append(
+            _status_badge(
+                "Synopsis",
+                "Feedback received",
+                "success",
+                date=synopsis_feedback_received,
+                date_label="Received",
+            )
+        )
+    elif response == "N":
+        statuses.append(
+            _status_badge(
+                "Synopsis",
+                "Not applicable",
+                "secondary",
+                note="Member declined",
+            )
+        )
+    elif getattr(member, "sent_synopsis_at", None):
+        if getattr(member, "feedback_on_synopsis_deadline", None):
+            if getattr(member, "synopsis_reminder_sent", False):
+                statuses.append(
+                    _status_badge(
+                        "Synopsis",
+                        "Reminder sent",
+                        "info",
+                        date=getattr(member, "synopsis_reminder_sent_at", None),
+                        date_label="Reminded",
+                    )
+                )
+            else:
+                statuses.append(
+                    _status_badge(
+                        "Synopsis",
+                        "Awaiting feedback",
+                        "warning",
+                        date=getattr(member, "feedback_on_synopsis_deadline", None),
+                        date_label="Due",
+                    )
+                )
+        else:
+            statuses.append(
+                _status_badge(
+                    "Synopsis",
+                    "Sent",
+                    "primary",
+                    date=getattr(member, "sent_synopsis_at", None),
+                    date_label="Sent",
+                )
+            )
+    else:
+        statuses.append(
+            _status_badge(
+                "Synopsis",
                 "Not sent",
                 "secondary",
             )
@@ -1644,6 +1709,26 @@ def _create_action_list_feedback(project, member=None, email=None, invitation=No
     return ActionListFeedback.objects.create(**kwargs)
 
 
+def _create_synopsis_feedback(project, member=None, email=None, invitation=None):
+    kwargs = {
+        "project": project,
+        "member": member,
+        "email": email or (member.email if member else ""),
+        "invitation": invitation,
+    }
+    deadline = None
+    if member:
+        if member.response == "Y" and member.feedback_on_synopsis_deadline:
+            deadline = member.feedback_on_synopsis_deadline
+    elif invitation and invitation.due_date:
+        combined = dt.datetime.combine(invitation.due_date, dt.time(23, 59))
+        deadline = (
+            timezone.make_aware(combined) if timezone.is_naive(combined) else combined
+        )
+    kwargs["feedback_deadline_at"] = deadline
+    return SynopsisFeedback.objects.create(**kwargs)
+
+
 def _extract_reference_field(record: dict, key: str) -> str:
     value = record.get(key)
     if isinstance(value, list):
@@ -1924,10 +2009,11 @@ def _advisory_board_context(
     feedback_close_form=None,
     action_list_form=None,
     action_list_feedback_close_form=None,
+    synopsis_form=None,
     custom_field_form=None,
 ):
     members_qs = project.advisory_board_members.prefetch_related(
-        "protocol_feedback", "action_list_feedback", "invitations"
+        "protocol_feedback", "action_list_feedback", "synopsis_feedback", "invitations"
     ).order_by("last_name", "first_name")
     accepted_members = list(members_qs.filter(response="Y"))
     declined_members = list(members_qs.filter(response="N"))
@@ -1938,6 +2024,8 @@ def _advisory_board_context(
             member.latest_feedback = member.latest_protocol_feedback
             latest_action_feedback = member.latest_action_list_feedback
             member.latest_action_list_feedback_obj = latest_action_feedback
+            latest_synopsis_feedback = member.latest_synopsis_feedback
+            member.latest_synopsis_feedback_obj = latest_synopsis_feedback
             if (
                 latest_action_feedback
                 and not member.feedback_on_actions_received
@@ -2135,6 +2223,30 @@ def _advisory_board_context(
         "document_ready": action_list_document_ready,
     }
 
+    synopsis_members = project.advisory_board_members.filter(
+        sent_synopsis_at__isnull=False,
+        response="Y",
+    )
+    synopsis_pending_dates = [
+        d
+        for d in synopsis_members.filter(feedback_on_synopsis_deadline__isnull=False)
+        .order_by("feedback_on_synopsis_deadline")
+        .values_list("feedback_on_synopsis_deadline", flat=True)
+    ]
+    if synopsis_form is None:
+        synopsis_initial = {}
+        if synopsis_pending_dates:
+            first_deadline = synopsis_pending_dates[0]
+            try:
+                synopsis_initial["deadline"] = timezone.localtime(first_deadline)
+            except (ValueError, TypeError):
+                synopsis_initial["deadline"] = first_deadline
+        else:
+            synopsis_initial["deadline"] = timezone.localtime(
+                _default_document_feedback_deadline()
+            )
+        synopsis_form = SynopsisReminderScheduleForm(initial=synopsis_initial)
+
     section_palette = {
         AdvisoryBoardCustomField.SECTION_ACCEPTED: {
             "title": "Accepted members",
@@ -2279,6 +2391,13 @@ def _advisory_board_context(
             getattr(member, "latest_action_list_feedback_obj", None), "submitted_at", None
         )
     ]
+    synopsis_feedback_members = [
+        member
+        for member in all_members
+        if getattr(
+            getattr(member, "latest_synopsis_feedback_obj", None), "submitted_at", None
+        )
+    ]
     status_badges = {
         AdvisoryBoardCustomField.SECTION_ACCEPTED: {
             "label": "Accepted",
@@ -2305,6 +2424,7 @@ def _advisory_board_context(
         "pending_members": pending_members,
         "protocol_feedback_members": protocol_feedback_members,
         "action_list_feedback_members": action_list_feedback_members,
+        "synopsis_feedback_members": synopsis_feedback_members,
         "member_sections": member_sections,
         "combined_fields_by_group": combined_fields_by_group,
         "member_status_badges": status_badges,
@@ -2341,6 +2461,14 @@ def _advisory_board_context(
         "can_edit_members": can_edit_members,
         "action_list_feedback_state": action_list_feedback_state,
         "action_list_feedback_close_form": action_list_feedback_close_form,
+        "synopsis_reminder_form": synopsis_form,
+        "synopsis_pending_count": synopsis_members.count(),
+        "synopsis_pending_dates": synopsis_pending_dates,
+        "initial_synopsis_reminder_log": project.change_log.filter(
+            action="Scheduled synopsis reminders"
+        )
+        .order_by("created_at")
+        .first(),
         "section_palette": section_palette,
         "custom_field_group_choices": AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
         "declined_members_with_reason": declined_with_reason,
@@ -5755,6 +5883,85 @@ def advisory_schedule_action_list_reminders(request, project_id):
 
 
 @login_required
+def advisory_schedule_synopsis_reminders(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    form = SynopsisReminderScheduleForm(request.POST)
+    pending_members = project.advisory_board_members.filter(
+        sent_synopsis_at__isnull=False,
+        response="Y",
+    )
+    if not pending_members.exists():
+        messages.warning(
+            request,
+            "No synopsis deadline was updated because no accepted advisory board member has been sent the synopsis yet. Send the synopsis from the Advisory Board page first, or set the deadline while sending.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if not form.is_valid():
+        context = _advisory_board_context(
+            project,
+            user=request.user,
+            synopsis_form=form,
+        )
+        return render(request, "synopsis/advisory_board_list.html", context)
+
+    deadline = form.cleaned_data["deadline"]
+    if timezone.is_naive(deadline):
+        deadline = timezone.make_aware(deadline)
+    updated = 0
+    for member in pending_members:
+        member.feedback_on_synopsis_deadline = deadline
+        member.synopsis_reminder_sent = False
+        member.synopsis_reminder_sent_at = None
+        member.save(
+            update_fields=[
+                "feedback_on_synopsis_deadline",
+                "synopsis_reminder_sent",
+                "synopsis_reminder_sent_at",
+            ]
+        )
+        SynopsisFeedback.objects.filter(project=project, member=member).update(
+            feedback_deadline_at=deadline
+        )
+        updated += 1
+
+    skipped_members = project.advisory_board_members.filter(
+        sent_synopsis_at__isnull=False
+    ).exclude(response="Y")
+    skipped_ids = list(skipped_members.values_list("id", flat=True))
+    if skipped_ids:
+        project.advisory_board_members.filter(id__in=skipped_ids).update(
+            feedback_on_synopsis_deadline=None,
+            synopsis_reminder_sent=False,
+            synopsis_reminder_sent_at=None,
+        )
+        SynopsisFeedback.objects.filter(
+            project=project, member_id__in=skipped_ids
+        ).update(feedback_deadline_at=None)
+        messages.info(
+            request,
+            "Deadline kept unset for members who have not accepted the invitation yet.",
+        )
+
+    if updated:
+        _log_project_change(
+            project,
+            request.user,
+            "Scheduled synopsis reminders",
+            f"Synopsis deadline {timezone.localtime(deadline).strftime('%Y-%m-%d %H:%M')} for {updated} member(s)",
+        )
+
+    messages.success(
+        request,
+        f"Synopsis reminder scheduled for {updated} member(s). Reminder now set as required.",
+    )
+    return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
 def advisory_member_set_deadline(request, project_id, member_id, kind):
     project = get_object_or_404(Project, pk=project_id)
     member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
@@ -5771,6 +5978,7 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
         "invite": ReminderScheduleForm,
         "protocol": ProtocolReminderScheduleForm,
         "action_list": ActionListReminderScheduleForm,
+        "synopsis": SynopsisReminderScheduleForm,
     }
     if kind not in form_map:
         return HttpResponseBadRequest("Unknown reminder type")
@@ -5800,6 +6008,13 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
             messages.error(
                 request,
                 "This member needs an accepted invitation and the action list before setting an action list deadline.",
+            )
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    if kind == "synopsis":
+        if member.sent_synopsis_at is None or response_code != "Y":
+            messages.error(
+                request,
+                "This member needs an accepted invitation and a sent synopsis before setting a synopsis deadline.",
             )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     value = None
@@ -5877,6 +6092,42 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
             "Protocol deadline updated."
             if not clearing
             else "Protocol deadline cleared.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if kind == "synopsis":
+        member.feedback_on_synopsis_deadline = value if not clearing else None
+        member.synopsis_reminder_sent = False
+        member.synopsis_reminder_sent_at = None
+        member.save(
+            update_fields=[
+                "feedback_on_synopsis_deadline",
+                "synopsis_reminder_sent",
+                "synopsis_reminder_sent_at",
+            ]
+        )
+        SynopsisFeedback.objects.filter(project=project, member=member).update(
+            feedback_deadline_at=value if not clearing else None
+        )
+        detail_value = (
+            timezone.localtime(value).strftime("%Y-%m-%d %H:%M") if value else None
+        )
+        detail = (
+            f"Synopsis deadline {detail_value} for {human_name}"
+            if not clearing
+            else f"Cleared synopsis deadline for {human_name}"
+        )
+        _log_project_change(
+            project,
+            request.user,
+            "Updated synopsis reminder",
+            detail,
+        )
+        messages.success(
+            request,
+            "Synopsis deadline updated."
+            if not clearing
+            else "Synopsis deadline cleared.",
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
@@ -6039,6 +6290,56 @@ def advisory_member_set_protocol_flag(request, project_id, member_id, flag):
 def advisory_member_set_synopsis_flag(request, project_id, member_id, flag):
     project = get_object_or_404(Project, pk=project_id)
     member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
+    normalized_flag = (flag or "").lower().replace("-", "_")
+    if normalized_flag == "feedback_received":
+        if request.method != "POST":
+            return HttpResponseBadRequest("POST required")
+
+        if not _user_can_edit_project(request.user, project):
+            messages.error(request, "You do not have permission to update this member.")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+        if member.sent_synopsis_at is None or (member.response or "").upper() != "Y":
+            messages.error(
+                request,
+                "This member needs an accepted invitation and sent synopsis before updating synopsis tracking.",
+            )
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+        raw_value = request.POST.get("value", "")
+        new_value = str(raw_value).lower() in {"1", "true", "on", "yes"}
+        update_fields = []
+        if new_value and not member.feedback_on_synopsis_received:
+            member.feedback_on_synopsis_received = timezone.localdate()
+            update_fields.append("feedback_on_synopsis_received")
+        elif not new_value and member.feedback_on_synopsis_received:
+            member.feedback_on_synopsis_received = None
+            member.synopsis_author_replied = False
+            member.added_to_synopsis_doc = False
+            update_fields.extend(
+                [
+                    "feedback_on_synopsis_received",
+                    "synopsis_author_replied",
+                    "added_to_synopsis_doc",
+                ]
+            )
+
+        if update_fields:
+            member.save(update_fields=update_fields)
+            human_name = " ".join(
+                part for part in (member.first_name, member.last_name) if part
+            ).strip() or member.email
+            state = "Marked feedback received" if new_value else "Cleared feedback received"
+            _log_project_change(
+                project,
+                request.user,
+                "Updated synopsis tracking",
+                f"{state} for {human_name}",
+            )
+
+        messages.success(request, "Synopsis tracking updated.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
     return _advisory_member_set_tracking_flag(
         request,
         project,
@@ -6046,7 +6347,7 @@ def advisory_member_set_synopsis_flag(request, project_id, member_id, flag):
         document_name="synopsis",
         sent_field="sent_synopsis_at",
         feedback_received_field="feedback_on_synopsis_received",
-        latest_feedback=None,
+        latest_feedback=member.latest_synopsis_feedback,
         flag=flag,
         flag_map={
             "author_replied": (
@@ -11629,6 +11930,263 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
     )
 
 
+def _synopsis_export_attachment(project):
+    payload = _generate_synopsis_docx(project)
+    filename = slugify(f"{project.title}-synopsis").replace(" ", "-") + ".docx"
+    return (
+        filename,
+        payload,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
+def _synopsis_send_attachment(form, project):
+    uploaded = form.cleaned_data.get("synopsis_document")
+    if uploaded:
+        uploaded.seek(0)
+        return (
+            os.path.basename(uploaded.name),
+            uploaded.read(),
+            uploaded.content_type or "application/octet-stream",
+        )
+    return _synopsis_export_attachment(project)
+
+
+def _send_synopsis_review_email(
+    request,
+    project,
+    member,
+    *,
+    message_body="",
+    deadline=None,
+    attachment_filename=None,
+    attachment_payload=None,
+    attachment_content_type=None,
+    feedback_url="",
+):
+    subject = email_subject("synopsis_review", project)
+    deadline_text = _format_deadline(deadline)
+    text = f"Dear {member.first_name or 'colleague'},\n\n"
+    html = f"<p>Dear {member.first_name or 'colleague'},</p>"
+    if message_body:
+        text += f"{message_body}\n\n"
+        html += f"<p>{message_body}</p>"
+    text += (
+        f"Please review the attached synopsis document for '{project.title}'.\n\n"
+    )
+    html += (
+        "<p>Please review the attached synopsis document for "
+        f"'<strong>{project.title}</strong>'.</p>"
+    )
+    if deadline_text:
+        text += f"Deadline for synopsis feedback: {deadline_text}\n"
+        html += f"<p>Deadline for synopsis feedback: {deadline_text}</p>"
+    if feedback_url:
+        text += f"Provide feedback: {feedback_url}\n"
+        html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
+    else:
+        text += "\nPlease send your feedback to the synopsis author team.\n"
+        html += "<p>Please send your feedback to the synopsis author team.</p>"
+
+    msg = EmailMultiAlternatives(
+        subject,
+        text,
+        to=[member.email],
+        reply_to=reply_to_list(getattr(request.user, "email", None)),
+    )
+    msg.attach_alternative(html, "text/html")
+    if attachment_filename and attachment_payload:
+        msg.attach(
+            attachment_filename,
+            attachment_payload,
+            attachment_content_type or "application/octet-stream",
+        )
+    inviter_email = getattr(request.user, "email", None)
+    if inviter_email:
+        msg.extra_headers = msg.extra_headers or {}
+        msg.extra_headers["List-Unsubscribe"] = f"<mailto:{inviter_email}>"
+    msg.send()
+
+
+@login_required
+def advisory_send_synopsis_compose_all(request, project_id):
+    project = get_object_or_404(Project, id=project_id)
+    if request.method == "POST":
+        form = SynopsisSendForm(request.POST, request.FILES)
+        if form.is_valid():
+            members = (
+                AdvisoryBoardMember.objects.filter(
+                    project=project,
+                    response="Y",
+                    participation_confirmed=True,
+                )
+                .exclude(email__isnull=True)
+                .exclude(email__exact="")
+            )
+            if not members:
+                messages.info(
+                    request,
+                    "No eligible members found. Only members who accepted and confirmed participation can receive the synopsis.",
+                )
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
+            try:
+                (
+                    attachment_filename,
+                    attachment_payload,
+                    attachment_content_type,
+                ) = _synopsis_send_attachment(form, project)
+            except ImportError as exc:
+                messages.error(request, str(exc))
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+            message_body = form.cleaned_data.get("message") or ""
+            sent = 0
+            for member in members:
+                member_deadline = member.feedback_on_synopsis_deadline
+                deadline_changed = False
+                resolved_deadline = _resolve_document_feedback_deadline(
+                    form.cleaned_data.get("due_date"),
+                    current_deadline=member_deadline,
+                )
+                if member_deadline != resolved_deadline:
+                    member_deadline = resolved_deadline
+                    member.feedback_on_synopsis_deadline = resolved_deadline
+                    member.synopsis_reminder_sent = False
+                    member.synopsis_reminder_sent_at = None
+                    deadline_changed = True
+                fb = _create_synopsis_feedback(project, member=member, email=member.email)
+                feedback_url = request.build_absolute_uri(
+                    reverse("synopsis:synopsis_feedback", args=[str(fb.token)])
+                )
+
+                _send_synopsis_review_email(
+                    request,
+                    project,
+                    member,
+                    message_body=message_body,
+                    deadline=member_deadline,
+                    attachment_filename=attachment_filename,
+                    attachment_payload=attachment_payload,
+                    attachment_content_type=attachment_content_type,
+                    feedback_url=feedback_url,
+                )
+                member.sent_synopsis_at = timezone.now()
+                member.synopsis_reminder_sent = False
+                member.synopsis_reminder_sent_at = None
+                update_fields = [
+                    "sent_synopsis_at",
+                    "synopsis_reminder_sent",
+                    "synopsis_reminder_sent_at",
+                ]
+                if deadline_changed:
+                    update_fields.append("feedback_on_synopsis_deadline")
+                member.save(update_fields=update_fields)
+                sent += 1
+            messages.success(request, f"Sent synopsis to {sent} member(s).")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    else:
+        form = SynopsisSendForm(
+            initial={"due_date": _default_document_feedback_due_date()}
+        )
+    return render(
+        request,
+        "synopsis/synopsis_send_compose.html",
+        {
+            "project": project,
+            "form": form,
+            "scope": "all",
+            "member": None,
+        },
+    )
+
+
+@login_required
+def advisory_send_synopsis_compose_member(request, project_id, member_id):
+    project = get_object_or_404(Project, id=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, id=member_id, project=project)
+    if not member.email:
+        messages.error(request, "This member has no email.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    if member.response != "Y" or not member.participation_confirmed:
+        messages.error(
+            request,
+            "This member has not accepted the invitation or has declined participation.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if request.method == "POST":
+        form = SynopsisSendForm(request.POST, request.FILES)
+        if form.is_valid():
+            try:
+                (
+                    attachment_filename,
+                    attachment_payload,
+                    attachment_content_type,
+                ) = _synopsis_send_attachment(form, project)
+            except ImportError as exc:
+                messages.error(request, str(exc))
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+            member_deadline = member.feedback_on_synopsis_deadline
+            deadline_changed = False
+            resolved_deadline = _resolve_document_feedback_deadline(
+                form.cleaned_data.get("due_date"),
+                current_deadline=member_deadline,
+            )
+            if member_deadline != resolved_deadline:
+                member_deadline = resolved_deadline
+                member.feedback_on_synopsis_deadline = resolved_deadline
+                member.synopsis_reminder_sent = False
+                member.synopsis_reminder_sent_at = None
+                deadline_changed = True
+            fb = _create_synopsis_feedback(project, member=member, email=member.email)
+            feedback_url = request.build_absolute_uri(
+                reverse("synopsis:synopsis_feedback", args=[str(fb.token)])
+            )
+
+            _send_synopsis_review_email(
+                request,
+                project,
+                member,
+                message_body=form.cleaned_data.get("message") or "",
+                deadline=member_deadline,
+                attachment_filename=attachment_filename,
+                attachment_payload=attachment_payload,
+                attachment_content_type=attachment_content_type,
+                feedback_url=feedback_url,
+            )
+            member.sent_synopsis_at = timezone.now()
+            member.synopsis_reminder_sent = False
+            member.synopsis_reminder_sent_at = None
+            update_fields = [
+                "sent_synopsis_at",
+                "synopsis_reminder_sent",
+                "synopsis_reminder_sent_at",
+            ]
+            if deadline_changed:
+                update_fields.append("feedback_on_synopsis_deadline")
+            member.save(update_fields=update_fields)
+            messages.success(request, f"Sent synopsis to {member.email}.")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    else:
+        if member.feedback_on_synopsis_deadline:
+            local_deadline = timezone.localtime(member.feedback_on_synopsis_deadline)
+            deadline_initial = local_deadline.date()
+        else:
+            deadline_initial = _default_document_feedback_due_date()
+        form = SynopsisSendForm(initial={"due_date": deadline_initial})
+    return render(
+        request,
+        "synopsis/synopsis_send_compose.html",
+        {
+            "project": project,
+            "form": form,
+            "scope": "member",
+            "member": member,
+        },
+    )
+
+
 @login_required
 def advisory_member_custom_data(request, project_id, member_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -11979,6 +12537,116 @@ def action_list_feedback(request, token):
             "feedback": fb,
             "deadline": deadline,
             "action_list": action_list,
+            "form": form,
+        },
+    )
+
+
+def synopsis_feedback(request, token):
+    fb = get_object_or_404(SynopsisFeedback, token=token)
+    member = fb.member
+    project = fb.project
+
+    deadline = fb.feedback_deadline_at
+    if member and member.feedback_on_synopsis_deadline:
+        deadline = member.feedback_on_synopsis_deadline
+        if fb.feedback_deadline_at != deadline:
+            fb.feedback_deadline_at = deadline
+            fb.save(update_fields=["feedback_deadline_at"])
+    if member and member.response != "Y":
+        if fb.feedback_deadline_at:
+            fb.feedback_deadline_at = None
+            fb.save(update_fields=["feedback_deadline_at"])
+        deadline = None
+    now = timezone.now()
+
+    if member and member.response == "N":
+        return render(
+            request,
+            "synopsis/synopsis_feedback_thanks.html",
+            {
+                "project": project,
+                "error": "This link is no longer available because you declined the invitation.",
+            },
+        )
+
+    if deadline and now >= deadline:
+        closure_message = (
+            "The feedback deadline has passed (" f"{_format_deadline(deadline)})."
+        )
+        return render(
+            request,
+            "synopsis/synopsis_feedback_thanks.html",
+            {
+                "project": project,
+                "feedback": fb,
+                "closed_message": closure_message,
+                "deadline": deadline,
+                "closed": True,
+            },
+        )
+
+    if request.method == "POST":
+        form = SynopsisFeedbackForm(request.POST, request.FILES)
+        if form.is_valid():
+            content = form.cleaned_data["content"].strip()
+            uploaded_doc = form.cleaned_data["uploaded_document"]
+            updates = []
+            if content:
+                fb.content = content
+                updates.append("content")
+            if uploaded_doc:
+                fb.uploaded_document = uploaded_doc
+                updates.append("uploaded_document")
+            if updates:
+                fb.submitted_at = timezone.now()
+                updates.append("submitted_at")
+                fb.save(update_fields=updates)
+
+                if member:
+                    member_updates = set()
+                    today = timezone.localdate()
+                    if member.feedback_on_synopsis_received != today:
+                        member.feedback_on_synopsis_received = today
+                        member_updates.add("feedback_on_synopsis_received")
+                    if member_updates:
+                        member.save(update_fields=list(member_updates))
+
+                details = []
+                if uploaded_doc:
+                    details.append(
+                        f"Document uploaded: {fb.latest_document_label or uploaded_doc.name}"
+                    )
+                if content:
+                    snippet = (content[:97] + "…") if len(content) > 100 else content
+                    details.append(f"Comments provided: {snippet}")
+                if details:
+                    _log_project_change(
+                        project,
+                        request.user,
+                        "Synopsis feedback submitted",
+                        " | ".join(details),
+                    )
+            return render(
+                request,
+                "synopsis/synopsis_feedback_thanks.html",
+                {
+                    "project": project,
+                    "feedback": fb,
+                    "deadline": deadline,
+                },
+            )
+    else:
+        form = SynopsisFeedbackForm(initial={"content": fb.content})
+
+    return render(
+        request,
+        "synopsis/synopsis_feedback_form.html",
+        {
+            "project": project,
+            "token": fb.token,
+            "feedback": fb,
+            "deadline": deadline,
             "form": form,
         },
     )

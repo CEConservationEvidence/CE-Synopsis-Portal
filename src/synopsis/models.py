@@ -688,6 +688,10 @@ class AdvisoryBoardMember(models.Model):
             "-submitted_at", "-created_at"
         ).first()
 
+    @property
+    def latest_synopsis_feedback(self):
+        return self.synopsis_feedback.order_by("-submitted_at", "-created_at").first()
+
 
 class AdvisoryBoardCustomField(models.Model):
     TYPE_TEXT = "text"
@@ -1071,6 +1075,54 @@ class ActionListFeedback(models.Model):
     def __str__(self):
         who = self.member or self.email or "anonymous"
         return f"Action list feedback for {self.project.title} by {who}"
+
+    def latest_document_label(self) -> str:
+        if self.uploaded_document:
+            return self.uploaded_document.name.rsplit("/", 1)[-1]
+        return ""
+
+    def snapshot_deadline(self):
+        return self.feedback_deadline_at
+
+
+class SynopsisFeedback(models.Model):
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="synopsis_feedback"
+    )
+    member = models.ForeignKey(
+        "AdvisoryBoardMember",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="synopsis_feedback",
+    )
+    invitation = models.ForeignKey(
+        AdvisoryBoardInvitation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="synopsis_feedback",
+    )
+    email = models.EmailField(blank=True)
+    token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    content = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    uploaded_document = models.FileField(
+        upload_to="synopsis_feedback_uploads/",
+        null=True,
+        blank=True,
+    )
+    synopsis_document_name = models.CharField(max_length=255, blank=True)
+    synopsis_document_last_updated = models.DateTimeField(null=True, blank=True)
+    feedback_deadline_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-submitted_at", "-created_at"]
+
+    def __str__(self):
+        who = self.member or self.email or "anonymous"
+        return f"Synopsis feedback for {self.project.title} by {who}"
 
     def latest_document_label(self) -> str:
         if self.uploaded_document:

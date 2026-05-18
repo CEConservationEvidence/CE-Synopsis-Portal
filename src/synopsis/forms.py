@@ -1419,6 +1419,47 @@ class ActionListSendForm(forms.Form):
         )
 
 
+class SynopsisSendForm(forms.Form):
+    due_date = forms.DateField(
+        required=False,
+        label="Response due date",
+        widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
+        help_text="",
+    )
+    message = forms.CharField(
+        required=False,
+        label="Additional message",
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
+        ),
+        help_text="Included after the default synopsis review copy.",
+    )
+    synopsis_document = forms.FileField(
+        required=False,
+        label="Synopsis document",
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        validators=[FileExtensionValidator(["doc", "docx", "pdf"])],
+        help_text=(
+            "Optional. Attach this file instead of the generated synopsis export. "
+            "Accepted formats: .doc, .docx, .pdf."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_date_attr(self.fields["due_date"])
+        self.fields["due_date"].help_text = (
+            "Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today if no "
+            "deadline is already set."
+        )
+
+    def clean_due_date(self):
+        return _validate_not_same_day_date(
+            self.cleaned_data.get("due_date"), "Response due date"
+        )
+
+
 class ReminderScheduleForm(forms.Form):
     reminder_date = forms.DateField(
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
@@ -1489,6 +1530,31 @@ class ActionListReminderScheduleForm(forms.Form):
         )
 
 
+class SynopsisReminderScheduleForm(forms.Form):
+    deadline = forms.DateTimeField(
+        widget=forms.DateTimeInput(
+            attrs={"type": "datetime-local", "class": "form-control"},
+            format="%Y-%m-%dT%H:%M",
+        ),
+        input_formats=["%Y-%m-%dT%H:%M"],
+        help_text="",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_datetime_attr(self.fields["deadline"])
+        self.fields["deadline"].help_text = (
+            "Set or update the synopsis feedback deadline (date and time) for "
+            "members who have been sent the synopsis. Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today."
+        )
+
+    def clean_deadline(self):
+        return _validate_not_same_day_datetime(
+            self.cleaned_data.get("deadline"), "Synopsis feedback deadline"
+        )
+
+
 class ParticipationConfirmForm(forms.Form):
     confirm_participation = forms.BooleanField(
         label="I agree to actively participate in the development of this synopsis",
@@ -1544,6 +1610,25 @@ class ActionListFeedbackForm(forms.Form):
         widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
         validators=[FileExtensionValidator(["docx"])],
         help_text="Upload your annotated .docx action list (optional).",
+    )
+
+
+class SynopsisFeedbackForm(forms.Form):
+    content = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 6,
+                "placeholder": "Share your comments on the synopsis here",
+            }
+        ),
+    )
+    uploaded_document = forms.FileField(
+        required=False,
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        validators=[FileExtensionValidator(["doc", "docx", "pdf"])],
+        help_text="Upload your annotated synopsis document (optional). Accepted formats: .doc, .docx, .pdf.",
     )
 
 

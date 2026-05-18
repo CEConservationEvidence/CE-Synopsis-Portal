@@ -166,6 +166,11 @@ urlpatterns = [
         name="advisory_schedule_action_list_reminders",
     ),
     path(
+        "project/<int:project_id>/advisory-board/synopsis-reminders/",
+        views.advisory_schedule_synopsis_reminders,
+        name="advisory_schedule_synopsis_reminders",
+    ),
+    path(
         "project/<int:project_id>/advisory-board/member/<int:member_id>/reminder/<str:kind>/",
         views.advisory_member_set_deadline,
         name="advisory_member_set_deadline",
@@ -351,6 +356,16 @@ urlpatterns = [
         name="advisory_send_action_list_compose_member",
     ),
     path(
+        "project/<int:project_id>/advisory/send-synopsis/all/",
+        views.advisory_send_synopsis_compose_all,
+        name="advisory_send_synopsis_compose_all",
+    ),
+    path(
+        "project/<int:project_id>/advisory/send-synopsis/member/<int:member_id>/",
+        views.advisory_send_synopsis_compose_member,
+        name="advisory_send_synopsis_compose_member",
+    ),
+    path(
         "advisory/protocol/feedback/<uuid:token>/",
         views.protocol_feedback,
         name="protocol_feedback",
@@ -359,6 +374,11 @@ urlpatterns = [
         "advisory/action-list/feedback/<uuid:token>/",
         views.action_list_feedback,
         name="action_list_feedback",
+    ),
+    path(
+        "advisory/synopsis/feedback/<uuid:token>/",
+        views.synopsis_feedback,
+        name="synopsis_feedback",
     ),
     path(
         "project/<int:project_id>/advisory/send-invite/member/<int:member_id>/",

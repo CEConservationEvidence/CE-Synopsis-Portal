@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 import jwt
 from django.contrib.auth.models import Group, User, AnonymousUser
+from django.core.mail import EmailMessage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings, RequestFactory, SimpleTestCase
 from django.contrib.messages import get_messages
@@ -55,6 +56,7 @@ from .models import (
     SynopsisIntervention,
     SynopsisInterventionKeyMessage,
     SynopsisAssignment,
+    SynopsisFeedback,
 )
 from .forms import (
     ActionListReminderScheduleForm,
@@ -76,6 +78,7 @@ from .forms import (
     ReferenceSummaryDraftForm,
     ReferenceSummaryUpdateForm,
 )
+from .email_backends import AttachmentSummaryConsoleEmailBackend
 from .utils import (
     BRAND,
     GLOBAL_GROUPS,
@@ -1239,6 +1242,32 @@ class AdvisoryDeadlineValidationTests(TestCase):
         self.assertIn("deadline", form.errors)
 
 
+class AttachmentSummaryConsoleEmailBackendTests(SimpleTestCase):
+    def test_prints_body_and_attachment_summary_without_payload(self):
+        stream = io.StringIO()
+        backend = AttachmentSummaryConsoleEmailBackend(stream=stream)
+        message = EmailMessage(
+            "Demo link",
+            "Open this link: http://example.com/demo-token",
+            "from@example.com",
+            ["to@example.com"],
+        )
+        message.attach(
+            "synopsis.docx",
+            b"raw document bytes that should not be printed",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+        sent = backend.send_messages([message])
+
+        output = stream.getvalue()
+        self.assertEqual(sent, 1)
+        self.assertIn("Open this link: http://example.com/demo-token", output)
+        self.assertIn("synopsis.docx", output)
+        self.assertIn("content not printed", output)
+        self.assertNotIn("raw document bytes", output)
+
+
 @override_settings(DEFAULT_FROM_EMAIL="reminders@example.com")
 class SendDueRemindersTests(TestCase):
     def setUp(self):
@@ -1271,6 +1300,16 @@ class SendDueRemindersTests(TestCase):
             sent_action_list_at=aware_now,
             feedback_on_action_list_deadline=self.action_list_deadline,
         )
+        self.synopsis_deadline = aware_now + timedelta(days=7)
+        self.synopsis_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Syn",
+            email="synopsis@example.com",
+            invite_sent=True,
+            response="Y",
+            sent_synopsis_at=aware_now,
+            feedback_on_synopsis_deadline=self.synopsis_deadline,
+        )
 
     @patch("synopsis.management.commands.send_due_reminders.EmailMultiAlternatives")
     @patch("synopsis.management.commands.send_due_reminders.minus_business_days")
@@ -1301,20 +1340,23 @@ class SendDueRemindersTests(TestCase):
 
         call_command("send_due_reminders")
 
-        self.assertEqual(len(email_calls), 3)
+        self.assertEqual(len(email_calls), 4)
         for _, _, instance in email_calls:
             instance.send.assert_called_once()
 
         self.invite_member.refresh_from_db()
         self.protocol_member.refresh_from_db()
         self.action_member.refresh_from_db()
+        self.synopsis_member.refresh_from_db()
 
         self.assertTrue(self.invite_member.reminder_sent)
         self.assertTrue(self.protocol_member.protocol_reminder_sent)
         self.assertTrue(self.action_member.action_list_reminder_sent)
+        self.assertTrue(self.synopsis_member.synopsis_reminder_sent)
         self.assertIsNotNone(self.invite_member.reminder_sent_at)
         self.assertIsNotNone(self.protocol_member.protocol_reminder_sent_at)
         self.assertIsNotNone(self.action_member.action_list_reminder_sent_at)
+        self.assertIsNotNone(self.synopsis_member.synopsis_reminder_sent_at)
 
         subjects = [args[0] for args, _, _ in email_calls]
         self.assertIn(
@@ -1329,6 +1371,10 @@ class SendDueRemindersTests(TestCase):
             email_subject(
                 "action_list_reminder", self.project, self.action_list_deadline
             ),
+            subjects,
+        )
+        self.assertIn(
+            email_subject("synopsis_reminder", self.project, self.synopsis_deadline),
             subjects,
         )
 
@@ -1520,6 +1566,38 @@ class MemberReminderUpdateTests(TestCase):
         )
         self.assertContains(response, feedback.latest_document_label())
 
+    def test_board_page_shows_synopsis_feedback_modal(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sam",
+            last_name="Synopsis",
+            email="sam@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+        )
+        feedback = SynopsisFeedback.objects.create(
+            project=self.project,
+            member=member,
+            content="Please expand the key messages.",
+            submitted_at=timezone.now(),
+            uploaded_document=SimpleUploadedFile(
+                "sam-synopsis-comments.pdf",
+                b"synopsis comments",
+                content_type="application/pdf",
+            ),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "View feedback")
+        self.assertContains(response, "View document")
+        self.assertContains(response, f"synopsis-feedback-{member.id}")
+        self.assertContains(response, f"synopsis-feedback-document-{member.id}")
+        self.assertContains(response, "Please expand the key messages.")
+        self.assertContains(response, feedback.latest_document_label())
+
     def test_board_page_shows_action_list_feedback_deadline(self):
         deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=5)
         member = AdvisoryBoardMember.objects.create(
@@ -1558,7 +1636,7 @@ class MemberReminderUpdateTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "GUIDANCE FEEDBACK")
         self.assertNotContains(response, "GUIDANCE SENT")
-        self.assertContains(response, "FEEDBACK DOCUMENT", count=2)
+        self.assertContains(response, "FEEDBACK DOCUMENT", count=3)
         self.assertContains(response, "AUTHOR REPLIED", count=3)
         self.assertContains(response, "REMINDER SENT", count=4)
 
@@ -1752,6 +1830,68 @@ class MemberReminderUpdateTests(TestCase):
         self.assertTrue(member.synopsis_author_replied)
         self.assertTrue(member.added_to_synopsis_doc)
 
+    def test_can_mark_synopsis_feedback_received_from_board(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sia",
+            last_name="Feedback",
+            email="sia-feedback@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_synopsis_flag",
+                args=[self.project.id, member.id, "feedback-received"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertEqual(member.feedback_on_synopsis_received, timezone.localdate())
+
+    def test_synopsis_feedback_link_accepts_comments_and_document(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sia",
+            last_name="Reviewer",
+            email="sia-reviewer@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+            feedback_on_synopsis_deadline=timezone.now() + timedelta(days=4),
+        )
+        feedback = SynopsisFeedback.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+            feedback_deadline_at=member.feedback_on_synopsis_deadline,
+        )
+        uploaded_doc = SimpleUploadedFile(
+            "synopsis-comments.pdf",
+            b"annotated synopsis",
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            reverse("synopsis:synopsis_feedback", args=[str(feedback.token)]),
+            {
+                "content": "Please clarify the evidence summary.",
+                "uploaded_document": uploaded_doc,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Thank you")
+        feedback.refresh_from_db()
+        member.refresh_from_db()
+        self.assertEqual(feedback.content, "Please clarify the evidence summary.")
+        self.assertTrue(feedback.uploaded_document.name)
+        self.assertEqual(member.feedback_on_synopsis_received, timezone.localdate())
+
     def test_board_page_shows_readable_protocol_and_synopsis_tracking_controls(self):
         protocol_member = AdvisoryBoardMember.objects.create(
             project=self.project,
@@ -1811,6 +1951,39 @@ class MemberReminderUpdateTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Awaiting feedback")
+
+    def test_board_page_shows_synopsis_send_and_tracking_controls(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sian",
+            email="sian@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            reverse("synopsis:advisory_send_synopsis_compose_all", args=[self.project.id]),
+        )
+        self.assertContains(
+            response,
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "synopsis"],
+            ),
+        )
+        self.assertContains(
+            response,
+            reverse(
+                "synopsis:advisory_member_set_synopsis_flag",
+                args=[self.project.id, member.id, "feedback-received"],
+            ),
+        )
+        self.assertContains(response, "Mark received")
 
     def test_clear_response_deadline(self):
         member = AdvisoryBoardMember.objects.create(
@@ -1995,6 +2168,43 @@ class MemberReminderUpdateTests(TestCase):
         self.assertTrue(
             ProjectChangeLog.objects.filter(
                 project=self.project, action="Updated action list reminder"
+            ).exists()
+        )
+
+    def test_update_synopsis_deadline(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sam",
+            email="sam@example.com",
+            response="Y",
+            sent_synopsis_at=timezone.now(),
+            synopsis_reminder_sent=True,
+            synopsis_reminder_sent_at=timezone.now(),
+        )
+        deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=5)
+        local_deadline = timezone.localtime(deadline)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "synopsis"],
+            ),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNotNone(member.feedback_on_synopsis_deadline)
+        self.assertAlmostEqual(
+            member.feedback_on_synopsis_deadline.timestamp(),
+            deadline.timestamp(),
+            delta=1,
+        )
+        self.assertFalse(member.synopsis_reminder_sent)
+        self.assertIsNone(member.synopsis_reminder_sent_at)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project, action="Updated synopsis reminder"
             ).exists()
         )
 
@@ -2726,6 +2936,81 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
         self.assertEqual(
             feedback.feedback_deadline_at,
             self.member.feedback_on_action_list_deadline,
+        )
+
+    @patch("synopsis.views._generate_synopsis_docx", return_value=b"docx")
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_synopsis_member_send_defaults_deadline_to_configured_window(
+        self, mock_email, mock_generate
+    ):
+        email_instance = MagicMock()
+        mock_email.return_value = email_instance
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_synopsis_compose_member",
+                args=[self.project.id, self.member.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        self.member.refresh_from_db()
+        self.assertIsNotNone(self.member.sent_synopsis_at)
+        self.assertEqual(
+            self.member.feedback_on_synopsis_deadline.date(), self.expected_due
+        )
+        self.assertEqual(self.member.feedback_on_synopsis_deadline.hour, 23)
+        self.assertEqual(self.member.feedback_on_synopsis_deadline.minute, 59)
+        feedback = SynopsisFeedback.objects.get(project=self.project, member=self.member)
+        self.assertEqual(
+            feedback.feedback_deadline_at,
+            self.member.feedback_on_synopsis_deadline,
+        )
+        email_body = mock_email.call_args[0][1]
+        self.assertIn(str(feedback.token), email_body)
+        self.assertIn("Provide feedback:", email_body)
+        mock_generate.assert_called_once_with(self.project)
+        email_instance.attach.assert_called_once()
+
+    @patch("synopsis.views._generate_synopsis_docx", return_value=b"generated")
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_synopsis_member_send_can_use_uploaded_attachment(
+        self, mock_email, mock_generate
+    ):
+        email_instance = MagicMock()
+        mock_email.return_value = email_instance
+        uploaded_doc = SimpleUploadedFile(
+            "review-draft.pdf",
+            b"uploaded synopsis",
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_synopsis_compose_member",
+                args=[self.project.id, self.member.id],
+            ),
+            {
+                "due_date": "",
+                "message": "Please review this version.",
+                "synopsis_document": uploaded_doc,
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        mock_generate.assert_not_called()
+        email_instance.attach.assert_called_once_with(
+            "review-draft.pdf",
+            b"uploaded synopsis",
+            "application/pdf",
         )
 
 class FunderUtilityTests(TestCase):
