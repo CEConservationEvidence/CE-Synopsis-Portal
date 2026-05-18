@@ -192,6 +192,27 @@
     </div>
     {% endif %}
     {% endwith %}
+    {% if total_member_count %}
+    <a
+        class="btn btn-outline-primary"
+        href="{% url 'synopsis:advisory_send_synopsis_compose_all' project.id %}"
+        title="Send the generated synopsis document to all eligible members"
+    >
+        Send synopsis to all
+    </a>
+    {% else %}
+    <div class="d-flex flex-column">
+        <button
+            type="button"
+            class="btn btn-outline-primary disabled"
+            tabindex="-1"
+            aria-disabled="true"
+        >
+            Send synopsis to all
+        </button>
+        <small class="text-muted">Add at least one member to enable bulk sending.</small>
+    </div>
+    {% endif %}
     <button
         type="button"
         class="btn btn-outline-primary"
@@ -334,7 +355,7 @@
                         <th class="ab-group-header text-start ab-status-protocol" scope="colgroup" colspan="{{ protocol_extra|add:7 }}">PROTOCOL</th>
                         {% endwith %}
                         {% with synopsis_extra=combined_fields_by_group.synopsis|length %}
-                        <th class="ab-group-header text-start ab-status-synopsis" scope="colgroup" colspan="{{ synopsis_extra|add:6 }}">SYNOPSIS</th>
+                        <th class="ab-group-header text-start ab-status-synopsis" scope="colgroup" colspan="{{ synopsis_extra|add:7 }}">SYNOPSIS</th>
                         {% endwith %}
                         {% with custom_extra=combined_fields_by_group.custom|length %}
                         {% if custom_extra %}
@@ -412,6 +433,7 @@
                         <th class="ab-status-synopsis text-start" scope="col">FEEDBACK RECEIVED</th>
                         <th class="ab-status-synopsis text-start" scope="col">AUTHOR REPLIED</th>
                         <th class="ab-status-synopsis text-start" scope="col">ADDED TO DOC</th>
+                        <th class="ab-status-synopsis text-start" scope="col">FEEDBACK DOCUMENT</th>
                         {% for field in combined_fields_by_group.synopsis %}
                         <th class="ab-status-synopsis text-start" scope="col">
                             <div class="fw-semibold">{{ field.name }}</div>
@@ -1122,14 +1144,49 @@
                                         <span class="badge text-bg-success">Sent</span>
                                         <div class="small text-muted">{{ m.sent_synopsis_at|date:"Y-m-d" }}</div>
                                         {% else %}
+                                            {% if m.response == 'Y' and m.participation_confirmed %}
+                                        <a
+                                            class="btn btn-sm btn-outline-secondary"
+                                            href="{% url 'synopsis:advisory_send_synopsis_compose_member' project.id m.id %}"
+                                            title="Send the generated synopsis document to this member"
+                                        >Send</a>
+                                            {% elif m.response == 'Y' %}
+                                        <span class="text-muted small">Confirm first</span>
+                                            {% else %}
                                         <span class="text-muted">—</span>
+                                            {% endif %}
                                         {% endif %}
                                     </td>
                                     <td class="ab-status-synopsis">
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
-                                        {% elif m.feedback_on_synopsis_deadline %}
-                                        {{ m.feedback_on_synopsis_deadline|date:"Y-m-d H:i" }}
+                                        {% elif m.sent_synopsis_at and m.response == 'Y' %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_deadline' project.id m.id 'synopsis' %}"
+                                            class="reminder-inline-form"
+                                        >
+                                            {% csrf_token %}
+                                            <div class="input-group input-group-sm">
+                                                <input
+                                                    type="datetime-local"
+                                                    name="deadline"
+                                                    class="form-control"
+                                                    value="{{ m.feedback_on_synopsis_deadline|date:'Y-m-d\\TH:i' }}"
+                                                    min="{{ minimum_allowed_deadline_date|date:'Y-m-d' }}T00:00"
+                                                    aria-label="Synopsis feedback deadline for {{ m.first_name|default:m.email }}"
+                                                >
+                                                <button class="btn btn-outline-primary btn-sm">Save</button>
+                                                {% if m.feedback_on_synopsis_deadline %}
+                                                <button
+                                                    class="btn btn-outline-secondary btn-sm"
+                                                    type="submit"
+                                                    name="clear_deadline"
+                                                    value="1"
+                                                >Clear</button>
+                                                {% endif %}
+                                            </div>
+                                        </form>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
@@ -1151,13 +1208,59 @@
                                     <td class="ab-status-synopsis">
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
+                                        {% elif m.latest_synopsis_feedback_obj and m.latest_synopsis_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.latest_synopsis_feedback_obj.submitted_at|date:"Y-m-d" }}</div>
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#synopsis-feedback-{{ m.id }}"
+                                                aria-label="View synopsis feedback for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View feedback
+                                            </button>
+                                        </div>
                                         {% elif m.feedback_on_synopsis_received %}
                                         <div class="d-flex flex-column align-items-center gap-1">
                                             <span aria-hidden="true">✅</span>
                                             <div class="small text-muted">{{ m.feedback_on_synopsis_received|date:"Y-m-d" }}</div>
+                                            {% if can_edit_members %}
+                                            <form
+                                                method="post"
+                                                action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'feedback-received' %}"
+                                                class="d-inline-flex justify-content-center"
+                                            >
+                                                {% csrf_token %}
+                                                <input type="hidden" name="value" value="0">
+                                                <button
+                                                    class="btn btn-link btn-sm p-0"
+                                                    type="submit"
+                                                    aria-label="Clear synopsis feedback received for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                                >Clear</button>
+                                            </form>
+                                            {% endif %}
                                         </div>
-                                        {% elif m.feedback_on_synopsis_deadline %}
+                                        {% elif m.sent_synopsis_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
                                         <span class="badge text-bg-warning">Awaiting</span>
+                                            {% if can_edit_members %}
+                                            <form
+                                                method="post"
+                                                action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'feedback-received' %}"
+                                                class="d-inline-flex justify-content-center"
+                                            >
+                                                {% csrf_token %}
+                                                <input type="hidden" name="value" value="1">
+                                                <button
+                                                    class="btn btn-link btn-sm p-0"
+                                                    type="submit"
+                                                    aria-label="Mark synopsis feedback received for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                                >Mark received</button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
@@ -1165,6 +1268,31 @@
                                     <td class="ab-status-synopsis">
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
+                                        {% elif m.latest_synopsis_feedback_obj and m.latest_synopsis_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.synopsis_author_replied %}
+                                        <span class="badge text-bg-success">Replied</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not yet</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'author-replied' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.synopsis_author_replied %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.synopsis_author_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.synopsis_author_replied %}Clear{% else %}Mark replied{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
                                         {% elif m.feedback_on_synopsis_received %}
                                         <div class="d-flex flex-column align-items-center gap-1">
                                         {% if m.synopsis_author_replied %}
@@ -1199,6 +1327,31 @@
                                     <td class="ab-status-synopsis">
                                         {% if m.is_declined %}
                                         <span class="text-muted">—</span>
+                                        {% elif m.latest_synopsis_feedback_obj and m.latest_synopsis_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.added_to_synopsis_doc %}
+                                        <span class="badge text-bg-success">Added</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_synopsis_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_synopsis_doc %}Clear feedback added to synopsis document{% else %}Mark feedback added to synopsis document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_synopsis_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
                                         {% elif m.feedback_on_synopsis_received %}
                                         <div class="d-flex flex-column align-items-center gap-1">
                                         {% if m.added_to_synopsis_doc %}
@@ -1224,6 +1377,31 @@
                                         </form>
                                         {% endif %}
                                         </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-synopsis">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_synopsis_feedback_obj and m.latest_synopsis_feedback_obj.uploaded_document %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span class="badge text-bg-success">Document received</span>
+                                            {% if m.latest_synopsis_feedback_obj.submitted_at %}
+                                            <div class="text-muted small">{{ m.latest_synopsis_feedback_obj.submitted_at|date:"Y-m-d H:i" }}</div>
+                                            {% endif %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#synopsis-feedback-document-{{ m.id }}"
+                                                aria-label="View synopsis feedback document for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View document
+                                            </button>
+                                        </div>
+                                        {% elif m.latest_synopsis_feedback_obj and m.latest_synopsis_feedback_obj.content %}
+                                        <span class="text-muted small">No document</span>
                                         {% else %}
                                         <span class="text-muted">—</span>
                                         {% endif %}
@@ -1298,7 +1476,7 @@
                 <div class="alert alert-light border mb-4">
                     <div class="fw-semibold mb-1">How this works</div>
                     <div class="small text-muted">
-                        Set the invitation response deadline here. Protocol and action list feedback windows now live on their respective document pages.
+                        Set invitation response deadlines here. Synopsis feedback deadlines can also be set here after the synopsis has been sent.
                     </div>
                 </div>
                 <div class="card border-warning-subtle">
@@ -1336,6 +1514,44 @@
                                 <div class="form-text">Must be at least tomorrow.</div>
                             </div>
                             <button class="btn btn-outline-primary btn-sm">Set invitation deadline</button>
+                        </form>
+                    </div>
+                </div>
+                <div class="card border-primary-subtle mt-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                            <div>
+                                <h6 class="fw-semibold mb-1">Synopsis feedback</h6>
+                                <div class="small text-muted">For accepted members who have already been sent the synopsis.</div>
+                            </div>
+                            <span class="badge text-bg-primary">{{ synopsis_pending_count }}</span>
+                        </div>
+                        <div class="small mb-3">
+                            <div><strong>Current date:</strong>
+                                {% if synopsis_pending_count and synopsis_pending_dates %}
+                                    {{ synopsis_pending_dates.0|date:"Y-m-d H:i" }}
+                                    {% if synopsis_pending_dates|length > 1 %}
+                                        <span class="text-muted">({{ synopsis_pending_dates|length }} different dates)</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted">Not set</span>
+                                {% endif %}
+                            </div>
+                            {% if initial_synopsis_reminder_log %}
+                            <div class="text-muted mt-1">
+                                First scheduled {{ initial_synopsis_reminder_log.created_at|date:"Y-m-d H:i" }}
+                            </div>
+                            {% endif %}
+                        </div>
+                        <form method="post" action="{% url 'synopsis:advisory_schedule_synopsis_reminders' project.id %}">
+                            {% csrf_token %}
+                            <div class="mb-2">
+                                {{ synopsis_reminder_form.deadline.label_tag }}
+                                {{ synopsis_reminder_form.deadline }}
+                                {{ synopsis_reminder_form.deadline.errors }}
+                                <div class="form-text">{{ synopsis_reminder_form.deadline.help_text }}</div>
+                            </div>
+                            <button class="btn btn-outline-primary btn-sm">Set synopsis deadline</button>
                         </form>
                     </div>
                 </div>
@@ -1639,6 +1855,83 @@
                     <div class="border rounded bg-light p-3 mb-3 text-break">
                         <div class="fw-semibold">{{ feedback.latest_document_label }}</div>
                         <div class="small text-muted">Stored with this protocol feedback submission.</div>
+                    </div>
+                    <a class="btn btn-outline-primary" href="{{ feedback.uploaded_document.url }}" target="_blank" rel="noopener">Open document</a>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+            {% endif %}
+        {% endwith %}
+    {% endfor %}
+{% endif %}
+
+{% if synopsis_feedback_members %}
+    {% for synopsis_feedback_member in synopsis_feedback_members %}
+    <div class="modal fade" id="synopsis-feedback-{{ synopsis_feedback_member.id }}" tabindex="-1" aria-labelledby="synopsis-feedback-{{ synopsis_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="synopsis-feedback-{{ synopsis_feedback_member.id }}-label">Synopsis feedback</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% with feedback=synopsis_feedback_member.latest_synopsis_feedback_obj %}
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="mb-3">
+                        <h6 class="mb-2">Comments</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.content %}
+                            <p class="mb-0" style="white-space: pre-wrap;">{{ feedback.content }}</p>
+                            {% else %}
+                            <p class="text-muted mb-0">No written comments were provided.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <h6 class="mb-2">Uploaded document</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.uploaded_document %}
+                            <a href="{{ feedback.uploaded_document.url }}">{{ feedback.latest_document_label }}</a>
+                            {% else %}
+                            <p class="text-muted mb-0">No document was uploaded.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endwith %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+{% if synopsis_feedback_members %}
+    {% for synopsis_feedback_member in synopsis_feedback_members %}
+        {% with feedback=synopsis_feedback_member.latest_synopsis_feedback_obj %}
+            {% if feedback.uploaded_document %}
+    <div class="modal fade" id="synopsis-feedback-document-{{ synopsis_feedback_member.id }}" tabindex="-1" aria-labelledby="synopsis-feedback-document-{{ synopsis_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="synopsis-feedback-document-{{ synopsis_feedback_member.id }}-label">Synopsis feedback document</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="border rounded bg-light p-3 mb-3 text-break">
+                        <div class="fw-semibold">{{ feedback.latest_document_label }}</div>
+                        <div class="small text-muted">Stored with this synopsis feedback submission.</div>
                     </div>
                     <a class="btn btn-outline-primary" href="{{ feedback.uploaded_document.url }}" target="_blank" rel="noopener">Open document</a>
                 </div>
