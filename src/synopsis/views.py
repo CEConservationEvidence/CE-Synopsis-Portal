@@ -2364,6 +2364,7 @@ def dashboard(request):
         proj.author_list = [
             role.user for role in proj.userrole_set.all() if role.role == "author"
         ]
+        proj.can_edit_project = _user_can_edit_project(request.user, proj)
     return render(
         request,
         "synopsis/dashboard.html",
@@ -5234,6 +5235,46 @@ def project_settings(request, project_id):
         return redirect("synopsis:project_hub", project_id=project.id)
 
     if request.method == "POST":
+        status_action = request.POST.get("status_action")
+        status_targets = {
+            "mark_completed": "completed",
+            "reactivate": "active",
+        }
+        if status_action in status_targets:
+            old_status = project.status
+            new_status = status_targets[status_action]
+            status_labels = dict(Project._meta.get_field("status").choices)
+
+            if old_status == new_status:
+                messages.info(
+                    request,
+                    f"Synopsis is already marked as {status_labels.get(new_status, new_status).lower()}.",
+                )
+            else:
+                project.status = new_status
+                project.save(update_fields=["status"])
+                _log_project_change(
+                    project,
+                    request.user,
+                    "Updated project status",
+                    "Status: "
+                    f"{status_labels.get(old_status, old_status)} → "
+                    f"{status_labels.get(new_status, new_status)}",
+                )
+                if new_status == "completed":
+                    messages.success(
+                        request,
+                        "Synopsis moved to the completed / archived section on the homepage. It remains fully accessible.",
+                    )
+                else:
+                    messages.success(
+                        request,
+                        "Synopsis moved back to the active synopses section on the homepage.",
+                    )
+            if request.POST.get("return_to") == "dashboard":
+                return redirect("synopsis:dashboard")
+            return redirect("synopsis:project_settings", project_id=project.id)
+
         original_title = project.title
         original_description = project.description
         original_protocol_relevant = project.protocol_relevant

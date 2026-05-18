@@ -7792,6 +7792,110 @@ class ProjectDescriptionUiTests(TestCase):
         self.assertContains(response, "Advisory board is relevant for this project")
 
 
+class ProjectHomepageStatusUiTests(TestCase):
+    def setUp(self):
+        self.author = User.objects.create_user(
+            username="status-author",
+            password="pass123",
+        )
+        self.project = Project.objects.create(title="Status Managed Synopsis")
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        self.client.login(username="status-author", password="pass123")
+
+    def test_project_settings_shows_homepage_listing_controls(self):
+        response = self.client.get(
+            reverse("synopsis:project_settings", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Homepage listing")
+        self.assertContains(response, "Shown under active synopses")
+        self.assertContains(response, "Mark as completed / archived")
+        self.assertNotContains(response, "Archive synopsis")
+
+    def test_author_can_move_synopsis_to_completed_section_without_locking_it(self):
+        response = self.client.post(
+            reverse("synopsis:project_settings", args=[self.project.id]),
+            {"status_action": "mark_completed"},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_settings", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.status, "completed")
+        self.assertContains(response, "Shown under completed / archived synopses")
+        self.assertContains(response, "Move back to active")
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Updated project status",
+                details="Status: Planning → Completed",
+            ).exists()
+        )
+
+        dashboard_response = self.client.get(reverse("synopsis:dashboard"))
+        self.assertNotIn(self.project, dashboard_response.context["active_projects"])
+        self.assertIn(self.project, dashboard_response.context["completed_projects"])
+        self.assertContains(
+            dashboard_response,
+            reverse("synopsis:project_hub", args=[self.project.id]),
+            html=False,
+        )
+        self.assertContains(dashboard_response, "Move to active")
+
+        hub_response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        self.assertEqual(hub_response.status_code, 200)
+        self.assertContains(hub_response, self.project.title)
+
+    def test_author_can_move_completed_synopsis_back_to_active_section(self):
+        self.project.status = "completed"
+        self.project.save(update_fields=["status"])
+
+        response = self.client.post(
+            reverse("synopsis:project_settings", args=[self.project.id]),
+            {"status_action": "reactivate"},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_settings", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.status, "active")
+        self.assertContains(response, "Shown under active synopses")
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Updated project status",
+                details="Status: Completed → Active",
+            ).exists()
+        )
+
+        dashboard_response = self.client.get(reverse("synopsis:dashboard"))
+        self.assertIn(self.project, dashboard_response.context["active_projects"])
+        self.assertNotIn(self.project, dashboard_response.context["completed_projects"])
+
+    def test_author_can_move_completed_synopsis_back_to_active_from_dashboard_row(self):
+        self.project.status = "completed"
+        self.project.save(update_fields=["status"])
+
+        response = self.client.post(
+            reverse("synopsis:project_settings", args=[self.project.id]),
+            {"status_action": "reactivate", "return_to": "dashboard"},
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse("synopsis:dashboard"))
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.status, "active")
+        self.assertIn(self.project, response.context["active_projects"])
+        self.assertNotIn(self.project, response.context["completed_projects"])
+
+
 class ProjectPhaseUiTests(TestCase):
     def setUp(self):
         self.author = User.objects.create_user(
