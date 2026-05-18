@@ -6354,6 +6354,13 @@ class LibraryReferenceDetailTests(TestCase):
 
 
 class ReferenceSummaryFormTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Summary form project")
+
+    def test_update_form_requires_project(self):
+        with self.assertRaises(TypeError):
+            ReferenceSummaryUpdateForm()
+
     def test_habitat_tags_use_detailed_iucn_choices(self):
         values = [value for value, _label in IUCN_HABITAT_CHOICES]
         self.assertEqual(len(values), 63)
@@ -6374,7 +6381,8 @@ class ReferenceSummaryFormTests(TestCase):
                     "Marine Coral Reefs",
                     "Forest - Temperate",
                 ],
-            }
+            },
+            project=self.project,
         )
         self.assertTrue(form.is_valid())
         self.assertEqual(
@@ -6401,7 +6409,8 @@ class ReferenceSummaryFormTests(TestCase):
                     "Land/water management-Site/area management",
                     "Research & monitoring-Conservation planning",
                 ],
-            }
+            },
+            project=self.project,
         )
         self.assertTrue(form.is_valid())
         self.assertEqual(
@@ -6430,7 +6439,8 @@ class ReferenceSummaryFormTests(TestCase):
                     "Residential & commercial development-Housing/urban areas",
                     "Climate change & severe weather-Storms/flooding",
                 ],
-            }
+            },
+            project=self.project,
         )
         self.assertTrue(form.is_valid())
         self.assertEqual(
@@ -6451,7 +6461,8 @@ class ReferenceSummaryFormTests(TestCase):
                     "Controlled*",
                     "Before-and-after",
                 ],
-            }
+            },
+            project=self.project,
         )
 
         self.assertTrue(form.is_valid())
@@ -6471,7 +6482,8 @@ class ReferenceSummaryFormTests(TestCase):
                     "Controlled*",
                     "Before-and-after",
                 ],
-            }
+            },
+            project=self.project,
         )
 
         self.assertFalse(form.is_valid())
@@ -6480,7 +6492,7 @@ class ReferenceSummaryFormTests(TestCase):
     def test_research_design_initial_splits_saved_tags(self):
         summary = ReferenceSummary(research_design="Replicated; Controlled*")
 
-        form = ReferenceSummaryUpdateForm(instance=summary)
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
 
         self.assertEqual(
             form["research_design"].value(),
@@ -6517,6 +6529,7 @@ class ReferenceSummaryFormTests(TestCase):
                 ],
             },
             instance=summary,
+            project=project,
         )
 
         self.assertTrue(form.is_valid(), form.errors)
@@ -6556,6 +6569,7 @@ class ReferenceSummaryFormTests(TestCase):
                 ],
             },
             instance=summary,
+            project=project,
         )
 
         self.assertTrue(form.is_valid(), form.errors)
@@ -6571,7 +6585,7 @@ class ReferenceSummaryFormTests(TestCase):
             experimental_design="Compared treated and untreated plots over two years.",
         )
 
-        form = ReferenceSummaryUpdateForm(instance=summary)
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
 
         self.assertEqual(
             form["methods_and_design"].value(),
@@ -6723,6 +6737,7 @@ class ReferenceSummaryFormTests(TestCase):
                 "methods_and_design": "Combined methods and design notes.",
             },
             instance=summary,
+            project=project,
         )
 
         self.assertTrue(form.is_valid(), form.errors)
@@ -6755,14 +6770,22 @@ class ReferenceSummaryFormTests(TestCase):
 
     def test_location_tags_accepts_place_and_coords(self):
         form = ReferenceSummaryUpdateForm(
-            data={"status": ReferenceSummary.STATUS_TODO, "location_tags": "London, UK - 51.50740, -0.12780"}
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "location_tags": "London, UK - 51.50740, -0.12780",
+            },
+            project=self.project,
         )
         self.assertTrue(form.is_valid())
         self.assertEqual(form.cleaned_data["location_tags"], ["London, UK - 51.50740, -0.12780"])
 
     def test_location_tags_rejects_out_of_range(self):
         form = ReferenceSummaryUpdateForm(
-            data={"status": ReferenceSummary.STATUS_TODO, "location_tags": "Nowhere - 123.00000, 200.00000"}
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "location_tags": "Nowhere - 123.00000, 200.00000",
+            },
+            project=self.project,
         )
         self.assertFalse(form.is_valid())
         self.assertIn("Coordinates must be valid latitude", str(form.errors))
@@ -6772,7 +6795,7 @@ class ReferenceSummaryFormTests(TestCase):
             "status": ReferenceSummary.STATUS_TODO,
             "outcomes_raw": "Outcome | 1 | treat | 2 | comp | unit | diff | stats | p | notes\n | | | | | | | | | ",
         }
-        form = ReferenceSummaryUpdateForm(data=data)
+        form = ReferenceSummaryUpdateForm(data=data, project=self.project)
         self.assertTrue(form.is_valid())
         cleaned = form.cleaned_data["outcomes_raw"]
         self.assertEqual(len(cleaned), 1)
@@ -6786,7 +6809,8 @@ class ReferenceSummaryFormTests(TestCase):
                 "harms_score": "100",
                 "reliability_score": "0.0",
                 "relevance_score": "1.0",
-            }
+            },
+            project=self.project,
         )
         self.assertTrue(form.is_valid())
         self.assertEqual(form.cleaned_data["benefits_score"], 0.0)
@@ -6811,7 +6835,8 @@ class ReferenceSummaryFormTests(TestCase):
                     data={
                         "status": ReferenceSummary.STATUS_TODO,
                         field_name: value,
-                    }
+                    },
+                    project=self.project,
                 )
                 self.assertFalse(form.is_valid())
                 self.assertIn(field_name, form.errors)

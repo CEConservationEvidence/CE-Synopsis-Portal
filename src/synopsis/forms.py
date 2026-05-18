@@ -2061,7 +2061,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         "relevance_score": (0.0, 1.0, "0.01"),
     }
 
-    def __init__(self, *args, project=None, **kwargs):
+    def __init__(self, *args, project, **kwargs):
         super().__init__(*args, **kwargs)
         instance = getattr(self, "instance", None)
         self.fields["study_design"].required = False
