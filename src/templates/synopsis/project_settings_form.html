@@ -1,20 +1,76 @@
 {% extends "synopsis/base.html" %}
-{% block title %}Project Settings – {{ project.title }}{% endblock %}
+{% block title %}Project Settings - {{ project.title }}{% endblock %}
 {% block content %}
-<div class="container mt-5">
-    <h1 class="mb-4 text-center">Edit Synopsis</h1>
-    <p class="text-muted text-center">
-        Update the core details for
-        <strong>{{ project.title }}</strong>
-        . You can modify the synopsis title, optional description, whether protocol and advisory board are relevant for this project, and the project phase tracker here.
-    </p>
-    <div class="col-lg-8 col-md-10 mx-auto mb-4">
-        <div class="card shadow-sm">
-            <div class="card-body">
-                <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
-                    <div>
-                        <h2 class="h5 mb-1">Homepage listing</h2>
-                        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+<div class="container py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h1 class="h3 mb-1">Project settings</h1>
+            <p class="text-muted mb-0">{{ project.title }}</p>
+        </div>
+        <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
+    </div>
+
+    <div class="row g-4 align-items-start">
+        <div class="col-lg-7">
+            <form method="post" id="settings-form">
+                {% csrf_token %}
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                            <div>
+                                <h2 class="h5 mb-1">Core details</h2>
+                                <p class="text-muted small mb-0">Edit the title, optional description, and which workflow components apply to this synopsis.</p>
+                            </div>
+                        </div>
+                        {{ form.non_field_errors }}
+                        <div class="mb-3">
+                            <label class="form-label fw-semibold" for="{{ form.title.id_for_label }}">{{ form.title.label }}</label>
+                            {{ form.title }}
+                            {% for error in form.title.errors %}
+                            <div class="text-danger small mt-1">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label fw-semibold" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+                            {{ form.description }}
+                            {% for error in form.description.errors %}
+                            <div class="text-danger small mt-1">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        <div class="border rounded p-3 bg-light">
+                            <div class="fw-semibold mb-3">Workflow components</div>
+                            <div class="form-check mb-3">
+                                {{ form.protocol_relevant }}
+                                <label class="form-check-label" for="{{ form.protocol_relevant.id_for_label }}">{{ form.protocol_relevant.label }}</label>
+                                <div class="form-text">{{ form.protocol_relevant.help_text }}</div>
+                                {% for error in form.protocol_relevant.errors %}
+                                <div class="text-danger small mt-1">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="form-check">
+                                {{ form.advisory_board_relevant }}
+                                <label class="form-check-label" for="{{ form.advisory_board_relevant.id_for_label }}">{{ form.advisory_board_relevant.label }}</label>
+                                <div class="form-text">{{ form.advisory_board_relevant.help_text }}</div>
+                                {% for error in form.advisory_board_relevant.errors %}
+                                <div class="text-danger small mt-1">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-white d-flex flex-wrap justify-content-between gap-2">
+                        <button class="btn btn-primary" type="submit">Save settings</button>
+                        <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Cancel</a>
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="d-flex flex-column gap-4">
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        <h2 class="h5 mb-3">Homepage listing</h2>
+                        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
                             <span class="badge {% if project.status == 'completed' %}text-bg-success{% elif project.status == 'archived' %}text-bg-secondary{% else %}text-bg-primary{% endif %}">
                                 {{ project.get_status_display }}
                             </span>
@@ -24,16 +80,12 @@
                             <span class="small text-muted">Shown under active synopses.</span>
                             {% endif %}
                         </div>
-                        <p class="small text-muted mb-0">
-                            This only changes where the synopsis appears on the homepage. The synopsis stays open and accessible to authors.
-                        </p>
-                    </div>
-                    <div class="d-flex flex-wrap gap-2">
+                        <p class="small text-muted mb-3">This only changes where the synopsis appears on the homepage. The project stays accessible.</p>
                         {% if project.status != "completed" and project.status != "archived" %}
                         <form method="post">
                             {% csrf_token %}
                             <input type="hidden" name="status_action" value="mark_completed">
-                            <button class="btn btn-outline-success btn-sm" type="submit" onclick="return confirm('Move this synopsis to the completed / archived section? It will still be accessible.');">
+                            <button class="btn btn-outline-success w-100" type="submit" onclick="return confirm('Move this synopsis to the completed / archived section? It will still be accessible.');">
                                 Mark as completed / archived
                             </button>
                         </form>
@@ -42,168 +94,114 @@
                         <form method="post">
                             {% csrf_token %}
                             <input type="hidden" name="status_action" value="reactivate">
-                            <button class="btn btn-outline-primary btn-sm" type="submit" onclick="return confirm('Move this synopsis back to the active synopses section?');">
+                            <button class="btn btn-outline-primary w-100" type="submit" onclick="return confirm('Move this synopsis back to the active synopses section?');">
                                 Move back to active
                             </button>
                         </form>
                         {% endif %}
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-lg-8 col-md-10 mx-auto mb-4" id="phase-tracker">
-        <div class="card shadow-sm">
-            <div class="card-body">
-                <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-2">
-                    <div>
-                        <h2 class="h5 mb-1">Phase tracker</h2>
-                        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-                            <span class="badge text-bg-primary">{{ current_phase_label }}</span>
-                            {% if phase_is_manual %}
-                            <span class="badge text-bg-light border">Author-set</span>
-                            {% else %}
-                            <span class="badge text-bg-light border">Default starting phase</span>
-                            {% endif %}
-                            <span class="small text-muted">{{ phase_progress_text }}</span>
-                        </div>
-                        {% if phase_is_manual %}
-                        <p class="small text-muted mb-0">This is the current working phase chosen by the authors.</p>
-                        {% else %}
-                        <p class="small text-muted mb-0">No phase has been manually set yet, so the tracker starts at <strong>{{ current_phase_label }}</strong> until an author changes it.</p>
-                        {% endif %}
-                    </div>
-                </div>
-                <div class="progress mb-3" role="progressbar" aria-label="Project phase progress" aria-valuenow="{{ phase_progress_percent }}" aria-valuemin="0" aria-valuemax="100" style="height: 0.75rem;">
-                    <div class="progress-bar" style="width: {{ phase_progress_percent }}%"></div>
-                </div>
-                <div class="d-flex flex-column gap-2">
-                    {% for step in phase_steps %}
-                    <div class="border rounded p-2 bg-light">
-                        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
-                            <div>
-                                <div class="fw-semibold">{{ step.number }}. {{ step.label }}</div>
-                                <div class="small text-muted">
-                                    {% if step.is_current %}
-                                        This is the current working phase.
-                                    {% elif step.is_complete %}
-                                        Earlier phase.
-                                    {% else %}
-                                        Upcoming phase.
+
+                {% if previous_titles %}
+                <details class="card shadow-sm">
+                    <summary class="card-header bg-white fw-semibold">Previous titles</summary>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">Earlier names used for this synopsis, newest first.</p>
+                        <div class="list-group list-group-flush">
+                            {% for entry in previous_titles %}
+                            <div class="list-group-item px-0">
+                                <div class="d-flex justify-content-between align-items-start gap-2">
+                                    <div>
+                                        <div class="fw-semibold">{{ entry.title }}</div>
+                                        {% if entry.note %}
+                                        <div class="text-muted small">{{ entry.note }}</div>
+                                        {% elif entry.changed_at %}
+                                        <div class="text-muted small">Changed on {{ entry.changed_at|date:"Y-m-d H:i" }} by {{ entry.changed_by|default:"System" }}</div>
+                                        {% endif %}
+                                    </div>
+                                    {% if entry.is_current %}
+                                    <span class="badge text-bg-primary">Current</span>
                                     {% endif %}
                                 </div>
                             </div>
-                            <div class="d-flex flex-wrap align-items-center gap-2">
-                                {% if step.is_current %}
-                                <span class="badge text-bg-primary">Current</span>
-                                {% endif %}
-                                {% if step.is_manual and step.is_current %}
-                                <span class="badge text-bg-light border">Author-set</span>
-                                {% endif %}
-                                {% if step.can_set %}
-                                <form method="post" action="{% url 'synopsis:project_phase_confirm' project.id step.key %}">
-                                    {% csrf_token %}
-                                    <button class="btn btn-outline-primary btn-sm" onclick="return confirm('Set the current phase to {{ step.label }}? This updates the progress tracker and can be changed again later.');">
-                                        Set current phase
-                                    </button>
-                                </form>
-                                {% endif %}
-                            </div>
+                            {% endfor %}
                         </div>
                     </div>
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
-    </div>
-    {% if phase_history_entries %}
-    <div class="col-lg-8 col-md-10 mx-auto mb-4">
-        <div class="card shadow-sm">
-            <div class="card-body">
-                <h2 class="h5 mb-3">Phase history</h2>
-                <ul class="list-group">
-                    {% for entry in phase_history_entries %}
-                    <li class="list-group-item">
-                        <div class="d-flex justify-content-between align-items-start gap-3">
-                            <div>
-                                <div class="fw-semibold">{{ entry.get_phase_display }}</div>
-                                <div class="small text-muted">{{ entry.confirmed_at|date:"Y-m-d H:i" }} by {{ entry.confirmed_by|default:"System" }}</div>
-                                {% if entry.note %}
-                                <div class="small mt-1">{{ entry.note }}</div>
-                                {% endif %}
-                            </div>
-                            <span class="badge text-bg-light border">Phase update</span>
-                        </div>
-                    </li>
-                    {% endfor %}
-                </ul>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-    <form method="post" class="col-lg-6 col-md-8 mx-auto shadow p-4 rounded bg-light" id="settings-form">
-        {% csrf_token %}
-        {{ form.non_field_errors }}
-        <div class="mb-4">
-            {{ form.title.label_tag }}
-            {{ form.title }}
-            {% for error in form.title.errors %}
-            <div class="text-danger small mt-1">{{ error }}</div>
-            {% endfor %}
-        </div>
-        <div class="mb-4">
-            {{ form.description.label_tag }}
-            {{ form.description }}
-            {% for error in form.description.errors %}
-            <div class="text-danger small mt-1">{{ error }}</div>
-            {% endfor %}
-        </div>
-        <div class="mb-4">
-            <div class="fw-semibold mb-2">Workflow components</div>
-            <div class="form-check mb-3">
-                {{ form.protocol_relevant }}
-                <label class="form-check-label" for="{{ form.protocol_relevant.id_for_label }}">{{ form.protocol_relevant.label }}</label>
-                <div class="form-text">{{ form.protocol_relevant.help_text }}</div>
-                {% for error in form.protocol_relevant.errors %}
-                <div class="text-danger small mt-1">{{ error }}</div>
-                {% endfor %}
-            </div>
-            <div class="form-check">
-                {{ form.advisory_board_relevant }}
-                <label class="form-check-label" for="{{ form.advisory_board_relevant.id_for_label }}">{{ form.advisory_board_relevant.label }}</label>
-                <div class="form-text">{{ form.advisory_board_relevant.help_text }}</div>
-                {% for error in form.advisory_board_relevant.errors %}
-                <div class="text-danger small mt-1">{{ error }}</div>
-                {% endfor %}
-            </div>
-        </div>
-        <div class="d-flex justify-content-between">
-            <button class="btn btn-primary" type="submit">Save Changes</button>
-            <a class="btn btn-secondary" href="{% url 'synopsis:project_hub' project.id %}">Cancel</a>
-        </div>
-    </form>
-    {% if previous_titles %}
-    <div class="col-lg-6 col-md-8 mx-auto mt-4">
-        <h2 class="h5">Previous titles</h2>
-        <p class="text-muted small mb-2">These are the earlier names used for this synopsis, newest first.</p>
-        <ul class="list-group">
-            {% for entry in previous_titles %}
-            <li class="list-group-item d-flex justify-content-between align-items-start">
-                <div>
-                    <div class="fw-semibold">{{ entry.title }}</div>
-                    {% if entry.note %}
-                    <div class="text-muted small">{{ entry.note }}</div>
-                    {% elif entry.changed_at %}
-                    <div class="text-muted small">Changed on {{ entry.changed_at|date:"Y-m-d H:i" }} by {{ entry.changed_by|default:"System" }}</div>
-                    {% endif %}
-                </div>
-                {% if entry.is_current %}
-                <span class="badge text-bg-primary">Current</span>
+                </details>
                 {% endif %}
-            </li>
-            {% endfor %}
-        </ul>
+            </div>
+        </div>
     </div>
+
+    <div class="card shadow-sm mt-4" id="phase-tracker">
+        <div class="card-body py-3">
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-2">
+                <div>
+                    <h2 class="h5 mb-1">Phase tracker</h2>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <span class="badge text-bg-primary">{{ current_phase_label }}</span>
+                        {% if phase_is_manual %}
+                        <span class="badge text-bg-light border">Author-set</span>
+                        {% else %}
+                        <span class="badge text-bg-light border">Default starting phase</span>
+                        {% endif %}
+                        <span class="small text-muted">{{ phase_progress_text }}</span>
+                    </div>
+                </div>
+            </div>
+            <div class="progress mb-2" role="progressbar" aria-label="Project phase progress" aria-valuenow="{{ phase_progress_percent }}" aria-valuemin="0" aria-valuemax="100" style="height: 0.45rem;">
+                <div class="progress-bar" style="width: {{ phase_progress_percent }}%"></div>
+            </div>
+            <div class="list-group list-group-flush">
+                {% for step in phase_steps %}
+                <div class="list-group-item px-0 py-2">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            <span class="badge rounded-pill {% if step.is_current %}text-bg-primary{% elif step.is_complete %}text-bg-secondary{% else %}text-bg-light border text-dark{% endif %}">
+                                {{ step.number }}
+                            </span>
+                            <span class="{% if step.is_current %}fw-semibold{% endif %}">{{ step.label }}</span>
+                            <span class="badge {% if step.is_current %}text-bg-primary{% elif step.is_complete %}text-bg-light border{% else %}text-bg-light border{% endif %}">
+                                {% if step.is_current %}Current{% elif step.is_complete %}Done{% else %}Upcoming{% endif %}
+                            </span>
+                        </div>
+                        {% if step.can_set %}
+                        <form method="post" action="{% url 'synopsis:project_phase_confirm' project.id step.key %}" class="m-0">
+                            {% csrf_token %}
+                            <button class="btn btn-outline-primary btn-sm py-0" onclick="return confirm('Set the current phase to {{ step.label }}? This updates the progress tracker and can be changed again later.');">
+                                Set current
+                            </button>
+                        </form>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    {% if phase_history_entries %}
+    <details class="card shadow-sm mt-4">
+        <summary class="card-header bg-white fw-semibold">Phase history</summary>
+        <div class="card-body">
+            <div class="list-group list-group-flush">
+                {% for entry in phase_history_entries %}
+                <div class="list-group-item px-0">
+                    <div class="d-flex justify-content-between align-items-start gap-3">
+                        <div>
+                            <div class="fw-semibold">{{ entry.get_phase_display }}</div>
+                            <div class="small text-muted">{{ entry.confirmed_at|date:"Y-m-d H:i" }} by {{ entry.confirmed_by|default:"System" }}</div>
+                            {% if entry.note %}
+                            <div class="small mt-1">{{ entry.note }}</div>
+                            {% endif %}
+                        </div>
+                        <span class="badge text-bg-light border">Phase update</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </details>
     {% endif %}
 </div>
 {% endblock %}
