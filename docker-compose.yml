@@ -18,6 +18,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP_RELEASE_LABEL: ${APP_RELEASE_LABEL:-}
     restart: unless-stopped
     depends_on:
       db:
