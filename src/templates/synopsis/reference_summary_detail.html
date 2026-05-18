@@ -29,6 +29,12 @@
         overflow-y: auto;
         padding-right: 0.25rem;
     }
+    .tag-choice-panel ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+    .tag-choice-panel li,
     .tag-choice-panel > div {
         margin-bottom: 0.35rem;
     }
@@ -47,18 +53,21 @@
     .tag-choice-panel label:hover {
         background: #f6f8fa;
     }
-    .tag-choice-panel .tag-choice-selected label {
+    .tag-choice-panel .tag-choice-selected label,
+    .tag-choice-panel label.tag-choice-selected {
         background: #eaf4ff;
         border: 1px solid #b6dcff;
     }
     .tag-choice-panel input[type="checkbox"] {
         margin-top: 0.2rem;
     }
-    .tag-choice-panel .tag-choice-disabled label {
+    .tag-choice-panel .tag-choice-disabled label,
+    .tag-choice-panel label.tag-choice-disabled {
         opacity: 0.65;
         cursor: not-allowed;
     }
-    .tag-choice-panel .tag-choice-hidden {
+    .tag-choice-panel .tag-choice-hidden,
+    .tag-choice-panel label.tag-choice-hidden {
         display: none;
     }
     @media (max-width: 575.98px) {
@@ -851,10 +860,15 @@
             const checkboxes = Array.from(picker.querySelectorAll("input[type='checkbox']"));
             const rows = checkboxes.map((checkbox) => {
                 const label = picker.querySelector(`label[for="${checkbox.id}"]`) || checkbox.closest("label");
+                let row = checkbox.closest("li") || checkbox.closest(".form-check");
+                if (!row && label) {
+                    const parent = label.parentElement;
+                    row = parent && !parent.matches(".tag-choice-panel, ul") ? parent : label;
+                }
                 return {
                     checkbox,
                     label,
-                    row: label ? label.closest("div") : checkbox.closest("div"),
+                    row,
                     text: label ? label.textContent.trim().toLowerCase() : "",
                 };
             });
