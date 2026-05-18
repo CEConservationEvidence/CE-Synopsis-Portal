@@ -169,7 +169,7 @@
                         <form method="post" action="{% url 'synopsis:project_phase_confirm' project.id step.key %}" class="m-0">
                             {% csrf_token %}
                             <button class="btn btn-outline-primary btn-sm py-0" onclick="return confirm('Set the current phase to {{ step.label }}? This updates the progress tracker and can be changed again later.');">
-                                Set current
+                                Set current phase
                             </button>
                         </form>
                         {% endif %}
