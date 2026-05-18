@@ -5,7 +5,7 @@ class Migration(migrations.Migration):
     dependencies = [
         (
             "synopsis",
-            "0093_alter_advisoryboardcustomfield_display_group",
+            "0091_alter_protocol_document_upload_path",
         ),
     ]
 

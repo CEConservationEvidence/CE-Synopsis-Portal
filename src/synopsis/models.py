@@ -499,82 +499,12 @@ class ActionListRevision(models.Model):
         return f"Action list revision for {self.action_list.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
 
 
-def guidance_upload_path(instance, filename):
-    return f"guidance/{instance.project_id}/{uuid.uuid4()}_{filename}"
-
-
-def guidance_revision_upload_path(instance, filename):
-    return f"guidance_revisions/{instance.guidance.project_id}/{uuid.uuid4()}_{filename}"
-
-
-class Guidance(models.Model):
-    project = models.OneToOneField(
-        Project, on_delete=models.CASCADE, related_name="guidance"
-    )
-    document = models.FileField(upload_to=guidance_upload_path)
-    created_at = models.DateTimeField(auto_now_add=True)
-    last_updated = models.DateTimeField(auto_now=True)
-    text_version = models.TextField(blank=True)
-    stage = models.CharField(
-        max_length=20, choices=Protocol.STAGE_CHOICES, default="draft"
-    )
-    feedback_closed_at = models.DateTimeField(null=True, blank=True)
-    feedback_closure_message = models.TextField(blank=True)
-    current_revision = models.ForeignKey(
-        "GuidanceRevision",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="current_for",
-    )
-
-    class Meta:
-        verbose_name = "Guidance"
-        verbose_name_plural = "Guidance"
-
-    def __str__(self):
-        return f"Guidance for {self.project.title}"
-
-    def latest_revision(self):
-        if self.current_revision:
-            return self.current_revision
-        return self.revisions.order_by("-uploaded_at", "-id").first()
-
-
-class GuidanceRevision(models.Model):
-    guidance = models.ForeignKey(
-        Guidance, on_delete=models.CASCADE, related_name="revisions"
-    )
-    file = models.FileField(upload_to=guidance_revision_upload_path)
-    stage = models.CharField(max_length=20, choices=Protocol.STAGE_CHOICES)
-    change_reason = models.TextField(blank=True)
-    uploaded_by = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="guidance_revisions",
-    )
-    uploaded_at = models.DateTimeField(auto_now_add=True)
-    original_name = models.CharField(max_length=255, blank=True)
-    file_size = models.BigIntegerField(default=0)
-    version_label = models.CharField(max_length=120, blank=True)
-
-    class Meta:
-        ordering = ["-uploaded_at", "-id"]
-
-    def __str__(self):
-        return f"Guidance revision for {self.guidance.project.title} ({self.uploaded_at:%Y-%m-%d %H:%M})"
-
-
 class CollaborativeSession(models.Model):
     DOCUMENT_PROTOCOL = "protocol"
     DOCUMENT_ACTION_LIST = "action_list"
-    DOCUMENT_GUIDANCE = "guidance"
     DOCUMENT_CHOICES = [
         (DOCUMENT_PROTOCOL, "Protocol"),
         (DOCUMENT_ACTION_LIST, "Action list"),
-        (DOCUMENT_GUIDANCE, "Guidance"),
     ]
 
     DEFAULT_DURATION = dt.timedelta(hours=4)
@@ -635,20 +565,6 @@ class CollaborativeSession(models.Model):
         blank=True,
         on_delete=models.SET_NULL,
         related_name="collaborative_sessions_completed_action_list",
-    )
-    initial_guidance_revision = models.ForeignKey(
-        "GuidanceRevision",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="collaborative_sessions_started_guidance",
-    )
-    result_guidance_revision = models.ForeignKey(
-        "GuidanceRevision",
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name="collaborative_sessions_completed_guidance",
     )
     invitations = models.ManyToManyField(
         "AdvisoryBoardInvitation",
@@ -733,16 +649,6 @@ class AdvisoryBoardMember(models.Model):
     feedback_on_action_list_deadline = models.DateTimeField(null=True, blank=True)
     feedback_on_action_list_received = models.DateField(null=True, blank=True)
     added_to_action_list_doc = models.BooleanField(default=False)
-    action_list_feedback_on_guidance = models.BooleanField(default=False)
-
-    # Guidance interaction
-    sent_guidance_at = models.DateTimeField(null=True, blank=True)
-    guidance_reminder_sent = models.BooleanField(default=False)
-    guidance_reminder_sent_at = models.DateTimeField(null=True, blank=True)
-    feedback_on_guidance_deadline = models.DateTimeField(null=True, blank=True)
-    feedback_on_guidance_received = models.DateField(null=True, blank=True)
-    guidance_author_replied = models.BooleanField(default=False)
-    added_to_guidance_doc = models.BooleanField(default=False)
 
     # Protocol interaction
     sent_protocol_at = models.DateTimeField(null=True, blank=True)
@@ -752,7 +658,6 @@ class AdvisoryBoardMember(models.Model):
     feedback_on_protocol_received = models.DateField(null=True, blank=True)
     protocol_author_replied = models.BooleanField(default=False)
     added_to_protocol_doc = models.BooleanField(default=False)
-    feedback_on_guidance = models.BooleanField(default=False)
 
     # Synopsis interaction
     sent_synopsis_at = models.DateTimeField(null=True, blank=True)
@@ -783,10 +688,6 @@ class AdvisoryBoardMember(models.Model):
             "-submitted_at", "-created_at"
         ).first()
 
-    @property
-    def latest_guidance_feedback(self):
-        return self.guidance_feedback.order_by("-submitted_at", "-created_at").first()
-
 
 class AdvisoryBoardCustomField(models.Model):
     TYPE_TEXT = "text"
@@ -813,7 +714,6 @@ class AdvisoryBoardCustomField(models.Model):
     DISPLAY_GROUP_ACTION = "action"
     DISPLAY_GROUP_PROTOCOL = "protocol"
     DISPLAY_GROUP_SYNOPSIS = "synopsis"
-    DISPLAY_GROUP_GUIDANCE = "guidance"
     DISPLAY_GROUP_CUSTOM = "custom"
     DISPLAY_GROUP_CHOICES = [
         (DISPLAY_GROUP_PERSONAL, "Personal details"),
@@ -821,7 +721,6 @@ class AdvisoryBoardCustomField(models.Model):
         (DISPLAY_GROUP_ACTION, "Action list"),
         (DISPLAY_GROUP_PROTOCOL, "Protocol"),
         (DISPLAY_GROUP_SYNOPSIS, "Synopsis"),
-        (DISPLAY_GROUP_GUIDANCE, "Guidance"),
         (DISPLAY_GROUP_CUSTOM, "Custom section"),
     ]
     DISPLAY_GROUP_ORDER = [
@@ -830,7 +729,6 @@ class AdvisoryBoardCustomField(models.Model):
         DISPLAY_GROUP_ACTION,
         DISPLAY_GROUP_PROTOCOL,
         DISPLAY_GROUP_SYNOPSIS,
-        DISPLAY_GROUP_GUIDANCE,
         DISPLAY_GROUP_CUSTOM,
     ]
 
@@ -1183,56 +1081,6 @@ class ActionListFeedback(models.Model):
         return self.feedback_deadline_at
 
 
-class GuidanceFeedback(models.Model):
-    project = models.ForeignKey(
-        Project, on_delete=models.CASCADE, related_name="guidance_feedback"
-    )
-    guidance = models.ForeignKey(
-        Guidance, on_delete=models.SET_NULL, null=True, blank=True
-    )
-    member = models.ForeignKey(
-        "AdvisoryBoardMember",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="guidance_feedback",
-    )
-    invitation = models.ForeignKey(
-        AdvisoryBoardInvitation,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="guidance_feedback",
-    )
-    email = models.EmailField(blank=True)
-    token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
-    content = models.TextField(blank=True)
-    submitted_at = models.DateTimeField(null=True, blank=True)
-    created_at = models.DateTimeField(default=timezone.now, editable=False)
-    uploaded_document = models.FileField(
-        upload_to="guidance_feedback_uploads/",
-        null=True,
-        blank=True,
-    )
-    guidance_document_name = models.CharField(max_length=255, blank=True)
-    guidance_document_last_updated = models.DateTimeField(null=True, blank=True)
-    guidance_stage_snapshot = models.CharField(max_length=20, blank=True)
-    feedback_deadline_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        ordering = ["-submitted_at", "-created_at"]
-
-    def __str__(self):
-        who = self.member or self.email or "anonymous"
-        return f"Guidance feedback for {self.project.title} by {who}"
-
-    def latest_document_label(self) -> str:
-        if self.uploaded_document:
-            return self.uploaded_document.name.rsplit("/", 1)[-1]
-        return ""
-
-    def snapshot_deadline(self):
-        return self.feedback_deadline_at
 
 
 class ReferenceSourceBatch(models.Model):

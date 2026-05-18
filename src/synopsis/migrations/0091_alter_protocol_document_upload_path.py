@@ -6,7 +6,7 @@ import synopsis.models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("synopsis", "0090_advisoryboardmember_action_list_feedback_on_guidance"),
+        ("synopsis", "0089_project_description"),
     ]
 
     operations = [

@@ -49,11 +49,6 @@ def email_subject(kind: str, project, due_date=None) -> str:
     if kind == "action_list_reminder":
         due = _format_due(due_date) if due_date else "soon"
         return f"[Reminder] Action list feedback due for {title} ({due})"
-    if kind == "guidance_review":
-        return f"[Action requested] Guidance for review — {title}"
-    if kind == "guidance_reminder":
-        due = _format_due(due_date) if due_date else "soon"
-        return f"[Reminder] Guidance feedback due for {title} ({due})"
     return f"[{BRAND}] {title}"
 
 

@@ -39,9 +39,6 @@ from .models import (
     ActionList,
     ActionListRevision,
     ActionListFeedback,
-    Guidance,
-    GuidanceRevision,
-    GuidanceFeedback,
     CollaborativeSession,
     UserRole,
     LibraryReference,
@@ -62,8 +59,6 @@ from .models import (
 from .forms import (
     ActionListReminderScheduleForm,
     ActionListSendForm,
-    GuidanceReminderScheduleForm,
-    GuidanceSendForm,
     AdvisoryBulkInviteForm,
     AdvisoryBoardMemberForm,
     AdvisoryInviteForm,
@@ -99,7 +94,6 @@ from .views import (
     _download_onlyoffice_file,
     _parse_onlyoffice_callback,
     _create_protocol_feedback,
-    _create_guidance_feedback,
     _format_deadline,
     _format_value,
     _funder_contact_label,
@@ -171,22 +165,6 @@ class EmailSubjectTests(TestCase):
         self.assertEqual(
             subject,
             f"[Action requested] Protocol for review — {self.project.title}",
-        )
-
-    def test_guidance_review_subject(self):
-        subject = email_subject("guidance_review", self.project)
-        self.assertEqual(
-            subject,
-            f"[Action requested] Guidance for review — {self.project.title}",
-        )
-
-    def test_guidance_reminder_subject(self):
-        due = timezone.make_aware(datetime(2025, 6, 7, 12, 0))
-        formatted = timezone.localtime(due).strftime("%d %b %Y %H:%M")
-        subject = email_subject("guidance_reminder", self.project, due)
-        self.assertEqual(
-            subject,
-            f"[Reminder] Guidance feedback due for {self.project.title} ({formatted})",
         )
 
     def test_advisory_invitation_email_escapes_urls_in_html_hrefs(self):
@@ -1542,43 +1520,6 @@ class MemberReminderUpdateTests(TestCase):
         )
         self.assertContains(response, feedback.latest_document_label())
 
-    def test_board_page_hides_guidance_feedback_modal(self):
-        member = AdvisoryBoardMember.objects.create(
-            project=self.project,
-            first_name="Gina",
-            last_name="Guidance",
-            email="gina@example.com",
-            response="Y",
-            participation_confirmed=True,
-            sent_guidance_at=timezone.now(),
-        )
-        feedback = GuidanceFeedback.objects.create(
-            project=self.project,
-            member=member,
-            content="Please tighten the workflow notes for authors.",
-            submitted_at=timezone.now(),
-            uploaded_document=SimpleUploadedFile(
-                "gina-guidance-comments.docx",
-                b"guidance comments",
-                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            ),
-        )
-
-        response = self.client.get(self.board_url)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, f"guidance-feedback-{member.id}")
-        self.assertNotContains(response, f"guidance-feedback-document-{member.id}")
-        self.assertNotContains(
-            response,
-            f'aria-label="View guidance feedback for {member.first_name} {member.last_name}"',
-        )
-        self.assertNotContains(
-            response,
-            "Please tighten the workflow notes for authors.",
-        )
-        self.assertNotContains(response, feedback.latest_document_label())
-
     def test_board_page_shows_action_list_feedback_deadline(self):
         deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=5)
         member = AdvisoryBoardMember.objects.create(
@@ -1701,8 +1642,6 @@ class MemberReminderUpdateTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        member.refresh_from_db()
-        self.assertFalse(member.action_list_feedback_on_guidance)
 
     def test_board_page_shows_readable_action_list_tracking_controls(self):
         member = AdvisoryBoardMember.objects.create(
@@ -1725,35 +1664,6 @@ class MemberReminderUpdateTests(TestCase):
         self.assertContains(response, "Mark added")
         self.assertNotContains(response, "Not marked")
         self.assertNotContains(response, "Mark guidance")
-
-    def test_guidance_tracking_route_redirects_back_to_board(self):
-        member = AdvisoryBoardMember.objects.create(
-            project=self.project,
-            first_name="Gala",
-            last_name="Added",
-            email="gala@example.com",
-            response="Y",
-            participation_confirmed=True,
-            sent_guidance_at=timezone.now(),
-            feedback_on_guidance_received=timezone.localdate(),
-        )
-
-        response = self.client.post(
-            reverse(
-                "synopsis:advisory_member_set_guidance_flag",
-                args=[self.project.id, member.id, "added-to-doc"],
-            ),
-            {"value": "1"},
-            follow=True,
-        )
-
-        self.assertRedirects(response, self.board_url)
-        member.refresh_from_db()
-        self.assertFalse(member.added_to_guidance_doc)
-        self.assertContains(
-            response,
-            "The guidance document workflow has been removed from the current portal interface.",
-        )
 
     def test_can_toggle_protocol_tracking_flags_from_board(self):
         member = AdvisoryBoardMember.objects.create(
@@ -1808,8 +1718,6 @@ class MemberReminderUpdateTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        member.refresh_from_db()
-        self.assertFalse(member.feedback_on_guidance)
 
     def test_can_toggle_synopsis_tracking_flags_from_board(self):
         member = AdvisoryBoardMember.objects.create(
@@ -2090,45 +1998,6 @@ class MemberReminderUpdateTests(TestCase):
             ).exists()
         )
 
-    def test_update_guidance_deadline_redirects_when_feature_removed(self):
-        guidance = Guidance.objects.create(
-            project=self.project,
-            document=SimpleUploadedFile("guidance.txt", b"test"),
-        )
-        member = AdvisoryBoardMember.objects.create(
-            project=self.project,
-            first_name="Gavin",
-            email="gavin@example.com",
-            response="Y",
-            sent_guidance_at=timezone.now(),
-            guidance_reminder_sent=True,
-            guidance_reminder_sent_at=timezone.now(),
-        )
-        GuidanceFeedback.objects.create(
-            project=self.project, member=member, guidance=guidance
-        )
-        deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=6)
-        local_deadline = timezone.localtime(deadline)
-        response = self.client.post(
-            reverse(
-                "synopsis:advisory_member_set_deadline",
-                args=[self.project.id, member.id, "guidance"],
-            ),
-            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
-            follow=True,
-        )
-        self.assertRedirects(response, self.board_url)
-        member.refresh_from_db()
-        self.assertIsNone(member.feedback_on_guidance_deadline)
-        self.assertTrue(member.guidance_reminder_sent)
-        self.assertIsNotNone(member.guidance_reminder_sent_at)
-        feedback = GuidanceFeedback.objects.get(project=self.project, member=member)
-        self.assertIsNone(feedback.feedback_deadline_at)
-        self.assertContains(
-            response,
-            "The guidance document workflow has been removed from the current portal interface.",
-        )
-
     def test_action_list_page_deadline_warns_before_action_list_is_sent(self):
         ActionList.objects.create(
             project=self.project,
@@ -2163,42 +2032,6 @@ class MemberReminderUpdateTests(TestCase):
         self.assertContains(
             response,
             "No action list deadline was updated because no accepted advisory board member has been sent the action list yet.",
-        )
-
-    def test_guidance_deadline_route_redirects_when_feature_removed(self):
-        Guidance.objects.create(
-            project=self.project,
-            document=SimpleUploadedFile("guidance.docx", b"guidance"),
-        )
-        member = AdvisoryBoardMember.objects.create(
-            project=self.project,
-            first_name="Gita",
-            email="gita@example.com",
-            response="Y",
-            participation_confirmed=True,
-        )
-        local_deadline = timezone.localtime(timezone.now() + timedelta(days=5)).replace(
-            second=0,
-            microsecond=0,
-        )
-
-        response = self.client.post(
-            reverse(
-                "synopsis:advisory_schedule_guidance_reminders",
-                args=[self.project.id],
-            ),
-            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
-            follow=True,
-        )
-
-        self.assertRedirects(
-            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
-        )
-        member.refresh_from_db()
-        self.assertIsNone(member.feedback_on_guidance_deadline)
-        self.assertContains(
-            response,
-            "The guidance document workflow has been removed from the current portal interface.",
         )
 
     def test_declined_member_cannot_schedule_invite(self):
@@ -2895,39 +2728,6 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
             self.member.feedback_on_action_list_deadline,
         )
 
-    @patch("synopsis.views.EmailMultiAlternatives")
-    def test_guidance_member_send_redirects_when_feature_removed(self, mock_email):
-        mock_email.return_value = MagicMock()
-        response = self.client.post(
-            reverse(
-                "synopsis:advisory_send_guidance_compose_member",
-                args=[self.project.id, self.member.id],
-            ),
-            {
-                "due_date": "",
-                "message": "",
-                "include_guidance_document": "on",
-            },
-            follow=True,
-        )
-
-        self.assertRedirects(
-            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
-        )
-        self.member.refresh_from_db()
-        self.assertIsNone(self.member.feedback_on_guidance_deadline)
-        self.assertFalse(
-            GuidanceFeedback.objects.filter(
-                project=self.project, member=self.member
-            ).exists()
-        )
-        self.assertContains(
-            response,
-            "The guidance document workflow has been removed from the current portal interface.",
-        )
-        mock_email.assert_not_called()
-
-
 class FunderUtilityTests(TestCase):
     def test_build_display_name_prefers_organisation(self):
         name = Funder.build_display_name("Org Inc", "Dr", "Ann", "Thornton")
@@ -3115,7 +2915,7 @@ class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
             custom_field_ids, [self.general_field.id, self.pending_only_field.id]
         )
 
-    def test_guidance_group_custom_fields_are_hidden_from_board_context(self):
+    def test_custom_fields_are_grouped_by_display_area_in_board_context(self):
         invite_field = AdvisoryBoardCustomField.objects.create(
             project=self.project,
             name="Invite progress",
@@ -3128,13 +2928,6 @@ class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
             data_type=AdvisoryBoardCustomField.TYPE_TEXT,
             sections=[AdvisoryBoardCustomField.SECTION_PENDING],
             display_group=AdvisoryBoardCustomField.DISPLAY_GROUP_SYNOPSIS,
-        )
-        guidance_field = AdvisoryBoardCustomField.objects.create(
-            project=self.project,
-            name="Guidance note",
-            data_type=AdvisoryBoardCustomField.TYPE_TEXT,
-            sections=[AdvisoryBoardCustomField.SECTION_ACCEPTED],
-            display_group=AdvisoryBoardCustomField.DISPLAY_GROUP_GUIDANCE,
         )
 
         context = _advisory_board_context(self.project)
@@ -3159,10 +2952,6 @@ class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
             [synopsis_field.id],
         )
         self.assertEqual(
-            accepted_groups[AdvisoryBoardCustomField.DISPLAY_GROUP_GUIDANCE],
-            [],
-        )
-        self.assertEqual(
             [field.id for field in pending_groups[AdvisoryBoardCustomField.DISPLAY_GROUP_CUSTOM]],
             [self.general_field.id, self.pending_only_field.id],
         )
@@ -3170,7 +2959,6 @@ class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
             [field.id for field in accepted_groups[AdvisoryBoardCustomField.DISPLAY_GROUP_CUSTOM]],
             [self.general_field.id],
         )
-        self.assertNotIn(guidance_field, context["custom_fields"])
 
     def test_move_custom_field_action_updates_display_group(self):
         self.client.force_login(self.editor)
@@ -4103,115 +3891,6 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response.context["editor_config"]["editorConfig"]["user"]["id"],
             str(self.author.id),
         )
-
-class GuidanceFeatureRemovalTests(TestCase):
-    def setUp(self):
-        self.media_dir = tempfile.mkdtemp()
-        self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
-        override = override_settings(MEDIA_ROOT=self.media_dir)
-        override.enable()
-        self.addCleanup(override.disable)
-
-        self.project = Project.objects.create(title="Guidance Pilot")
-        self.author = User.objects.create_user(username="guidance-author", password="pw")
-        UserRole.objects.create(user=self.author, project=self.project, role="author")
-        self.client.force_login(self.author)
-
-    def _docx_upload(self, name, content):
-        return SimpleUploadedFile(
-            name,
-            content,
-            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        )
-
-    def test_guidance_detail_post_redirects_to_project_hub(self):
-        response = self.client.post(
-            reverse("synopsis:guidance_detail", args=[self.project.id]),
-            {
-                "stage": "draft",
-                "change_reason": "",
-                "version_label": "v1.0",
-                "document": self._docx_upload("guidance.docx", b"guidance"),
-            },
-            follow=True,
-        )
-
-        self.assertRedirects(
-            response,
-            reverse("synopsis:project_hub", args=[self.project.id]),
-        )
-        self.assertFalse(Guidance.objects.filter(project=self.project).exists())
-        self.assertContains(
-            response,
-            "The guidance document workflow has been removed from the current portal interface.",
-        )
-
-    def test_guidance_detail_page_redirects_to_project_hub(self):
-        Guidance.objects.create(
-            project=self.project,
-            document=self._docx_upload("guidance.docx", b"guidance"),
-        )
-
-        response = self.client.get(
-            reverse("synopsis:guidance_detail", args=[self.project.id]), follow=True
-        )
-
-        self.assertRedirects(
-            response, reverse("synopsis:project_hub", args=[self.project.id])
-        )
-        self.assertContains(
-            response,
-            "The guidance document workflow has been removed from the current portal interface.",
-        )
-
-    def test_guidance_feedback_link_shows_removed_message(self):
-        guidance = Guidance.objects.create(
-            project=self.project,
-            document=self._docx_upload("guidance.docx", b"guidance"),
-        )
-        feedback = _create_guidance_feedback(self.project)
-        feedback.guidance = guidance
-        feedback.save(update_fields=["guidance"])
-
-        response = self.client.get(
-            reverse("synopsis:guidance_feedback", args=[feedback.token])
-        )
-
-        self.assertEqual(response.status_code, 410)
-        self.assertContains(
-            response,
-            "The guidance document workflow is not available in the current portal interface.",
-            status_code=410,
-        )
-
-    def test_guidance_collaborative_start_redirects_without_session(self):
-        Guidance.objects.create(
-            project=self.project,
-            document=self._docx_upload("guidance.docx", b"guidance"),
-        )
-
-        response = self.client.post(
-            reverse(
-                "synopsis:collaborative_start",
-                args=[self.project.id, "guidance"],
-            ),
-            follow=True,
-        )
-
-        self.assertRedirects(
-            response, reverse("synopsis:project_hub", args=[self.project.id])
-        )
-        self.assertContains(
-            response,
-            "The guidance document workflow has been removed from the current portal interface.",
-        )
-        self.assertFalse(
-            CollaborativeSession.objects.filter(
-                project=self.project,
-                document_type=CollaborativeSession.DOCUMENT_GUIDANCE,
-            ).exists()
-        )
-
 
 class CollaborativeForceSaveCloseTests(TestCase):
     def setUp(self):

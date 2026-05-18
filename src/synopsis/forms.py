@@ -72,7 +72,6 @@ from .models import (
     CE_REFERENCE_FOLDER_CHOICES,
     Funder,
     FunderContact,
-    Guidance,
     Project,
     Protocol,
     Reference,
@@ -87,12 +86,6 @@ from .models import (
     UserRole,
     normalize_reference_folder_values,
 )
-
-ADVISORY_DISPLAY_GROUP_CHOICES_WITHOUT_GUIDANCE = [
-    choice
-    for choice in AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES
-    if choice[0] != AdvisoryBoardCustomField.DISPLAY_GROUP_GUIDANCE
-]
 
 RESEARCH_DESIGN_CHOICES = [
     ("", "Choose"),
@@ -391,45 +384,6 @@ class ActionListUpdateForm(forms.ModelForm):
         return label.strip()
 
 
-class GuidanceUpdateForm(forms.ModelForm):
-    document = forms.FileField(
-        required=False,
-        validators=[FileExtensionValidator(["pdf", "docx"])],
-        widget=forms.FileInput(
-            attrs={"class": "form-control", "data-reset-before-select": "true"}
-        ),
-        help_text="Upload a PDF or DOCX version of the guidance document.",
-    )
-    change_reason = forms.CharField(
-        required=False,
-        widget=forms.Textarea(attrs={"rows": 3, "class": "form-control"}),
-        help_text="Explain what changed so authors and reviewers can follow revisions.",
-    )
-    version_label = forms.CharField(
-        required=False,
-        max_length=120,
-        widget=forms.TextInput(
-            attrs={"class": "form-control", "placeholder": "e.g., v1.1 – Reviewer notes applied"}
-        ),
-        help_text="Optional short tag that will appear next to the document in emails and revision history.",
-    )
-
-    class Meta:
-        model = Guidance
-        fields = ["document", "stage"]
-        widgets = {
-            "stage": forms.Select(attrs={"class": "form-select"}),
-        }
-
-    def clean_change_reason(self):
-        reason = self.cleaned_data.get("change_reason", "")
-        return reason.strip()
-
-    def clean_version_label(self):
-        label = self.cleaned_data.get("version_label", "")
-        return label.strip()
-
-
 class CreateUserForm(forms.Form):
     first_name = forms.CharField(max_length=150)
     last_name = forms.CharField(max_length=150, required=False)
@@ -608,7 +562,7 @@ class AdvisoryCustomFieldForm(forms.ModelForm):
         self.project = project
         super().__init__(*args, **kwargs)
         self.fields["display_group"].choices = (
-            ADVISORY_DISPLAY_GROUP_CHOICES_WITHOUT_GUIDANCE
+            AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES
         )
 
     def clean_name(self):
@@ -635,7 +589,7 @@ class AdvisoryCustomFieldForm(forms.ModelForm):
 
 class AdvisoryCustomFieldPlacementForm(forms.Form):
     display_group = forms.ChoiceField(
-        choices=ADVISORY_DISPLAY_GROUP_CHOICES_WITHOUT_GUIDANCE,
+        choices=AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
         widget=forms.Select(attrs={"class": "form-select form-select-sm"}),
         label="Show in section",
     )
@@ -1465,92 +1419,6 @@ class ActionListSendForm(forms.Form):
         )
 
 
-class GuidanceSendForm(forms.Form):
-    due_date = forms.DateField(
-        required=False,
-        label="Response due date",
-        widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
-        help_text="",
-    )
-    message = forms.CharField(
-        required=False,
-        label="Additional message",
-        widget=forms.Textarea(
-            attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
-        ),
-        help_text="Included after the default invitation copy.",
-    )
-    include_guidance_document = forms.BooleanField(
-        required=False,
-        initial=False,
-        label="Attach guidance document",
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Required: select this or the collaborative editor link before sending.",
-    )
-    include_collaborative_link = forms.BooleanField(
-        required=False,
-        initial=False,
-        label="Include collaborative editor link",
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        help_text="Required: select this or the guidance document before sending.",
-    )
-
-    def __init__(
-        self, *args, collaborative_enabled=False, document_available=False, **kwargs
-    ):
-        super().__init__(*args, **kwargs)
-        _set_min_date_attr(self.fields["due_date"])
-        self.fields["due_date"].help_text = (
-            "Defaults to "
-            f"{_advisory_document_feedback_window_days()} days from today if no "
-            "deadline is already set."
-        )
-        self.document_available = document_available
-        self.collaborative_available = collaborative_enabled
-        doc_field = self.fields["include_guidance_document"]
-        if document_available:
-            doc_field.disabled = False
-            doc_field.help_text = (
-                "Required: select this or the collaborative editor link before sending."
-            )
-        else:
-            doc_field.initial = False
-            doc_field.disabled = True
-            doc_field.help_text = "Upload a guidance document to include it here."
-
-        collab_field = self.fields["include_collaborative_link"]
-        if collaborative_enabled:
-            collab_field.disabled = False
-            collab_field.help_text = (
-                "Required: select this or the guidance document before sending."
-            )
-        else:
-            collab_field.initial = False
-            collab_field.disabled = True
-            collab_field.help_text = (
-                "Enable the collaborative editor and upload the guidance document to share this link."
-            )
-
-    def clean(self):
-        cleaned = super().clean()
-        include_doc = cleaned.get("include_guidance_document")
-        include_collab = cleaned.get("include_collaborative_link")
-        if not (self.document_available or self.collaborative_available):
-            raise forms.ValidationError(
-                "Upload the guidance document or enable the collaborative editor before sending."
-            )
-        if not include_doc and not include_collab:
-            raise forms.ValidationError(
-                "Select at least one resource (guidance document or collaborative editor link) before sending."
-            )
-        return cleaned
-
-    def clean_due_date(self):
-        return _validate_not_same_day_date(
-            self.cleaned_data.get("due_date"), "Response due date"
-        )
-
-
 class ReminderScheduleForm(forms.Form):
     reminder_date = forms.DateField(
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
@@ -1621,31 +1489,6 @@ class ActionListReminderScheduleForm(forms.Form):
         )
 
 
-class GuidanceReminderScheduleForm(forms.Form):
-    deadline = forms.DateTimeField(
-        widget=forms.DateTimeInput(
-            attrs={"type": "datetime-local", "class": "form-control"},
-            format="%Y-%m-%dT%H:%M",
-        ),
-        input_formats=["%Y-%m-%dT%H:%M"],
-        help_text="",
-    )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        _set_min_datetime_attr(self.fields["deadline"])
-        self.fields["deadline"].help_text = (
-            "Set or update the guidance feedback deadline (date and time) for "
-            "members. Defaults to "
-            f"{_advisory_document_feedback_window_days()} days from today."
-        )
-
-    def clean_deadline(self):
-        return _validate_not_same_day_datetime(
-            self.cleaned_data.get("deadline"), "Guidance feedback deadline"
-        )
-
-
 class ParticipationConfirmForm(forms.Form):
     confirm_participation = forms.BooleanField(
         label="I agree to actively participate in the development of this synopsis",
@@ -1701,25 +1544,6 @@ class ActionListFeedbackForm(forms.Form):
         widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
         validators=[FileExtensionValidator(["docx"])],
         help_text="Upload your annotated .docx action list (optional).",
-    )
-
-
-class GuidanceFeedbackForm(forms.Form):
-    content = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "class": "form-control",
-                "rows": 6,
-                "placeholder": "Share your comments on the guidance document here",
-            }
-        ),
-    )
-    uploaded_document = forms.FileField(
-        required=False,
-        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
-        validators=[FileExtensionValidator(["docx"])],
-        help_text="Upload your annotated .docx guidance document (optional).",
     )
 
 
@@ -1940,21 +1764,6 @@ class ActionListFeedbackCloseForm(forms.Form):
             }
         ),
         help_text="Optional message to send when action list feedback is closed.",
-    )
-
-
-class GuidanceFeedbackCloseForm(forms.Form):
-    message = forms.CharField(
-        required=False,
-        label="Message to advisory board",
-        widget=forms.Textarea(
-            attrs={
-                "class": "form-control",
-                "rows": 4,
-                "placeholder": "Share closing notes about the guidance document (optional)",
-            }
-        ),
-        help_text="Optional message to show when guidance feedback is closed.",
     )
 
 

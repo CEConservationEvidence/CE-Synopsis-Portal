@@ -104,41 +104,6 @@ urlpatterns = [
         name="protocol_delete",
     ),
     path(
-        "project/<int:project_id>/guidance/",
-        views.guidance_detail,
-        name="guidance_detail",
-    ),
-    path(
-        "project/<int:project_id>/guidance/delete-file/",
-        views.guidance_delete_file,
-        name="guidance_delete_file",
-    ),
-    path(
-        "project/<int:project_id>/guidance/set-stage/",
-        views.guidance_set_stage,
-        name="guidance_set_stage",
-    ),
-    path(
-        "project/<int:project_id>/guidance/revision/<int:revision_id>/restore/",
-        views.guidance_restore_revision,
-        name="guidance_restore_revision",
-    ),
-    path(
-        "project/<int:project_id>/guidance/revision/<int:revision_id>/delete/",
-        views.guidance_delete_revision,
-        name="guidance_delete_revision",
-    ),
-    path(
-        "project/<int:project_id>/guidance/clear-text/",
-        views.guidance_clear_text,
-        name="guidance_clear_text",
-    ),
-    path(
-        "project/<int:project_id>/guidance/delete/",
-        views.guidance_delete,
-        name="guidance_delete",
-    ),
-    path(
         "project/<int:project_id>/<slug:document_slug>/collaborative/start/",
         views.collaborative_start,
         name="collaborative_start",
@@ -201,11 +166,6 @@ urlpatterns = [
         name="advisory_schedule_action_list_reminders",
     ),
     path(
-        "project/<int:project_id>/advisory-board/guidance-reminders/",
-        views.advisory_schedule_guidance_reminders,
-        name="advisory_schedule_guidance_reminders",
-    ),
-    path(
         "project/<int:project_id>/advisory-board/member/<int:member_id>/reminder/<str:kind>/",
         views.advisory_member_set_deadline,
         name="advisory_member_set_deadline",
@@ -219,11 +179,6 @@ urlpatterns = [
         "project/<int:project_id>/advisory-board/member/<int:member_id>/protocol/<str:flag>/",
         views.advisory_member_set_protocol_flag,
         name="advisory_member_set_protocol_flag",
-    ),
-    path(
-        "project/<int:project_id>/advisory-board/member/<int:member_id>/guidance/<str:flag>/",
-        views.advisory_member_set_guidance_flag,
-        name="advisory_member_set_guidance_flag",
     ),
     path(
         "project/<int:project_id>/advisory-board/member/<int:member_id>/synopsis/<str:flag>/",
@@ -244,11 +199,6 @@ urlpatterns = [
         "project/<int:project_id>/advisory-board/action-list-feedback/close/",
         views.advisory_action_list_feedback_close,
         name="advisory_action_list_feedback_close",
-    ),
-    path(
-        "project/<int:project_id>/advisory-board/guidance-feedback/close/",
-        views.advisory_guidance_feedback_close,
-        name="advisory_guidance_feedback_close",
     ),
     path(
         "references/library/",
@@ -401,16 +351,6 @@ urlpatterns = [
         name="advisory_send_action_list_compose_member",
     ),
     path(
-        "project/<int:project_id>/advisory/send-guidance/all/",
-        views.advisory_send_guidance_compose_all,
-        name="advisory_send_guidance_compose_all",
-    ),
-    path(
-        "project/<int:project_id>/advisory/send-guidance/member/<int:member_id>/",
-        views.advisory_send_guidance_compose_member,
-        name="advisory_send_guidance_compose_member",
-    ),
-    path(
         "advisory/protocol/feedback/<uuid:token>/",
         views.protocol_feedback,
         name="protocol_feedback",
@@ -419,11 +359,6 @@ urlpatterns = [
         "advisory/action-list/feedback/<uuid:token>/",
         views.action_list_feedback,
         name="action_list_feedback",
-    ),
-    path(
-        "advisory/guidance/feedback/<uuid:token>/",
-        views.guidance_feedback,
-        name="guidance_feedback",
     ),
     path(
         "project/<int:project_id>/advisory/send-invite/member/<int:member_id>/",
