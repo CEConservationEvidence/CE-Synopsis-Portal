@@ -333,6 +333,64 @@ class ProjectPhaseTests(TestCase):
             "Summary writing",
         )
 
+    def test_computed_phase_advances_after_protocol_upload(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+
+        self.assertEqual(self.project.phase, "invite_advisory_board")
+
+    def test_computed_phase_does_not_regress_existing_project_without_manual_phase(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            email="advisor@example.com",
+            accepted=True,
+        )
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Advisor",
+            email="advisor@example.com",
+            response="Y",
+            feedback_on_protocol_received=timezone.localdate(),
+        )
+
+        self.assertEqual(self.project.phase_manual, None)
+        self.assertEqual(self.project.phase, "draft_chapters")
+
+    def test_manual_phase_cannot_regress_below_computed_progress(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            email="advisor@example.com",
+            accepted=True,
+        )
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Advisor",
+            email="advisor@example.com",
+            response="Y",
+            feedback_on_protocol_received=timezone.localdate(),
+        )
+        self.project.phase_manual = "draft_protocol"
+        self.project.save(update_fields=["phase_manual"])
+
+        self.assertEqual(self.project.phase, "draft_chapters")
+
+    def test_computed_phase_respects_disabled_protocol_and_advisory_steps(self):
+        self.project.protocol_relevant = False
+        self.project.advisory_board_relevant = False
+        self.project.save(update_fields=["protocol_relevant", "advisory_board_relevant"])
+
+        self.assertEqual(self.project.phase, "references_screening")
+
 
 class ProjectAuthorUsersTests(TestCase):
     def setUp(self):

@@ -132,14 +132,98 @@ class Project(models.Model):
     def available_phase_keys(self):
         return [key for key, _label in self.available_phase_choices()]
 
+    def _phase_order(self):
+        return [key for key, _label in self.PHASE_CHOICES]
+
+    def _phase_index(self, key):
+        try:
+            return self._phase_order().index(key)
+        except ValueError:
+            return 0
+
+    def _available_phase_at_or_after(self, key):
+        available = self.available_phase_keys()
+        if key in available:
+            return key
+        target_index = self._phase_index(key)
+        for available_key in available:
+            if self._phase_index(available_key) >= target_index:
+                return available_key
+        return available[-1] if available else key
+
+    def compute_phase(self):
+        """Infer a best-effort phase from related project activity."""
+
+        if self.protocol_relevant:
+            proto = getattr(self, "protocol", None)
+            if not proto or not getattr(proto, "document", None):
+                return self._available_phase_at_or_after("draft_protocol")
+
+        if self.advisory_board_relevant:
+            has_invites = AdvisoryBoardInvitation.objects.filter(project=self).exists()
+            has_member_invites = AdvisoryBoardMember.objects.filter(
+                project=self, invite_sent=True
+            ).exists()
+            if not (has_invites or has_member_invites):
+                return self._available_phase_at_or_after("invite_advisory_board")
+
+            any_accept = (
+                AdvisoryBoardInvitation.objects.filter(
+                    project=self, accepted=True
+                ).exists()
+                or AdvisoryBoardMember.objects.filter(
+                    project=self, response__in=["Y", "accepted"]
+                ).exists()
+                or AdvisoryBoardMember.objects.filter(
+                    project=self, participation_confirmed=True
+                ).exists()
+            )
+            if any_accept:
+                if (
+                    AdvisoryBoardMember.objects.filter(
+                        project=self,
+                        feedback_on_actions_received=True,
+                    ).exists()
+                    or AdvisoryBoardMember.objects.filter(
+                        project=self, feedback_on_list=True
+                    ).exists()
+                    or AdvisoryBoardMember.objects.filter(
+                        project=self,
+                        feedback_on_action_list_received__isnull=False,
+                    ).exists()
+                ):
+                    return self._available_phase_at_or_after("summary_writing")
+
+                if (
+                    AdvisoryBoardMember.objects.filter(
+                        project=self,
+                        added_to_protocol_doc=True,
+                    ).exists()
+                    or AdvisoryBoardMember.objects.filter(
+                        project=self, feedback_on_protocol_received__isnull=False
+                    ).exists()
+                ):
+                    return self._available_phase_at_or_after("draft_chapters")
+
+                return self._available_phase_at_or_after("references_screening")
+            return self._available_phase_at_or_after("invite_advisory_board")
+
+        return self._available_phase_at_or_after("references_screening")
+
     def default_phase_key(self):
         return self.available_phase_keys()[0]
 
     @property
     def phase(self):
-        if self.phase_manual and self.phase_manual in self.available_phase_keys():
-            return self.phase_manual
-        return self.default_phase_key()
+        auto_phase = self.compute_phase()
+        manual_phase = (
+            self.phase_manual
+            if self.phase_manual and self.phase_manual in self.available_phase_keys()
+            else ""
+        )
+        if manual_phase and self._phase_index(manual_phase) >= self._phase_index(auto_phase):
+            return manual_phase
+        return auto_phase
 
     def get_phase_display(self):
         mapping = dict(self.available_phase_choices())
