@@ -89,6 +89,9 @@ def _bool_config(name: str, default: bool = False, fallback_names: tuple[str, ..
 
 
 def _git_release_label() -> str:
+    if not (REPO_ROOT / ".git").exists():
+        return ""
+
     try:
         branch = subprocess.check_output(
             ["git", "-C", str(REPO_ROOT), "rev-parse", "--abbrev-ref", "HEAD"],
@@ -100,7 +103,7 @@ def _git_release_label() -> str:
             stderr=subprocess.DEVNULL,
             text=True,
         ).strip()
-    except Exception:
+    except (OSError, subprocess.SubprocessError):
         return ""
 
     if not short_sha:
