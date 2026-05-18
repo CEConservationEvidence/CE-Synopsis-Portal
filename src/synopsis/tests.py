@@ -7957,15 +7957,7 @@ class GlobalReferenceLibraryAccessTests(TestCase):
         self.assertContains(dashboard_response, "pilot-2026-03-29")
         self.assertContains(dashboard_response, "Open Reference Database")
         self.assertContains(dashboard_response, "Reference Database")
-        self.assertContains(dashboard_response, "How this works for authors")
-        self.assertContains(
-            dashboard_response,
-            "The portal is meant to support the main Conservation Evidence synopsis workflow in one place",
-        )
-        self.assertContains(
-            dashboard_response,
-            "This pilot is here to test how well the portal supports the real CE synopsis workflow from start to finish",
-        )
+        self.assertNotContains(dashboard_response, "How this works for authors")
         self.assertContains(project_response, "Browse Reference Database")
         self.assertContains(
             project_response,
