@@ -258,10 +258,13 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 SERVE_MEDIA = config("SERVE_MEDIA", cast=bool, default=False)
 
-EMAIL_BACKEND = config(
-    "EMAIL_BACKEND",
-    default="django.core.mail.backends.console.EmailBackend",
-)
+DEFAULT_CONSOLE_EMAIL_BACKEND = "synopsis.email_backends.AttachmentSummaryConsoleEmailBackend"
+EMAIL_BACKEND = config("EMAIL_BACKEND", default=DEFAULT_CONSOLE_EMAIL_BACKEND)
+if (
+    EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend"
+    and not config("EMAIL_CONSOLE_PRINT_RAW_ATTACHMENTS", cast=bool, default=False)
+):
+    EMAIL_BACKEND = DEFAULT_CONSOLE_EMAIL_BACKEND
 EMAIL_HOST = config("EMAIL_HOST", default="localhost")
 EMAIL_PORT = config("EMAIL_PORT", cast=int, default=25)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
