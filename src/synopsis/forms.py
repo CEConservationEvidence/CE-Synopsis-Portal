@@ -313,7 +313,7 @@ GLOBAL_ROLE_CHOICES = [
     ("manager", "Manager"),
 ]
 
-# TODO: #35 Currently, the ProtocolUpdateForm and ActionListUpdateForm are very similar and could potentially be refactored to reduce redundancy. Also, additional validation and error handling could be added to enhance robustness.
+# TODO: #35 Extract the shared document-update behavior used by protocol and action list forms, then tighten validation and error handling in one place.
 class ProtocolUpdateForm(forms.ModelForm):
     document = forms.FileField(
         required=False,
@@ -1876,7 +1876,7 @@ class ProtocolFeedbackCloseForm(forms.Form):
     )
 
 
-# TODO: #15 cleanup this form, add more validation and error handling (file types supported are currently .RIS but .txt is also being used by team).
+# TODO: #15 Tighten reference batch upload validation: verify parseable RIS/TXT content, return clearer file errors, and keep the supported extensions aligned with the team workflow.
 class ReferenceBatchUploadForm(forms.Form):
     label = forms.CharField(
         max_length=255,

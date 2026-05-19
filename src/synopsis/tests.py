@@ -124,7 +124,7 @@ from .views import (
     _structured_summary_paragraph,
 )
 
-# TODO: #25 Clean up tests.py and see if some tests can be split into separate files.
+# TODO: #25 Split this test module into smaller files once the current workflow areas stop moving around so it stays easier to navigate.
 
 
 class EmailSubjectTests(TestCase):

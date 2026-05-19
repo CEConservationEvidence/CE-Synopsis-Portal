@@ -8,14 +8,13 @@ from django.db import models
 from django.utils import timezone
 
 """
-TODO: #16 Cleanup models.py by modularising models into separate files for organization and maintainability. Also add docstring comments (AI generated but reviewed) to explain purpose and usage.
-TODO: #59 Modularise models into synopsis/models/* (project.py, funding.py, protocol.py, etc.)
-      once the schema stabilises. Everything is in one file for development but this should be made modular for other living evidence teams to easily adapt to their workflows.
-TODO: #60 Add permissions to restrict access based on user roles.
-TODO: #61 Add signals to notify users of changes in project status or roles.
-TODO: #62 Add versioning to protocol model to track changes over time. Furthermore, this should be extended to other models like the draft final synopsis document, summaries, actions, etc.
-TODO: #63 Add audit trails to track changes made to critical fields in models (define the data model for this).
-TODO: #64 Add comments to models where necessary to explain their purpose and usage (for other teams adapting this).
+TODO: #16 Split this file into smaller model modules once the schema stabilises, and keep high-level docstrings so new teams can navigate the data model.
+TODO: #59 Move models into synopsis/models/* (for example project.py, funding.py, protocol.py) instead of growing this file further.
+TODO: #60 Finish the remaining role-based access rules across project and document workflows.
+TODO: #61 Add notifications for project status changes and role changes.
+TODO: #62 Extend revision history beyond protocols and action lists to synopsis drafts, summaries, and intervention content.
+TODO: #63 Define and implement field-level audit trails for the remaining high-risk models.
+TODO: #64 Add targeted model comments where the conservation workflow is not obvious to teams reusing this codebase.
 """
 
 CE_REFERENCE_FOLDER_CHOICES = [

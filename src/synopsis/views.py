@@ -4490,8 +4490,7 @@ def collaborative_start(request, project_id, document_slug):
         )
         return redirect(_document_detail_url(project.id, document_type))
 
-    # TODO: #17 need to guard against race conditions by wrapping this check/create in a transaction
-    # or enforcing a uniqueness constraint so concurrent POSTs cannot spawn two sessions.
+    # TODO: #17 Make collaborative session creation atomic so concurrent POSTs cannot spawn two active sessions.
     active_session = _get_active_collaborative_session(project, document_type)
     if active_session:
         messages.warning(
@@ -6089,13 +6088,11 @@ def user_create(request):
     return render(request, "synopsis/user_create.html", {"form": form})
 
 
-# TODO: #22 Add pagination and search functionality to the advisory board member list for improved usability with large datasets.
-# TODO: #23 Implement CSV export functionality for advisory board members and their responses.
-# TODO: #24 Add email notification functionality for scheduled reminders.
-# TODO: #25 Implement role-based access control for advisory board management (or a mechanism for accessing files shared with advisory board members securely such as signed URLs, tokens, etc.).
-# TODO: #26 Add ability to edit advisory board member details after creation.
-# TODO: #40 Add ability to resend invitations to advisory board members.
-# TODO: #39 Add ability to bulk import advisory board members via CSV upload.
+# TODO: #22 Add search, filtering, and pagination to the advisory board list once larger projects need it.
+# TODO: #23 Add CSV export for advisory board members and their response state.
+# TODO: #25 Finish advisory-board access control and replace any remaining broad file access with scoped links or tokens.
+# TODO: #40 Add a resend-invitation action that preserves the original member record and audit history.
+# TODO: #39 Add bulk CSV import for advisory board members.
 
 @login_required
 def advisory_board_list(request, project_id):

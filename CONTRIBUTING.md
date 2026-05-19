@@ -57,12 +57,12 @@ We welcome all kinds of contributions — bug reports, feature requests, documen
 ---
 
 ## Code Style
-TODO: #12 Define code style guidelines (e.g., formatting, naming conventions).
+TODO: #12 Add project-level code style guidance covering formatting, naming, and template conventions.
 
 ---
 
 ## Testing
-TODO: #13 define testing guidelines (e.g., unit tests, integration tests).
+TODO: #13 Add testing guidance covering when to write unit tests, integration tests, and UI regression tests.
 - PRs without relevant tests may not be accepted unless they’re doc-only.
 
 ---

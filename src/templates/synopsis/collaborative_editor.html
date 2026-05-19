@@ -3,14 +3,14 @@
 {% block nav_actions %}{% endblock %}
 {% block page_container_class %}container-fluid p-0{% endblock %}
 {% block content %}
-{# TODO: #45 Need to consider handling reconnecting to the session if the user loses connection temporarily. #}
-{# TODO: #46 need to consider adding a notice about autosave and how often changes are saved. #}
-{# TODO: #44 need to consider adding a warning when the user attempts to close the tab/window while editing. #}
+{# TODO: #45 Recover cleanly if a user loses connection and then reconnects to a live session. #}
+{# TODO: #46 Explain autosave behavior in the editor UI so collaborators know when changes are persisted. #}
+{# TODO: #44 Warn before closing the tab while a collaborative editing session is still open. #}
 {# External advisory reviewers reach this page through secure feedback or invitation tokens. Project authors and managers use normal signed-in access. #}
-{# TODO: #57 Consider adding a "last edited" timestamp somewhere in the UI, perhaps in the header, that updates in real time as changes are made. This could help collaborators keep track of when the document was last modified and by whom (if that information is available from OnlyOffice's APIs). #}
-{# TODO: #58 Consider adding a "version history" feature that allows collaborators to view and revert to previous versions of the document. This could be implemented using OnlyOffice's versioning capabilities, if available, or by periodically saving snapshots of the document state in the backend. #}
-{# TODO: #59 Consider adding a "commenting" feature that allows collaborators to leave comments on specific sections of the document. This could be implemented using OnlyOffice's commenting capabilities, if available, or by creating a custom commenting system in the frontend and backend. #}
-{# TODO: #60 Consider adding a "presence indicator" that shows which collaborators are currently viewing or editing the document in real time. This could be implemented using OnlyOffice's presence capabilities, if available, or by creating a custom presence system in the frontend and backend using WebSockets or a similar technology. #}
+{# TODO: #57 Show a last-edited timestamp, and ideally who made the latest change if OnlyOffice exposes it. #}
+{# TODO: #58 Add document version history or snapshots that collaborators can inspect and restore. #}
+{# TODO: #59 Support inline document comments, either through OnlyOffice features or a portal-side comment layer. #}
+{# TODO: #60 Show who is currently viewing or editing the document in real time. #}
 
 <div class="collab-header py-3 px-3 px-md-4">
     <h1 class="mb-2">Collaborative editor – {{ document_label }}</h1>

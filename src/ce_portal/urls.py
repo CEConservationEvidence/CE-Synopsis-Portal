@@ -23,7 +23,6 @@ from django.views.static import serve
 
 urlpatterns = [
     path("admin/", admin.site.urls),
-    # path("accounts/", include("django.contrib.auth.urls")), TODO: research if using this is better.
     path("", include("synopsis.urls", namespace="synopsis")),
 ]
 
