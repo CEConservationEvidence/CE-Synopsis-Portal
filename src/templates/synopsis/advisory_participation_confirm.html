@@ -1,14 +1,21 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Confirm Participation – {{ project.title }}{% endblock %}
+{% block nav_actions %}{% endblock %}
 {% block content %}
 <div class="row justify-content-center">
     <div class="col-lg-7">
         <div class="card">
             <div class="card-body">
+                <div class="alert alert-info small" role="alert">
+                    <strong>Step 1 of 2:</strong> this page is only the participation confirmation step. Your response is not recorded until you submit the form below.
+                </div>
                 <h1 class="h4 mb-3">Confirm your participation</h1>
                 <p>
                     Please confirm that you are able to actively participate in
                     <strong>{{ project.title }}</strong> and contribute to the synopsis development.
+                </p>
+                <p class="text-muted small">
+                    After you submit this form, you will see a separate thank-you page confirming that your response has been recorded.
                 </p>
                 <form method="post">
                     {% csrf_token %}

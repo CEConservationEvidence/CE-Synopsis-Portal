@@ -18,11 +18,70 @@ TODO: #63 Add audit trails to track changes made to critical fields in models (d
 TODO: #64 Add comments to models where necessary to explain their purpose and usage (for other teams adapting this).
 """
 
+CE_REFERENCE_FOLDER_CHOICES = [
+    ("", "—"),
+    ("1", "1. Amphibians"),
+    ("2", "2. Birds"),
+    ("3a", "3a. Fish - Fresh Water"),
+    ("3b", "3b. Fish - Marine"),
+    ("3", "3. Fish (legacy - recategorise)"),
+    ("4", "4. Terrestrial invertebrates"),
+    ("5", "5. Marine invertebrates"),
+    ("6", "6. Mammals"),
+    ("7", "7. Reptiles"),
+    ("8", "8. Animals ex-situ"),
+    ("9", "9. Individual plant/algae populations"),
+    ("10", "10. Plants/algae ex situ"),
+    ("11", "11. Fungi"),
+    ("12", "12. Bacteria/other living agents"),
+    ("13", "13. Coastal (plants/algae communities)"),
+    ("14", "14. Farmland (plants/algae communities)"),
+    ("15", "15. Forests/Woodland"),
+    ("16", "16. Rivers, lakes and lagoons"),
+    ("17", "17. Grassland/Savanna"),
+    ("18", "18. Marine (plants/algae communities)"),
+    ("19", "19. Shrubland"),
+    ("20", "20. Wetlands"),
+    ("21", "21. Invasive/problem amphibians"),
+    ("22", "22. Invasive/problem birds"),
+    ("23", "23. Invasive/problem fish"),
+    ("24", "24. Invasive/problem invertebrates"),
+    ("25", "25. Invasive/problem mammals"),
+    ("26", "26. Invasive/problem reptiles"),
+    ("27", "27. Invasive/problem plants/algae"),
+    ("28", "28. Invasive/problem fungi"),
+    ("29", "29. Invasive/problem bacteria/agents"),
+    ("30", "30. Behaviour change"),
+]
+CE_REFERENCE_FOLDER_MAP = {
+    value: label for value, label in CE_REFERENCE_FOLDER_CHOICES if value
+}
+CE_REFERENCE_FOLDER_ORDER = {
+    value: index for index, (value, _label) in enumerate(CE_REFERENCE_FOLDER_CHOICES) if value
+}
+
+
+def normalize_reference_folder_values(values):
+    if not values:
+        return []
+    cleaned = []
+    seen = set()
+    for value in values:
+        if not value or value not in CE_REFERENCE_FOLDER_MAP or value in seen:
+            continue
+        seen.add(value)
+        cleaned.append(value)
+    cleaned.sort(key=lambda value: CE_REFERENCE_FOLDER_ORDER.get(value, 10_000))
+    return cleaned
+
 
 class Project(models.Model):
     """A singular 'project' class (reusable by other living evidence teams hence the term is open here)."""
 
     title = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+    protocol_relevant = models.BooleanField(default=True)
+    advisory_board_relevant = models.BooleanField(default=True)
     advisory_invitation_message = models.TextField(blank=True, default="")
     start_date = models.DateField(null=True, blank=True)
     status = models.CharField(
@@ -56,61 +115,25 @@ class Project(models.Model):
     )
     phase_manual_updated = models.DateTimeField(null=True, blank=True)
 
-    def compute_phase(self):
-        """Infer a best-effort phase from related activity.
-        This does not persist; it is derived for UI.
-        """
+    def available_phase_choices(self):
+        phase_choices = list(self.PHASE_CHOICES)
+        if not self.protocol_relevant:
+            phase_choices = [
+                choice for choice in phase_choices if choice[0] != "draft_protocol"
+            ]
+        if not self.advisory_board_relevant:
+            phase_choices = [
+                choice
+                for choice in phase_choices
+                if choice[0] != "invite_advisory_board"
+            ]
+        return phase_choices or list(self.PHASE_CHOICES)
 
-        proto = getattr(self, "protocol", None)
-        if not proto or not getattr(proto, "document", None):
-            return "draft_protocol"
-
-        has_invites = AdvisoryBoardInvitation.objects.filter(project=self).exists()
-        has_member_invites = AdvisoryBoardMember.objects.filter(
-            project=self, invite_sent=True
-        ).exists()
-        if not (has_invites or has_member_invites):
-            return "invite_advisory_board"
-
-        any_accept = (
-            AdvisoryBoardInvitation.objects.filter(project=self, accepted=True).exists()
-            or AdvisoryBoardMember.objects.filter(
-                project=self, response__in=["Y", "accepted"]
-            ).exists()
-        )
-        if any_accept:
-            if (
-                AdvisoryBoardMember.objects.filter(
-                    project=self,
-                    feedback_on_actions_received=True,
-                ).exists()
-                or AdvisoryBoardMember.objects.filter(
-                    project=self, feedback_on_list=True
-                ).exists()
-            ):
-                return "summary_writing"
-
-            if (
-                AdvisoryBoardMember.objects.filter(
-                    project=self,
-                    added_to_protocol_doc=True,
-                ).exists()
-                or AdvisoryBoardMember.objects.filter(
-                    project=self, feedback_on_protocol_received__isnull=False
-                ).exists()
-            ):
-                return "draft_chapters"
-
-            if AdvisoryBoardMember.objects.filter(
-                project=self, feedback_on_guidance=True
-            ).exists():
-                return "draft_synopsis"
-
-            return "references_screening"
-        return "invite_advisory_board"
+    def available_phase_keys(self):
+        return [key for key, _label in self.available_phase_choices()]
 
     def _phase_order(self):
-        return [p for p, _ in self.PHASE_CHOICES]
+        return [key for key, _label in self.PHASE_CHOICES]
 
     def _phase_index(self, key):
         try:
@@ -118,14 +141,96 @@ class Project(models.Model):
         except ValueError:
             return 0
 
+    def _available_phase_at_or_after(self, key):
+        available = self.available_phase_keys()
+        if key in available:
+            return key
+        target_index = self._phase_index(key)
+        for available_key in available:
+            if self._phase_index(available_key) >= target_index:
+                return available_key
+        return available[-1] if available else key
+
+    def compute_phase(self):
+        """Infer a best-effort phase from related project activity."""
+
+        if self.protocol_relevant:
+            proto = getattr(self, "protocol", None)
+            if not proto or not getattr(proto, "document", None):
+                return self._available_phase_at_or_after("draft_protocol")
+
+        if self.advisory_board_relevant:
+            has_invites = AdvisoryBoardInvitation.objects.filter(project=self).exists()
+            has_member_invites = AdvisoryBoardMember.objects.filter(
+                project=self, invite_sent=True
+            ).exists()
+            if not (has_invites or has_member_invites):
+                return self._available_phase_at_or_after("invite_advisory_board")
+
+            any_accept = (
+                AdvisoryBoardInvitation.objects.filter(
+                    project=self, accepted=True
+                ).exists()
+                or AdvisoryBoardMember.objects.filter(
+                    project=self, response__in=["Y", "accepted"]
+                ).exists()
+                or AdvisoryBoardMember.objects.filter(
+                    project=self, participation_confirmed=True
+                ).exists()
+            )
+            if any_accept:
+                if (
+                    AdvisoryBoardMember.objects.filter(
+                        project=self,
+                        feedback_on_actions_received=True,
+                    ).exists()
+                    or AdvisoryBoardMember.objects.filter(
+                        project=self, feedback_on_list=True
+                    ).exists()
+                    or AdvisoryBoardMember.objects.filter(
+                        project=self,
+                        feedback_on_action_list_received__isnull=False,
+                    ).exists()
+                ):
+                    return self._available_phase_at_or_after("summary_writing")
+
+                if (
+                    AdvisoryBoardMember.objects.filter(
+                        project=self,
+                        added_to_protocol_doc=True,
+                    ).exists()
+                    or AdvisoryBoardMember.objects.filter(
+                        project=self, feedback_on_protocol_received__isnull=False
+                    ).exists()
+                ):
+                    return self._available_phase_at_or_after("draft_chapters")
+
+                return self._available_phase_at_or_after("references_screening")
+            return self._available_phase_at_or_after("invite_advisory_board")
+
+        return self._available_phase_at_or_after("references_screening")
+
+    def default_phase_key(self):
+        return self.available_phase_keys()[0]
+
     @property
     def phase(self):
-        auto = self.compute_phase()
-        manual = self.phase_manual or auto
-        return manual if self._phase_index(manual) >= self._phase_index(auto) else auto
+        auto_phase = self.compute_phase()
+        manual_phase = (
+            self.phase_manual
+            if self.phase_manual and self.phase_manual in self.available_phase_keys()
+            else ""
+        )
+        if manual_phase and self._phase_index(manual_phase) >= self._phase_index(auto_phase):
+            return manual_phase
+        return auto_phase
 
     def get_phase_display(self):
-        mapping = dict(self.PHASE_CHOICES)
+        mapping = dict(self.available_phase_choices())
+        if self.phase_manual and self.phase_manual not in mapping:
+            mapping[self.phase_manual] = dict(self.PHASE_CHOICES).get(
+                self.phase_manual, self.phase_manual
+            )
         return mapping.get(self.phase, self.phase)
 
     @property
@@ -343,13 +448,17 @@ class FunderContact(models.Model):
         return self.display_name()
 
 
+def protocol_upload_path(instance, filename):
+    return f"protocols/{instance.project_id}/{uuid.uuid4()}_{filename}"
+
+
 class Protocol(models.Model):
     """The protocol document for a project, drafted by an author and finalized by manager."""
 
     project = models.OneToOneField(
         Project, on_delete=models.CASCADE, related_name="protocol"
     )
-    document = models.FileField(upload_to="protocols/")
+    document = models.FileField(upload_to=protocol_upload_path)
     created_at = models.DateTimeField(auto_now_add=True)
     last_updated = models.DateTimeField(auto_now=True)
     text_version = models.TextField(blank=True)
@@ -631,8 +740,8 @@ class AdvisoryBoardMember(models.Model):
     protocol_reminder_sent_at = models.DateTimeField(null=True, blank=True)
     feedback_on_protocol_deadline = models.DateTimeField(null=True, blank=True)
     feedback_on_protocol_received = models.DateField(null=True, blank=True)
+    protocol_author_replied = models.BooleanField(default=False)
     added_to_protocol_doc = models.BooleanField(default=False)
-    feedback_on_guidance = models.BooleanField(default=False)
 
     # Synopsis interaction
     sent_synopsis_at = models.DateTimeField(null=True, blank=True)
@@ -640,6 +749,7 @@ class AdvisoryBoardMember(models.Model):
     synopsis_reminder_sent_at = models.DateTimeField(null=True, blank=True)
     feedback_on_synopsis_deadline = models.DateTimeField(null=True, blank=True)
     feedback_on_synopsis_received = models.DateField(null=True, blank=True)
+    synopsis_author_replied = models.BooleanField(default=False)
     added_to_synopsis_doc = models.BooleanField(default=False)
 
     # Participation confirmation
@@ -661,6 +771,10 @@ class AdvisoryBoardMember(models.Model):
         return self.action_list_feedback.order_by(
             "-submitted_at", "-created_at"
         ).first()
+
+    @property
+    def latest_synopsis_feedback(self):
+        return self.synopsis_feedback.order_by("-submitted_at", "-created_at").first()
 
 
 class AdvisoryBoardCustomField(models.Model):
@@ -1055,6 +1169,56 @@ class ActionListFeedback(models.Model):
         return self.feedback_deadline_at
 
 
+class SynopsisFeedback(models.Model):
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="synopsis_feedback"
+    )
+    member = models.ForeignKey(
+        "AdvisoryBoardMember",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="synopsis_feedback",
+    )
+    invitation = models.ForeignKey(
+        AdvisoryBoardInvitation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="synopsis_feedback",
+    )
+    email = models.EmailField(blank=True)
+    token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    content = models.TextField(blank=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+    uploaded_document = models.FileField(
+        upload_to="synopsis_feedback_uploads/",
+        null=True,
+        blank=True,
+    )
+    synopsis_document_name = models.CharField(max_length=255, blank=True)
+    synopsis_document_last_updated = models.DateTimeField(null=True, blank=True)
+    feedback_deadline_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-submitted_at", "-created_at"]
+
+    def __str__(self):
+        who = self.member or self.email or "anonymous"
+        return f"Synopsis feedback for {self.project.title} by {who}"
+
+    def latest_document_label(self) -> str:
+        if self.uploaded_document:
+            return self.uploaded_document.name.rsplit("/", 1)[-1]
+        return ""
+
+    def snapshot_deadline(self):
+        return self.feedback_deadline_at
+
+
+
+
 class ReferenceSourceBatch(models.Model):
     """Represents one RIS (or similar) import event for a project."""
 
@@ -1216,12 +1380,79 @@ class LibraryReference(models.Model):
         help_text="Optional uploaded PDF of the reference.",
     )
     reference_document_uploaded_at = models.DateTimeField(null=True, blank=True)
+    reference_folder = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Shared CE subject folders assigned to this reference across the library.",
+    )
 
     class Meta:
         ordering = ["title"]
 
     def __str__(self):
         return self.title[:120]
+
+    def folder_labels(self):
+        return [
+            CE_REFERENCE_FOLDER_MAP.get(value, value)
+            for value in normalize_reference_folder_values(self.reference_folder)
+        ]
+
+
+class LibraryReferenceFolderHistory(models.Model):
+    library_reference = models.ForeignKey(
+        LibraryReference,
+        on_delete=models.CASCADE,
+        related_name="folder_history",
+    )
+    previous_folders = models.JSONField(default=list, blank=True)
+    new_folders = models.JSONField(default=list, blank=True)
+    changed_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="library_reference_folder_changes",
+    )
+    source_project = models.ForeignKey(
+        Project,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="library_reference_folder_changes",
+    )
+    source_reference = models.ForeignKey(
+        "Reference",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="library_folder_history_entries",
+    )
+    change_source = models.CharField(max_length=50, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return (
+            f"Folders for {self.library_reference_id} @ {self.created_at:%Y-%m-%d %H:%M}"
+        )
+
+    def previous_folder_labels(self):
+        return [
+            CE_REFERENCE_FOLDER_MAP.get(value, value)
+            for value in normalize_reference_folder_values(self.previous_folders)
+        ]
+
+    def new_folder_labels(self):
+        return [
+            CE_REFERENCE_FOLDER_MAP.get(value, value)
+            for value in normalize_reference_folder_values(self.new_folders)
+        ]
+
+    def change_source_label(self):
+        return (self.change_source or "").replace("_", " ").strip()
 
 
 class Reference(models.Model):
@@ -1232,41 +1463,7 @@ class Reference(models.Model):
         ("included", "Include"),
         ("excluded", "Exclude"),
     ]
-    FOLDER_CHOICES = [
-        ("", "—"),
-        ("1", "1. Amphibians"),
-        ("2", "2. Birds"),
-        ("3a", "3a. Fish - Fresh Water"),
-        ("3b", "3b. Fish - Marine"),
-        ("3", "3. Fish (legacy - recategorise)"),
-        ("4", "4. Terrestrial invertebrates"),
-        ("5", "5. Marine invertebrates"),
-        ("6", "6. Mammals"),
-        ("7", "7. Reptiles"),
-        ("8", "8. Animals ex-situ"),
-        ("9", "9. Individual plant/algae populations"),
-        ("10", "10. Plants/algae ex situ"),
-        ("11", "11. Fungi"),
-        ("12", "12. Bacteria/other living agents"),
-        ("13", "13. Coastal (plants/algae communities)"),
-        ("14", "14. Farmland (plants/algae communities)"),
-        ("15", "15. Forests/Woodland"),
-        ("16", "16. Rivers, lakes and lagoons"),
-        ("17", "17. Grassland/Savanna"),
-        ("18", "18. Marine (plants/algae communities)"),
-        ("19", "19. Shrubland"),
-        ("20", "20. Wetlands"),
-        ("21", "21. Invasive/problem amphibians"),
-        ("22", "22. Invasive/problem birds"),
-        ("23", "23. Invasive/problem fish"),
-        ("24", "24. Invasive/problem invertebrates"),
-        ("25", "25. Invasive/problem mammals"),
-        ("26", "26. Invasive/problem reptiles"),
-        ("27", "27. Invasive/problem plants/algae"),
-        ("28", "28. Invasive/problem fungi"),
-        ("29", "29. Invasive/problem bacteria/agents"),
-        ("30", "30. Behaviour change"),
-    ]
+    FOLDER_CHOICES = CE_REFERENCE_FOLDER_CHOICES
 
     project = models.ForeignKey(
         Project, on_delete=models.CASCADE, related_name="references"
@@ -1347,6 +1544,12 @@ class Reference(models.Model):
     def __str__(self):
         return self.title[:120]
 
+    def folder_labels(self):
+        return [
+            CE_REFERENCE_FOLDER_MAP.get(value, value)
+            for value in normalize_reference_folder_values(self.reference_folder)
+        ]
+
     @property
     def canonical(self):
         return self.library_reference or self
@@ -1378,11 +1581,13 @@ class ReferenceSummary(models.Model):
     STATUS_DRAFT = "draft"
     STATUS_REVIEW = "review"
     STATUS_DONE = "done"
+    STATUS_EXCLUDED = "excluded"
     STATUS_CHOICES = [
         (STATUS_TODO, "To summarise"),
         (STATUS_DRAFT, "In progress"),
         (STATUS_REVIEW, "Needs review/help"),
         (STATUS_DONE, "Summarised"),
+        (STATUS_EXCLUDED, "Excluded after full text"),
     ]
 
     project = models.ForeignKey(
@@ -1421,6 +1626,7 @@ class ReferenceSummary(models.Model):
     summary_text = models.TextField(blank=True)
     key_findings = models.TextField(blank=True)
     synopsis_draft = models.TextField(blank=True)
+    exclusion_reason = models.TextField(blank=True)
     summary_author = models.CharField(max_length=255, blank=True)
     broad_category = models.CharField(max_length=255, blank=True)
     keywords = models.JSONField(default=list, blank=True)

@@ -18,6 +18,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP_RELEASE_LABEL: ${APP_RELEASE_LABEL:-}
     restart: unless-stopped
     depends_on:
       db:
@@ -29,6 +31,11 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       SERVE_MEDIA: "True"
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-8}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-300}
+      GUNICORN_GRACEFUL_TIMEOUT: ${GUNICORN_GRACEFUL_TIMEOUT:-30}
+      GUNICORN_KEEP_ALIVE: ${GUNICORN_KEEP_ALIVE:-5}
       ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,host.docker.internal}
       CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://host.docker.internal:8000}
       ONLYOFFICE_URL: ${ONLYOFFICE_URL:-}

@@ -13,6 +13,7 @@
             <div class="container">
                 <a class="navbar-brand" href="{% url 'synopsis:dashboard' %}">Conservation Evidence</a>
                 <div class="ms-auto d-flex align-items-center gap-2">
+                    {% block nav_actions %}
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:dashboard' %}">Home</a>
                     {% if user.is_authenticated %}
                     {# TODO: #85 keep Reference Database entry points restricted to authenticated users. #}
@@ -28,6 +29,7 @@
                     {% else %}
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:login' %}">Login</a>
                     {% endif %}
+                    {% endblock %}
                 </div>
             </div>
         </nav>
@@ -64,6 +66,12 @@
                     target.addEventListener("shown.bs.collapse", syncLabel);
                     target.addEventListener("hidden.bs.collapse", syncLabel);
                     syncLabel();
+                });
+
+                document.querySelectorAll("input[type='file'][data-reset-before-select]").forEach(function (input) {
+                    input.addEventListener("click", function () {
+                        input.value = "";
+                    });
                 });
             });
         </script>

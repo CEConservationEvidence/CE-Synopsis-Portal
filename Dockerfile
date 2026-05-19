@@ -6,6 +6,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+ARG APP_RELEASE_LABEL
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -34,11 +36,15 @@ COPY .env.template /app/.env.template
 COPY docker/entrypoint.sh /app/docker/entrypoint.sh
 
 RUN chmod +x /app/docker/entrypoint.sh \
-    && mkdir -p /app/src/media /app/src/staticfiles
+    && mkdir -p /app/src/media /app/src/staticfiles \
+    && if [ -n "$APP_RELEASE_LABEL" ]; then \
+        printf "%s" "$APP_RELEASE_LABEL" > /app/.release-label; \
+    else \
+        printf "%s" "unlabelled build" > /app/.release-label; \
+    fi
 
 WORKDIR /app/src
 
 EXPOSE 8000
 
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
-CMD ["gunicorn", "ce_portal.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120"]

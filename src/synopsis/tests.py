@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 import jwt
 from django.contrib.auth.models import Group, User, AnonymousUser
+from django.core.mail import EmailMessage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings, RequestFactory, SimpleTestCase
 from django.contrib.messages import get_messages
@@ -42,16 +43,20 @@ from .models import (
     CollaborativeSession,
     UserRole,
     LibraryReference,
+    LibraryReferenceFolderHistory,
     LibraryImportBatch,
     ReferenceSourceBatch,
     ReferenceSourceBatchNoteHistory,
     Reference,
     ReferenceSummary,
+    ReferenceSummaryComment,
+    ReferenceActionSummary,
     SynopsisChapter,
     SynopsisSubheading,
     SynopsisIntervention,
     SynopsisInterventionKeyMessage,
     SynopsisAssignment,
+    SynopsisFeedback,
 )
 from .forms import (
     ActionListReminderScheduleForm,
@@ -73,10 +78,14 @@ from .forms import (
     ReferenceSummaryDraftForm,
     ReferenceSummaryUpdateForm,
 )
+from .email_backends import AttachmentSummaryConsoleEmailBackend
 from .utils import (
     BRAND,
     GLOBAL_GROUPS,
+    default_action_list_review_message,
     default_advisory_invitation_message,
+    default_protocol_review_message,
+    default_synopsis_review_message,
     email_subject,
     ensure_global_groups,
     reference_hash,
@@ -255,6 +264,30 @@ class AdvisoryBoardMemberAddUiTests(TestCase):
         self.assertContains(response, 'window.bootstrap.Modal.getOrCreateInstance')
         self.assertContains(response, "This field is required.")
 
+    def test_edit_details_from_confirm_page_reopens_add_member_modal(self):
+        response = self.client.post(
+            self.url,
+            {
+                "action": "add_member_back",
+                "title": "Dr",
+                "first_name": "Amira",
+                "middle_name": "",
+                "last_name": "Shah",
+                "organisation": "Conservation Lab",
+                "email": "amira@example.com",
+                "country": "UK",
+                "continent": "Europe",
+                "notes": "Review protocol section.",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="addMemberModal"')
+        self.assertContains(response, 'window.bootstrap.Modal.getOrCreateInstance')
+        self.assertContains(response, 'value="Amira"')
+        self.assertContains(response, 'value="amira@example.com"')
+        self.assertTrue(response.context["open_add_member_modal"])
+
 
 class ReplyToListTests(TestCase):
     @override_settings(DEFAULT_FROM_EMAIL="fallback@example.com")
@@ -282,44 +315,81 @@ class ProjectPhaseTests(TestCase):
     def setUp(self):
         self.project = Project.objects.create(title="Marine Study")
 
-    def _create_protocol(self):
-        Protocol.objects.create(
-            project=self.project,
-            document=SimpleUploadedFile("protocol.txt", b"Test content"),
-        )
-
-    def test_defaults_to_draft_protocol_without_protocol(self):
-        self.assertEqual(self.project.compute_phase(), "draft_protocol")
-
-    def test_requires_invites_after_protocol(self):
-        self._create_protocol()
-        self.assertEqual(self.project.compute_phase(), "invite_advisory_board")
-
-    def test_acceptance_moves_to_references_screening(self):
-        self._create_protocol()
-        AdvisoryBoardInvitation.objects.create(
-            project=self.project,
-            email="member@example.com",
-            accepted=True,
-        )
-        self.assertEqual(self.project.compute_phase(), "references_screening")
+    def test_defaults_to_draft_protocol_without_manual_phase(self):
+        self.assertEqual(self.project.phase, "draft_protocol")
+        self.assertEqual(self.project.get_phase_display(), "Draft protocol")
 
     def test_manual_phase_does_not_regress(self):
-        self._create_protocol()
-        AdvisoryBoardInvitation.objects.create(
-            project=self.project,
-            email="member@example.com",
-            accepted=True,
-        )
         self.project.phase_manual = "draft_protocol"
         self.project.save(update_fields=["phase_manual"])
-        self.assertEqual(self.project.phase, "references_screening")
+        self.assertEqual(self.project.phase, "draft_protocol")
 
     def test_manual_phase_can_advance(self):
-        self._create_protocol()
         self.project.phase_manual = "summary_writing"
         self.project.save(update_fields=["phase_manual"])
         self.assertEqual(self.project.phase, "summary_writing")
+        self.assertEqual(
+            self.project.get_phase_display(),
+            "Summary writing",
+        )
+
+    def test_computed_phase_advances_after_protocol_upload(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+
+        self.assertEqual(self.project.phase, "invite_advisory_board")
+
+    def test_computed_phase_does_not_regress_existing_project_without_manual_phase(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            email="advisor@example.com",
+            accepted=True,
+        )
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Advisor",
+            email="advisor@example.com",
+            response="Y",
+            feedback_on_protocol_received=timezone.localdate(),
+        )
+
+        self.assertEqual(self.project.phase_manual, None)
+        self.assertEqual(self.project.phase, "draft_chapters")
+
+    def test_manual_phase_cannot_regress_below_computed_progress(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            email="advisor@example.com",
+            accepted=True,
+        )
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Advisor",
+            email="advisor@example.com",
+            response="Y",
+            feedback_on_protocol_received=timezone.localdate(),
+        )
+        self.project.phase_manual = "draft_protocol"
+        self.project.save(update_fields=["phase_manual"])
+
+        self.assertEqual(self.project.phase, "draft_chapters")
+
+    def test_computed_phase_respects_disabled_protocol_and_advisory_steps(self):
+        self.project.protocol_relevant = False
+        self.project.advisory_board_relevant = False
+        self.project.save(update_fields=["protocol_relevant", "advisory_board_relevant"])
+
+        self.assertEqual(self.project.phase, "references_screening")
 
 
 class ProjectAuthorUsersTests(TestCase):
@@ -416,6 +486,90 @@ class SynopsisStructureTests(TestCase):
             SynopsisIntervention.objects.filter(subheading__chapter=chapter).values_list("title", flat=True)
         )
         self.assertIn("Intervention A", intervention_titles)
+
+    def test_move_intervention_to_another_subheading(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        general = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        arable = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Arable",
+            position=2,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=general,
+            title="Mow more frequently",
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "move-intervention-to-subheading",
+                "intervention_id": intervention.id,
+                "target_subheading_id": arable.id,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        intervention.refresh_from_db()
+        self.assertEqual(intervention.subheading, arable)
+        self.assertEqual(intervention.position, 1)
+        self.assertEqual(general.interventions.count(), 0)
+        self.assertEqual(arable.interventions.count(), 1)
+
+    def test_structure_page_explains_intervention_group_linking(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Arable",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Mow more frequently",
+            position=1,
+        )
+        self.summary.synopsis_draft = (
+            "A replicated study found that mowing more frequently increased arable plant richness."
+        )
+        self.summary.save(update_fields=["synopsis_draft"])
+        SynopsisAssignment.objects.create(
+            intervention=SynopsisIntervention.objects.get(title="Mow more frequently"),
+            reference_summary=self.summary,
+            position=1,
+        )
+
+        response = self.client.get(url)
+
+        self.assertContains(response, "Add intervention to Arable")
+        self.assertContains(response, "Intervention group")
+        self.assertContains(response, "Move to group")
+        self.assertContains(response, "Edit metadata, background and key messages")
+        self.assertContains(response, "Metadata")
+        self.assertContains(response, "Background")
+        self.assertContains(response, "Key messages")
+        self.assertContains(response, "Assigned summaries")
+        self.assertContains(response, "Additional intervention text")
+        self.assertContains(response, "Most content should be added as background, key messages or assigned summaries.")
+        self.assertContains(response, "Assigned study summaries to review")
+        self.assertContains(response, "review the assigned summaries here first")
+        self.assertContains(response, "mowing more frequently increased arable plant richness")
 
     def test_text_chapter_blocks_subheading_and_intervention(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
@@ -1149,6 +1303,32 @@ class AdvisoryDeadlineValidationTests(TestCase):
         self.assertIn("deadline", form.errors)
 
 
+class AttachmentSummaryConsoleEmailBackendTests(SimpleTestCase):
+    def test_prints_body_and_attachment_summary_without_payload(self):
+        stream = io.StringIO()
+        backend = AttachmentSummaryConsoleEmailBackend(stream=stream)
+        message = EmailMessage(
+            "Demo link",
+            "Open this link: http://example.com/demo-token",
+            "from@example.com",
+            ["to@example.com"],
+        )
+        message.attach(
+            "synopsis.docx",
+            b"raw document bytes that should not be printed",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+        sent = backend.send_messages([message])
+
+        output = stream.getvalue()
+        self.assertEqual(sent, 1)
+        self.assertIn("Open this link: http://example.com/demo-token", output)
+        self.assertIn("synopsis.docx", output)
+        self.assertIn("content not printed", output)
+        self.assertNotIn("raw document bytes", output)
+
+
 @override_settings(DEFAULT_FROM_EMAIL="reminders@example.com")
 class SendDueRemindersTests(TestCase):
     def setUp(self):
@@ -1181,11 +1361,21 @@ class SendDueRemindersTests(TestCase):
             sent_action_list_at=aware_now,
             feedback_on_action_list_deadline=self.action_list_deadline,
         )
+        self.synopsis_deadline = aware_now + timedelta(days=7)
+        self.synopsis_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Syn",
+            email="synopsis@example.com",
+            invite_sent=True,
+            response="Y",
+            sent_synopsis_at=aware_now,
+            feedback_on_synopsis_deadline=self.synopsis_deadline,
+        )
 
     @patch("synopsis.management.commands.send_due_reminders.EmailMultiAlternatives")
     @patch("synopsis.management.commands.send_due_reminders.minus_business_days")
     @patch("synopsis.management.commands.send_due_reminders.timezone")
-    def test_sends_due_reminders_for_all_streams(
+    def test_sends_due_reminders_for_active_streams(
         self, mock_timezone, mock_minus, mock_email
     ):
         today = date(2025, 1, 8)
@@ -1211,20 +1401,23 @@ class SendDueRemindersTests(TestCase):
 
         call_command("send_due_reminders")
 
-        self.assertEqual(len(email_calls), 3)
+        self.assertEqual(len(email_calls), 4)
         for _, _, instance in email_calls:
             instance.send.assert_called_once()
 
         self.invite_member.refresh_from_db()
         self.protocol_member.refresh_from_db()
         self.action_member.refresh_from_db()
+        self.synopsis_member.refresh_from_db()
 
         self.assertTrue(self.invite_member.reminder_sent)
         self.assertTrue(self.protocol_member.protocol_reminder_sent)
         self.assertTrue(self.action_member.action_list_reminder_sent)
+        self.assertTrue(self.synopsis_member.synopsis_reminder_sent)
         self.assertIsNotNone(self.invite_member.reminder_sent_at)
         self.assertIsNotNone(self.protocol_member.protocol_reminder_sent_at)
         self.assertIsNotNone(self.action_member.action_list_reminder_sent_at)
+        self.assertIsNotNone(self.synopsis_member.synopsis_reminder_sent_at)
 
         subjects = [args[0] for args, _, _ in email_calls]
         self.assertIn(
@@ -1239,6 +1432,10 @@ class SendDueRemindersTests(TestCase):
             email_subject(
                 "action_list_reminder", self.project, self.action_list_deadline
             ),
+            subjects,
+        )
+        self.assertIn(
+            email_subject("synopsis_reminder", self.project, self.synopsis_deadline),
             subjects,
         )
 
@@ -1261,6 +1458,12 @@ class SendDueRemindersTests(TestCase):
 
 class MemberReminderUpdateTests(TestCase):
     def setUp(self):
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
+        override = override_settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+
         self.project = Project.objects.create(title="Inline Reminders")
         self.user = User.objects.create_user(username="owner", password="pw")
         UserRole.objects.create(user=self.user, project=self.project, role="author")
@@ -1307,6 +1510,547 @@ class MemberReminderUpdateTests(TestCase):
             response,
             f'min="{tomorrow.strftime("%Y-%m-%d")}"',
         )
+
+    def test_board_page_shows_accepted_participation_note(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ness",
+            email="ness@example.com",
+            response="Y",
+            participation_confirmed=True,
+            participation_statement="Happy to help, but I may be slower next week.",
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "View note")
+        self.assertContains(response, f"accepted-message-{member.id}")
+        self.assertContains(
+            response,
+            "Happy to help, but I may be slower next week.",
+        )
+
+    def test_board_page_greys_out_response_deadline_for_accepted_member(self):
+        accepted_date = timezone.localdate() + timedelta(days=4)
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Amina",
+            last_name="Accepted",
+            email="amina@example.com",
+            response="Y",
+            participation_confirmed=True,
+            response_date=accepted_date,
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, f'value="{accepted_date.strftime("%Y-%m-%d")}"')
+        self.assertContains(response, 'aria-label="Response deadline for Amina"')
+        self.assertContains(response, "Locked")
+        self.assertContains(response, "Accepted")
+        self.assertNotContains(
+            response,
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "invite"],
+            ),
+        )
+
+    def test_board_page_shows_protocol_feedback_modal(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Pat",
+            last_name="Protocol",
+            email="pat@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_protocol_at=timezone.now(),
+        )
+        feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            member=member,
+            content="Please tighten the scope in the introduction.",
+            submitted_at=timezone.now(),
+            uploaded_document=SimpleUploadedFile(
+                "pat-protocol-comments.docx",
+                b"protocol comments",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "View feedback")
+        self.assertContains(response, "View document")
+        self.assertContains(response, f'aria-label="View protocol feedback for {member.first_name} {member.last_name}"')
+        self.assertContains(response, f"protocol-feedback-{member.id}")
+        self.assertContains(response, f"protocol-feedback-document-{member.id}")
+        self.assertContains(response, "Please tighten the scope in the introduction.")
+        self.assertContains(response, feedback.latest_document_label())
+
+    def test_board_page_shows_action_list_feedback_modal(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Will",
+            last_name="Actions",
+            email="will@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+        )
+        feedback = ActionListFeedback.objects.create(
+            project=self.project,
+            member=member,
+            content="I suggest splitting habitat creation and restoration.",
+            submitted_at=timezone.now(),
+            uploaded_document=SimpleUploadedFile(
+                "will-action-comments.docx",
+                b"action comments",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "View feedback")
+        self.assertContains(response, "View document")
+        self.assertContains(response, f'aria-label="View action list feedback for {member.first_name} {member.last_name}"')
+        self.assertContains(response, f"action-list-feedback-{member.id}")
+        self.assertContains(response, f"action-list-feedback-document-{member.id}")
+        self.assertContains(
+            response,
+            "I suggest splitting habitat creation and restoration.",
+        )
+        self.assertContains(response, feedback.latest_document_label())
+
+    def test_board_page_shows_synopsis_feedback_modal(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sam",
+            last_name="Synopsis",
+            email="sam@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+        )
+        feedback = SynopsisFeedback.objects.create(
+            project=self.project,
+            member=member,
+            content="Please expand the key messages.",
+            submitted_at=timezone.now(),
+            uploaded_document=SimpleUploadedFile(
+                "sam-synopsis-comments.pdf",
+                b"synopsis comments",
+                content_type="application/pdf",
+            ),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "View feedback")
+        self.assertContains(response, "View document")
+        self.assertContains(response, f"synopsis-feedback-{member.id}")
+        self.assertContains(response, f"synopsis-feedback-document-{member.id}")
+        self.assertContains(response, "Please expand the key messages.")
+        self.assertContains(response, feedback.latest_document_label())
+
+    def test_board_page_shows_action_list_feedback_deadline(self):
+        deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=5)
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="ibrahim",
+            last_name="Deadline",
+            email="ibrahim@hotmail.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+            feedback_on_action_list_deadline=deadline,
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            timezone.localtime(member.feedback_on_action_list_deadline).strftime(
+                "%Y-%m-%d %H:%M"
+            ),
+        )
+
+    def test_board_page_shows_updated_document_tracking_headers_without_guidance(self):
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Header",
+            last_name="Check",
+            email="header@example.com",
+            response="Y",
+            participation_confirmed=True,
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "GUIDANCE FEEDBACK")
+        self.assertNotContains(response, "GUIDANCE SENT")
+        self.assertContains(response, "FEEDBACK DOCUMENT", count=3)
+        self.assertContains(response, "AUTHOR REPLIED", count=3)
+        self.assertContains(response, "REMINDER SENT", count=4)
+        self.assertContains(response, 'th class="ab-status-action text-start"', count=7)
+        self.assertContains(response, 'td class="ab-status-action"', count=7)
+        self.assertContains(response, 'th class="ab-status-protocol text-start"', count=7)
+        self.assertContains(response, 'td class="ab-status-protocol"', count=7)
+        self.assertContains(response, 'th class="ab-status-synopsis text-start"', count=7)
+        self.assertContains(response, 'td class="ab-status-synopsis"', count=7)
+
+    def test_can_toggle_action_list_author_replied_from_board(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Reyhan",
+            last_name="Reply",
+            email="reyhan@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+            feedback_on_action_list_received=timezone.localdate(),
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_action_list_flag",
+                args=[self.project.id, member.id, "author-replied"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertTrue(member.wm_replied)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Updated action list tracking",
+                details__contains="Marked author replied",
+            ).exists()
+        )
+
+    def test_cannot_toggle_action_list_author_replied_before_feedback_received(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Early",
+            last_name="Reply",
+            email="early@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_action_list_flag",
+                args=[self.project.id, member.id, "author-replied"],
+            ),
+            {"value": "1"},
+            follow=True,
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertFalse(member.wm_replied)
+        self.assertContains(
+            response,
+            "Action list tracking can only be updated after feedback has been received.",
+        )
+
+    def test_action_list_tracking_no_longer_exposes_guidance_feedback_flag(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Giad",
+            last_name="Guidance",
+            email="giad@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+            feedback_on_action_list_received=timezone.localdate(),
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_action_list_flag",
+                args=[self.project.id, member.id, "guidance-feedback"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_board_page_shows_readable_action_list_tracking_controls(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Raed",
+            last_name="Readable",
+            email="raed@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+            feedback_on_action_list_received=timezone.localdate(),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Not yet")
+        self.assertContains(response, "Mark replied")
+        self.assertContains(response, "Not added")
+        self.assertContains(response, "Mark added")
+        self.assertNotContains(response, "Not marked")
+        self.assertNotContains(response, "Mark guidance")
+
+    def test_can_toggle_protocol_tracking_flags_from_board(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Pia",
+            last_name="Protocol",
+            email="pia@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_protocol_at=timezone.now(),
+            feedback_on_protocol_received=timezone.localdate(),
+        )
+
+        author_response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_protocol_flag",
+                args=[self.project.id, member.id, "author-replied"],
+            ),
+            {"value": "1"},
+        )
+        added_response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_protocol_flag",
+                args=[self.project.id, member.id, "added-to-doc"],
+            ),
+            {"value": "1"},
+        )
+        self.assertRedirects(author_response, self.board_url)
+        self.assertRedirects(added_response, self.board_url)
+        member.refresh_from_db()
+        self.assertTrue(member.protocol_author_replied)
+        self.assertTrue(member.added_to_protocol_doc)
+
+    def test_protocol_tracking_no_longer_exposes_guidance_feedback_flag(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Pia",
+            last_name="Protocol",
+            email="pia@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_protocol_at=timezone.now(),
+            feedback_on_protocol_received=timezone.localdate(),
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_protocol_flag",
+                args=[self.project.id, member.id, "guidance-feedback"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_can_toggle_synopsis_tracking_flags_from_board(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sia",
+            last_name="Synopsis",
+            email="sia@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+            feedback_on_synopsis_received=timezone.localdate(),
+        )
+
+        author_response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_synopsis_flag",
+                args=[self.project.id, member.id, "author-replied"],
+            ),
+            {"value": "1"},
+        )
+        added_response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_synopsis_flag",
+                args=[self.project.id, member.id, "added-to-doc"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertRedirects(author_response, self.board_url)
+        self.assertRedirects(added_response, self.board_url)
+        member.refresh_from_db()
+        self.assertTrue(member.synopsis_author_replied)
+        self.assertTrue(member.added_to_synopsis_doc)
+
+    def test_can_mark_synopsis_feedback_received_from_board(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sia",
+            last_name="Feedback",
+            email="sia-feedback@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_synopsis_flag",
+                args=[self.project.id, member.id, "feedback-received"],
+            ),
+            {"value": "1"},
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertEqual(member.feedback_on_synopsis_received, timezone.localdate())
+
+    def test_synopsis_feedback_link_accepts_comments_and_document(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sia",
+            last_name="Reviewer",
+            email="sia-reviewer@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+            feedback_on_synopsis_deadline=timezone.now() + timedelta(days=4),
+        )
+        feedback = SynopsisFeedback.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+            feedback_deadline_at=member.feedback_on_synopsis_deadline,
+        )
+        uploaded_doc = SimpleUploadedFile(
+            "synopsis-comments.pdf",
+            b"annotated synopsis",
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            reverse("synopsis:synopsis_feedback", args=[str(feedback.token)]),
+            {
+                "content": "Please clarify the evidence summary.",
+                "uploaded_document": uploaded_doc,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Thank you")
+        feedback.refresh_from_db()
+        member.refresh_from_db()
+        self.assertEqual(feedback.content, "Please clarify the evidence summary.")
+        self.assertTrue(feedback.uploaded_document.name)
+        self.assertEqual(member.feedback_on_synopsis_received, timezone.localdate())
+
+    def test_board_page_shows_readable_protocol_and_synopsis_tracking_controls(self):
+        protocol_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Paul",
+            email="paul@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_protocol_at=timezone.now(),
+            feedback_on_protocol_received=timezone.localdate(),
+        )
+        synopsis_member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sara",
+            email="sara@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+            feedback_on_synopsis_received=timezone.localdate(),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            reverse(
+                "synopsis:advisory_member_set_protocol_flag",
+                args=[self.project.id, protocol_member.id, "author-replied"],
+            ),
+        )
+        self.assertContains(
+            response,
+            reverse(
+                "synopsis:advisory_member_set_synopsis_flag",
+                args=[self.project.id, synopsis_member.id, "author-replied"],
+            ),
+        )
+        self.assertNotContains(
+            response,
+            "synopsis:advisory_member_set_guidance_flag",
+        )
+        self.assertContains(response, "Mark replied", count=2)
+        self.assertContains(response, "Not added", count=2)
+
+    def test_board_page_shows_action_list_author_replied_as_awaiting_before_feedback(self):
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Wait",
+            last_name="Feedback",
+            email="wait@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_action_list_at=timezone.now(),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Awaiting feedback")
+
+    def test_board_page_shows_synopsis_send_and_tracking_controls(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sian",
+            email="sian@example.com",
+            response="Y",
+            participation_confirmed=True,
+            sent_synopsis_at=timezone.now(),
+        )
+
+        response = self.client.get(self.board_url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            reverse("synopsis:advisory_send_synopsis_compose_all", args=[self.project.id]),
+        )
+        self.assertContains(
+            response,
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "synopsis"],
+            ),
+        )
+        self.assertContains(
+            response,
+            reverse(
+                "synopsis:advisory_member_set_synopsis_flag",
+                args=[self.project.id, member.id, "feedback-received"],
+            ),
+        )
+        self.assertContains(response, "Mark received")
 
     def test_clear_response_deadline(self):
         member = AdvisoryBoardMember.objects.create(
@@ -1412,6 +2156,39 @@ class MemberReminderUpdateTests(TestCase):
         self.assertIsNone(member.feedback_on_protocol_deadline)
         self.assertContains(response, "at least one day in the future")
 
+    def test_protocol_page_deadline_warns_before_protocol_is_sent(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Paula",
+            email="paula@example.com",
+            response="Y",
+            participation_confirmed=True,
+        )
+        local_deadline = timezone.localtime(timezone.now() + timedelta(days=5)).replace(
+            second=0,
+            microsecond=0,
+        )
+
+        response = self.client.post(
+            reverse("synopsis:advisory_schedule_protocol_reminders", args=[self.project.id]),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+        member.refresh_from_db()
+        self.assertIsNone(member.feedback_on_protocol_deadline)
+        self.assertContains(
+            response,
+            "No protocol deadline was updated because no accepted advisory board member has been sent the protocol yet.",
+        )
+
     def test_update_action_list_deadline(self):
         action_list = ActionList.objects.create(
             project=self.project,
@@ -1459,6 +2236,79 @@ class MemberReminderUpdateTests(TestCase):
             ProjectChangeLog.objects.filter(
                 project=self.project, action="Updated action list reminder"
             ).exists()
+        )
+
+    def test_update_synopsis_deadline(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Sam",
+            email="sam@example.com",
+            response="Y",
+            sent_synopsis_at=timezone.now(),
+            synopsis_reminder_sent=True,
+            synopsis_reminder_sent_at=timezone.now(),
+        )
+        deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=5)
+        local_deadline = timezone.localtime(deadline)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "synopsis"],
+            ),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNotNone(member.feedback_on_synopsis_deadline)
+        self.assertAlmostEqual(
+            member.feedback_on_synopsis_deadline.timestamp(),
+            deadline.timestamp(),
+            delta=1,
+        )
+        self.assertFalse(member.synopsis_reminder_sent)
+        self.assertIsNone(member.synopsis_reminder_sent_at)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project, action="Updated synopsis reminder"
+            ).exists()
+        )
+
+    def test_action_list_page_deadline_warns_before_action_list_is_sent(self):
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"action list"),
+        )
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Vanessa",
+            email="vanessa@example.com",
+            response="Y",
+            participation_confirmed=True,
+        )
+        local_deadline = timezone.localtime(timezone.now() + timedelta(days=5)).replace(
+            second=0,
+            microsecond=0,
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_schedule_action_list_reminders",
+                args=[self.project.id],
+            ),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+        member.refresh_from_db()
+        self.assertIsNone(member.feedback_on_action_list_deadline)
+        self.assertContains(
+            response,
+            "No action list deadline was updated because no accepted advisory board member has been sent the action list yet.",
         )
 
     def test_declined_member_cannot_schedule_invite(self):
@@ -1552,6 +2402,86 @@ class MemberReminderUpdateTests(TestCase):
             ).exists()
         )
 
+    def test_edit_member_page_includes_delete_action(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            title="Dr",
+            first_name="Rebecca",
+            last_name="Smith",
+            email="rebecca@example.com",
+        )
+
+        url = reverse(
+            "synopsis:advisory_member_edit",
+            args=[self.project.id, member.id],
+        )
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Delete advisory board member")
+        self.assertContains(response, 'name="action" value="delete_member"')
+
+    def test_delete_member_from_edit_page(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            title="Dr",
+            first_name="Rebecca",
+            last_name="Smith",
+            email="rebecca@example.com",
+        )
+        custom_field = AdvisoryBoardCustomField.objects.create(
+            project=self.project,
+            name="Expertise",
+            data_type=AdvisoryBoardCustomField.TYPE_TEXT,
+        )
+        custom_field.set_value_for_member(member, "Wetlands", changed_by=self.user)
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+            invited_by=self.user,
+        )
+        protocol_feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+            content="Protocol notes",
+        )
+        action_list_feedback = ActionListFeedback.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+            content="Action list notes",
+        )
+
+        url = reverse(
+            "synopsis:advisory_member_edit",
+            args=[self.project.id, member.id],
+        )
+        response = self.client.post(url, data={"action": "delete_member"})
+
+        self.assertRedirects(response, self.board_url)
+        self.assertFalse(
+            AdvisoryBoardMember.objects.filter(pk=member.id).exists()
+        )
+        self.assertFalse(
+            AdvisoryBoardInvitation.objects.filter(pk=invitation.id).exists()
+        )
+        self.assertFalse(
+            custom_field.values.filter(member_id=member.id).exists()
+        )
+        protocol_feedback.refresh_from_db()
+        action_list_feedback.refresh_from_db()
+        self.assertIsNone(protocol_feedback.member)
+        self.assertIsNone(action_list_feedback.member)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Deleted advisory member",
+                details__contains="Rebecca Smith",
+            ).exists()
+        )
+
     def test_decline_reason_length_validation(self):
         member = AdvisoryBoardMember.objects.create(
             project=self.project,
@@ -1588,6 +2518,141 @@ class AdvisoryInviteFlowTests(TestCase):
         UserRole.objects.create(user=self.user, project=self.project, role="author")
         self.client.force_login(self.user)
         self.board_url = reverse("synopsis:advisory_board_list", args=[self.project.id])
+
+    def assert_public_nav_actions_hidden(self, response):
+        self.assertNotContains(response, ">Home</a>")
+        self.assertNotContains(response, ">Login</a>")
+        self.assertNotContains(response, ">Logout</button>")
+        self.assertNotContains(response, ">Create New Synopsis</a>")
+
+    def test_public_invitation_pages_hide_author_navigation_buttons(self):
+        self.client.logout()
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
+        )
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:advisory_invite_reply",
+                args=[str(invitation.token), "yes"],
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assert_public_nav_actions_hidden(response)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_invite_reply",
+                args=[str(invitation.token), "yes"],
+            ),
+            {"confirm_participation": "on", "statement": "Happy to help."},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assert_public_nav_actions_hidden(response)
+
+    def test_public_feedback_pages_hide_author_navigation_buttons(self):
+        self.client.logout()
+        protocol_feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            email="reviewer@example.com",
+        )
+        action_list_feedback = ActionListFeedback.objects.create(
+            project=self.project,
+            email="reviewer@example.com",
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:protocol_feedback",
+                args=[str(protocol_feedback.token)],
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assert_public_nav_actions_hidden(response)
+
+        response = self.client.get(
+            reverse(
+                "synopsis:action_list_feedback",
+                args=[str(action_list_feedback.token)],
+            )
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assert_public_nav_actions_hidden(response)
+
+    def test_legacy_accept_link_redirects_to_participation_confirmation(self):
+        self.client.logout()
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
+        )
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:advisory_invite_accept", args=[str(invitation.token)])
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:advisory_invite_reply",
+                args=[str(invitation.token), "yes"],
+            )
+            + "?source=legacy_accept",
+        )
+        invitation.refresh_from_db()
+        member.refresh_from_db()
+        self.assertIsNone(invitation.accepted)
+        self.assertFalse(member.participation_confirmed)
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Opened advisory invite link",
+                details__contains="Source: legacy accept link",
+            ).exists()
+        )
+
+    def test_participation_confirmation_page_explains_two_step_flow(self):
+        self.client.logout()
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
+        )
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=member,
+            email=member.email,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:advisory_invite_reply",
+                args=[str(invitation.token), "yes"],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Step 1 of 2")
+        self.assertContains(
+            response,
+            "Your response is not recorded until you submit the form below.",
+        )
+        self.assertContains(
+            response,
+            "you will see a separate thank-you page confirming that your response has been recorded",
+        )
 
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_single_invite_sets_due_date_and_resets_flags(self, mock_email):
@@ -1877,6 +2942,7 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
         self.member = AdvisoryBoardMember.objects.create(
             project=self.project,
             first_name="Rebecca",
+            last_name="Smith",
             email="rebecca@example.com",
             response="Y",
             participation_confirmed=True,
@@ -1884,6 +2950,45 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
         self.expected_due = timezone.localdate() + timedelta(
             days=settings.ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS
         )
+
+    def test_document_send_pages_show_email_previews(self):
+        pages = [
+            (
+                reverse(
+                    "synopsis:advisory_send_protocol_compose_member",
+                    args=[self.project.id, self.member.id],
+                ),
+                "Protocol email preview",
+                "data-document-kind=\"protocol\"",
+            ),
+            (
+                reverse(
+                    "synopsis:advisory_send_action_list_compose_member",
+                    args=[self.project.id, self.member.id],
+                ),
+                "Action list email preview",
+                "data-document-kind=\"action list\"",
+            ),
+            (
+                reverse(
+                    "synopsis:advisory_send_synopsis_compose_member",
+                    args=[self.project.id, self.member.id],
+                ),
+                "Synopsis email preview",
+                "data-document-kind=\"synopsis\"",
+            ),
+        ]
+
+        for url, heading, kind_attr in pages:
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, heading)
+                self.assertContains(response, kind_attr)
+                self.assertContains(response, "data-preview-subject")
+                self.assertContains(response, "data-preview-body")
+                self.assertContains(response, "Standard message")
+                self.assertContains(response, "Rebecca Smith")
 
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_protocol_member_send_defaults_deadline_to_configured_window(self, mock_email):
@@ -1909,6 +3014,32 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
         self.assertEqual(self.member.feedback_on_protocol_deadline.minute, 59)
         feedback = ProtocolFeedback.objects.get(project=self.project, member=self.member)
         self.assertEqual(feedback.feedback_deadline_at, self.member.feedback_on_protocol_deadline)
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear Rebecca Smith", email_body)
+        self.assertIn(default_protocol_review_message(), email_body)
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_protocol_bulk_send_uses_generic_greeting(self, mock_email):
+        mock_email.return_value = MagicMock()
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_protocol_compose_all",
+                args=[self.project.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+                "include_protocol_document": "on",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear advisory board member", email_body)
+        self.assertNotIn("Dear Rebecca Smith", email_body)
 
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_action_list_member_send_defaults_deadline_to_configured_window(self, mock_email):
@@ -1939,7 +3070,141 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
             feedback.feedback_deadline_at,
             self.member.feedback_on_action_list_deadline,
         )
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear Rebecca Smith", email_body)
+        self.assertIn(default_action_list_review_message(), email_body)
 
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_action_list_bulk_send_uses_generic_greeting(self, mock_email):
+        mock_email.return_value = MagicMock()
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_action_list_compose_all",
+                args=[self.project.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+                "include_action_list_document": "on",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear advisory board member", email_body)
+        self.assertNotIn("Dear Rebecca Smith", email_body)
+
+    @patch("synopsis.views._generate_synopsis_docx", return_value=b"docx")
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_synopsis_member_send_defaults_deadline_to_configured_window(
+        self, mock_email, mock_generate
+    ):
+        email_instance = MagicMock()
+        mock_email.return_value = email_instance
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_synopsis_compose_member",
+                args=[self.project.id, self.member.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        self.member.refresh_from_db()
+        self.assertIsNotNone(self.member.sent_synopsis_at)
+        self.assertEqual(
+            self.member.feedback_on_synopsis_deadline.date(), self.expected_due
+        )
+        self.assertEqual(self.member.feedback_on_synopsis_deadline.hour, 23)
+        self.assertEqual(self.member.feedback_on_synopsis_deadline.minute, 59)
+        feedback = SynopsisFeedback.objects.get(project=self.project, member=self.member)
+        self.assertEqual(
+            feedback.feedback_deadline_at,
+            self.member.feedback_on_synopsis_deadline,
+        )
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear Rebecca Smith", email_body)
+        self.assertIn(default_synopsis_review_message(), email_body)
+        self.assertIn(str(feedback.token), email_body)
+        self.assertIn("Provide feedback:", email_body)
+        mock_generate.assert_called_once_with(self.project)
+        email_instance.attach.assert_called_once()
+
+    @patch("synopsis.views._generate_synopsis_docx", return_value=b"docx")
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_synopsis_bulk_send_uses_generic_greeting(
+        self, mock_email, mock_generate
+    ):
+        email_instance = MagicMock()
+        mock_email.return_value = email_instance
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_synopsis_compose_all",
+                args=[self.project.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Dear advisory board member", email_body)
+        self.assertNotIn("Dear Rebecca Smith", email_body)
+        mock_generate.assert_called_once_with(self.project)
+        email_instance.attach.assert_called_once()
+
+    @patch("synopsis.views._generate_synopsis_docx", return_value=b"generated")
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_synopsis_member_send_can_use_uploaded_attachment(
+        self, mock_email, mock_generate
+    ):
+        email_instance = MagicMock()
+        mock_email.return_value = email_instance
+        uploaded_doc = SimpleUploadedFile(
+            "review-draft.pdf",
+            b"uploaded synopsis",
+            content_type="application/pdf",
+        )
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_synopsis_compose_member",
+                args=[self.project.id, self.member.id],
+            ),
+            {
+                "due_date": "",
+                "standard_message": "Please review this final draft.",
+                "message": "Please review this version.",
+                "synopsis_document": uploaded_doc,
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        mock_generate.assert_not_called()
+        email_body = mock_email.call_args[0][1]
+        self.assertIn("Please review this final draft.", email_body)
+        self.assertIn("Please review this version.", email_body)
+        email_instance.attach.assert_called_once_with(
+            "review-draft.pdf",
+            b"uploaded synopsis",
+            "application/pdf",
+        )
 
 class FunderUtilityTests(TestCase):
     def test_build_display_name_prefers_organisation(self):
@@ -2128,7 +3393,7 @@ class AdvisoryBoardCustomColumnsDynamicTests(TestCase):
             custom_field_ids, [self.general_field.id, self.pending_only_field.id]
         )
 
-    def test_custom_fields_can_target_specific_table_groups(self):
+    def test_custom_fields_are_grouped_by_display_area_in_board_context(self):
         invite_field = AdvisoryBoardCustomField.objects.create(
             project=self.project,
             name="Invite progress",
@@ -2476,6 +3741,59 @@ class CollaborativeClosureTests(TestCase):
         request.user = self.manager
         return request
 
+    @patch("synopsis.views._download_onlyoffice_file", return_value=b"updated-doc")
+    def test_collaborative_save_keeps_clean_filename_from_current_revision(self, mock_download):
+        revision = ProtocolRevision.objects.create(
+            protocol=self.protocol,
+            file=SimpleUploadedFile(
+                "protocol.docx",
+                b"original-doc",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+            stage="draft",
+            original_name="protocol.docx",
+            uploaded_by=self.manager,
+            file_size=len(b"original-doc"),
+        )
+        self.protocol.current_revision = revision
+        self.protocol.document.name = (
+            f"protocols/{self.project.id}/"
+            "11111111-1111-1111-1111-111111111111_"
+            "22222222-2222-2222-2222-222222222222_protocol.docx"
+        )
+        self.protocol.save(update_fields=["current_revision", "document"])
+
+        session = CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            started_by=self.manager,
+            last_activity_at=timezone.now(),
+            initial_protocol_revision=revision,
+        )
+
+        success = self.views._handle_collaborative_save(
+            self.project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+            self.protocol,
+            session,
+            {"url": "https://onlyoffice.example.com/office/storage/protocol.docx"},
+            2,
+        )
+
+        self.assertTrue(success)
+        self.protocol.refresh_from_db()
+        self.assertEqual(self.protocol.current_revision.original_name, "protocol.docx")
+        self.assertNotIn(
+            "22222222-2222-2222-2222-222222222222_protocol.docx",
+            self.protocol.current_revision.original_name,
+        )
+        self.assertTrue(self.protocol.document.name.endswith("_protocol.docx"))
+        self.assertNotIn(
+            "11111111-1111-1111-1111-111111111111_22222222-2222-2222-2222-222222222222_protocol.docx",
+            self.protocol.document.name,
+        )
+        mock_download.assert_called_once()
+
     def test_closing_protocol_disables_collaborative_session(self):
         request = self._build_request()
         url = self.views._ensure_collaborative_invite_link(
@@ -2565,6 +3883,16 @@ class CollaborativeClosureTests(TestCase):
 
 class ProtocolUploadFlowTests(TestCase):
     def setUp(self):
+        from . import views
+
+        self.views = views
+        self.original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "https://onlyoffice.example.com/office",
+            "callback_timeout": 7,
+        }
+        self.addCleanup(self._restore_settings)
+
         self.media_dir = tempfile.mkdtemp()
         self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
         override = override_settings(MEDIA_ROOT=self.media_dir)
@@ -2576,6 +3904,16 @@ class ProtocolUploadFlowTests(TestCase):
         UserRole.objects.create(user=self.ibrahim, project=self.project, role="author")
         self.client.force_login(self.ibrahim)
 
+    def _restore_settings(self):
+        self.views.ONLYOFFICE_SETTINGS = self.original_settings
+
+    def _docx_upload(self, name, content):
+        return SimpleUploadedFile(
+            name,
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
     def test_initial_protocol_upload_creates_revision_and_redirects(self):
         response = self.client.post(
             reverse("synopsis:protocol_detail", args=[self.project.id]),
@@ -2583,11 +3921,7 @@ class ProtocolUploadFlowTests(TestCase):
                 "stage": "draft",
                 "change_reason": "",
                 "version_label": "v1.0",
-                "document": SimpleUploadedFile(
-                    "ibrahim-protocol.docx",
-                    b"protocol",
-                    content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                ),
+                "document": self._docx_upload("ibrahim-protocol.docx", b"protocol"),
             },
         )
 
@@ -2599,6 +3933,242 @@ class ProtocolUploadFlowTests(TestCase):
         self.assertTrue(protocol.document.name.endswith(".docx"))
         self.assertIsNotNone(protocol.current_revision)
         self.assertEqual(protocol.current_revision.version_label, "v1.0")
+
+    def test_protocol_can_reupload_same_filename_after_delete_file(self):
+        detail_url = reverse("synopsis:protocol_detail", args=[self.project.id])
+
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-protocol.docx", b"first"),
+            },
+        )
+        protocol = Protocol.objects.get(project=self.project)
+        original_document_path = protocol.document.name
+        original_revision_id = protocol.current_revision_id
+
+        response = self.client.post(
+            reverse("synopsis:protocol_delete_file", args=[self.project.id])
+        )
+        self.assertRedirects(response, detail_url)
+        protocol.refresh_from_db()
+        self.assertFalse(protocol.document)
+        self.assertIsNone(protocol.current_revision)
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "Replacing deleted draft",
+                "version_label": "v2",
+                "document": self._docx_upload("draft-protocol.docx", b"second"),
+            },
+        )
+        self.assertRedirects(response, detail_url)
+
+        protocol.refresh_from_db()
+        self.assertTrue(protocol.document)
+        self.assertNotEqual(protocol.document.name, original_document_path)
+        self.assertIsNotNone(protocol.current_revision)
+        self.assertNotEqual(protocol.current_revision_id, original_revision_id)
+        self.assertEqual(protocol.current_revision.original_name, "draft-protocol.docx")
+        self.assertEqual(protocol.current_revision.version_label, "v2")
+        self.assertEqual(ProtocolRevision.objects.filter(protocol=protocol).count(), 2)
+
+    def test_protocol_missing_file_after_delete_shows_clear_error(self):
+        detail_url = reverse("synopsis:protocol_detail", args=[self.project.id])
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-protocol.docx", b"first"),
+            },
+        )
+        self.client.post(reverse("synopsis:protocol_delete_file", args=[self.project.id]))
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Choose a protocol file to upload. You can reuse the same filename as a file you deleted.",
+        )
+
+    def test_action_list_can_reupload_same_filename_after_delete_file(self):
+        detail_url = reverse("synopsis:action_list_detail", args=[self.project.id])
+
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-action-list.docx", b"first"),
+            },
+        )
+        action_list = ActionList.objects.get(project=self.project)
+        original_document_path = action_list.document.name
+        original_revision_id = action_list.current_revision_id
+
+        response = self.client.post(
+            reverse("synopsis:action_list_delete_file", args=[self.project.id])
+        )
+        self.assertRedirects(response, detail_url)
+        action_list.refresh_from_db()
+        self.assertFalse(action_list.document)
+        self.assertIsNone(action_list.current_revision)
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "Replacing deleted draft",
+                "version_label": "v2",
+                "document": self._docx_upload("draft-action-list.docx", b"second"),
+            },
+        )
+        self.assertRedirects(response, detail_url)
+
+        action_list.refresh_from_db()
+        self.assertTrue(action_list.document)
+        self.assertNotEqual(action_list.document.name, original_document_path)
+        self.assertIsNotNone(action_list.current_revision)
+        self.assertNotEqual(action_list.current_revision_id, original_revision_id)
+        self.assertEqual(
+            action_list.current_revision.original_name, "draft-action-list.docx"
+        )
+        self.assertEqual(action_list.current_revision.version_label, "v2")
+        self.assertEqual(
+            ActionListRevision.objects.filter(action_list=action_list).count(), 2
+        )
+
+    def test_action_list_missing_file_after_delete_shows_clear_error(self):
+        detail_url = reverse("synopsis:action_list_detail", args=[self.project.id])
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-action-list.docx", b"first"),
+            },
+        )
+        self.client.post(
+            reverse("synopsis:action_list_delete_file", args=[self.project.id])
+        )
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            "Choose an action list file to upload. You can reuse the same filename as a file you deleted.",
+        )
+
+    def test_protocol_delete_closes_stale_collaborative_session_before_reupload(self):
+        detail_url = reverse("synopsis:protocol_detail", args=[self.project.id])
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-protocol.docx", b"first"),
+            },
+        )
+        session = CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            started_by=self.ibrahim,
+            last_activity_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse("synopsis:protocol_delete", args=[self.project.id])
+        )
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        session.refresh_from_db()
+        self.assertFalse(session.is_active)
+        self.assertEqual(session.end_reason, "Protocol deleted")
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v2",
+                "document": self._docx_upload("draft-protocol.docx", b"second"),
+            },
+        )
+        self.assertRedirects(response, detail_url)
+
+        response = self.client.get(detail_url)
+        self.assertContains(response, "Start collaborative edit")
+        self.assertNotContains(response, "Open editor")
+
+    def test_action_list_delete_closes_stale_collaborative_session_before_reupload(self):
+        detail_url = reverse("synopsis:action_list_detail", args=[self.project.id])
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-action-list.docx", b"first"),
+            },
+        )
+        session = CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_ACTION_LIST,
+            started_by=self.ibrahim,
+            last_activity_at=timezone.now(),
+        )
+
+        response = self.client.post(
+            reverse("synopsis:action_list_delete", args=[self.project.id])
+        )
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        session.refresh_from_db()
+        self.assertFalse(session.is_active)
+        self.assertEqual(session.end_reason, "Action list deleted")
+
+        response = self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v2",
+                "document": self._docx_upload("draft-action-list.docx", b"second"),
+            },
+        )
+        self.assertRedirects(response, detail_url)
+
+        response = self.client.get(detail_url)
+        self.assertContains(response, "Start collaborative edit")
+        self.assertNotContains(response, "Open editor")
 
 
 class OnlyOfficeConfigTests(TestCase):
@@ -2676,6 +4246,129 @@ class OnlyOfficeConfigTests(TestCase):
             ),
         )
 
+
+class OnlyOfficeExternalAccessTests(TestCase):
+    def setUp(self):
+        from . import views
+
+        self.views = views
+        self.original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "http://localhost:8080",
+            "internal_url": "http://onlyoffice",
+            "app_base_url": "http://web:8000",
+            "jwt_secret": "change-me",
+            "callback_timeout": 10,
+            "trusted_download_urls": [
+                "http://localhost:8080",
+                "http://onlyoffice",
+            ],
+        }
+        self.addCleanup(self._restore_settings)
+
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
+        override = override_settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+
+        self.project = Project.objects.create(title="External Collaboration")
+        self.author = User.objects.create_user(username="external-author", password="pw")
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        self.member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Asha",
+            last_name="Reviewer",
+            organisation="CE",
+            email="asha@example.com",
+            response="Y",
+            participation_confirmed=True,
+            feedback_on_protocol_deadline=timezone.now() + timedelta(days=7),
+        )
+        self.protocol = Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile(
+                "external-protocol.docx",
+                b"protocol",
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ),
+        )
+        self.session = CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            started_by=self.author,
+            last_activity_at=timezone.now(),
+        )
+
+    def _restore_settings(self):
+        self.views.ONLYOFFICE_SETTINGS = self.original_settings
+
+    def _editor_url(self, query):
+        return (
+            reverse(
+                "synopsis:collaborative_edit",
+                args=[self.project.id, "protocol", self.session.token],
+            )
+            + query
+        )
+
+    def test_anonymous_reviewer_can_open_editor_with_feedback_token(self):
+        feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            member=self.member,
+            email=self.member.email,
+            feedback_deadline_at=self.member.feedback_on_protocol_deadline,
+        )
+
+        response = self.client.get(self._editor_url(f"?feedback={feedback.token}"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["editor_config"]["editorConfig"]["user"]["id"],
+            f"abm:{self.member.id}",
+        )
+        self.assertContains(response, "You are editing as Asha Reviewer.")
+
+    def test_anonymous_reviewer_can_open_editor_with_invitation_token(self):
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=self.member,
+            email=self.member.email,
+            invited_by=self.author,
+            due_date=timezone.localdate() + timedelta(days=7),
+        )
+        self.session.invitations.add(invitation)
+
+        response = self.client.get(
+            self._editor_url(f"?invite={invitation.token}&member={self.member.id}")
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["editor_config"]["editorConfig"]["user"]["id"],
+            f"abm:{self.member.id}",
+        )
+
+    def test_member_id_only_link_is_blocked_for_anonymous_users(self):
+        response = self.client.get(self._editor_url(f"?member={self.member.id}"))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertContains(
+            response,
+            "This older collaborative link is missing its secure review token.",
+            status_code=403,
+        )
+
+    def test_project_author_can_open_editor_without_external_token(self):
+        self.client.force_login(self.author)
+
+        response = self.client.get(self._editor_url(""))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["editor_config"]["editorConfig"]["user"]["id"],
+            str(self.author.id),
+        )
 
 class CollaborativeForceSaveCloseTests(TestCase):
     def setUp(self):
@@ -2805,6 +4498,19 @@ class CollaborativePanelViewTests(TestCase):
         self.assertContains(
             response, "This page manages the current working protocol for the project."
         )
+        self.assertContains(
+            response,
+            "Sending the protocol for review happens on the Advisory Board page.",
+        )
+        self.assertContains(
+            response,
+            "When you are ready to send it to advisory board members, go to the Advisory Board page",
+        )
+        self.assertContains(response, "Go to Advisory Board")
+        self.assertContains(
+            response,
+            "Sending the protocol to advisory board members is done from the <strong>Advisory Board</strong> page.",
+        )
         self.assertContains(response, "How collaborative editing works")
         self.assertContains(
             response,
@@ -2835,6 +4541,19 @@ class CollaborativePanelViewTests(TestCase):
         self.assertContains(
             response,
             "This page manages the current working action list for the project.",
+        )
+        self.assertContains(
+            response,
+            "Sending the action list for review happens on the Advisory Board page.",
+        )
+        self.assertContains(
+            response,
+            "When you are ready to send it to advisory board members, go to the Advisory Board page",
+        )
+        self.assertContains(response, "Go to Advisory Board")
+        self.assertContains(
+            response,
+            "Sending the action list to advisory board members is done from the <strong>Advisory Board</strong> page.",
         )
         self.assertContains(response, "How collaborative editing works")
         self.assertContains(
@@ -2876,6 +4595,20 @@ class CollaborativePanelViewTests(TestCase):
             project=self.project,
             document=SimpleUploadedFile("action-list.docx", b"alist"),
         )
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Pia",
+            email="pia@example.com",
+            response="Y",
+            sent_protocol_at=timezone.now(),
+        )
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ali",
+            email="ali@example.com",
+            response="Y",
+            sent_action_list_at=timezone.now(),
+        )
 
         protocol_response = self.client.get(
             reverse("synopsis:protocol_detail", args=[self.project.id])
@@ -2885,6 +4618,10 @@ class CollaborativePanelViewTests(TestCase):
         self.assertContains(protocol_response, 'data-bs-target="#protocolFeedbackWindowCollapse"')
         self.assertContains(protocol_response, "data-collapse-toggle-label")
         self.assertContains(protocol_response, 'data-label-open="Hide"')
+        self.assertContains(
+            protocol_response,
+            "Closing this feedback window will stop advisory members from submitting protocol feedback and will end collaborative editing for this protocol. Are you sure?",
+        )
 
         action_list_response = self.client.get(
             reverse("synopsis:action_list_detail", args=[self.project.id])
@@ -2894,6 +4631,76 @@ class CollaborativePanelViewTests(TestCase):
         self.assertContains(action_list_response, 'data-bs-target="#actionListFeedbackWindowCollapse"')
         self.assertContains(action_list_response, "data-collapse-toggle-label")
         self.assertContains(action_list_response, 'data-label-open="Hide"')
+        self.assertContains(
+            action_list_response,
+            "Closing this feedback window will stop advisory members from submitting action list feedback and will end collaborative editing for this action list. Are you sure?",
+        )
+
+    def test_document_pages_explain_deadlines_require_sent_documents(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+
+        protocol_response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+        self.assertContains(
+            protocol_response,
+            "Send the protocol from the Advisory Board page first.",
+        )
+        self.assertContains(
+            protocol_response,
+            "No protocol feedback deadline can be updated here yet because no accepted advisory board member has been sent the protocol.",
+        )
+        self.assertNotContains(protocol_response, "Set protocol deadline")
+
+        action_list_response = self.client.get(
+            reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+        self.assertContains(
+            action_list_response,
+            "Send the action list from the Advisory Board page first.",
+        )
+        self.assertContains(
+            action_list_response,
+            "No action list feedback deadline can be updated here yet because no accepted advisory board member has been sent the action list.",
+        )
+        self.assertNotContains(action_list_response, "Set action list deadline")
+
+    def test_document_pages_show_reopen_feedback_window_confirmations(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+            feedback_closed_at=timezone.now(),
+        )
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+            feedback_closed_at=timezone.now(),
+        )
+
+        protocol_response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+        self.assertContains(protocol_response, "Reopen feedback")
+        self.assertContains(
+            protocol_response,
+            "Reopening this feedback window will allow advisory members to submit protocol feedback again and can allow collaborative editing for this protocol again. Are you sure?",
+        )
+
+        action_list_response = self.client.get(
+            reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+        self.assertContains(action_list_response, "Reopen feedback")
+        self.assertContains(
+            action_list_response,
+            "Reopening this feedback window will allow advisory members to submit action list feedback again and can allow collaborative editing for this action list again. Are you sure?",
+        )
 
 
 class AdvisoryBoardCustomColumnsTests(TestCase):
@@ -3216,6 +5023,18 @@ class ProjectSettingsFormTests(TestCase):
         updated = form.save()
         self.assertEqual(updated.title, "Forest Recovery")
 
+    def test_updates_description(self):
+        form = ProjectSettingsForm(
+            data={
+                "title": "Forest Recovery",
+                "description": "  A pilot synopsis for forest restoration.  ",
+            },
+            instance=self.project,
+        )
+        self.assertTrue(form.is_valid())
+        updated = form.save()
+        self.assertEqual(updated.description, "A pilot synopsis for forest restoration.")
+
 
 class ViewHelperTests(TestCase):
     def setUp(self):
@@ -3279,6 +5098,9 @@ class ViewHelperTests(TestCase):
         author = User.objects.create_user(username="author")
         UserRole.objects.create(user=author, project=self.project, role="author")
         self.assertTrue(_user_can_confirm_phase(author, self.project))
+        manager = User.objects.create_user(username="manager")
+        UserRole.objects.create(user=manager, project=self.project, role="manager")
+        self.assertTrue(_user_can_confirm_phase(manager, self.project))
         outsider = User.objects.create_user(username="outsider")
         self.assertFalse(_user_can_confirm_phase(outsider, self.project))
         self.assertFalse(_user_can_confirm_phase(AnonymousUser(), self.project))
@@ -3748,6 +5570,40 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         self.assertEqual(project_ref.library_reference_id, existing_library_ref.id)
 
+    def test_project_import_prefills_project_reference_from_shared_library_folders(self):
+        existing_hash = reference_hash(
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            "2002",
+            "",
+        )
+        existing_library_ref = LibraryReference.objects.create(
+            hash_key=existing_hash,
+            title="Existing canonical title",
+            publication_year=2002,
+            reference_folder=["2", "15"],
+        )
+
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Reuse shared folders batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+
+        project_ref = Reference.objects.get(
+            project=self.project,
+            hash_key=existing_hash,
+        )
+        self.assertEqual(project_ref.library_reference_id, existing_library_ref.id)
+        self.assertEqual(project_ref.reference_folder, ["2", "15"])
+
     def test_can_delete_reference_from_batch(self):
         upload = SimpleUploadedFile(
             "references.txt",
@@ -3888,6 +5744,139 @@ class ReferenceBatchUploadParsingTests(TestCase):
             self.assertEqual(ref.screened_by, self.user)
             self.assertIsNotNone(ref.screening_decision_at)
 
+    def test_bulk_include_can_apply_selected_folders_at_same_time(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Bulk include folders batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        include_ids = [str(ref.id) for ref in batch.references.order_by("id")[:2]]
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+
+        response = self.client.post(
+            detail_url,
+            {
+                "bulk_action": "include",
+                "selected_references": include_ids,
+                "reference_folder": ["3a", "15"],
+            },
+            follow=True,
+        )
+
+        self.assertContains(
+            response,
+            "Applied the selected folders at the same time.",
+        )
+        for ref in Reference.objects.filter(pk__in=include_ids):
+            self.assertEqual(ref.screening_status, "included")
+            self.assertEqual(ref.reference_folder, ["3a", "15"])
+
+        linked_library_refs = list(
+            LibraryReference.objects.filter(project_references__id__in=include_ids).distinct()
+        )
+        self.assertTrue(linked_library_refs)
+        for library_ref in linked_library_refs:
+            self.assertEqual(library_ref.reference_folder, ["3a", "15"])
+        self.assertTrue(
+            LibraryReferenceFolderHistory.objects.filter(
+                library_reference__in=linked_library_refs
+            ).exists()
+        )
+
+    def test_screening_page_uses_resizable_folder_select_wrapper(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Folder width batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "folder-select-shell")
+        self.assertContains(response, "folder-select")
+        self.assertContains(response, "screening-bulk-sticky")
+        self.assertContains(response, "Apply folders")
+        self.assertContains(response, "Multiple folders are allowed.")
+        self.assertContains(
+            response,
+            "This is the main folder-classification step while screening.",
+        )
+        self.assertContains(
+            response,
+            "changing folders here updates the shared reference library record and linked synopsis copies in other projects",
+        )
+
+    def test_bulk_apply_folders_to_selected_references(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Bulk folder batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        references = list(batch.references.order_by("id"))
+        selected_ids = [str(ref.id) for ref in references[:2]]
+
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+        response = self.client.post(
+            detail_url,
+            {
+                "bulk_action": "save-folders",
+                "selected_references": selected_ids,
+                "reference_folder": ["3a", "15"],
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+        )
+
+        for ref in Reference.objects.filter(pk__in=selected_ids):
+            self.assertEqual(ref.reference_folder, ["3a", "15"])
+            self.assertEqual(ref.screened_by, self.user)
+            self.assertIsNotNone(ref.screening_decision_at)
+
     def test_single_screening_update_filters_blank_reference_folder_values(self):
         upload = SimpleUploadedFile(
             "references.txt",
@@ -3919,16 +5908,14 @@ class ReferenceBatchUploadParsingTests(TestCase):
             },
         )
 
-        self.assertRedirects(
-            response,
-            reverse(
-                "synopsis:reference_batch_detail",
-                args=[self.project.id, batch.id],
-            ),
+        self.assertEqual(
+            response["Location"],
+            f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, batch.id])}#ref-{ref.id}",
         )
         ref.refresh_from_db()
         self.assertEqual(ref.screening_status, "included")
         self.assertEqual(ref.reference_folder, ["3a"])
+        self.assertEqual(ref.library_reference.reference_folder, ["3a"])
 
     def test_save_folders_preserves_existing_screening_notes(self):
         upload = SimpleUploadedFile(
@@ -3962,16 +5949,55 @@ class ReferenceBatchUploadParsingTests(TestCase):
             },
         )
 
-        self.assertRedirects(
-            response,
-            reverse(
-                "synopsis:reference_batch_detail",
-                args=[self.project.id, batch.id],
-            ),
+        self.assertEqual(
+            response["Location"],
+            f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, batch.id])}#ref-{ref.id}",
         )
         ref.refresh_from_db()
         self.assertEqual(ref.reference_folder, ["15"])
         self.assertEqual(ref.screening_notes, "Keep these notes.")
+
+    def test_single_reference_can_be_reset_to_pending(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Pending reset batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        ref = batch.references.order_by("id").first()
+        ref.screening_status = "included"
+        ref.screening_decision_at = timezone.now()
+        ref.screened_by = self.user
+        ref.save(
+            update_fields=["screening_status", "screening_decision_at", "screened_by", "updated_at"]
+        )
+
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+        response = self.client.post(
+            detail_url,
+            {
+                "reference_id": ref.id,
+                "screening_status": "pending",
+            },
+        )
+
+        self.assertEqual(
+            response["Location"],
+            f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, batch.id])}#ref-{ref.id}",
+        )
+        ref.refresh_from_db()
+        self.assertEqual(ref.screening_status, "pending")
 
     def test_bulk_action_requires_selection(self):
         upload = SimpleUploadedFile(
@@ -4210,8 +6236,137 @@ class LibraryLinkBatchTests(TestCase):
             batch_count_before,
         )
 
+    def test_link_uses_existing_shared_library_folders_by_default(self):
+        lib_ref = LibraryReference.objects.create(
+            title="Shared folders default",
+            publication_year=2024,
+            doi="10.1000/shared-default",
+            hash_key="lib-hash-shared-default",
+            reference_folder=["2", "15"],
+        )
+
+        linked, reused, batch = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [lib_ref.id],
+            [],
+        )
+
+        self.assertEqual((linked, reused), (1, 0))
+        self.assertIsNotNone(batch)
+        project_ref = Reference.objects.get(project=self.project, library_reference=lib_ref)
+        self.assertEqual(project_ref.reference_folder, ["2", "15"])
+
+    def test_link_folder_override_updates_shared_library_record(self):
+        lib_ref = LibraryReference.objects.create(
+            title="Shared folders override",
+            publication_year=2024,
+            doi="10.1000/shared-override",
+            hash_key="lib-hash-shared-override",
+            reference_folder=["2"],
+        )
+
+        linked, reused, _batch = _link_library_references_to_project(
+            self.user,
+            self.project,
+            [lib_ref.id],
+            ["15", "2"],
+        )
+
+        self.assertEqual((linked, reused), (1, 0))
+        lib_ref.refresh_from_db()
+        self.assertEqual(lib_ref.reference_folder, ["2", "15"])
+        project_ref = Reference.objects.get(project=self.project, library_reference=lib_ref)
+        self.assertEqual(project_ref.reference_folder, ["2", "15"])
+        self.assertTrue(
+            LibraryReferenceFolderHistory.objects.filter(
+                library_reference=lib_ref,
+                new_folders=["2", "15"],
+            ).exists()
+        )
+
+
+class LibraryReferenceDetailTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="libeditor", password="pw")
+        self.project = Project.objects.create(title="Library Sync Project")
+        UserRole.objects.create(user=self.user, project=self.project, role="author")
+        self.library_reference = LibraryReference.objects.create(
+            title="Library reference",
+            publication_year=2024,
+            doi="10.1000/library-detail",
+            hash_key="lib-detail-hash",
+            reference_folder=["2"],
+        )
+        self.batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Linked batch",
+            source_type="library_link",
+            uploaded_by=self.user,
+        )
+        self.project_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            library_reference=self.library_reference,
+            hash_key="lib-detail-hash",
+            title="Project copy",
+            reference_folder=["2"],
+        )
+        self.client.force_login(self.user)
+
+    def test_library_detail_updates_shared_folders_and_syncs_project_copies(self):
+        response = self.client.post(
+            reverse(
+                "synopsis:library_reference_detail",
+                args=[self.library_reference.id],
+            ),
+            {
+                "action": "edit",
+                "title": "Library reference",
+                "authors": "",
+                "publication_year": 2024,
+                "journal": "",
+                "volume": "",
+                "issue": "",
+                "pages": "",
+                "doi": "10.1000/library-detail",
+                "url": "",
+                "language": "",
+                "abstract": "",
+                "reference_folder": ["15", "2"],
+            },
+            follow=True,
+        )
+
+        self.library_reference.refresh_from_db()
+        self.project_reference.refresh_from_db()
+        self.assertEqual(self.library_reference.reference_folder, ["2", "15"])
+        self.assertEqual(self.project_reference.reference_folder, ["2", "15"])
+        self.assertContains(
+            response,
+            "Shared CE subject folders were updated.",
+        )
+        self.assertContains(
+            response,
+            "Synced 1 linked synopsis copy/copies.",
+        )
+        self.assertTrue(
+            LibraryReferenceFolderHistory.objects.filter(
+                library_reference=self.library_reference,
+                new_folders=["2", "15"],
+                change_source="library_detail",
+            ).exists()
+        )
+
 
 class ReferenceSummaryFormTests(TestCase):
+    def setUp(self):
+        self.project = Project.objects.create(title="Summary form project")
+
+    def test_update_form_requires_project(self):
+        with self.assertRaises(TypeError):
+            ReferenceSummaryUpdateForm()
+
     def test_habitat_tags_use_detailed_iucn_choices(self):
         values = [value for value, _label in IUCN_HABITAT_CHOICES]
         self.assertEqual(len(values), 63)
@@ -4232,7 +6387,8 @@ class ReferenceSummaryFormTests(TestCase):
                     "Marine Coral Reefs",
                     "Forest - Temperate",
                 ],
-            }
+            },
+            project=self.project,
         )
         self.assertTrue(form.is_valid())
         self.assertEqual(
@@ -4259,7 +6415,8 @@ class ReferenceSummaryFormTests(TestCase):
                     "Land/water management-Site/area management",
                     "Research & monitoring-Conservation planning",
                 ],
-            }
+            },
+            project=self.project,
         )
         self.assertTrue(form.is_valid())
         self.assertEqual(
@@ -4288,7 +6445,8 @@ class ReferenceSummaryFormTests(TestCase):
                     "Residential & commercial development-Housing/urban areas",
                     "Climate change & severe weather-Storms/flooding",
                 ],
-            }
+            },
+            project=self.project,
         )
         self.assertTrue(form.is_valid())
         self.assertEqual(
@@ -4298,6 +6456,301 @@ class ReferenceSummaryFormTests(TestCase):
                 "Climate change & severe weather-Storms/flooding",
             ],
         )
+
+    def test_research_design_accepts_up_to_four_tags(self):
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "research_design": [
+                    "Replicated",
+                    "Randomized",
+                    "Controlled*",
+                    "Before-and-after",
+                ],
+            },
+            project=self.project,
+        )
+
+        self.assertTrue(form.is_valid())
+        self.assertEqual(
+            form.cleaned_data["research_design"],
+            "Replicated; Randomized; Controlled*; Before-and-after",
+        )
+
+    def test_research_design_rejects_more_than_four_tags(self):
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "research_design": [
+                    "Replicated",
+                    "Randomized",
+                    "Paired sites",
+                    "Controlled*",
+                    "Before-and-after",
+                ],
+            },
+            project=self.project,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Select up to 4 research design tags", str(form.errors))
+
+    def test_research_design_initial_splits_saved_tags(self):
+        summary = ReferenceSummary(research_design="Replicated; Controlled*")
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
+
+        self.assertEqual(
+            form["research_design"].value(),
+            ["Replicated", "Controlled*"],
+        )
+
+    def test_blank_study_design_is_built_from_research_design_tags(self):
+        project = Project.objects.create(title="Auto design")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="d" * 40,
+            title="Auto design reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "study_design": "",
+                "research_design": [
+                    "Replicated",
+                    "Randomized",
+                    "Controlled*",
+                ],
+            },
+            instance=summary,
+            project=project,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(
+            saved.study_design,
+            "replicated, randomized, controlled study",
+        )
+
+    def test_manual_study_design_overrides_research_design_tags(self):
+        project = Project.objects.create(title="Manual design")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="e" * 40,
+            title="Manual design reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "study_design": "replicated, randomized, controlled, before-and-after study",
+                "research_design": [
+                    "Replicated",
+                    "Randomized",
+                    "Controlled*",
+                ],
+            },
+            instance=summary,
+            project=project,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(
+            saved.study_design,
+            "replicated, randomized, controlled, before-and-after study",
+        )
+
+    def test_methods_and_design_initial_merges_existing_fields(self):
+        summary = ReferenceSummary(
+            action_methods="Used fenced plots and added seed.",
+            experimental_design="Compared treated and untreated plots over two years.",
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
+
+        self.assertEqual(
+            form["methods_and_design"].value(),
+            "Used fenced plots and added seed.\n\nCompared treated and untreated plots over two years.",
+        )
+
+    def test_action_dropdown_uses_project_interventions(self):
+        project = Project.objects.create(title="Action choices")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="a" * 40,
+            title="Action reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            action_description="Install nest boxes",
+        )
+        chapter = SynopsisChapter.objects.create(
+            project=project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Install nest boxes",
+            position=1,
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=project)
+
+        choice_values = [value for value, _label in form.fields["action_choice"].choices]
+        self.assertIn("Install nest boxes", choice_values)
+        self.assertEqual(form["action_choice"].value(), "Install nest boxes")
+        self.assertEqual(form["action_custom"].value(), None)
+
+    def test_action_dropdown_supports_custom_value_when_not_in_structure(self):
+        project = Project.objects.create(title="Custom action choice")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="b" * 40,
+            title="Custom action reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            action_description="Reduce ditch dredging",
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=project)
+
+        self.assertEqual(
+            form["action_choice"].value(),
+            ReferenceSummaryUpdateForm.ACTION_CUSTOM_VALUE,
+        )
+        self.assertEqual(form["action_custom"].value(), "Reduce ditch dredging")
+
+    def test_action_dropdown_save_uses_selected_intervention_title(self):
+        project = Project.objects.create(title="Dropdown save")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="c" * 40,
+            title="Save action reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+        chapter = SynopsisChapter.objects.create(
+            project=project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Install nest boxes",
+            position=1,
+        )
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "action_choice": "Install nest boxes",
+                "action_custom": "",
+            },
+            instance=summary,
+            project=project,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(saved.action_description, "Install nest boxes")
+
+    def test_methods_and_design_save_flattens_into_single_summary_field(self):
+        project = Project.objects.create(title="Methods Merge")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="m" * 40,
+            title="Methods reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            status=ReferenceSummary.STATUS_TODO,
+            action_methods="Old methods",
+            experimental_design="Old design",
+        )
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "methods_and_design": "Combined methods and design notes.",
+            },
+            instance=summary,
+            project=project,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+
+        self.assertEqual(saved.action_methods, "Combined methods and design notes.")
+        self.assertEqual(saved.experimental_design, "")
 
     def test_draft_form_prefills_generated_summary_when_no_saved_draft_exists(self):
         project = Project.objects.create(title="Coral Reefs Synopsis")
@@ -4323,14 +6776,22 @@ class ReferenceSummaryFormTests(TestCase):
 
     def test_location_tags_accepts_place_and_coords(self):
         form = ReferenceSummaryUpdateForm(
-            data={"status": ReferenceSummary.STATUS_TODO, "location_tags": "London, UK - 51.50740, -0.12780"}
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "location_tags": "London, UK - 51.50740, -0.12780",
+            },
+            project=self.project,
         )
         self.assertTrue(form.is_valid())
         self.assertEqual(form.cleaned_data["location_tags"], ["London, UK - 51.50740, -0.12780"])
 
     def test_location_tags_rejects_out_of_range(self):
         form = ReferenceSummaryUpdateForm(
-            data={"status": ReferenceSummary.STATUS_TODO, "location_tags": "Nowhere - 123.00000, 200.00000"}
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "location_tags": "Nowhere - 123.00000, 200.00000",
+            },
+            project=self.project,
         )
         self.assertFalse(form.is_valid())
         self.assertIn("Coordinates must be valid latitude", str(form.errors))
@@ -4340,7 +6801,7 @@ class ReferenceSummaryFormTests(TestCase):
             "status": ReferenceSummary.STATUS_TODO,
             "outcomes_raw": "Outcome | 1 | treat | 2 | comp | unit | diff | stats | p | notes\n | | | | | | | | | ",
         }
-        form = ReferenceSummaryUpdateForm(data=data)
+        form = ReferenceSummaryUpdateForm(data=data, project=self.project)
         self.assertTrue(form.is_valid())
         cleaned = form.cleaned_data["outcomes_raw"]
         self.assertEqual(len(cleaned), 1)
@@ -4354,7 +6815,8 @@ class ReferenceSummaryFormTests(TestCase):
                 "harms_score": "100",
                 "reliability_score": "0.0",
                 "relevance_score": "1.0",
-            }
+            },
+            project=self.project,
         )
         self.assertTrue(form.is_valid())
         self.assertEqual(form.cleaned_data["benefits_score"], 0.0)
@@ -4379,7 +6841,8 @@ class ReferenceSummaryFormTests(TestCase):
                     data={
                         "status": ReferenceSummary.STATUS_TODO,
                         field_name: value,
-                    }
+                    },
+                    project=self.project,
                 )
                 self.assertFalse(form.is_valid())
                 self.assertIn(field_name, form.errors)
@@ -4388,6 +6851,7 @@ class ReferenceSummaryFormTests(TestCase):
 class ReferenceSummaryDetailViewTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="author", password="pass123")
+        self.viewer = User.objects.create_user(username="viewer", password="pass123")
         self.project = Project.objects.create(title="Coral Reefs Synopsis")
         UserRole.objects.create(user=self.user, project=self.project, role="author")
         self.batch = ReferenceSourceBatch.objects.create(
@@ -4407,6 +6871,68 @@ class ReferenceSummaryDetailViewTests(TestCase):
             status=ReferenceSummary.STATUS_TODO,
         )
 
+    def test_detail_page_is_forbidden_for_non_project_editors(self):
+        self.client.login(username="viewer", password="pass123")
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_duplicate_summary_tab_is_forbidden_for_non_project_editors(self):
+        self.client.login(username="viewer", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {"action": "duplicate-summary-tab"},
+            follow=False,
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            ).count(),
+            1,
+        )
+
+    def test_detail_page_shows_project_action_dropdown_options(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Install nest boxes",
+            position=1,
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "Choose an action already added to the project intervention list.")
+        self.assertContains(response, '<option value="Install nest boxes">Install nest boxes</option>', html=False)
+
     def test_save_summary_persists_changes(self):
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
@@ -4424,6 +6950,70 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.summary.habitat_and_sites, "New habitat info")
         messages = list(get_messages(resp.wsgi_request))
         self.assertTrue(any("Summary updated" in str(m) for m in messages))
+
+    def test_save_summary_auto_moves_todo_tab_to_in_progress_when_content_saved(self):
+        self.client.login(username="author", password="pass123")
+        url = reverse(
+            "synopsis:reference_summary_detail", args=[self.project.id, self.summary.id]
+        )
+        response = self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "status": ReferenceSummary.STATUS_TODO,
+                "habitat_and_sites": "New habitat info",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.status, ReferenceSummary.STATUS_DRAFT)
+        self.assertContains(
+            response,
+            "Status moved to In progress automatically.",
+        )
+
+    def test_save_summary_can_store_selected_project_action(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Install nest boxes",
+            position=1,
+        )
+
+        self.client.login(username="author", password="pass123")
+        url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "action_choice": "Install nest boxes",
+                "action_custom": "",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.action_description, "Install nest boxes")
+
+    def test_summary_status_choices_include_excluded_after_full_text(self):
+        labels = dict(ReferenceSummary.STATUS_CHOICES)
+        self.assertIn(ReferenceSummary.STATUS_EXCLUDED, labels)
+        self.assertEqual(
+            labels[ReferenceSummary.STATUS_EXCLUDED],
+            "Excluded after full text",
+        )
 
     def test_save_summary_does_not_clear_saved_paragraph_draft(self):
         self.summary.synopsis_draft = "Edited summary paragraph."
@@ -4444,6 +7034,53 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.synopsis_draft, "Edited summary paragraph.")
 
+    def test_save_summary_refreshes_saved_generated_paragraph_after_field_changes(self):
+        self.summary.study_design = "replicated, controlled study"
+        self.summary.year_range = "2018-2020"
+        self.summary.summary_of_results = "installing nest boxes increased occupancy."
+        self.summary.habitat_and_sites = "woodland sites"
+        self.summary.country = "UK"
+        generated_before = _structured_summary_paragraph(self.summary)
+        self.summary.synopsis_draft = generated_before
+        self.summary.save(
+            update_fields=[
+                "study_design",
+                "year_range",
+                "summary_of_results",
+                "habitat_and_sites",
+                "country",
+                "synopsis_draft",
+                "updated_at",
+            ]
+        )
+
+        self.client.login(username="author", password="pass123")
+        url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        response = self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "study_design": "replicated, controlled study",
+                "year_range": "2018-2020",
+                "summary_of_results": "installing nest boxes increased occupancy.",
+                "habitat_and_sites": "wetland sites",
+                "country": "UK",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        generated_after = _structured_summary_paragraph(self.summary)
+        self.assertEqual(self.summary.synopsis_draft, generated_after)
+        messages = [str(message) for message in get_messages(response.wsgi_request)]
+        self.assertTrue(
+            any(
+                "saved paragraph draft was refreshed automatically" in message.lower()
+                for message in messages
+            )
+        )
+
     def test_save_summary_paragraph_draft_persists_changes(self):
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
@@ -4462,8 +7099,119 @@ class ReferenceSummaryDetailViewTests(TestCase):
             self.summary.synopsis_draft,
             "A revised summary paragraph written by the author.",
         )
+
+    def test_save_summary_paragraph_draft_auto_moves_todo_tab_to_in_progress(self):
+        self.client.login(username="author", password="pass123")
+        url = reverse(
+            "synopsis:reference_summary_detail", args=[self.project.id, self.summary.id]
+        )
+        response = self.client.post(
+            url,
+            {
+                "action": "save-synopsis-draft",
+                "draft_command": "save",
+                "synopsis_draft": "A revised summary paragraph written by the author.",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.status, ReferenceSummary.STATUS_DRAFT)
+        self.assertContains(
+            response,
+            "Summary paragraph draft saved. Status moved to In progress automatically.",
+        )
+
+    def test_detail_status_update_requires_reason_for_summary_phase_exclusion(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-status",
+                "status": ReferenceSummary.STATUS_EXCLUDED,
+                "needs_help": "",
+                "exclusion_reason": "",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.status, ReferenceSummary.STATUS_TODO)
+        self.assertContains(
+            response,
+            "Provide a reason before excluding this summary after full-text review.",
+        )
+
+    def test_detail_status_exclusion_removes_only_that_summary_from_synopsis(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Intervention",
+            position=1,
+        )
+        assignment = SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        key_message = SynopsisInterventionKeyMessage.objects.create(
+            intervention=intervention,
+            response_group=SynopsisInterventionKeyMessage.GROUP_POPULATION,
+            statement="Supported by this study.",
+            position=1,
+        )
+        key_message.supporting_summaries.set([self.summary])
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-status",
+                "status": ReferenceSummary.STATUS_EXCLUDED,
+                "needs_help": "",
+                "exclusion_reason": "Full text shows this is not an intervention study.",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        key_message.refresh_from_db()
+        self.assertEqual(self.summary.status, ReferenceSummary.STATUS_EXCLUDED)
+        self.assertEqual(
+            self.summary.exclusion_reason,
+            "Full text shows this is not an intervention study.",
+        )
+        self.assertFalse(SynopsisAssignment.objects.filter(pk=assignment.id).exists())
+        self.assertEqual(key_message.supporting_summaries.count(), 0)
+        self.assertContains(
+            response,
+            "Summary excluded after full-text review.",
+        )
         messages = list(get_messages(response.wsgi_request))
-        self.assertTrue(any("paragraph draft saved" in str(m).lower() for m in messages))
+        self.assertTrue(
+            any("excluded after full-text review" in str(m).lower() for m in messages)
+        )
 
     def test_saved_summary_paragraph_draft_is_used_for_compilation(self):
         self.summary.reference_identifier = "CR1000"
@@ -4529,6 +7277,138 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(new_summary.summary_identifier, "manual-ref.a")
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.citation, "Author (2024)")
+
+    def test_duplicate_summary_tab_copies_current_summary_content(self):
+        self.summary.assigned_to = self.user
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.reference_identifier = "manual-ref"
+        self.summary.summary_identifier = "manual-summary"
+        self.summary.reference_label = "Test reference label"
+        self.summary.action_description = "Install nest boxes"
+        self.summary.study_design = "Replicated study"
+        self.summary.summary_of_results = "Occupancy increased."
+        self.summary.action_methods = "Installed wooden boxes."
+        self.summary.outcome_rows = [{"outcome": "Occupancy", "notes": "Higher"}]
+        self.summary.synopsis_draft = "Draft paragraph copied from the first tab."
+        self.summary.summary_author = "Existing Author"
+        self.summary.keywords = ["boxes", "occupancy"]
+        self.summary.action_tags = ["Land/water protection-Area protection"]
+        self.summary.research_design = "Replicated; Controlled*"
+        self.summary.citation = "Author (2024)"
+        self.summary.save()
+
+        self.client.login(username="author", password="pass123")
+        url = reverse(
+            "synopsis:reference_summary_detail", args=[self.project.id, self.summary.id]
+        )
+        resp = self.client.post(
+            url,
+            {"action": "duplicate-summary-tab"},
+            follow=False,
+        )
+
+        new_summary = (
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            )
+            .exclude(pk=self.summary.id)
+            .get()
+        )
+        self.assertRedirects(
+            resp,
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, new_summary.id],
+            ),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(new_summary.assigned_to, self.user)
+        self.assertEqual(new_summary.status, ReferenceSummary.STATUS_DRAFT)
+        self.assertEqual(new_summary.reference_identifier, "manual-ref")
+        self.assertEqual(new_summary.summary_identifier, "manual-ref.a")
+        self.assertEqual(new_summary.reference_label, "Test reference label")
+        self.assertEqual(new_summary.action_description, "Install nest boxes")
+        self.assertEqual(new_summary.study_design, "Replicated study")
+        self.assertEqual(new_summary.summary_of_results, "Occupancy increased.")
+        self.assertEqual(new_summary.action_methods, "Installed wooden boxes.")
+        self.assertEqual(new_summary.outcome_rows, [{"outcome": "Occupancy", "notes": "Higher"}])
+        self.assertEqual(
+            new_summary.synopsis_draft,
+            "Draft paragraph copied from the first tab.",
+        )
+        self.assertEqual(new_summary.summary_author, "Existing Author")
+        self.assertEqual(new_summary.keywords, ["boxes", "occupancy"])
+        self.assertEqual(
+            new_summary.action_tags,
+            ["Land/water protection-Area protection"],
+        )
+        self.assertEqual(new_summary.research_design, "Replicated; Controlled*")
+        self.assertEqual(new_summary.citation, "Author (2024)")
+
+    def test_duplicate_summary_tab_does_not_copy_comments_assignments_or_exclusion_state(self):
+        self.summary.status = ReferenceSummary.STATUS_EXCLUDED
+        self.summary.needs_help = True
+        self.summary.exclusion_reason = "Not really an intervention."
+        self.summary.save(update_fields=["status", "needs_help", "exclusion_reason", "updated_at"])
+        ReferenceSummaryComment.objects.create(
+            summary=self.summary,
+            author=self.user,
+            body="Keep this note on the original tab only.",
+        )
+        ReferenceActionSummary.objects.create(
+            reference_summary=self.summary,
+            action_name="Install nest boxes",
+            summary_text="Action-specific wording.",
+            created_by=self.user,
+        )
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Intervention",
+            position=1,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {"action": "duplicate-summary-tab"},
+            follow=True,
+        )
+
+        duplicated = (
+            ReferenceSummary.objects.filter(project=self.project, reference=self.reference)
+            .exclude(pk=self.summary.id)
+            .get()
+        )
+        self.assertEqual(duplicated.status, ReferenceSummary.STATUS_DRAFT)
+        self.assertFalse(duplicated.needs_help)
+        self.assertEqual(duplicated.exclusion_reason, "")
+        self.assertEqual(duplicated.comments.count(), 0)
+        self.assertEqual(duplicated.action_summaries.count(), 0)
+        self.assertEqual(duplicated.synopsis_assignments.count(), 0)
+        self.assertContains(
+            response,
+            "Summary tab duplicated. Review the copied text and adjust it for the new intervention or study summary.",
+        )
 
     def test_delete_summary_tab_removes_extra_tab_and_redirects_to_remaining_tab(self):
         extra_summary = ReferenceSummary.objects.create(
@@ -4899,6 +7779,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ),
             {
                 "action": "update-classification",
+                "classification_command": "save",
                 "screening_status": "included",
                 "reference_folder": ["3a"],
                 "screening_notes": "Freshwater fish evidence.",
@@ -4912,6 +7793,78 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.reference.screening_notes, "Freshwater fish evidence.")
         self.assertContains(response, "Reference classification updated.")
 
+    def test_summary_detail_folder_update_syncs_shared_library_reference(self):
+        canonical = LibraryReference.objects.create(
+            title="Canonical library title",
+            authors="Alhas, Ibrahim",
+            publication_year=2024,
+            hash_key="summary-shared-sync",
+            reference_folder=["2"],
+        )
+        self.reference.library_reference = canonical
+        self.reference.hash_key = "summary-shared-sync"
+        self.reference.screening_status = "included"
+        self.reference.reference_folder = ["2"]
+        self.reference.save(
+            update_fields=[
+                "library_reference",
+                "hash_key",
+                "screening_status",
+                "reference_folder",
+                "updated_at",
+            ]
+        )
+        other_project = Project.objects.create(title="Other project")
+        other_batch = ReferenceSourceBatch.objects.create(
+            project=other_project,
+            label="Other batch",
+            source_type="library_link",
+        )
+        other_reference = Reference.objects.create(
+            project=other_project,
+            batch=other_batch,
+            library_reference=canonical,
+            hash_key="summary-shared-sync",
+            title="Other project copy",
+            reference_folder=["2"],
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "classification_command": "save",
+                "screening_status": "included",
+                "reference_folder": ["15", "2"],
+                "screening_notes": "Freshwater fish evidence.",
+            },
+            follow=True,
+        )
+
+        canonical.refresh_from_db()
+        self.reference.refresh_from_db()
+        other_reference.refresh_from_db()
+        self.assertEqual(canonical.reference_folder, ["2", "15"])
+        self.assertEqual(self.reference.reference_folder, ["2", "15"])
+        self.assertEqual(other_reference.reference_folder, ["2", "15"])
+        self.assertContains(
+            response,
+            "Shared CE subject folders were updated and synced to 1 linked synopsis copy/copies.",
+        )
+        self.assertTrue(
+            LibraryReferenceFolderHistory.objects.filter(
+                library_reference=canonical,
+                new_folders=["2", "15"],
+                source_project=self.project,
+                source_reference=self.reference,
+                change_source="summary_reference_management",
+            ).exists()
+        )
+
     def test_summary_detail_filters_blank_reference_folder_values(self):
         self.reference.screening_status = "included"
         self.reference.save(update_fields=["screening_status", "updated_at"])
@@ -4924,6 +7877,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ),
             {
                 "action": "update-classification",
+                "classification_command": "save",
                 "screening_status": "included",
                 "reference_folder": ["", "3a"],
                 "screening_notes": "Freshwater fish evidence.",
@@ -4947,6 +7901,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ),
             {
                 "action": "update-classification",
+                "classification_command": "exclude",
                 "screening_status": "excluded",
                 "reference_folder": [],
                 "screening_notes": "",
@@ -5000,6 +7955,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             ),
             {
                 "action": "update-classification",
+                "classification_command": "exclude",
                 "screening_status": "excluded",
                 "reference_folder": ["3a"],
                 "screening_notes": "Not relevant to this synopsis.",
@@ -5015,8 +7971,61 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(key_message.supporting_summaries.count(), 0)
         self.assertRedirects(
             response,
-            f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, self.batch.id])}?focus=1&ref={self.reference.id}",
+            f"{reverse('synopsis:reference_summary_detail', args=[self.project.id, self.summary.id])}?panel=management",
             fetch_redirect_response=False,
+        )
+
+    def test_summary_detail_reference_management_panel_reopens_after_classification_update(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "update-classification",
+                "classification_command": "exclude",
+                "screening_status": "excluded",
+                "reference_folder": ["3a"],
+                "screening_notes": "Not relevant to this synopsis.",
+            },
+            follow=True,
+        )
+
+        self.assertContains(response, "Re-include this reference")
+        self.assertTrue(response.context["open_management_panel"])
+        self.assertContains(response, "Reference excluded from this synopsis.")
+
+    def test_reference_management_explains_difference_between_summary_and_reference_exclusion(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status", "updated_at"])
+        self.summary.status = ReferenceSummary.STATUS_EXCLUDED
+        self.summary.exclusion_reason = "Full text exclusion reason."
+        self.summary.save(update_fields=["status", "exclusion_reason", "updated_at"])
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(
+            response,
+            "All summary tabs for this reference are excluded after full-text review, but the whole reference is still marked as included for this synopsis.",
+        )
+        self.assertContains(response, "Exclude whole reference from synopsis too")
+        self.assertContains(
+            response,
+            "Shared CE subject folders are stored on the reference, not on this individual summary tab.",
+        )
+        self.assertContains(
+            response,
+            "changing them here updates the shared reference record and linked synopsis copies",
         )
 
     def test_board_context_workload_counts_are_aggregated_correctly(self):
@@ -5077,6 +8086,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
                 "summarised": row["summarised"],
                 "summarised_percent": row["summarised_percent"],
                 "needs_help": row["needs_help"],
+                "excluded_after_full_text": row["excluded_after_full_text"],
             }
             for row in response.context["workload"]
         }
@@ -5087,6 +8097,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
                 "summarised": 2,
                 "summarised_percent": 100,
                 "needs_help": 1,
+                "excluded_after_full_text": 0,
             },
         )
         self.assertEqual(
@@ -5096,10 +8107,51 @@ class ReferenceSummaryDetailViewTests(TestCase):
                 "summarised": 0,
                 "summarised_percent": 0,
                 "needs_help": 0,
+                "excluded_after_full_text": 0,
             },
         )
         self.assertEqual(response.context["unassigned_count"], 0)
         self.assertEqual(response.context["needs_help_count"], 1)
+
+    def test_summary_board_shows_excluded_column_reason_and_progress_ignores_excluded(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status"])
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            hash_key="d" * 40,
+            title="Excluded summary reference",
+            screening_status="included",
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            assigned_to=self.user,
+            status=ReferenceSummary.STATUS_EXCLUDED,
+            exclusion_reason="Full text did not test a conservation intervention.",
+        )
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.save(update_fields=["status", "updated_at"])
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse("synopsis:reference_summary_board", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Excluded after full text")
+        self.assertContains(response, "Jump to excluded after full text")
+        self.assertContains(response, 'id="summary-column-excluded"', html=False)
+        self.assertContains(
+            response,
+            "Full text did not test a conservation intervention.",
+        )
+        self.assertContains(response, "1 excluded after full text")
+        self.assertEqual(response.context["excluded_after_full_text_count"], 1)
+        self.assertEqual(response.context["summary_count"], 1)
+        self.assertEqual(response.context["completed"], 1)
+        workload = {row["author"].id: row for row in response.context["workload"]}
+        self.assertEqual(workload[self.user.id]["excluded_after_full_text"], 1)
 
 
 class GlobalReferenceLibraryAccessTests(TestCase):
@@ -5108,6 +8160,7 @@ class GlobalReferenceLibraryAccessTests(TestCase):
         self.project = Project.objects.create(title="Coral Project")
         UserRole.objects.create(user=self.user, project=self.project, role="author")
 
+    @override_settings(APP_RELEASE_LABEL="pilot-2026-03-29")
     def test_author_sees_global_library_entry_points(self):
         self.client.login(username="authorlib", password="pass123")
 
@@ -5116,17 +8169,11 @@ class GlobalReferenceLibraryAccessTests(TestCase):
             reverse("synopsis:project_hub", args=[self.project.id])
         )
 
+        self.assertContains(dashboard_response, "Deployed version")
+        self.assertContains(dashboard_response, "pilot-2026-03-29")
         self.assertContains(dashboard_response, "Open Reference Database")
         self.assertContains(dashboard_response, "Reference Database")
-        self.assertContains(dashboard_response, "How this works for authors")
-        self.assertContains(
-            dashboard_response,
-            "The portal is meant to support the main Conservation Evidence synopsis workflow in one place",
-        )
-        self.assertContains(
-            dashboard_response,
-            "This pilot is here to test how well the portal supports the real CE synopsis workflow from start to finish",
-        )
+        self.assertNotContains(dashboard_response, "How this works for authors")
         self.assertContains(project_response, "Browse Reference Database")
         self.assertContains(
             project_response,
@@ -5229,7 +8276,399 @@ class ProjectAuthorSelectionUiTests(TestCase):
         response = self.client.get(reverse("synopsis:project_create"))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Description (optional)")
         self.assertContains(response, "Filter authors by name or username")
         self.assertNotContains(response, "Ctrl/Cmd multi-select", html=False)
         self.assertContains(response, "Ibrahim Alhas (ibrahim)")
         self.assertContains(response, "Will Morgan (will)")
+
+
+class ProjectDescriptionUiTests(TestCase):
+    def setUp(self):
+        self.manager = User.objects.create_user(
+            username="manager",
+            password="pass123",
+            is_staff=True,
+        )
+        self.project = Project.objects.create(
+            title="Forest Restoration",
+            description="A pilot synopsis for forest restoration.",
+        )
+
+    def test_project_hub_shows_description_when_present(self):
+        self.client.login(username="manager", password="pass123")
+
+        response = self.client.get(reverse("synopsis:project_hub", args=[self.project.id]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Description")
+        self.assertContains(response, "A pilot synopsis for forest restoration.")
+
+    def test_project_settings_shows_description_field(self):
+        self.client.login(username="manager", password="pass123")
+
+        response = self.client.get(
+            reverse("synopsis:project_settings", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "optional description")
+        self.assertContains(response, "Phase tracker")
+        self.assertContains(response, "A pilot synopsis for forest restoration.")
+        self.assertContains(response, 'value="Forest Restoration"', html=False)
+
+    def test_project_settings_shows_protocol_and_advisory_relevance_fields(self):
+        self.client.login(username="manager", password="pass123")
+
+        response = self.client.get(
+            reverse("synopsis:project_settings", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Protocol is relevant for this project")
+        self.assertContains(response, "Advisory board is relevant for this project")
+
+
+class ProjectHomepageStatusUiTests(TestCase):
+    def setUp(self):
+        self.author = User.objects.create_user(
+            username="status-author",
+            password="pass123",
+        )
+        self.project = Project.objects.create(title="Status Managed Synopsis")
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        self.client.login(username="status-author", password="pass123")
+
+    def test_project_settings_shows_homepage_listing_controls(self):
+        response = self.client.get(
+            reverse("synopsis:project_settings", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Homepage listing")
+        self.assertContains(response, "Shown under active synopses")
+        self.assertContains(response, "Mark as completed / archived")
+        self.assertNotContains(response, "Archive synopsis")
+
+    def test_author_can_move_synopsis_to_completed_section_without_locking_it(self):
+        response = self.client.post(
+            reverse("synopsis:project_settings", args=[self.project.id]),
+            {"status_action": "mark_completed"},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_settings", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.status, "completed")
+        self.assertContains(response, "Shown under completed / archived synopses")
+        self.assertContains(response, "Move back to active")
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Updated project status",
+                details="Status: Planning → Completed",
+            ).exists()
+        )
+
+        dashboard_response = self.client.get(reverse("synopsis:dashboard"))
+        self.assertNotIn(self.project, dashboard_response.context["active_projects"])
+        self.assertIn(self.project, dashboard_response.context["completed_projects"])
+        self.assertContains(
+            dashboard_response,
+            reverse("synopsis:project_hub", args=[self.project.id]),
+            html=False,
+        )
+        self.assertContains(dashboard_response, "Move to active")
+
+        hub_response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        self.assertEqual(hub_response.status_code, 200)
+        self.assertContains(hub_response, self.project.title)
+
+    def test_author_can_move_completed_synopsis_back_to_active_section(self):
+        self.project.status = "completed"
+        self.project.save(update_fields=["status"])
+
+        response = self.client.post(
+            reverse("synopsis:project_settings", args=[self.project.id]),
+            {"status_action": "reactivate"},
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_settings", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.status, "active")
+        self.assertContains(response, "Shown under active synopses")
+        self.assertTrue(
+            ProjectChangeLog.objects.filter(
+                project=self.project,
+                action="Updated project status",
+                details="Status: Completed → Active",
+            ).exists()
+        )
+
+        dashboard_response = self.client.get(reverse("synopsis:dashboard"))
+        self.assertIn(self.project, dashboard_response.context["active_projects"])
+        self.assertNotIn(self.project, dashboard_response.context["completed_projects"])
+
+    def test_author_can_move_completed_synopsis_back_to_active_from_dashboard_row(self):
+        self.project.status = "completed"
+        self.project.save(update_fields=["status"])
+
+        response = self.client.post(
+            reverse("synopsis:project_settings", args=[self.project.id]),
+            {"status_action": "reactivate", "return_to": "dashboard"},
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse("synopsis:dashboard"))
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.status, "active")
+        self.assertIn(self.project, response.context["active_projects"])
+        self.assertNotIn(self.project, response.context["completed_projects"])
+
+
+class ProjectPhaseUiTests(TestCase):
+    def setUp(self):
+        self.author = User.objects.create_user(
+            username="phase-author",
+            password="pass123",
+        )
+        self.project = Project.objects.create(title="Phase Tracker")
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        self.client.login(username="phase-author", password="pass123")
+
+    def test_project_hub_shows_phase_summary_and_shortcut_controls(self):
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Move to invite advisory board")
+        self.assertContains(response, "Manage phase tracker")
+        self.assertContains(response, "Default starting phase")
+        self.assertContains(response, "Step 1 of 8")
+        self.assertNotContains(response, "Set current phase")
+
+    def test_phase_tracker_skips_protocol_and_advisory_when_not_relevant(self):
+        self.project.protocol_relevant = False
+        self.project.advisory_board_relevant = False
+        self.project.save(update_fields=["protocol_relevant", "advisory_board_relevant"])
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "References screening")
+        self.assertContains(response, "Move to summary writing")
+        self.assertContains(response, "Step 1 of 6")
+        self.assertNotContains(response, "Move to draft protocol")
+        self.assertNotContains(response, "Move to invite advisory board")
+
+    def test_protocol_and_advisory_cards_show_not_relevant_state(self):
+        self.project.protocol_relevant = False
+        self.project.advisory_board_relevant = False
+        self.project.save(update_fields=["protocol_relevant", "advisory_board_relevant"])
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Protocol")
+        self.assertContains(response, "This synopsis is not using the protocol workflow in the portal.")
+        self.assertContains(response, "Advisory Board")
+        self.assertContains(response, "This synopsis is not using an advisory board in the portal.")
+
+    def test_project_settings_shows_full_phase_tracker_controls(self):
+        response = self.client.get(
+            reverse("synopsis:project_settings", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Phase tracker")
+        self.assertContains(response, "Set current phase")
+        self.assertContains(response, "Default starting phase")
+
+    def test_author_can_set_phase_backwards_or_forwards(self):
+        self.project.phase_manual = "summary_writing"
+        self.project.phase_manual_updated = timezone.now()
+        self.project.save(update_fields=["phase_manual", "phase_manual_updated"])
+
+        response = self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "draft_protocol"],
+            )
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.phase_manual, "draft_protocol")
+        self.assertEqual(self.project.phase, "draft_protocol")
+        event = self.project.phase_events.first()
+        self.assertIsNotNone(event)
+        self.assertEqual(event.phase, "draft_protocol")
+
+    def test_project_settings_shows_phase_history_entries(self):
+        self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "invite_advisory_board"],
+            )
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_settings", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Phase history")
+        self.assertContains(response, "Invite advisory board")
+        self.assertContains(
+            response,
+            "Phase changed from Draft protocol to Invite advisory board.",
+        )
+
+    def test_project_hub_shortcut_moves_to_next_phase(self):
+        response = self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "invite_advisory_board"],
+            )
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.phase, "invite_advisory_board")
+
+    def test_phase_updates_are_logged_in_recent_changes(self):
+        response = self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "invite_advisory_board"],
+            )
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Updated project phase",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Draft protocol", change.details)
+        self.assertIn("Invite advisory board", change.details)
+
+    def test_manager_role_can_update_phase(self):
+        manager = User.objects.create_user(username="phase-manager", password="pass123")
+        UserRole.objects.create(user=manager, project=self.project, role="manager")
+        self.client.login(username="phase-manager", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "draft_synopsis"],
+            )
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.phase, "draft_synopsis")
+
+    def test_cannot_set_phase_to_disabled_step(self):
+        self.project.protocol_relevant = False
+        self.project.save(update_fields=["protocol_relevant"])
+
+        response = self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "draft_protocol"],
+            )
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("That phase is not available for this project.", messages)
+
+
+class ProjectWorkflowApplicabilityTests(TestCase):
+    def setUp(self):
+        self.author = User.objects.create_user(
+            username="workflow-author",
+            password="pass123",
+        )
+        self.project = Project.objects.create(title="Workflow flexibility")
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        self.client.login(username="workflow-author", password="pass123")
+
+    def test_project_settings_can_mark_protocol_and_advisory_not_relevant(self):
+        response = self.client.post(
+            reverse("synopsis:project_settings", args=[self.project.id]),
+            {
+                "title": self.project.title,
+                "description": "",
+                "protocol_relevant": "",
+                "advisory_board_relevant": "",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        self.project.refresh_from_db()
+        self.assertFalse(self.project.protocol_relevant)
+        self.assertFalse(self.project.advisory_board_relevant)
+        change = ProjectChangeLog.objects.filter(
+            project=self.project, action="Updated project settings"
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Protocol: relevant → not relevant", change.details)
+        self.assertIn("Advisory board: relevant → not relevant", change.details)
+
+    def test_protocol_page_redirects_when_protocol_not_relevant(self):
+        self.project.protocol_relevant = False
+        self.project.save(update_fields=["protocol_relevant"])
+
+        response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(
+            "Protocol is marked as not relevant for this project. Update Project settings if you want to use the protocol workflow.",
+            messages,
+        )
+
+    def test_advisory_board_page_redirects_when_not_relevant(self):
+        self.project.advisory_board_relevant = False
+        self.project.save(update_fields=["advisory_board_relevant"])
+
+        response = self.client.get(
+            reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.project.id])
+        )
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(
+            "Advisory board is marked as not relevant for this project. Update Project settings if you want to use the advisory board workflow.",
+            messages,
+        )

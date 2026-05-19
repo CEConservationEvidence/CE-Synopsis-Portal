@@ -9,7 +9,10 @@ from django.utils import timezone
 from django.utils.text import slugify
 
 from .utils import (
+    default_action_list_review_message,
     default_advisory_invitation_message,
+    default_protocol_review_message,
+    default_synopsis_review_message,
     minimum_allowed_deadline_date,
 )
 
@@ -69,6 +72,7 @@ from .models import (
     ActionList,
     AdvisoryBoardMember,
     AdvisoryBoardCustomField,
+    CE_REFERENCE_FOLDER_CHOICES,
     Funder,
     FunderContact,
     Project,
@@ -83,6 +87,7 @@ from .models import (
     SynopsisIntervention,
     SynopsisInterventionKeyMessage,
     UserRole,
+    normalize_reference_folder_values,
 )
 
 RESEARCH_DESIGN_CHOICES = [
@@ -97,6 +102,10 @@ RESEARCH_DESIGN_CHOICES = [
     ("Systematic review", "Systematic review"),
     ("Study", "Study"),
 ]
+RESEARCH_DESIGN_TAG_CHOICES = [
+    (value, label) for value, label in RESEARCH_DESIGN_CHOICES if value
+]
+MAX_RESEARCH_DESIGN_TAGS = 4
 
 IUCN_ACTION_TAGS = [
     "Land/water protection-Area protection",
@@ -304,7 +313,9 @@ class ProtocolUpdateForm(forms.ModelForm):
     document = forms.FileField(
         required=False,
         validators=[FileExtensionValidator(["pdf", "docx"])],
-        widget=forms.FileInput(attrs={"class": "form-control"}),
+        widget=forms.FileInput(
+            attrs={"class": "form-control", "data-reset-before-select": "true"}
+        ),
         help_text="Upload a PDF or DOCX version of the protocol.",
     )
     change_reason = forms.CharField(
@@ -341,7 +352,9 @@ class ActionListUpdateForm(forms.ModelForm):
     document = forms.FileField(
         required=False,
         validators=[FileExtensionValidator(["pdf", "docx"])],
-        widget=forms.FileInput(attrs={"class": "form-control"}),
+        widget=forms.FileInput(
+            attrs={"class": "form-control", "data-reset-before-select": "true"}
+        ),
         help_text="Upload a PDF or DOCX version of the action list.",
     )
     change_reason = forms.CharField(
@@ -488,7 +501,7 @@ class AdvisoryInviteForm(forms.Form):
         widget=forms.Textarea(
             attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
         ),
-        help_text="Included after the default invitation copy.",
+        help_text="Included after the standard message.",
     )
     include_action_list = forms.BooleanField(
         required=False,
@@ -551,6 +564,9 @@ class AdvisoryCustomFieldForm(forms.ModelForm):
     def __init__(self, project, *args, **kwargs):
         self.project = project
         super().__init__(*args, **kwargs)
+        self.fields["display_group"].choices = (
+            AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES
+        )
 
     def clean_name(self):
         name = (self.cleaned_data.get("name") or "").strip()
@@ -809,10 +825,10 @@ class SynopsisInterventionSynthesisForm(forms.Form):
             attrs={
                 "class": "form-control",
                 "rows": 5,
-                "placeholder": "Intervention-level evidence synthesis text used in compilation/export.",
+                "placeholder": "Optional text that should appear after key messages and before study paragraphs.",
             }
         ),
-        label="Synthesis text",
+        label="Additional intervention text",
     )
 
 
@@ -1116,14 +1132,41 @@ class ProjectSettingsForm(forms.ModelForm):
 
     class Meta:
         model = Project
-        fields = ["title"]
+        fields = [
+            "title",
+            "description",
+            "protocol_relevant",
+            "advisory_board_relevant",
+        ]
         widgets = {
             "title": forms.TextInput(attrs={"class": "form-control"}),
+            "description": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 4,
+                    "placeholder": "Optional short description of the synopsis",
+                }
+            ),
+            "protocol_relevant": forms.CheckboxInput(
+                attrs={"class": "form-check-input"}
+            ),
+            "advisory_board_relevant": forms.CheckboxInput(
+                attrs={"class": "form-check-input"}
+            ),
         }
         error_messages = {
             "title": {
                 "required": "Enter a title for the synopsis.",
             }
+        }
+        labels = {
+            "description": "Description (optional)",
+            "protocol_relevant": "Protocol is relevant for this project",
+            "advisory_board_relevant": "Advisory board is relevant for this project",
+        }
+        help_texts = {
+            "protocol_relevant": "Untick this if this synopsis will not use a protocol in the portal.",
+            "advisory_board_relevant": "Untick this if this synopsis will not use an advisory board in the portal.",
         }
 
     def clean_title(self):
@@ -1131,6 +1174,9 @@ class ProjectSettingsForm(forms.ModelForm):
         if not title:
             raise forms.ValidationError("Enter a title for the synopsis.")
         return title
+
+    def clean_description(self):
+        return self.cleaned_data.get("description", "").strip()
 
 
 class AdvisoryBulkInviteForm(forms.Form):
@@ -1158,7 +1204,7 @@ class AdvisoryBulkInviteForm(forms.Form):
         widget=forms.Textarea(
             attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
         ),
-        help_text="Included after the default invitation copy.",
+        help_text="Included after the standard message.",
     )
     include_action_list = forms.BooleanField(
         required=False,
@@ -1210,13 +1256,24 @@ class ProtocolSendForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text="",
     )
+    standard_message = forms.CharField(
+        required=False,
+        label="Standard message",
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 5}
+        ),
+        help_text=(
+            "The main review request included in the email. You can edit it "
+            "before sending."
+        ),
+    )
     message = forms.CharField(
         required=False,
         label="Additional message",
         widget=forms.Textarea(
             attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
         ),
-        help_text="Included after the default invitation copy.",
+        help_text="Included after the standard message.",
     )
     include_protocol_document = forms.BooleanField(
         required=False,
@@ -1238,6 +1295,10 @@ class ProtocolSendForm(forms.Form):
     ):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["due_date"])
+        if not self.is_bound:
+            self.fields["standard_message"].initial = (
+                default_protocol_review_message()
+            )
         self.fields["due_date"].help_text = (
             "Defaults to "
             f"{_advisory_document_feedback_window_days()} days from today if no "
@@ -1297,13 +1358,24 @@ class ActionListSendForm(forms.Form):
         widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
         help_text="",
     )
+    standard_message = forms.CharField(
+        required=False,
+        label="Standard message",
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 5}
+        ),
+        help_text=(
+            "The main review request included in the email. You can edit it "
+            "before sending."
+        ),
+    )
     message = forms.CharField(
         required=False,
         label="Additional message",
         widget=forms.Textarea(
             attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
         ),
-        help_text="Included after the default invitation copy.",
+        help_text="Included after the standard message.",
     )
     include_action_list_document = forms.BooleanField(
         required=False,
@@ -1325,6 +1397,10 @@ class ActionListSendForm(forms.Form):
     ):
         super().__init__(*args, **kwargs)
         _set_min_date_attr(self.fields["due_date"])
+        if not self.is_bound:
+            self.fields["standard_message"].initial = (
+                default_action_list_review_message()
+            )
         self.fields["due_date"].help_text = (
             "Defaults to "
             f"{_advisory_document_feedback_window_days()} days from today if no "
@@ -1369,6 +1445,62 @@ class ActionListSendForm(forms.Form):
                 "Select at least one resource (action list document or collaborative editor link) before sending."
             )
         return cleaned
+
+    def clean_due_date(self):
+        return _validate_not_same_day_date(
+            self.cleaned_data.get("due_date"), "Response due date"
+        )
+
+
+class SynopsisSendForm(forms.Form):
+    due_date = forms.DateField(
+        required=False,
+        label="Response due date",
+        widget=forms.DateInput(attrs={"type": "date", "class": "form-control"}),
+        help_text="",
+    )
+    standard_message = forms.CharField(
+        required=False,
+        label="Standard message",
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 5}
+        ),
+        help_text=(
+            "The main review request included in the email. You can edit it "
+            "before sending."
+        ),
+    )
+    message = forms.CharField(
+        required=False,
+        label="Additional message",
+        widget=forms.Textarea(
+            attrs={"class": "form-control", "rows": 4, "placeholder": "Optional personal note"}
+        ),
+        help_text="Included after the standard message.",
+    )
+    synopsis_document = forms.FileField(
+        required=False,
+        label="Synopsis document",
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        validators=[FileExtensionValidator(["doc", "docx", "pdf"])],
+        help_text=(
+            "Optional. Attach this file instead of the generated synopsis export. "
+            "Accepted formats: .doc, .docx, .pdf."
+        ),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_date_attr(self.fields["due_date"])
+        if not self.is_bound:
+            self.fields["standard_message"].initial = (
+                default_synopsis_review_message()
+            )
+        self.fields["due_date"].help_text = (
+            "Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today if no "
+            "deadline is already set."
+        )
 
     def clean_due_date(self):
         return _validate_not_same_day_date(
@@ -1446,6 +1578,31 @@ class ActionListReminderScheduleForm(forms.Form):
         )
 
 
+class SynopsisReminderScheduleForm(forms.Form):
+    deadline = forms.DateTimeField(
+        widget=forms.DateTimeInput(
+            attrs={"type": "datetime-local", "class": "form-control"},
+            format="%Y-%m-%dT%H:%M",
+        ),
+        input_formats=["%Y-%m-%dT%H:%M"],
+        help_text="",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        _set_min_datetime_attr(self.fields["deadline"])
+        self.fields["deadline"].help_text = (
+            "Set or update the synopsis feedback deadline (date and time) for "
+            "members who have been sent the synopsis. Defaults to "
+            f"{_advisory_document_feedback_window_days()} days from today."
+        )
+
+    def clean_deadline(self):
+        return _validate_not_same_day_datetime(
+            self.cleaned_data.get("deadline"), "Synopsis feedback deadline"
+        )
+
+
 class ParticipationConfirmForm(forms.Form):
     confirm_participation = forms.BooleanField(
         label="I agree to actively participate in the development of this synopsis",
@@ -1501,6 +1658,25 @@ class ActionListFeedbackForm(forms.Form):
         widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
         validators=[FileExtensionValidator(["docx"])],
         help_text="Upload your annotated .docx action list (optional).",
+    )
+
+
+class SynopsisFeedbackForm(forms.Form):
+    content = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 6,
+                "placeholder": "Share your comments on the synopsis here",
+            }
+        ),
+    )
+    uploaded_document = forms.FileField(
+        required=False,
+        widget=forms.ClearableFileInput(attrs={"class": "form-control"}),
+        validators=[FileExtensionValidator(["doc", "docx", "pdf"])],
+        help_text="Upload your annotated synopsis document (optional). Accepted formats: .doc, .docx, .pdf.",
     )
 
 
@@ -1589,7 +1765,10 @@ class ReferenceScreeningForm(forms.Form):
         choices=Reference.FOLDER_CHOICES,
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "form-select form-select-sm", "size": "6"}),
-        label="Reference folders",
+        label="Shared CE subject folders",
+        help_text=(
+            "For library-linked references, changing these folders updates the shared library record and linked synopsis copies."
+        ),
     )
     screening_notes = forms.CharField(
         required=False,
@@ -1601,6 +1780,11 @@ class ReferenceScreeningForm(forms.Form):
             }
         ),
     )
+
+    def clean_reference_folder(self):
+        return normalize_reference_folder_values(
+            self.cleaned_data.get("reference_folder") or []
+        )
 
 
 class ReferenceClassificationForm(forms.Form):
@@ -1616,7 +1800,10 @@ class ReferenceClassificationForm(forms.Form):
         choices=Reference.FOLDER_CHOICES,
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "6"}),
-        label="Reference folders",
+        label="Shared CE subject folders",
+        help_text=(
+            "This is a reference-level setting. For library-linked references, changing these folders updates the shared library record and linked synopsis copies."
+        ),
     )
     screening_notes = forms.CharField(
         required=False,
@@ -1634,6 +1821,11 @@ class ReferenceClassificationForm(forms.Form):
     def clean_screening_notes(self):
         return (self.cleaned_data.get("screening_notes") or "").strip()
 
+    def clean_reference_folder(self):
+        return normalize_reference_folder_values(
+            self.cleaned_data.get("reference_folder") or []
+        )
+
     def clean(self):
         cleaned = super().clean()
         status = cleaned.get("screening_status")
@@ -1647,6 +1839,16 @@ class ReferenceClassificationForm(forms.Form):
 
 
 class LibraryReferenceUpdateForm(forms.ModelForm):
+    reference_folder = forms.MultipleChoiceField(
+        choices=CE_REFERENCE_FOLDER_CHOICES,
+        required=False,
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "8"}),
+        label="Shared CE subject folders",
+        help_text=(
+            "These shared folders apply across the CE reference database and are reused when the reference is linked into synopses."
+        ),
+    )
+
     class Meta:
         model = LibraryReference
         fields = [
@@ -1661,6 +1863,7 @@ class LibraryReferenceUpdateForm(forms.ModelForm):
             "url",
             "language",
             "abstract",
+            "reference_folder",
         ]
         widgets = {
             "title": forms.Textarea(attrs={"class": "form-control", "rows": 2}),
@@ -1675,6 +1878,11 @@ class LibraryReferenceUpdateForm(forms.ModelForm):
             "language": forms.TextInput(attrs={"class": "form-control"}),
             "abstract": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
         }
+
+    def clean_reference_folder(self):
+        return normalize_reference_folder_values(
+            self.cleaned_data.get("reference_folder") or []
+        )
 
 
 class ActionListFeedbackCloseForm(forms.Form):
@@ -1738,22 +1946,39 @@ class ReferenceSummaryAssignmentForm(forms.Form):
 
 
 class ReferenceSummaryUpdateForm(forms.ModelForm):
+    ACTION_CUSTOM_VALUE = "__custom__"
+
+    action_choice = forms.ChoiceField(
+        required=False,
+        widget=forms.Select(attrs={"class": "form-select"}),
+        label="Action",
+    )
+    action_custom = forms.CharField(
+        required=False,
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "Enter an action if it is not in the project action list yet",
+            }
+        ),
+        label="Custom action",
+    )
     action_tags = forms.MultipleChoiceField(
         required=False,
         choices=IUCN_ACTION_CHOICES,
-        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        widget=forms.CheckboxSelectMultiple(attrs={"class": "tag-choice-input"}),
         label="Action (IUCN)",
     )
     threat_tags = forms.MultipleChoiceField(
         required=False,
         choices=IUCN_THREAT_CHOICES,
-        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        widget=forms.CheckboxSelectMultiple(attrs={"class": "tag-choice-input"}),
         label="Threat (IUCN)",
     )
     habitat_tags = forms.MultipleChoiceField(
         required=False,
         choices=IUCN_HABITAT_CHOICES,
-        widget=forms.SelectMultiple(attrs={"class": "form-select", "multiple": True}),
+        widget=forms.CheckboxSelectMultiple(attrs={"class": "tag-choice-input"}),
         label="Habitat (IUCN)",
     )
     taxon_tags = TagCommaField(
@@ -1811,11 +2036,23 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         label="Outcome rows",
         help_text="One outcome per line, fields separated by |",
     )
-    research_design = forms.ChoiceField(
+    methods_and_design = forms.CharField(
         required=False,
-        choices=RESEARCH_DESIGN_CHOICES,
-        widget=forms.Select(attrs={"class": "form-select"}),
-        label="Research design",
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 5,
+                "placeholder": "Describe the action methods and any experimental design details together.",
+            }
+        ),
+        label="Action methods and experimental design",
+        help_text="Use one box for the intervention methods and any notes on how the comparison was set up.",
+    )
+    research_design = forms.MultipleChoiceField(
+        required=False,
+        choices=RESEARCH_DESIGN_TAG_CHOICES,
+        widget=forms.CheckboxSelectMultiple(attrs={"class": "tag-choice-input"}),
+        label="Research design tags",
     )
     QUALITY_SCORE_RANGES = {
         "benefits_score": (0, 100, "1"),
@@ -1824,10 +2061,42 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         "relevance_score": (0.0, 1.0, "0.01"),
     }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, project, **kwargs):
         super().__init__(*args, **kwargs)
         instance = getattr(self, "instance", None)
+        self.fields["study_design"].required = False
+        self.fields["study_design"].help_text = (
+            "Optional. Used in the first sentence of the summary paragraph. "
+            "If you leave it blank, the system will build it from the CE research design tags below."
+        )
+        action_choices = [("", "Select an action")]
+        if project is not None:
+            seen_titles = set()
+            interventions = (
+                SynopsisIntervention.objects.filter(
+                    subheading__chapter__project=project
+                )
+                .order_by(
+                    "subheading__chapter__position",
+                    "subheading__position",
+                    "position",
+                    "id",
+                )
+                .values_list("title", flat=True)
+            )
+            for title in interventions:
+                label = (title or "").strip()
+                if not label or label in seen_titles:
+                    continue
+                action_choices.append((label, label))
+                seen_titles.add(label)
+        action_choices.append((self.ACTION_CUSTOM_VALUE, "Other / enter custom action"))
+        self.fields["action_choice"].choices = action_choices
         self._existing_status = instance.status if instance else None
+        if not self.is_bound and instance and instance.research_design:
+            self.initial["research_design"] = self._split_research_design_value(
+                instance.research_design
+            )
         if "status" not in (self.data or {}):
             self.fields["status"].required = False
         if instance and instance.pk and instance.outcome_rows:
@@ -1848,6 +2117,22 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                 if any(part.strip() for part in parts):
                     lines.append(" | ".join(parts).strip())
             self.fields["outcomes_raw"].initial = "\n".join([line for line in lines if line.strip()])
+        if not self.is_bound and instance:
+            current_action = (instance.action_description or "").strip()
+            available_values = {value for value, _label in action_choices}
+            if current_action:
+                if current_action in available_values:
+                    self.initial["action_choice"] = current_action
+                else:
+                    self.initial["action_choice"] = self.ACTION_CUSTOM_VALUE
+                    self.initial["action_custom"] = current_action
+            methods_parts = [
+                (instance.action_methods or "").strip(),
+                (instance.experimental_design or "").strip(),
+            ]
+            self.fields["methods_and_design"].initial = "\n\n".join(
+                [part for part in methods_parts if part]
+            )
         for field_name, (min_value, max_value, step) in self.QUALITY_SCORE_RANGES.items():
             field = self.fields.get(field_name)
             if not field:
@@ -1866,7 +2151,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         model = ReferenceSummary
         fields = [
             "status",
-            "action_description",
             "study_design",
             "sites_replications",
             "year_range",
@@ -1874,8 +2158,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "region",
             "country",
             "summary_of_results",
-            "action_methods",
-            "experimental_design",
             "site_context_details",
             "sampling_methods_details",
             "cost_summary",
@@ -1899,7 +2181,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         ]
         widgets = {
             "status": forms.Select(attrs={"class": "form-select"}),
-            "action_description": forms.TextInput(attrs={"class": "form-control"}),
             "study_design": forms.TextInput(attrs={"class": "form-control"}),
             "sites_replications": forms.TextInput(
                 attrs={
@@ -1917,8 +2198,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "region": forms.TextInput(attrs={"class": "form-control"}),
             "country": forms.TextInput(attrs={"class": "form-control"}),
             "summary_of_results": forms.Textarea(attrs={"class": "form-control", "rows": 6}),
-            "action_methods": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
-            "experimental_design": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
             "site_context_details": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
             "sampling_methods_details": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
             "cost_summary": forms.Textarea(
@@ -1953,6 +2232,42 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
     def clean_habitat_tags(self):
         return self._split_tags("habitat_tags")
 
+    @staticmethod
+    def _split_research_design_value(value):
+        if isinstance(value, (list, tuple)):
+            return [str(part).strip() for part in value if str(part).strip()]
+        if not value:
+            return []
+        return [part.strip() for part in re.split(r";|,", str(value)) if part.strip()]
+
+    def clean_research_design(self):
+        values = self.cleaned_data.get("research_design") or []
+        if len(values) > MAX_RESEARCH_DESIGN_TAGS:
+            raise forms.ValidationError(
+                f"Select up to {MAX_RESEARCH_DESIGN_TAGS} research design tags."
+            )
+        return "; ".join(values)
+
+    @staticmethod
+    def _build_study_design_from_research_design(value):
+        tags = ReferenceSummaryUpdateForm._split_research_design_value(value)
+        normalized = [
+            str(tag).replace("*", "").strip().lower()
+            for tag in tags
+            if str(tag).replace("*", "").strip()
+        ]
+        if not normalized:
+            return ""
+        if len(normalized) == 1:
+            label = normalized[0]
+            if label.endswith("study") or label.endswith("review"):
+                return label
+            return f"{label} study"
+        phrase = ", ".join(normalized)
+        if not (phrase.endswith("study") or phrase.endswith("review")):
+            phrase = f"{phrase} study"
+        return phrase
+
     def clean_location_tags(self):
         raw = self.cleaned_data.get("location_tags", "") or ""
         lines = [line.strip() for line in str(raw).splitlines() if line.strip()]
@@ -1986,6 +2301,9 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         if value:
             return value
         return self._existing_status
+
+    def clean_action_custom(self):
+        return (self.cleaned_data.get("action_custom") or "").strip()
 
     def clean_outcomes_raw(self):
         raw = self.cleaned_data.get("outcomes_raw", "") or ""
@@ -2035,8 +2353,38 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
     def clean_relevance_score(self):
         return self._clean_score_in_range("relevance_score")
 
+    def clean(self):
+        cleaned = super().clean()
+        action_choice = (cleaned.get("action_choice") or "").strip()
+        action_custom = (cleaned.get("action_custom") or "").strip()
+        if action_choice == self.ACTION_CUSTOM_VALUE:
+            if not action_custom:
+                self.add_error(
+                    "action_custom",
+                    "Enter the action name if you choose a custom action.",
+                )
+            cleaned["action_description"] = action_custom
+        elif action_choice:
+            cleaned["action_description"] = action_choice
+        else:
+            cleaned["action_description"] = action_custom
+        study_design = (cleaned.get("study_design") or "").strip()
+        if study_design:
+            cleaned["study_design"] = study_design
+        else:
+            cleaned["study_design"] = self._build_study_design_from_research_design(
+                cleaned.get("research_design")
+            )
+        return cleaned
+
     def save(self, commit=True):
         instance = super().save(commit=False)
+        instance.action_description = (
+            self.cleaned_data.get("action_description", "").strip()
+        )
+        combined_methods = (self.cleaned_data.get("methods_and_design") or "").strip()
+        instance.action_methods = combined_methods
+        instance.experimental_design = ""
         instance.outcome_rows = self.cleaned_data.get("outcomes_raw", [])
         for field in [
             "action_tags",

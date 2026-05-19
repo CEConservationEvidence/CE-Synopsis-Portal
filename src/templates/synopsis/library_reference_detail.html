@@ -75,6 +75,12 @@
                         {{ form.abstract }}
                         {{ form.abstract.errors }}
                     </div>
+                    <div class="mb-3">
+                        {{ form.reference_folder.label_tag }}
+                        {{ form.reference_folder }}
+                        <div class="form-text">{{ form.reference_folder.help_text }}</div>
+                        {{ form.reference_folder.errors }}
+                    </div>
                     <button class="btn btn-primary">Save changes</button>
                 </form>
             </div>
@@ -94,12 +100,17 @@
                         <option value="{{ proj.id }}">{{ proj.title }}</option>
                         {% endfor %}
                     </select>
-                    <label class="form-label">Initial folders</label>
+                    <label class="form-label">Override shared CE subject folders before linking</label>
                     <select name="reference_folder" class="form-select" multiple style="height: 160px;">
                         {% for val,label in folder_choices %}
+                        {% if val in reference.reference_folder %}
+                        <option value="{{ val }}" selected>{{ label }}</option>
+                        {% else %}
                         <option value="{{ val }}">{{ label }}</option>
+                        {% endif %}
                         {% endfor %}
                     </select>
+                    <div class="form-text">Leave the existing selection as-is to link with the current shared folders. Changing the selection here updates the shared library record before linking.</div>
                     <button class="btn btn-outline-secondary" type="submit">Link reference</button>
                 </form>
                 {% else %}
@@ -107,6 +118,44 @@
                 {% endif %}
             </div>
         </div>
+        {% if folder_history %}
+        <div class="card mt-3">
+            <div class="card-body">
+                <h5 class="mb-3">Shared folder history</h5>
+                <div class="small text-muted mb-3">
+                    Recent changes to the shared CE subject folders for this reference.
+                </div>
+                <div class="d-flex flex-column gap-3">
+                    {% for entry in folder_history %}
+                    <div class="border rounded p-2">
+                        <div class="small fw-semibold">
+                            {% if entry.changed_by %}
+                            {{ entry.changed_by.get_full_name|default:entry.changed_by.username }}
+                            {% else %}
+                            System
+                            {% endif %}
+                            <span class="text-muted fw-normal">· {{ entry.created_at|date:"Y-m-d H:i" }}</span>
+                        </div>
+                        <div class="small text-muted mt-1">
+                            {% if entry.source_project %}
+                            Source project: {{ entry.source_project.title }}
+                            {% else %}
+                            Source: library
+                            {% endif %}
+                            {% if entry.change_source %}
+                            · {{ entry.change_source_label }}
+                            {% endif %}
+                        </div>
+                        <div class="small mt-2">
+                            <div><strong>From:</strong> {{ entry.previous_folder_labels|join:", "|default:"None" }}</div>
+                            <div><strong>To:</strong> {{ entry.new_folder_labels|join:", "|default:"None" }}</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

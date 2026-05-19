@@ -3,12 +3,17 @@
 {% block content %}
 <div class="card mb-3">
     <div class="card-body">
-        <div class="row g-3 align-items-start">
+        <div class="row g-3 align-items-stretch">
             <div class="col-lg-6">
                 <p class="text-uppercase text-muted small mb-1">Project overview</p>
                 <h1 class="mb-1">{{ project.title }}</h1>
+                {% if project.description %}
+                <div class="mb-3">
+                    <div class="text-uppercase text-muted small mb-1">Description</div>
+                    <p class="mb-0">{{ project.description|linebreaksbr }}</p>
+                </div>
+                {% endif %}
                 <p class="text-muted mb-2">Start date: <strong>{{ project.start_date|date:"Y-m-d"|default:"—" }}</strong></p>
-                <p class="text-muted mb-2">Phase: <strong>{{ project.get_phase_display }}</strong></p>
                 {% if last_phase_event %}
                 <p class="text-muted small mb-1">Last confirmed by {{ last_phase_event.confirmed_by|default:"—" }} on {{ last_phase_event.confirmed_at|date:"Y-m-d H:i" }}</p>
                 {% else %}
@@ -19,18 +24,6 @@
                 <p class="text-muted small mb-0">Last change: {{ latest_change.action }} ({{ latest_change.created_at|date:"Y-m-d H:i" }})</p>
                 {% endif %}
                 {% endwith %}
-                {% if can_manage_project %}
-                {% if next_phase %}
-                <div class="mt-3 d-flex flex-wrap gap-2">
-                    <form method="post" action="{% url 'synopsis:project_phase_confirm' project.id next_phase %}">
-                        {% csrf_token %}
-                        <button class="btn btn-outline-primary btn-sm" onclick="return confirm('Confirm phase: {{ next_phase_label }}?');">
-                            Confirm phase: {{ next_phase_label }}
-                        </button>
-                    </form>
-                </div>
-                {% endif %}
-                {% endif %}
             </div>
             <div class="col-lg-6">
                 <div class="d-flex flex-column gap-3">
@@ -67,11 +60,40 @@
                         {% else %}
                         <p class="text-muted small mb-0">No authors assigned yet.</p>
                         {% endif %}
-                        {% if can_manage_project %}
+                        {% if can_edit_project %}
                         <div class="mt-2 text-end">
                             <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
                         </div>
                         {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="border rounded p-3 bg-light-subtle">
+                    <div class="text-uppercase text-muted small mb-1">Phase</div>
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                        <span class="badge text-bg-primary">{{ current_phase_label }}</span>
+                        {% if phase_is_manual %}
+                        <span class="badge text-bg-light border">Author-set</span>
+                        {% else %}
+                        <span class="badge text-bg-light border">Default starting phase</span>
+                        {% endif %}
+                        <span class="small text-muted">{{ phase_progress_text }}</span>
+                    </div>
+                    <div class="progress mb-3" role="progressbar" aria-label="Project phase progress" aria-valuenow="{{ phase_progress_percent }}" aria-valuemin="0" aria-valuemax="100" style="height: 0.75rem;">
+                        <div class="progress-bar" style="width: {{ phase_progress_percent }}%"></div>
+                    </div>
+                    <div class="small text-muted mb-3">Authors can update the phase manually in Project settings. Phases that are not relevant for this project are removed from this tracker.</div>
+                    <div class="d-flex flex-wrap gap-2">
+                        {% if can_update_phase and next_phase %}
+                        <form method="post" action="{% url 'synopsis:project_phase_confirm' project.id next_phase %}">
+                            {% csrf_token %}
+                            <button class="btn btn-outline-primary btn-sm" onclick="return confirm('Move the current phase to {{ next_phase_label|lower }}?');">
+                                Move to {{ next_phase_label|lower }}
+                            </button>
+                        </form>
+                        {% endif %}
+                        <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}#phase-tracker">Manage phase tracker</a>
                     </div>
                 </div>
             </div>
@@ -83,6 +105,13 @@
         <div class="card h-100">
             <div class="card-body">
                 <h5>Protocol</h5>
+                {% if not project.protocol_relevant %}
+                <div class="mb-2">
+                    <span class="badge text-bg-secondary">Not relevant for this project</span>
+                </div>
+                <p class="text-muted mb-3">This synopsis is not using the protocol workflow in the portal.</p>
+                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
+                {% else %}
                 {% if protocol %}
                 <div class="small mb-2">
                     <strong>Stage:</strong>
@@ -106,6 +135,7 @@
                 <p class="text-muted">No protocol created yet.</p>
                 {% endif %}
                 <a class="btn btn-primary btn-sm" href="{% url 'synopsis:protocol_detail' project.id %}">Edit protocol</a>
+                {% endif %}
             </div>
         </div>
     </div>
@@ -143,6 +173,13 @@
         <div class="card h-100">
             <div class="card-body">
                 <h5>Advisory Board</h5>
+                {% if not project.advisory_board_relevant %}
+                <div class="mb-2">
+                    <span class="badge text-bg-secondary">Not relevant for this project</span>
+                </div>
+                <p class="text-muted mb-3">This synopsis is not using an advisory board in the portal.</p>
+                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
+                {% else %}
                 <div class="small text-muted mb-2">
                     Members: <strong>{{ ab_stats.members }}</strong> · Invites sent: <strong>{{ ab_stats.member_invites_sent }}</strong> · Accepted: <strong class="text-success">{{ ab_stats.accepted }}</strong> · Declined: <strong class="text-danger">{{ ab_stats.declined }}</strong> · Pending: <strong class="text-muted">{{ ab_stats.pending }}</strong>
                 </div>
@@ -174,6 +211,7 @@
                 </div>
                 {% endif %}
                 <a class="btn btn-outline-primary btn-sm mt-3" href="{% url 'synopsis:advisory_board_list' project.id %}">Manage advisory board</a>
+                {% endif %}
             </div>
         </div>
     </div>

@@ -1,14 +1,14 @@
 {% extends "synopsis/base.html" %}
-{% block title %}Send Protocol – {{ project.title }}{% endblock %}
+{% block title %}Send Synopsis – {{ project.title }}{% endblock %}
 {% block content %}
 <h1 class="mb-3">
     {% if scope == "member" and member %}
-        Send protocol – {{ member.first_name|default:member.email }}
+        Send synopsis – {{ member.first_name|default:member.email }}
     {% else %}
-        Send protocol – {{ project.title }}
+        Send synopsis – {{ project.title }}
     {% endif %}
 </h1>
-<form method="post" novalidate>
+<form method="post" enctype="multipart/form-data" novalidate>
     {% csrf_token %}
     {% if form.non_field_errors %}
     <div class="alert alert-warning">
@@ -22,7 +22,7 @@
             <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title">Schedule &amp; message</h5>
-                    <p class="text-muted small mb-3">Apply a deadline and review message that will be reused for every member.</p>
+                    <p class="text-muted small mb-3">Upload a document to attach, or leave the file field empty to attach the current generated synopsis export.</p>
                     <div class="mb-3">
                         <label class="form-label" for="{{ form.due_date.id_for_label }}">Response due date</label>
                         {{ form.due_date }}
@@ -47,38 +47,30 @@
                         <div class="invalid-feedback d-block">{{ form.message.errors|join:", " }}</div>
                         {% endif %}
                     </div>
+                    <div class="mt-3">
+                        <label class="form-label" for="{{ form.synopsis_document.id_for_label }}">Synopsis document</label>
+                        {{ form.synopsis_document }}
+                        <div class="form-text">{{ form.synopsis_document.help_text }}</div>
+                        {% if form.synopsis_document.errors %}
+                        <div class="invalid-feedback d-block">{{ form.synopsis_document.errors|join:", " }}</div>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
         <div class="col-lg-5">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">Include with each email</h5>
-                    <p class="text-muted small mb-2">At least one resource must be selected before sending protocol emails.</p>
-                    <p class="text-muted small mb-3">Choose the protocol document, the collaborative editor link, or both. Disabled options become available once the document or editor is ready.</p>
-                    <div class="form-check mb-3">
-                        {{ form.include_protocol_document }}
-                        <label class="form-check-label{% if form.include_protocol_document.field.disabled %} text-muted{% endif %}" for="{{ form.include_protocol_document.id_for_label }}">Attach protocol document</label>
-                        <div class="form-text">{{ form.include_protocol_document.help_text }}</div>
-                        {% if form.include_protocol_document.errors %}
-                        <div class="invalid-feedback d-block">{{ form.include_protocol_document.errors|join:", " }}</div>
-                        {% endif %}
-                    </div>
-                    <div class="form-check">
-                        {{ form.include_collaborative_link }}
-                        <label class="form-check-label{% if form.include_collaborative_link.field.disabled %} text-muted{% endif %}" for="{{ form.include_collaborative_link.id_for_label }}">Include collaborative editor link</label>
-                        <div class="form-text">{{ form.include_collaborative_link.help_text }}</div>
-                        {% if form.include_collaborative_link.errors %}
-                        <div class="invalid-feedback d-block">{{ form.include_collaborative_link.errors|join:", " }}</div>
-                        {% endif %}
-                    </div>
+                    <h5 class="card-title">What will be sent</h5>
+                    <p class="text-muted small mb-3">The email includes a short review request, the deadline if set, and either the uploaded document or the generated DOCX export.</p>
+                    <p class="small mb-0">Feedback is tracked manually in the Advisory Board table after the advisory board member replies.</p>
                 </div>
             </div>
         </div>
     </div>
-    {% include "synopsis/includes/advisory_document_email_preview.html" with preview_document_kind="protocol" preview_document_label="protocol" %}
+    {% include "synopsis/includes/advisory_document_email_preview.html" with preview_document_kind="synopsis" preview_document_label="synopsis" %}
     <div class="mt-4 d-flex gap-2">
-        <button class="btn btn-primary" type="submit">Send protocols</button>
+        <button class="btn btn-primary" type="submit">Send synopsis</button>
         <a class="btn btn-outline-secondary" href="{% url 'synopsis:advisory_board_list' project.id %}">Cancel</a>
     </div>
 </form>

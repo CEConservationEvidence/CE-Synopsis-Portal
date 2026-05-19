@@ -195,6 +195,13 @@
                 </div>
                 {% include "synopsis/includes/document_workflow_modal.html" with workflow_help_slug="protocol" document_label="Protocol" %}
                 {% include "synopsis/includes/collaborative_panel.html" with document_label="Protocol" collaborative_document_ready=collaborative_document_ready %}
+                <div class="alert alert-info mt-3 mb-0">
+                    <div class="fw-semibold">Sending the protocol for review happens on the Advisory Board page.</div>
+                    <div class="small mt-1">
+                        Use this page to upload, revise, edit, and manage the protocol file. When you are ready to send it to advisory board members, go to the Advisory Board page and use the protocol sending controls there. The feedback window below controls deadlines, reminders, and closure after the protocol has been sent.
+                    </div>
+                    <a class="btn btn-outline-primary btn-sm mt-2" href="{% url 'synopsis:advisory_board_list' project.id %}">Go to Advisory Board</a>
+                </div>
                 {% if current_revision_entry %}
                 <div class="mt-2">
                     <strong>File:</strong>
@@ -309,7 +316,11 @@
             <div class="card-body">
                 <div class="d-flex flex-column flex-xl-row justify-content-between gap-4">
                     <div class="flex-grow-1">
-                        <p class="text-muted small mb-2">Set the feedback deadline here. Reminder emails go automatically two business days before that deadline.</p>
+                        {% if protocol_pending_count %}
+                        <p class="text-muted small mb-2">Set or update the feedback deadline here for advisory board members who have already been sent the protocol. Reminder emails go automatically two business days before that deadline.</p>
+                        {% else %}
+                        <p class="text-muted small mb-2">Send the protocol from the Advisory Board page first. You can set the first deadline while sending; after at least one member has the protocol, you can update the feedback deadline here.</p>
+                        {% endif %}
                         <div class="small mb-2">
                             Members with protocol:
                             <strong>{{ protocol_pending_count }}</strong>
@@ -346,6 +357,7 @@
                     </div>
                     <div class="flex-grow-1">
                         {% if can_edit_documents %}
+                        {% if protocol_pending_count %}
                         <form method="post" action="{% url 'synopsis:advisory_schedule_protocol_reminders' project.id %}" class="mb-3">
                             {% csrf_token %}
                             <div class="mb-2">
@@ -356,12 +368,26 @@
                             </div>
                             <button class="btn btn-outline-primary btn-sm">Set protocol deadline</button>
                         </form>
+                        {% else %}
+                        <div class="alert alert-info py-2 small">
+                            No protocol feedback deadline can be updated here yet because no accepted advisory board member has been sent the protocol.
+                            <div class="mt-2">
+                                <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:advisory_board_list' project.id %}">Go to Advisory Board</a>
+                            </div>
+                        </div>
+                        {% endif %}
                         {% if protocol_feedback_state.protocol %}
                             {% if protocol_feedback_state.is_closed %}
                         <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">
                             {% csrf_token %}
                             <input type="hidden" name="action" value="reopen">
-                            <button class="btn btn-outline-secondary align-self-start">Reopen feedback</button>
+                            <button
+                                class="btn btn-outline-secondary align-self-start"
+                                type="submit"
+                                onclick="return confirm('Reopening this feedback window will allow advisory members to submit protocol feedback again and can allow collaborative editing for this protocol again. Are you sure?');"
+                            >
+                                Reopen feedback
+                            </button>
                             {% if protocol_feedback_state.deadline %}
                             <small class="text-muted">The deadline still blocks submissions after {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}.</small>
                             {% endif %}
@@ -376,7 +402,13 @@
                                 {{ protocol_feedback_close_form.message.errors }}
                                 <div class="form-text">Members will see this note when they open their feedback link after closure.</div>
                             </div>
-                            <button class="btn btn-outline-danger align-self-start">Close feedback now</button>
+                            <button
+                                class="btn btn-outline-danger align-self-start"
+                                type="submit"
+                                onclick="return confirm('Closing this feedback window will stop advisory members from submitting protocol feedback and will end collaborative editing for this protocol. Are you sure?');"
+                            >
+                                Close feedback now
+                            </button>
                         </form>
                             {% endif %}
                         {% endif %}

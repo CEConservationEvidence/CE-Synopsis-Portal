@@ -1,3 +1,4 @@
+import copy
 import datetime as dt
 import io
 import hashlib
@@ -14,6 +15,7 @@ import jwt
 import requests
 import rispy
 import html
+import html as html_lib
 import time
 from defusedxml import ElementTree as ET
 
@@ -21,7 +23,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User, Group
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives
 from django.db import connection, transaction
@@ -58,13 +60,16 @@ from .forms import (
     AdvisoryBulkInviteForm,
     ProtocolSendForm,
     ActionListSendForm,
+    SynopsisSendForm,
     ReminderScheduleForm,
     ProtocolReminderScheduleForm,
     ActionListReminderScheduleForm,
+    SynopsisReminderScheduleForm,
     ParticipationConfirmForm,
     ParticipationDeclineForm,
     ProtocolFeedbackForm,
     ActionListFeedbackForm,
+    SynopsisFeedbackForm,
     ProtocolFeedbackCloseForm,
     ActionListFeedbackCloseForm,
     ReferenceBatchUploadForm,
@@ -108,8 +113,10 @@ from .models import (
     ProjectChangeLog,
     ProtocolFeedback,
     ActionListFeedback,
+    SynopsisFeedback,
     LibraryImportBatch,
     LibraryReference,
+    LibraryReferenceFolderHistory,
     ReferenceSourceBatch,
     ReferenceSourceBatchNoteHistory,
     Reference,
@@ -127,10 +134,15 @@ from .models import (
     SynopsisAssignment,
     IUCNCategory,
     SynopsisExportLog,
+    normalize_reference_folder_values,
 )
 from .presets import PRESETS
 from .utils import (
+    advisory_member_display_name,
+    default_action_list_review_message,
     default_advisory_invitation_message,
+    default_protocol_review_message,
+    default_synopsis_review_message,
     ensure_global_groups,
     email_subject,
     minimum_allowed_deadline_date,
@@ -158,6 +170,51 @@ def _decode_entities(text):
 
 
 _COLLAB_INVITE_TABLE_EXISTS = None
+
+
+def _sync_project_reference_folders_from_library(library_reference):
+    shared_folders = normalize_reference_folder_values(library_reference.reference_folder)
+    synced = 0
+    for project_reference in Reference.objects.filter(library_reference=library_reference):
+        if normalize_reference_folder_values(project_reference.reference_folder) == shared_folders:
+            continue
+        project_reference.reference_folder = shared_folders
+        project_reference.save(update_fields=["reference_folder", "updated_at"])
+        synced += 1
+    return synced
+
+
+def _update_shared_library_reference_folders(
+    library_reference,
+    folder_values,
+    *,
+    changed_by=None,
+    source_project=None,
+    source_reference=None,
+    change_source="",
+    previous_folders=None,
+):
+    shared_folders = normalize_reference_folder_values(folder_values)
+    previous_values = (
+        normalize_reference_folder_values(previous_folders)
+        if previous_folders is not None
+        else normalize_reference_folder_values(library_reference.reference_folder)
+    )
+    changed = previous_values != shared_folders
+    if changed:
+        library_reference.reference_folder = shared_folders
+        library_reference.save(update_fields=["reference_folder", "updated_at"])
+        LibraryReferenceFolderHistory.objects.create(
+            library_reference=library_reference,
+            previous_folders=previous_values,
+            new_folders=shared_folders,
+            changed_by=changed_by if getattr(changed_by, "is_authenticated", False) else None,
+            source_project=source_project,
+            source_reference=source_reference,
+            change_source=change_source,
+        )
+    synced_project_refs = _sync_project_reference_folders_from_library(library_reference)
+    return changed, synced_project_refs, previous_values, shared_folders
 
 
 def _collaborative_invitation_table_ready():
@@ -429,6 +486,67 @@ def _member_glance_statuses(member: AdvisoryBoardMember) -> list[dict]:
             )
         )
 
+    synopsis_feedback_received = getattr(member, "feedback_on_synopsis_received", None)
+    if synopsis_feedback_received:
+        statuses.append(
+            _status_badge(
+                "Synopsis",
+                "Feedback received",
+                "success",
+                date=synopsis_feedback_received,
+                date_label="Received",
+            )
+        )
+    elif response == "N":
+        statuses.append(
+            _status_badge(
+                "Synopsis",
+                "Not applicable",
+                "secondary",
+                note="Member declined",
+            )
+        )
+    elif getattr(member, "sent_synopsis_at", None):
+        if getattr(member, "feedback_on_synopsis_deadline", None):
+            if getattr(member, "synopsis_reminder_sent", False):
+                statuses.append(
+                    _status_badge(
+                        "Synopsis",
+                        "Reminder sent",
+                        "info",
+                        date=getattr(member, "synopsis_reminder_sent_at", None),
+                        date_label="Reminded",
+                    )
+                )
+            else:
+                statuses.append(
+                    _status_badge(
+                        "Synopsis",
+                        "Awaiting feedback",
+                        "warning",
+                        date=getattr(member, "feedback_on_synopsis_deadline", None),
+                        date_label="Due",
+                    )
+                )
+        else:
+            statuses.append(
+                _status_badge(
+                    "Synopsis",
+                    "Sent",
+                    "primary",
+                    date=getattr(member, "sent_synopsis_at", None),
+                    date_label="Sent",
+                )
+            )
+    else:
+        statuses.append(
+            _status_badge(
+                "Synopsis",
+                "Not sent",
+                "secondary",
+            )
+        )
+
     return statuses
 
 
@@ -626,6 +744,43 @@ def _project_advisory_invitation_message(project, override=None):
     return stored or default_advisory_invitation_message()
 
 
+def _default_document_review_message(document_kind):
+    if document_kind == "protocol":
+        return default_protocol_review_message()
+    if document_kind == "action_list":
+        return default_action_list_review_message()
+    if document_kind == "synopsis":
+        return default_synopsis_review_message()
+    return ""
+
+
+def _document_review_message(document_kind, override=None):
+    return (
+        _normalise_advisory_message(override)
+        or _default_document_review_message(document_kind)
+    )
+
+
+def _eligible_advisory_members(project):
+    return (
+        AdvisoryBoardMember.objects.filter(
+            project=project,
+            response="Y",
+            participation_confirmed=True,
+        )
+        .exclude(email__isnull=True)
+        .exclude(email__exact="")
+    )
+
+
+def _document_preview_recipient_name(project):
+    return "advisory board member"
+
+
+def _invite_preview_recipient_name(project):
+    return "advisory board member"
+
+
 def _html_message_blocks(text):
     blocks = []
     for block in re.split(r"\n\s*\n", _normalise_advisory_message(text)):
@@ -647,7 +802,7 @@ def _build_advisory_invitation_email(
     attachment_lines=None,
 ):
     deadline_txt = due_date.strftime("%d %b %Y") if due_date else "—"
-    recipient_label = recipient_name or "colleague"
+    recipient_label = recipient_name or "advisory board member"
     safe_yes_url = html.escape(yes_url, quote=True)
     safe_no_url = html.escape(no_url, quote=True)
     standard_text = _project_advisory_invitation_message(
@@ -750,6 +905,24 @@ def _format_file_size(size_bytes):
         size /= 1024
 
 
+_UUID_PREFIX_RE = re.compile(
+    r"^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}_)+"
+)
+
+
+def _normalized_document_filename(filename: str, fallback: str = "document.docx") -> str:
+    base_name = os.path.basename(filename or "").strip()
+    if not base_name:
+        return fallback
+    cleaned = base_name
+    while True:
+        updated = _UUID_PREFIX_RE.sub("", cleaned)
+        if updated == cleaned:
+            break
+        cleaned = updated
+    return cleaned or fallback
+
+
 def _apply_revision_to_protocol(protocol, revision) -> tuple[str, str]:
     try:
         with revision.file.open("rb") as source:
@@ -760,7 +933,10 @@ def _apply_revision_to_protocol(protocol, revision) -> tuple[str, str]:
     if not content:
         raise ValueError("Revision file empty")
 
-    base_name = revision.original_name or os.path.basename(revision.file.name)
+    base_name = _normalized_document_filename(
+        revision.original_name or os.path.basename(revision.file.name),
+        fallback="protocol.docx",
+    )
     new_filename = f"{uuid.uuid4()}_{base_name}"
     protocol.document.save(new_filename, ContentFile(content), save=False)
     protocol.current_revision = revision
@@ -778,7 +954,10 @@ def _apply_revision_to_action_list(action_list, revision) -> tuple[str, str]:
     if not content:
         raise ValueError("Revision file empty")
 
-    base_name = revision.original_name or os.path.basename(revision.file.name)
+    base_name = _normalized_document_filename(
+        revision.original_name or os.path.basename(revision.file.name),
+        fallback="action-list.docx",
+    )
     new_filename = f"{uuid.uuid4()}_{base_name}"
     action_list.document.save(new_filename, ContentFile(content), save=False)
     action_list.current_revision = revision
@@ -924,6 +1103,8 @@ def _ensure_collaborative_invite_link(
         )
 
     params = {}
+    if invitation:
+        params["invite"] = str(invitation.token)
     if member:
         params["member"] = str(member.id)
     if feedback:
@@ -945,19 +1126,15 @@ def _document_detail_url(project_id, document_type):
 
 
 def _document_label(document_type):
-    return (
-        "Protocol"
-        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
-        else "Action list"
-    )
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        return "Protocol"
+    return "Action list"
 
 
 def _document_type_slug(document_type):
-    return (
-        "protocol"
-        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
-        else "action-list"
-    )
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        return "protocol"
+    return "action-list"
 
 
 def _collaborative_session_or_404(project, document_type, token):
@@ -967,6 +1144,191 @@ def _collaborative_session_or_404(project, document_type, token):
         document_type=document_type,
         token=token,
     )
+
+
+def _feedback_model_for_document_type(document_type):
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        return ProtocolFeedback
+    if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST:
+        return ActionListFeedback
+    return None
+
+
+def _member_feedback_deadline(member, document_type):
+    if not member:
+        return None
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        return member.feedback_on_protocol_deadline
+    if document_type == CollaborativeSession.DOCUMENT_ACTION_LIST:
+        return member.feedback_on_action_list_deadline
+    return None
+
+
+def _collaborative_access_closed_response(
+    request,
+    project,
+    document_label,
+    message,
+    *,
+    status=403,
+    detail_url="",
+):
+    return render(
+        request,
+        "synopsis/collaborative_editor.html",
+        {
+            "project": project,
+            "document_label": document_label,
+            "detail_url": detail_url,
+            "window_closed_message": message,
+            "can_force_end": False,
+            "force_end_url": "",
+            "participant_display": "",
+        },
+        status=status,
+    )
+
+
+def _resolve_external_collaborative_access(request, project, document_type, session):
+    feedback_token = request.GET.get("feedback")
+    invitation_token = request.GET.get("invite")
+
+    if feedback_token:
+        feedback_model = _feedback_model_for_document_type(document_type)
+        if not feedback_model:
+            return {
+                "allowed": False,
+                "message": "This collaborative link is not available.",
+            }
+        try:
+            feedback = (
+                feedback_model.objects.select_related("member", "invitation")
+                .get(token=feedback_token, project=project)
+            )
+        except (feedback_model.DoesNotExist, TypeError, ValueError, ValidationError):
+            return {
+                "allowed": False,
+                "message": "This collaborative feedback link is not valid.",
+            }
+
+        member = feedback.member
+        if member and member.response == "N":
+            return {
+                "allowed": False,
+                "message": "This collaborative link is no longer available because the invitation was declined.",
+            }
+
+        deadline = _member_feedback_deadline(member, document_type) or feedback.feedback_deadline_at
+        if deadline and timezone.now() >= deadline:
+            return {
+                "allowed": False,
+                "message": f"This collaborative feedback link closed on {_format_deadline(deadline)}.",
+            }
+
+        if member:
+            display = _advisory_member_display(member)
+            return {
+                "allowed": True,
+                "member": member,
+                "feedback": feedback,
+                "participant_display": display,
+                "participant_context": {
+                    "id": f"abm:{member.id}",
+                    "name": display,
+                    "email": member.email,
+                },
+            }
+
+        display = feedback.email or "Advisory board reviewer"
+        return {
+            "allowed": True,
+            "member": None,
+            "feedback": feedback,
+            "participant_display": display,
+            "participant_context": {
+                "id": f"abe:{display.lower()}",
+                "name": display,
+                "email": feedback.email,
+            },
+        }
+
+    if invitation_token:
+        try:
+            invitation = (
+                AdvisoryBoardInvitation.objects.select_related("member")
+                .get(token=invitation_token, project=project)
+            )
+        except (
+            AdvisoryBoardInvitation.DoesNotExist,
+            TypeError,
+            ValueError,
+            ValidationError,
+        ):
+            return {
+                "allowed": False,
+                "message": "This collaborative invitation link is not valid.",
+            }
+
+        if (
+            _collaborative_invitation_table_ready()
+            and session.invitations.exists()
+            and not session.invitations.filter(pk=invitation.pk).exists()
+        ):
+            return {
+                "allowed": False,
+                "message": "This invitation is not attached to the current collaborative session.",
+            }
+
+        if invitation.accepted is False:
+            return {
+                "allowed": False,
+                "message": "This collaborative link is no longer available because the invitation was declined.",
+            }
+
+        if invitation.due_date and timezone.localdate() > invitation.due_date:
+            return {
+                "allowed": False,
+                "message": f"This collaborative invitation link closed on {invitation.due_date:%Y-%m-%d}.",
+            }
+
+        member = invitation.member
+        if member and member.response == "N":
+            return {
+                "allowed": False,
+                "message": "This collaborative link is no longer available because the invitation was declined.",
+            }
+
+        if member:
+            display = _advisory_member_display(member)
+            participant_id = f"abm:{member.id}"
+            participant_email = member.email
+        else:
+            display = invitation.email or "Advisory board invitee"
+            participant_id = f"abe:{display.lower()}"
+            participant_email = invitation.email
+
+        return {
+            "allowed": True,
+            "member": member,
+            "invitation": invitation,
+            "participant_display": display,
+            "participant_context": {
+                "id": participant_id,
+                "name": display,
+                "email": participant_email,
+            },
+        }
+
+    if request.GET.get("member"):
+        return {
+            "allowed": False,
+            "message": "This older collaborative link is missing its secure review token. Ask the authors to resend the link.",
+        }
+
+    return {
+        "allowed": False,
+        "message": "Please sign in as a project author or use the secure collaborative link from your email.",
+    }
 
 
 def _document_requires_file(document) -> bool:
@@ -1269,11 +1631,10 @@ def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[str,
 
 def _wait_for_collaborative_save(session, document_type, timeout_seconds: int) -> bool:
     deadline = time.monotonic() + max(timeout_seconds, 1)
-    result_field = (
-        "result_protocol_revision_id"
-        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
-        else "result_action_list_revision_id"
-    )
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        result_field = "result_protocol_revision_id"
+    else:
+        result_field = "result_action_list_revision_id"
 
     while time.monotonic() < deadline:
         session.refresh_from_db()
@@ -1388,6 +1749,26 @@ def _create_action_list_feedback(project, member=None, email=None, invitation=No
         )
     kwargs["feedback_deadline_at"] = deadline
     return ActionListFeedback.objects.create(**kwargs)
+
+
+def _create_synopsis_feedback(project, member=None, email=None, invitation=None):
+    kwargs = {
+        "project": project,
+        "member": member,
+        "email": email or (member.email if member else ""),
+        "invitation": invitation,
+    }
+    deadline = None
+    if member:
+        if member.response == "Y" and member.feedback_on_synopsis_deadline:
+            deadline = member.feedback_on_synopsis_deadline
+    elif invitation and invitation.due_date:
+        combined = dt.datetime.combine(invitation.due_date, dt.time(23, 59))
+        deadline = (
+            timezone.make_aware(combined) if timezone.is_naive(combined) else combined
+        )
+    kwargs["feedback_deadline_at"] = deadline
+    return SynopsisFeedback.objects.create(**kwargs)
 
 
 def _extract_reference_field(record: dict, key: str) -> str:
@@ -1670,10 +2051,11 @@ def _advisory_board_context(
     feedback_close_form=None,
     action_list_form=None,
     action_list_feedback_close_form=None,
+    synopsis_form=None,
     custom_field_form=None,
 ):
     members_qs = project.advisory_board_members.prefetch_related(
-        "protocol_feedback", "invitations"
+        "protocol_feedback", "action_list_feedback", "synopsis_feedback", "invitations"
     ).order_by("last_name", "first_name")
     accepted_members = list(members_qs.filter(response="Y"))
     declined_members = list(members_qs.filter(response="N"))
@@ -1684,6 +2066,8 @@ def _advisory_board_context(
             member.latest_feedback = member.latest_protocol_feedback
             latest_action_feedback = member.latest_action_list_feedback
             member.latest_action_list_feedback_obj = latest_action_feedback
+            latest_synopsis_feedback = member.latest_synopsis_feedback
+            member.latest_synopsis_feedback_obj = latest_synopsis_feedback
             if (
                 latest_action_feedback
                 and not member.feedback_on_actions_received
@@ -1694,7 +2078,6 @@ def _advisory_board_context(
                 )
             ):
                 member.feedback_on_actions_received = True
-
             invites = list(member.invitations.all())
 
             def _latest_timestamp(inv_list, accepted_value):
@@ -1727,11 +2110,15 @@ def _advisory_board_context(
         for member in declined_members
         if (member.participation_statement or "").strip()
     ]
+    accepted_with_statement = [
+        member
+        for member in accepted_members
+        if (member.participation_statement or "").strip()
+    ]
 
     custom_fields = list(
-        AdvisoryBoardCustomField.objects.filter(project=project).order_by(
-            "display_order", "name", "id"
-        )
+        AdvisoryBoardCustomField.objects.filter(project=project)
+        .order_by("display_order", "name", "id")
     )
     fields_by_section = {
         key: [f for f in custom_fields if f.applies_to(key)]
@@ -1878,6 +2265,30 @@ def _advisory_board_context(
         "document_ready": action_list_document_ready,
     }
 
+    synopsis_members = project.advisory_board_members.filter(
+        sent_synopsis_at__isnull=False,
+        response="Y",
+    )
+    synopsis_pending_dates = [
+        d
+        for d in synopsis_members.filter(feedback_on_synopsis_deadline__isnull=False)
+        .order_by("feedback_on_synopsis_deadline")
+        .values_list("feedback_on_synopsis_deadline", flat=True)
+    ]
+    if synopsis_form is None:
+        synopsis_initial = {}
+        if synopsis_pending_dates:
+            first_deadline = synopsis_pending_dates[0]
+            try:
+                synopsis_initial["deadline"] = timezone.localtime(first_deadline)
+            except (ValueError, TypeError):
+                synopsis_initial["deadline"] = first_deadline
+        else:
+            synopsis_initial["deadline"] = timezone.localtime(
+                _default_document_feedback_deadline()
+            )
+        synopsis_form = SynopsisReminderScheduleForm(initial=synopsis_initial)
+
     section_palette = {
         AdvisoryBoardCustomField.SECTION_ACCEPTED: {
             "title": "Accepted members",
@@ -2010,7 +2421,25 @@ def _advisory_board_context(
     )
 
     can_edit_members = _user_can_edit_project(user, project) if user else False
-
+    protocol_feedback_members = [
+        member
+        for member in all_members
+        if getattr(getattr(member, "latest_feedback", None), "submitted_at", None)
+    ]
+    action_list_feedback_members = [
+        member
+        for member in all_members
+        if getattr(
+            getattr(member, "latest_action_list_feedback_obj", None), "submitted_at", None
+        )
+    ]
+    synopsis_feedback_members = [
+        member
+        for member in all_members
+        if getattr(
+            getattr(member, "latest_synopsis_feedback_obj", None), "submitted_at", None
+        )
+    ]
     status_badges = {
         AdvisoryBoardCustomField.SECTION_ACCEPTED: {
             "label": "Accepted",
@@ -2032,8 +2461,12 @@ def _advisory_board_context(
     return {
         "project": project,
         "accepted_members": accepted_members,
+        "accepted_members_with_statement": accepted_with_statement,
         "declined_members": declined_members,
         "pending_members": pending_members,
+        "protocol_feedback_members": protocol_feedback_members,
+        "action_list_feedback_members": action_list_feedback_members,
+        "synopsis_feedback_members": synopsis_feedback_members,
         "member_sections": member_sections,
         "combined_fields_by_group": combined_fields_by_group,
         "member_status_badges": status_badges,
@@ -2070,6 +2503,14 @@ def _advisory_board_context(
         "can_edit_members": can_edit_members,
         "action_list_feedback_state": action_list_feedback_state,
         "action_list_feedback_close_form": action_list_feedback_close_form,
+        "synopsis_reminder_form": synopsis_form,
+        "synopsis_pending_count": synopsis_members.count(),
+        "synopsis_pending_dates": synopsis_pending_dates,
+        "initial_synopsis_reminder_log": project.change_log.filter(
+            action="Scheduled synopsis reminders"
+        )
+        .order_by("created_at")
+        .first(),
         "section_palette": section_palette,
         "custom_field_group_choices": AdvisoryBoardCustomField.DISPLAY_GROUP_CHOICES,
         "declined_members_with_reason": declined_with_reason,
@@ -2093,6 +2534,7 @@ def dashboard(request):
         proj.author_list = [
             role.user for role in proj.userrole_set.all() if role.role == "author"
         ]
+        proj.can_edit_project = _user_can_edit_project(request.user, proj)
     return render(
         request,
         "synopsis/dashboard.html",
@@ -2100,6 +2542,7 @@ def dashboard(request):
             "active_projects": active_projects,
             "completed_projects": completed_projects,
             "can_manage_projects": _user_is_manager(request.user),
+            "app_release_label": settings.APP_RELEASE_LABEL,
         },
     )
 
@@ -2121,14 +2564,24 @@ class ProjectCreateForm(forms.ModelForm):
 
     class Meta:
         model = Project
-        fields = ["title", "start_date"]
+        fields = ["title", "description", "start_date"]
         widgets = {
             "title": forms.TextInput(attrs={"class": "form-control"}),
+            "description": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 4,
+                    "placeholder": "Optional short description of the synopsis",
+                }
+            ),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["start_date"].initial = timezone.localdate()
+
+    def clean_description(self):
+        return self.cleaned_data.get("description", "").strip()
 
 
 @login_required
@@ -2170,7 +2623,9 @@ def project_create(request):
                     project,
                     request.user,
                     "Project created",
-                    f"Title: {project.title}; Start date: {_format_value(project.start_date)}",
+                    "Title: "
+                    f"{project.title}; Description: {_format_value(project.description)}; "
+                    f"Start date: {_format_value(project.start_date)}",
                 )
 
                 authors = aform.cleaned_data.get("authors") or []
@@ -2254,6 +2709,7 @@ def project_create(request):
                     "contact_formset_hidden": hidden_contact_formset,
                     "summary": {
                         "title": pform.cleaned_data["title"],
+                        "description": pform.cleaned_data["description"],
                         "start_date": today,
                         "authors": author_names,
                         "funder": funder_summary,
@@ -2276,6 +2732,53 @@ def project_create(request):
             "contact_formset": contact_formset,
         },
     )
+
+
+def _project_phase_context(project: Project, user):
+    phase_labels = dict(Project.PHASE_CHOICES)
+    order = project.available_phase_keys()
+    current_phase = project.phase
+    try:
+        current_index = order.index(current_phase)
+    except ValueError:
+        current_index = 0
+    next_phase = order[current_index + 1] if current_index + 1 < len(order) else None
+    last_event = project.phase_events.first()
+    can_update_phase = _user_can_confirm_phase(user, project)
+    total_phases = len(order)
+    current_step = current_index + 1 if total_phases else 0
+    phase_progress_percent = (
+        int(round((current_step / total_phases) * 100)) if total_phases else 0
+    )
+    phase_steps = []
+    for step_index, key in enumerate(order, start=1):
+        phase_steps.append(
+            {
+                "key": key,
+                "label": phase_labels.get(key, key),
+                "number": step_index,
+                "is_current": key == current_phase,
+                "is_manual": key == project.phase_manual,
+                "is_complete": step_index < current_step,
+                "is_upcoming": step_index > current_step,
+                "can_set": can_update_phase and key != current_phase,
+            }
+        )
+
+    return {
+        "phase_labels": phase_labels,
+        "current_phase": current_phase,
+        "current_phase_label": phase_labels.get(current_phase, current_phase),
+        "phase_is_manual": bool(project.phase_manual and project.phase_manual in order),
+        "phase_manual_updated": project.phase_manual_updated,
+        "phase_steps": phase_steps,
+        "phase_progress_percent": phase_progress_percent,
+        "phase_progress_text": f"Step {current_step} of {total_phases}",
+        "next_phase": next_phase,
+        "next_phase_label": phase_labels.get(next_phase) if next_phase else None,
+        "last_phase_event": last_event,
+        "can_update_phase": can_update_phase,
+    }
 
 
 @login_required
@@ -2380,16 +2883,7 @@ def project_hub(request, project_id):
         .count(),
     }
 
-    phase_labels = dict(Project.PHASE_CHOICES)
-    order = [k for k, _ in Project.PHASE_CHOICES]
-    current_phase = project.phase
-    try:
-        idx = order.index(current_phase)
-    except ValueError:
-        idx = 0
-    next_phase = order[idx + 1] if idx + 1 < len(order) else None
-    last_event = project.phase_events.first()
-    next_phase_label = phase_labels.get(next_phase) if next_phase else None
+    phase_context = _project_phase_context(project, request.user)
 
     change_log_entries = project.change_log.select_related("changed_by")[:10]
 
@@ -2405,25 +2899,25 @@ def project_hub(request, project_id):
             "reference_stats": reference_stats,
             "summary_stats": summary_stats,
             "structure_stats": structure_stats,
-            "phase_labels": phase_labels,
-            "next_phase": next_phase,
-            "next_phase_label": next_phase_label,
-            "last_phase_event": last_event,
             "authors": list(project.author_users),
             "change_log_entries": change_log_entries,
             "funders": funders,
             "funder_summary": funder_summary,
             "can_manage_project": _user_is_manager(request.user),
+            "can_edit_project": _user_can_edit_project(request.user, project),
+            **phase_context,
         },
     )
 
 
 def _user_can_confirm_phase(user, project: Project) -> bool:
-    if not user.is_authenticated:
+    if not getattr(user, "is_authenticated", False):
         return False
-    if user.is_staff:
+    if _user_is_manager(user):
         return True
-    return UserRole.objects.filter(user=user, project=project, role="author").exists()
+    return UserRole.objects.filter(
+        user=user, project=project, role__in=["author", "manager"]
+    ).exists()
 
 
 @login_required
@@ -2438,21 +2932,18 @@ def project_phase_confirm(request, project_id, phase):
         )
         return redirect("synopsis:project_hub", project_id=project.id)
 
-    valid_phases = [k for k, _ in Project.PHASE_CHOICES]
+    phase_labels = dict(Project.PHASE_CHOICES)
+    valid_phases = project.available_phase_keys()
     if phase not in valid_phases:
-        messages.error(request, "Invalid phase.")
+        messages.error(request, "That phase is not available for this project.")
         return redirect("synopsis:project_hub", project_id=project.id)
 
-    order = valid_phases
-    try:
-        cur_idx = order.index(project.phase)
-        tgt_idx = order.index(phase)
-    except ValueError:
-        messages.error(request, "Phase resolution error.")
-        return redirect("synopsis:project_hub", project_id=project.id)
-
-    if tgt_idx < cur_idx:
-        messages.error(request, "Cannot move the phase backwards.")
+    current_phase = project.phase
+    if current_phase == phase and project.phase_manual == phase:
+        messages.info(
+            request,
+            f"The current working phase is already set to {phase_labels[phase]}.",
+        )
         return redirect("synopsis:project_hub", project_id=project.id)
 
     project.phase_manual = phase
@@ -2461,10 +2952,25 @@ def project_phase_confirm(request, project_id, phase):
 
     note = (request.POST.get("note") or "").strip()
     ProjectPhaseEvent.objects.create(
-        project=project, phase=phase, confirmed_by=request.user, note=note
+        project=project,
+        phase=phase,
+        confirmed_by=request.user,
+        note=note
+        or (
+            f"Phase changed from {phase_labels.get(current_phase, current_phase)} to {phase_labels[phase]}."
+        ),
+    )
+    _log_project_change(
+        project,
+        request.user,
+        "Updated project phase",
+        note
+        or (
+            f"{phase_labels.get(current_phase, current_phase)} → {phase_labels[phase]}"
+        ),
     )
 
-    messages.success(request, f"Phase confirmed: {dict(Project.PHASE_CHOICES)[phase]}")
+    messages.success(request, f"Current phase set to: {phase_labels[phase]}")
     return redirect("synopsis:project_hub", project_id=project.id)
 
 
@@ -2731,6 +3237,12 @@ def project_delete(request, project_id):
 @login_required
 def protocol_detail(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not project.protocol_relevant:
+        messages.info(
+            request,
+            "Protocol is marked as not relevant for this project. Update Project settings if you want to use the protocol workflow.",
+        )
+        return redirect("synopsis:project_hub", project_id=project.id)
     protocol = getattr(project, "protocol", None)
     can_manage = _user_is_manager(request.user)
     can_edit_documents = _user_can_edit_project(request.user, project)
@@ -2867,6 +3379,13 @@ def protocol_detail(request, project_id):
                 form.add_error(
                     "document",
                     "Finalized protocols cannot be replaced. Switch the stage back to Draft to revise the document.",
+                )
+
+            active_file_missing = not bool(protocol and protocol.document)
+            if active_file_missing and not replacing_file:
+                form.add_error(
+                    "document",
+                    "Choose a protocol file to upload. You can reuse the same filename as a file you deleted.",
                 )
 
             needs_reason = (not is_new_protocol) and (stage_changed or replacing_file)
@@ -3021,6 +3540,11 @@ def protocol_detail(request, project_id):
     else:
         form.fields["change_reason"].help_text = (
             "Required when you replace the file or change the protocol stage."
+        )
+    if not protocol_document_ready:
+        form.fields["document"].widget.attrs["required"] = "required"
+        form.fields["document"].help_text = (
+            "Upload a PDF or DOCX version of the protocol. You can reuse the same filename after deleting a file."
         )
 
     protocol_members = project.advisory_board_members.filter(
@@ -3243,6 +3767,13 @@ def action_list_detail(request, project_id):
                     "Finalized action lists cannot be replaced. Switch the stage back to Draft to revise the document.",
                 )
 
+            active_file_missing = not bool(action_list and action_list.document)
+            if active_file_missing and not replacing_file:
+                form.add_error(
+                    "document",
+                    "Choose an action list file to upload. You can reuse the same filename as a file you deleted.",
+                )
+
             needs_reason = (not is_new_action_list) and (
                 stage_changed or replacing_file
             )
@@ -3399,6 +3930,11 @@ def action_list_detail(request, project_id):
     else:
         form.fields["change_reason"].help_text = (
             "Required when you replace the file or change the action list stage."
+        )
+    if not action_document_ready:
+        form.fields["document"].widget.attrs["required"] = "required"
+        form.fields["document"].help_text = (
+            "Upload a PDF or DOCX version of the action list. You can reuse the same filename after deleting a file."
         )
 
     action_list_members = project.advisory_board_members.filter(
@@ -3617,11 +4153,13 @@ def _handle_collaborative_save(
         logger.error("Failed to download OnlyOffice file: %s", exc)
         return False
 
-    original_name = payload.get("filename") or os.path.basename(
-        getattr(getattr(document, "document", None), "name", "")
+    current_revision = getattr(document, "current_revision", None) or document.latest_revision()
+    original_name = _normalized_document_filename(
+        payload.get("filename")
+        or getattr(current_revision, "original_name", "")
+        or getattr(getattr(document, "document", None), "name", ""),
+        fallback=f"{_document_type_slug(document_type)}.docx",
     )
-    if not original_name:
-        original_name = f"{_document_type_slug(document_type)}.docx"
 
     resolved_users, user_labels = _resolve_collaborative_users(payload.get("users", []))
     uploader = resolved_users[0] if resolved_users else session.started_by
@@ -3810,7 +4348,6 @@ def collaborative_start(request, project_id, document_slug):
     )
 
 
-@login_required
 def collaborative_edit(request, project_id, document_slug, token):
     project = get_object_or_404(Project, pk=project_id)
     document_type = _normalize_document_type(document_slug)
@@ -3819,36 +4356,68 @@ def collaborative_edit(request, project_id, document_slug, token):
 
     document_label = _document_label(document_type)
     detail_url = _document_detail_url(project.id, document_type)
+    user_can_edit = _user_can_edit_project(request.user, project)
+    project_editor_detail_url = detail_url if user_can_edit else ""
 
     if not _onlyoffice_enabled():
-        messages.error(
+        if user_can_edit:
+            messages.error(
+                request,
+                "Collaborative editing is not configured. Please contact your administrator.",
+            )
+            return redirect(detail_url)
+        return _collaborative_access_closed_response(
             request,
+            project,
+            document_label,
             "Collaborative editing is not configured. Please contact your administrator.",
+            status=503,
         )
-        return redirect(detail_url)
 
     session = _collaborative_session_or_404(project, document_type, token)
     if session.has_expired():
         session.mark_inactive(reason="Session expired")
-        messages.warning(request, "This collaborative session has expired.")
-        return redirect(detail_url)
+        if user_can_edit:
+            messages.warning(request, "This collaborative session has expired.")
+            return redirect(detail_url)
+        return _collaborative_access_closed_response(
+            request,
+            project,
+            document_label,
+            "This collaborative session has expired. Ask the authors to resend the link.",
+        )
 
-    if not _user_can_edit_project(request.user, project):
-        messages.error(request, "You do not have access to this collaborative session.")
-        return redirect(detail_url)
+    external_access = _resolve_external_collaborative_access(
+        request, project, document_type, session
+    )
+    if not user_can_edit and not external_access.get("allowed"):
+        return _collaborative_access_closed_response(
+            request,
+            project,
+            document_label,
+            external_access.get("message")
+            or "You do not have access to this collaborative session.",
+        )
 
     document = _get_document_for_type(project, document_type)
     if not _document_requires_file(document):
-        messages.error(
+        if user_can_edit:
+            messages.error(
+                request,
+                f"No {_document_label(document_type).lower()} file is available to edit.",
+            )
+            return redirect(detail_url)
+        return _collaborative_access_closed_response(
             request,
+            project,
+            document_label,
             f"No {_document_label(document_type).lower()} file is available to edit.",
         )
-        return redirect(detail_url)
 
     if getattr(document, "feedback_closed_at", None):
         if session.is_active:
             session.mark_inactive(
-                ended_by=request.user if _user_can_edit_project(request.user, project) else None,
+                ended_by=request.user if user_can_edit else None,
                 reason=f"{document_label} feedback window closed",
             )
         closure_message = document.feedback_closure_message or (
@@ -3860,7 +4429,7 @@ def collaborative_edit(request, project_id, document_slug, token):
             {
                 "project": project,
                 "document_label": document_label,
-                "detail_url": detail_url,
+                "detail_url": project_editor_detail_url,
                 "window_closed_message": closure_message,
                 "can_force_end": False,
                 "force_end_url": "",
@@ -3870,7 +4439,7 @@ def collaborative_edit(request, project_id, document_slug, token):
         )
 
     if not session.is_active:
-        if _user_can_edit_project(request.user, project):
+        if user_can_edit:
             restart_url = _ensure_collaborative_invite_link(
                 request, project, document_type
             )
@@ -3880,35 +4449,42 @@ def collaborative_edit(request, project_id, document_slug, token):
                     "The previous collaborative session ended. A fresh editor has been opened.",
                 )
                 return redirect(restart_url)
-        messages.info(request, "This collaborative session is no longer active.")
-        return redirect(detail_url)
+            messages.info(request, "This collaborative session is no longer active.")
+            return redirect(detail_url)
+        return _collaborative_access_closed_response(
+            request,
+            project,
+            document_label,
+            "This collaborative session is no longer active. Ask the authors to resend the link.",
+        )
 
     editor_js_url = _onlyoffice_editor_js_url()
     if not editor_js_url:
-        messages.error(
+        if user_can_edit:
+            messages.error(
+                request,
+                "The OnlyOffice editor script URL is not configured. Please contact your administrator.",
+            )
+            return redirect(_document_detail_url(project.id, document_type))
+        return _collaborative_access_closed_response(
             request,
-            "The OnlyOffice editor script URL is not configured. Please contact your administrator.",
+            project,
+            document_label,
+            "The OnlyOffice editor script URL is not configured. Please contact the authors.",
+            status=503,
         )
-        return redirect(_document_detail_url(project.id, document_type))
 
     participant_member = None
     participant_feedback = None
-    feedback_token = request.GET.get("feedback")
-    if feedback_token:
-        feedback_model = (
-            ProtocolFeedback
-            if document_type == CollaborativeSession.DOCUMENT_PROTOCOL
-            else ActionListFeedback
-        )
-        feedback_qs = feedback_model.objects.select_related("member")
-        try:
-            participant_feedback = feedback_qs.get(
-                token=feedback_token, project=project
-            )
-            participant_member = participant_feedback.member
-        except feedback_model.DoesNotExist:
-            participant_feedback = None
-    if not participant_member:
+    participant_display = ""
+    participant_context = None
+    if external_access.get("allowed"):
+        participant_member = external_access.get("member")
+        participant_feedback = external_access.get("feedback")
+        participant_display = external_access.get("participant_display", "")
+        participant_context = external_access.get("participant_context")
+
+    if not participant_member and not participant_context and user_can_edit:
         member_id = request.GET.get("member")
         if member_id:
             try:
@@ -3918,8 +4494,6 @@ def collaborative_edit(request, project_id, document_slug, token):
             except AdvisoryBoardMember.DoesNotExist:
                 participant_member = None
 
-    participant_display = ""
-    participant_context = None
     if participant_member:
         participant_display = _advisory_member_display(participant_member)
         participant_context = {
@@ -3927,7 +4501,7 @@ def collaborative_edit(request, project_id, document_slug, token):
             "name": participant_display,
             "email": participant_member.email,
         }
-    elif participant_feedback and participant_feedback.email:
+    elif participant_feedback and participant_feedback.email and not participant_context:
         participant_display = participant_feedback.email
         participant_context = {
             "id": f"abe:{participant_feedback.email.lower()}",
@@ -3945,8 +4519,15 @@ def collaborative_edit(request, project_id, document_slug, token):
             participant=participant_context,
         )
     except ValueError as exc:
-        messages.error(request, str(exc))
-        return redirect(_document_detail_url(project.id, document_type))
+        if user_can_edit:
+            messages.error(request, str(exc))
+            return redirect(_document_detail_url(project.id, document_type))
+        return _collaborative_access_closed_response(
+            request,
+            project,
+            document_label,
+            str(exc),
+        )
 
     session.last_activity_at = timezone.now()
     update_fields = ["last_activity_at"]
@@ -3970,7 +4551,7 @@ def collaborative_edit(request, project_id, document_slug, token):
             "document_label": document_label,
             "editor_config": config,
             "onlyoffice_js_url": editor_js_url,
-            "detail_url": _document_detail_url(project.id, document_type),
+            "detail_url": project_editor_detail_url,
             "can_force_end": can_force_end,
             "force_end_url": force_end_url,
             "participant_display": participant_display,
@@ -4231,7 +4812,6 @@ def action_list_set_stage(request, project_id):
     return redirect("synopsis:action_list_detail", project_id=project.id)
 
 
-# TODO: #18 Investigate bug where uploading a new action list after deleting the file does not refresh the page with the latest document.
 @login_required
 def action_list_delete_file(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -4246,13 +4826,23 @@ def action_list_delete_file(request, project_id):
         action_list.document = ""
         action_list.current_revision = None
         action_list.save(update_fields=["document", "current_revision"])
+        ended_session = _end_active_collaborative_session(
+            project,
+            CollaborativeSession.DOCUMENT_ACTION_LIST,
+            ended_by=request.user,
+            reason="Action list file deleted",
+        )
         _log_project_change(
             project,
             request.user,
             "Removed action list file",
-            f"File: {file_name}",
+            f"File: {file_name}"
+            + ("; Collaborative session closed" if ended_session else ""),
         )
-        messages.success(request, "Action list file removed.")
+        messages.success(
+            request,
+            "Action list file removed. Upload a replacement from Upload new version; it can use the same filename.",
+        )
         return redirect("synopsis:action_list_detail", project_id=project.id)
 
     return render(
@@ -4367,12 +4957,20 @@ def action_list_delete(request, project_id):
         revision_count = action_list.revisions.count()
         if action_list.document:
             action_list.document.delete(save=False)
+        ended_session = _end_active_collaborative_session(
+            project,
+            CollaborativeSession.DOCUMENT_ACTION_LIST,
+            ended_by=request.user,
+            reason="Action list deleted",
+        )
         action_list.delete()
         details = []
         if file_name:
             details.append(f"File: {file_name}")
         details.append(f"Text length removed: {text_len} chars")
         details.append(f"Revisions removed: {revision_count}")
+        if ended_session:
+            details.append("Collaborative session closed")
         _log_project_change(
             project,
             request.user,
@@ -4525,7 +5123,6 @@ def protocol_set_stage(request, project_id):
     return redirect("synopsis:protocol_detail", project_id=project.id)
 
 
-# TODO: #19 Investigate bug where uploading a new protocol after deleting the file does not refresh the page with the latest document.
 @login_required
 def protocol_delete_file(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -4540,13 +5137,23 @@ def protocol_delete_file(request, project_id):
         protocol.document = ""
         protocol.current_revision = None
         protocol.save(update_fields=["document", "current_revision"])
+        ended_session = _end_active_collaborative_session(
+            project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+            ended_by=request.user,
+            reason="Protocol file deleted",
+        )
         _log_project_change(
             project,
             request.user,
             "Removed protocol file",
-            f"File: {file_name}",
+            f"File: {file_name}"
+            + ("; Collaborative session closed" if ended_session else ""),
         )
-        messages.success(request, "Protocol file removed.")
+        messages.success(
+            request,
+            "Protocol file removed. Upload a replacement from Upload new version; it can use the same filename.",
+        )
         return redirect("synopsis:protocol_detail", project_id=project.id)
 
     return render(
@@ -4720,11 +5327,19 @@ def protocol_delete(request, project_id):
         text_len = len(protocol.text_version or "")
         if protocol.document:
             protocol.document.delete(save=False)
+        ended_session = _end_active_collaborative_session(
+            project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+            ended_by=request.user,
+            reason="Protocol deleted",
+        )
         protocol.delete()
         details = []
         if file_name:
             details.append(f"File: {file_name}")
         details.append(f"Text length removed: {text_len} chars")
+        if ended_session:
+            details.append("Collaborative session closed")
         _log_project_change(
             project,
             request.user,
@@ -4782,18 +5397,108 @@ def manager_dashboard(request):
 @login_required
 def project_settings(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
-    if not _user_is_manager(request.user):
-        messages.error(request, "Only managers can edit project settings.")
+    if not _user_can_edit_project(request.user, project):
+        messages.error(
+            request,
+            "Only managers or project authors can edit project settings.",
+        )
         return redirect("synopsis:project_hub", project_id=project.id)
 
     if request.method == "POST":
+        status_action = request.POST.get("status_action")
+        status_targets = {
+            "mark_completed": "completed",
+            "reactivate": "active",
+        }
+        if status_action in status_targets:
+            old_status = project.status
+            new_status = status_targets[status_action]
+            status_labels = dict(Project._meta.get_field("status").choices)
+
+            if old_status == new_status:
+                messages.info(
+                    request,
+                    f"Synopsis is already marked as {status_labels.get(new_status, new_status).lower()}.",
+                )
+            else:
+                project.status = new_status
+                project.save(update_fields=["status"])
+                _log_project_change(
+                    project,
+                    request.user,
+                    "Updated project status",
+                    "Status: "
+                    f"{status_labels.get(old_status, old_status)} → "
+                    f"{status_labels.get(new_status, new_status)}",
+                )
+                if new_status == "completed":
+                    messages.success(
+                        request,
+                        "Synopsis moved to the completed / archived section on the homepage. It remains fully accessible.",
+                    )
+                else:
+                    messages.success(
+                        request,
+                        "Synopsis moved back to the active synopses section on the homepage.",
+                    )
+            if request.POST.get("return_to") == "dashboard":
+                return redirect("synopsis:dashboard")
+            return redirect("synopsis:project_settings", project_id=project.id)
+
         original_title = project.title
+        original_description = project.description
+        original_protocol_relevant = project.protocol_relevant
+        original_advisory_board_relevant = project.advisory_board_relevant
         form = ProjectSettingsForm(request.POST, instance=project, project=project)
         if form.is_valid():
             updated_project = form.save()
             changes = []
             if original_title != updated_project.title:
                 changes.append(f"Title: {original_title} → {updated_project.title}")
+            if original_description != updated_project.description:
+                changes.append(
+                    "Description: "
+                    f"{_format_value(original_description)} → {_format_value(updated_project.description)}"
+                )
+            if original_protocol_relevant != updated_project.protocol_relevant:
+                changes.append(
+                    "Protocol: "
+                    f"{'relevant' if original_protocol_relevant else 'not relevant'} → "
+                    f"{'relevant' if updated_project.protocol_relevant else 'not relevant'}"
+                )
+            if (
+                original_advisory_board_relevant
+                != updated_project.advisory_board_relevant
+            ):
+                changes.append(
+                    "Advisory board: "
+                    f"{'relevant' if original_advisory_board_relevant else 'not relevant'} → "
+                    f"{'relevant' if updated_project.advisory_board_relevant else 'not relevant'}"
+                )
+            if (
+                updated_project.phase_manual
+                and updated_project.phase_manual not in updated_project.available_phase_keys()
+            ):
+                old_phase = updated_project.phase_manual
+                new_phase = updated_project.default_phase_key()
+                updated_project.phase_manual = new_phase
+                updated_project.phase_manual_updated = timezone.now()
+                updated_project.save(
+                    update_fields=["phase_manual", "phase_manual_updated"]
+                )
+                ProjectPhaseEvent.objects.create(
+                    project=updated_project,
+                    phase=new_phase,
+                    confirmed_by=request.user,
+                    note=(
+                        "Phase reset because project settings removed an earlier phase from this workflow."
+                    ),
+                )
+                changes.append(
+                    "Phase reset: "
+                    f"{dict(Project.PHASE_CHOICES).get(old_phase, old_phase)} → "
+                    f"{dict(Project.PHASE_CHOICES).get(new_phase, new_phase)}"
+                )
             if changes:
                 _log_project_change(
                     updated_project,
@@ -4864,6 +5569,8 @@ def project_settings(request, project_id):
         "project": project,
         "form": form,
         "previous_titles": previous_titles,
+        "phase_history_entries": project.phase_events.select_related("confirmed_by")[:10],
+        **_project_phase_context(project, request.user),
     }
 
     return render(
@@ -4929,6 +5636,12 @@ def user_create(request):
 @login_required
 def advisory_board_list(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not project.advisory_board_relevant:
+        messages.info(
+            request,
+            "Advisory board is marked as not relevant for this project. Update Project settings if you want to use the advisory board workflow.",
+        )
+        return redirect("synopsis:project_hub", project_id=project.id)
 
     if request.method == "POST":
         action = request.POST.get("action")
@@ -4996,6 +5709,7 @@ def advisory_board_list(request, project_id):
         if action == "add_member_back":
             form = AdvisoryBoardMemberForm(request.POST)
             context = _advisory_board_context(project, user=request.user, member_form=form)
+            context["open_add_member_modal"] = True
             return render(request, "synopsis/advisory_board_list.html", context)
 
         if action == "add_member":
@@ -5063,6 +5777,12 @@ def advisory_schedule_protocol_reminders(request, project_id):
         sent_protocol_at__isnull=False,
         response="Y",
     )
+    if not pending_members.exists():
+        messages.warning(
+            request,
+            "No protocol deadline was updated because no accepted advisory board member has been sent the protocol yet. Send the protocol from the Advisory Board page first, or set the deadline while sending.",
+        )
+        return redirect("synopsis:protocol_detail", project_id=project.id)
 
     if not form.is_valid():
         for errors in form.errors.values():
@@ -5138,6 +5858,12 @@ def advisory_schedule_action_list_reminders(request, project_id):
         sent_action_list_at__isnull=False,
         response="Y",
     )
+    if not pending_members.exists():
+        messages.warning(
+            request,
+            "No action list deadline was updated because no accepted advisory board member has been sent the action list yet. Send the action list from the Advisory Board page first, or set the deadline while sending.",
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
 
     if not form.is_valid():
         for errors in form.errors.values():
@@ -5199,6 +5925,85 @@ def advisory_schedule_action_list_reminders(request, project_id):
 
 
 @login_required
+def advisory_schedule_synopsis_reminders(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    form = SynopsisReminderScheduleForm(request.POST)
+    pending_members = project.advisory_board_members.filter(
+        sent_synopsis_at__isnull=False,
+        response="Y",
+    )
+    if not pending_members.exists():
+        messages.warning(
+            request,
+            "No synopsis deadline was updated because no accepted advisory board member has been sent the synopsis yet. Send the synopsis from the Advisory Board page first, or set the deadline while sending.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if not form.is_valid():
+        context = _advisory_board_context(
+            project,
+            user=request.user,
+            synopsis_form=form,
+        )
+        return render(request, "synopsis/advisory_board_list.html", context)
+
+    deadline = form.cleaned_data["deadline"]
+    if timezone.is_naive(deadline):
+        deadline = timezone.make_aware(deadline)
+    updated = 0
+    for member in pending_members:
+        member.feedback_on_synopsis_deadline = deadline
+        member.synopsis_reminder_sent = False
+        member.synopsis_reminder_sent_at = None
+        member.save(
+            update_fields=[
+                "feedback_on_synopsis_deadline",
+                "synopsis_reminder_sent",
+                "synopsis_reminder_sent_at",
+            ]
+        )
+        SynopsisFeedback.objects.filter(project=project, member=member).update(
+            feedback_deadline_at=deadline
+        )
+        updated += 1
+
+    skipped_members = project.advisory_board_members.filter(
+        sent_synopsis_at__isnull=False
+    ).exclude(response="Y")
+    skipped_ids = list(skipped_members.values_list("id", flat=True))
+    if skipped_ids:
+        project.advisory_board_members.filter(id__in=skipped_ids).update(
+            feedback_on_synopsis_deadline=None,
+            synopsis_reminder_sent=False,
+            synopsis_reminder_sent_at=None,
+        )
+        SynopsisFeedback.objects.filter(
+            project=project, member_id__in=skipped_ids
+        ).update(feedback_deadline_at=None)
+        messages.info(
+            request,
+            "Deadline kept unset for members who have not accepted the invitation yet.",
+        )
+
+    if updated:
+        _log_project_change(
+            project,
+            request.user,
+            "Scheduled synopsis reminders",
+            f"Synopsis deadline {timezone.localtime(deadline).strftime('%Y-%m-%d %H:%M')} for {updated} member(s)",
+        )
+
+    messages.success(
+        request,
+        f"Synopsis reminder scheduled for {updated} member(s). Reminder now set as required.",
+    )
+    return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
 def advisory_member_set_deadline(request, project_id, member_id, kind):
     project = get_object_or_404(Project, pk=project_id)
     member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
@@ -5215,6 +6020,7 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
         "invite": ReminderScheduleForm,
         "protocol": ProtocolReminderScheduleForm,
         "action_list": ActionListReminderScheduleForm,
+        "synopsis": SynopsisReminderScheduleForm,
     }
     if kind not in form_map:
         return HttpResponseBadRequest("Unknown reminder type")
@@ -5246,7 +6052,13 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
                 "This member needs an accepted invitation and the action list before setting an action list deadline.",
             )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
-
+    if kind == "synopsis":
+        if member.sent_synopsis_at is None or response_code != "Y":
+            messages.error(
+                request,
+                "This member needs an accepted invitation and a sent synopsis before setting a synopsis deadline.",
+            )
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
     value = None
     if not clearing:
         form = form_map[kind](request.POST)
@@ -5325,6 +6137,42 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
+    if kind == "synopsis":
+        member.feedback_on_synopsis_deadline = value if not clearing else None
+        member.synopsis_reminder_sent = False
+        member.synopsis_reminder_sent_at = None
+        member.save(
+            update_fields=[
+                "feedback_on_synopsis_deadline",
+                "synopsis_reminder_sent",
+                "synopsis_reminder_sent_at",
+            ]
+        )
+        SynopsisFeedback.objects.filter(project=project, member=member).update(
+            feedback_deadline_at=value if not clearing else None
+        )
+        detail_value = (
+            timezone.localtime(value).strftime("%Y-%m-%d %H:%M") if value else None
+        )
+        detail = (
+            f"Synopsis deadline {detail_value} for {human_name}"
+            if not clearing
+            else f"Cleared synopsis deadline for {human_name}"
+        )
+        _log_project_change(
+            project,
+            request.user,
+            "Updated synopsis reminder",
+            detail,
+        )
+        messages.success(
+            request,
+            "Synopsis deadline updated."
+            if not clearing
+            else "Synopsis deadline cleared.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
     # action list
     member.feedback_on_action_list_deadline = value if not clearing else None
     member.action_list_reminder_sent = False
@@ -5362,6 +6210,202 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
+def _advisory_member_set_tracking_flag(
+    request,
+    project,
+    member,
+    *,
+    document_name,
+    sent_field,
+    feedback_received_field,
+    latest_feedback,
+    flag,
+    flag_map,
+    log_action,
+    success_message,
+):
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    if not _user_can_edit_project(request.user, project):
+        messages.error(request, "You do not have permission to update this member.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if getattr(member, sent_field) is None or (member.response or "").upper() != "Y":
+        messages.error(
+            request,
+            f"This member needs an accepted invitation and sent {document_name} before updating {document_name} tracking.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    normalized_flag = (flag or "").lower().replace("-", "_")
+    if normalized_flag not in flag_map:
+        return HttpResponseBadRequest(f"Unknown {document_name} tracking field")
+
+    has_feedback = bool(
+        getattr(member, feedback_received_field)
+        or getattr(latest_feedback, "submitted_at", None)
+    )
+    if not has_feedback:
+        messages.error(
+            request,
+            f"{document_name.capitalize()} tracking can only be updated after feedback has been received.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    field_name, label = flag_map[normalized_flag]
+    raw_value = request.POST.get("value", "")
+    new_value = str(raw_value).lower() in {"1", "true", "on", "yes"}
+    current_value = getattr(member, field_name)
+    if current_value != new_value:
+        setattr(member, field_name, new_value)
+        member.save(update_fields=[field_name])
+        human_name = " ".join(
+            part for part in (member.first_name, member.last_name) if part
+        ).strip() or member.email
+        state = "Marked" if new_value else "Cleared"
+        _log_project_change(
+            project,
+            request.user,
+            log_action,
+            f"{state} {label} for {human_name}",
+        )
+
+    messages.success(request, success_message)
+    return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+
+@login_required
+def advisory_member_set_action_list_flag(request, project_id, member_id, flag):
+    project = get_object_or_404(Project, pk=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
+    return _advisory_member_set_tracking_flag(
+        request,
+        project,
+        member,
+        document_name="action list",
+        sent_field="sent_action_list_at",
+        feedback_received_field="feedback_on_action_list_received",
+        latest_feedback=member.latest_action_list_feedback,
+        flag=flag,
+        flag_map={
+            "author_replied": ("wm_replied", "author replied"),
+            "added_to_doc": (
+                "added_to_action_list_doc",
+                "feedback added to the action list document",
+            ),
+        },
+        log_action="Updated action list tracking",
+        success_message="Action list tracking updated.",
+    )
+
+
+@login_required
+def advisory_member_set_protocol_flag(request, project_id, member_id, flag):
+    project = get_object_or_404(Project, pk=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
+    return _advisory_member_set_tracking_flag(
+        request,
+        project,
+        member,
+        document_name="protocol",
+        sent_field="sent_protocol_at",
+        feedback_received_field="feedback_on_protocol_received",
+        latest_feedback=member.latest_protocol_feedback,
+        flag=flag,
+        flag_map={
+            "author_replied": (
+                "protocol_author_replied",
+                "author replied to protocol feedback",
+            ),
+            "added_to_doc": (
+                "added_to_protocol_doc",
+                "feedback added to the protocol document",
+            ),
+        },
+        log_action="Updated protocol tracking",
+        success_message="Protocol tracking updated.",
+    )
+
+
+@login_required
+def advisory_member_set_synopsis_flag(request, project_id, member_id, flag):
+    project = get_object_or_404(Project, pk=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, pk=member_id, project=project)
+    normalized_flag = (flag or "").lower().replace("-", "_")
+    if normalized_flag == "feedback_received":
+        if request.method != "POST":
+            return HttpResponseBadRequest("POST required")
+
+        if not _user_can_edit_project(request.user, project):
+            messages.error(request, "You do not have permission to update this member.")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+        if member.sent_synopsis_at is None or (member.response or "").upper() != "Y":
+            messages.error(
+                request,
+                "This member needs an accepted invitation and sent synopsis before updating synopsis tracking.",
+            )
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+        raw_value = request.POST.get("value", "")
+        new_value = str(raw_value).lower() in {"1", "true", "on", "yes"}
+        update_fields = []
+        if new_value and not member.feedback_on_synopsis_received:
+            member.feedback_on_synopsis_received = timezone.localdate()
+            update_fields.append("feedback_on_synopsis_received")
+        elif not new_value and member.feedback_on_synopsis_received:
+            member.feedback_on_synopsis_received = None
+            member.synopsis_author_replied = False
+            member.added_to_synopsis_doc = False
+            update_fields.extend(
+                [
+                    "feedback_on_synopsis_received",
+                    "synopsis_author_replied",
+                    "added_to_synopsis_doc",
+                ]
+            )
+
+        if update_fields:
+            member.save(update_fields=update_fields)
+            human_name = " ".join(
+                part for part in (member.first_name, member.last_name) if part
+            ).strip() or member.email
+            state = "Marked feedback received" if new_value else "Cleared feedback received"
+            _log_project_change(
+                project,
+                request.user,
+                "Updated synopsis tracking",
+                f"{state} for {human_name}",
+            )
+
+        messages.success(request, "Synopsis tracking updated.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    return _advisory_member_set_tracking_flag(
+        request,
+        project,
+        member,
+        document_name="synopsis",
+        sent_field="sent_synopsis_at",
+        feedback_received_field="feedback_on_synopsis_received",
+        latest_feedback=member.latest_synopsis_feedback,
+        flag=flag,
+        flag_map={
+            "author_replied": (
+                "synopsis_author_replied",
+                "author replied to synopsis feedback",
+            ),
+            "added_to_doc": (
+                "added_to_synopsis_doc",
+                "feedback added to the synopsis document",
+            ),
+        },
+        log_action="Updated synopsis tracking",
+        success_message="Synopsis tracking updated.",
+    )
+
+
 @login_required
 def advisory_member_edit(request, project_id, member_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -5372,6 +6416,22 @@ def advisory_member_edit(request, project_id, member_id):
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
     if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "delete_member":
+            display_name = _advisory_member_display(member)
+            member_email = member.email
+            member_id_value = member.id
+            with transaction.atomic():
+                _log_project_change(
+                    project,
+                    request.user,
+                    "Deleted advisory member",
+                    f"Removed {display_name} ({member_email}) from the advisory board; member id {member_id_value}.",
+                )
+                member.delete()
+            messages.success(request, f"Deleted advisory board member {display_name}.")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+
         form = AdvisoryBoardMemberForm(request.POST, instance=member)
         if form.is_valid():
             updated_member = form.save()
@@ -5491,7 +6551,7 @@ def reference_batch_list(request, project_id):
 
 
 def _link_library_references_to_project(user, target_project, ref_ids, folder):
-    folder = folder or []
+    folder = normalize_reference_folder_values(folder or [])
     batch = None
 
     linked = 0
@@ -5516,6 +6576,15 @@ def _link_library_references_to_project(user, target_project, ref_ids, folder):
         ).exists():
             reused += 1
             continue
+
+        if folder:
+            _update_shared_library_reference_folders(
+                lib_ref,
+                folder,
+                changed_by=user,
+                source_project=target_project,
+                change_source="library_link",
+            )
 
         if batch is None:
             now = timezone.now()
@@ -5548,7 +6617,7 @@ def _link_library_references_to_project(user, target_project, ref_ids, folder):
             reference_document=lib_ref.reference_document,
             reference_document_uploaded_at=lib_ref.reference_document_uploaded_at,
             screening_status="pending",
-            reference_folder=folder,
+            reference_folder=normalize_reference_folder_values(lib_ref.reference_folder),
         )
         linked += 1
 
@@ -5617,6 +6686,8 @@ def reference_library(request):
                 if reused:
                     parts.append(f"Reused {reused} existing reference(s)")
                 msg = " and ".join(parts) + f" into {target_project.title}."
+                if folder:
+                    msg += " Shared CE subject folders were updated before linking."
                 messages.success(request, msg)
             else:
                 messages.info(request, "No references were linked (possible duplicates).")
@@ -5722,6 +6793,8 @@ def library_batch_detail(request, batch_id):
                 if reused:
                     parts.append(f"Reused {reused} existing reference(s)")
                 msg = " and ".join(parts) + f" into {target_project.title}."
+                if folder:
+                    msg += " Shared CE subject folders were updated before linking."
                 messages.success(request, msg)
             else:
                 messages.info(request, "No references were linked (possible duplicates).")
@@ -5909,10 +6982,10 @@ def library_reference_detail(request, reference_id):
                 request.user, target_project, [library_reference.id], folder
             )
             if linked:
-                messages.success(
-                    request,
-                    f"Linked reference to {target_project.title}.",
-                )
+                message = f"Linked reference to {target_project.title}."
+                if folder:
+                    message += " Shared CE subject folders were updated before linking."
+                messages.success(request, message)
                 return redirect(
                     "synopsis:library_reference_detail",
                     reference_id=library_reference.id,
@@ -5921,10 +6994,35 @@ def library_reference_detail(request, reference_id):
                 link_message = "This reference already exists in that project."
             form = LibraryReferenceUpdateForm(instance=library_reference)
         else:
+            previous_folders = normalize_reference_folder_values(
+                library_reference.reference_folder
+            )
             form = LibraryReferenceUpdateForm(request.POST, instance=library_reference)
             if form.is_valid():
-                form.save()
-                messages.success(request, "Library reference updated.")
+                library_reference = form.save()
+                shared_changed, synced_count, old_folders, new_folders = (
+                    False,
+                    0,
+                    previous_folders,
+                    normalize_reference_folder_values(library_reference.reference_folder),
+                )
+                if previous_folders != new_folders:
+                    shared_changed, synced_count, old_folders, new_folders = (
+                        _update_shared_library_reference_folders(
+                            library_reference,
+                            new_folders,
+                            changed_by=request.user,
+                            change_source="library_detail",
+                            previous_folders=previous_folders,
+                        )
+                    )
+                if shared_changed:
+                    message = "Library reference updated. Shared CE subject folders were updated."
+                    if synced_count:
+                        message += f" Synced {synced_count} linked synopsis copy/copies."
+                    messages.success(request, message)
+                else:
+                    messages.success(request, "Library reference updated.")
                 return redirect(
                     "synopsis:library_reference_detail",
                     reference_id=library_reference.id,
@@ -5945,6 +7043,9 @@ def library_reference_detail(request, reference_id):
             "form": form,
             "project_options": project_options,
             "folder_choices": Reference.FOLDER_CHOICES,
+            "folder_history": library_reference.folder_history.select_related(
+                "changed_by", "source_project", "source_reference"
+            )[:10],
         },
     )
 
@@ -6458,6 +7559,64 @@ def _clone_reference_summary(source_summary, user=None):
     return next((item for item in synced if item.id == new_summary.id), new_summary)
 
 
+def _duplicate_reference_summary(source_summary, user=None):
+    summary_author = (
+        source_summary.summary_author
+        or (user.get_full_name() or user.username if user and user.is_authenticated else "")
+    )
+    duplicate_status = (
+        ReferenceSummary.STATUS_TODO
+        if source_summary.status == ReferenceSummary.STATUS_TODO
+        else ReferenceSummary.STATUS_DRAFT
+    )
+    new_summary = ReferenceSummary.objects.create(
+        project=source_summary.project,
+        reference=source_summary.reference,
+        assigned_to=source_summary.assigned_to,
+        status=duplicate_status,
+        needs_help=False,
+        reference_label=source_summary.reference_label,
+        action_description=source_summary.action_description,
+        study_design=source_summary.study_design,
+        study_type=source_summary.study_type,
+        sites_replications=source_summary.sites_replications,
+        year_range=source_summary.year_range,
+        habitat_and_sites=source_summary.habitat_and_sites,
+        region=source_summary.region,
+        country=source_summary.country,
+        summary_of_results=source_summary.summary_of_results,
+        action_methods=source_summary.action_methods,
+        experimental_design=source_summary.experimental_design,
+        site_context_details=source_summary.site_context_details,
+        sampling_methods_details=source_summary.sampling_methods_details,
+        cost_summary=source_summary.cost_summary,
+        outcome_rows=copy.deepcopy(source_summary.outcome_rows or []),
+        benefits_score=source_summary.benefits_score,
+        harms_score=source_summary.harms_score,
+        reliability_score=source_summary.reliability_score,
+        relevance_score=source_summary.relevance_score,
+        summary_text=source_summary.summary_text,
+        key_findings=source_summary.key_findings,
+        synopsis_draft=source_summary.synopsis_draft,
+        summary_author=summary_author,
+        broad_category=source_summary.broad_category,
+        keywords=copy.deepcopy(source_summary.keywords or []),
+        source_url=source_summary.source_url,
+        crop_type=source_summary.crop_type,
+        action_tags=copy.deepcopy(source_summary.action_tags or []),
+        threat_tags=copy.deepcopy(source_summary.threat_tags or []),
+        taxon_tags=copy.deepcopy(source_summary.taxon_tags or []),
+        habitat_tags=copy.deepcopy(source_summary.habitat_tags or []),
+        location_tags=copy.deepcopy(source_summary.location_tags or []),
+        research_design=source_summary.research_design,
+        citation=source_summary.citation or _reference_summary_citation(source_summary.reference),
+    )
+    synced = _sync_reference_summary_identifiers_for_reference(
+        source_summary.reference, save=True
+    )
+    return next((item for item in synced if item.id == new_summary.id), new_summary)
+
+
 def _next_chapter_position(project):
     max_pos = (
         SynopsisChapter.objects.filter(project=project).aggregate(Max("position"))[
@@ -6578,6 +7737,37 @@ def _remove_reference_from_synopsis(reference):
         supporting_summary_through.objects.filter(
             synopsisinterventionkeymessage__intervention_id__in=touched_interventions.keys(),
             referencesummary_id__in=summary_ids,
+        ).delete()
+        SynopsisAssignment.objects.filter(pk__in=assignment_ids).delete()
+
+    for intervention in touched_interventions.values():
+        _resequence_assignment_positions(intervention)
+
+    return len(assignments)
+
+
+def _remove_summary_from_synopsis(summary):
+    assignments = list(
+        SynopsisAssignment.objects.filter(reference_summary=summary).select_related(
+            "intervention"
+        )
+    )
+    if not assignments:
+        return 0
+
+    touched_interventions = {}
+    assignment_ids = []
+    for assignment in assignments:
+        touched_interventions[assignment.intervention_id] = assignment.intervention
+        assignment_ids.append(assignment.id)
+
+    supporting_summary_through = (
+        SynopsisInterventionKeyMessage.supporting_summaries.through
+    )
+    with transaction.atomic():
+        supporting_summary_through.objects.filter(
+            synopsisinterventionkeymessage__intervention_id__in=touched_interventions.keys(),
+            referencesummary_id=summary.id,
         ).delete()
         SynopsisAssignment.objects.filter(pk__in=assignment_ids).delete()
 
@@ -6730,6 +7920,76 @@ def _reference_summary_paragraph(
     )
 
 
+def _reference_summary_has_meaningful_progress(summary: ReferenceSummary) -> bool:
+    text_fields = [
+        "action_description",
+        "study_design",
+        "study_type",
+        "sites_replications",
+        "year_range",
+        "habitat_and_sites",
+        "region",
+        "country",
+        "summary_of_results",
+        "action_methods",
+        "experimental_design",
+        "site_context_details",
+        "sampling_methods_details",
+        "cost_summary",
+        "summary_text",
+        "key_findings",
+        "synopsis_draft",
+        "broad_category",
+        "source_url",
+        "crop_type",
+        "research_design",
+        "citation",
+    ]
+    list_fields = [
+        "outcome_rows",
+        "keywords",
+        "action_tags",
+        "threat_tags",
+        "taxon_tags",
+        "habitat_tags",
+        "location_tags",
+    ]
+    score_fields = [
+        "benefits_score",
+        "harms_score",
+        "reliability_score",
+        "relevance_score",
+    ]
+
+    for field_name in text_fields:
+        value = getattr(summary, field_name, "")
+        if isinstance(value, str) and value.strip():
+            return True
+
+    for field_name in list_fields:
+        value = getattr(summary, field_name, None)
+        if value:
+            return True
+
+    for field_name in score_fields:
+        if getattr(summary, field_name, None) is not None:
+            return True
+
+    return False
+
+
+def _auto_promote_summary_from_todo(summary: ReferenceSummary, previous_status: str) -> bool:
+    if previous_status != ReferenceSummary.STATUS_TODO:
+        return False
+    if summary.status != ReferenceSummary.STATUS_TODO:
+        return False
+    if not _reference_summary_has_meaningful_progress(summary):
+        return False
+    summary.status = ReferenceSummary.STATUS_DRAFT
+    summary.save(update_fields=["status", "updated_at"])
+    return True
+
+
 @login_required
 def reference_summary_board(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -6756,6 +8016,8 @@ def reference_summary_board(request, project_id):
                 project=project,
                 reference__screening_status="included",
                 assigned_to__isnull=True,
+            ).exclude(
+                status=ReferenceSummary.STATUS_EXCLUDED,
             )
             if selected_ids:
                 base_qs = base_qs.filter(id__in=selected_ids)
@@ -6785,7 +8047,7 @@ def reference_summary_board(request, project_id):
             qs = ReferenceSummary.objects.filter(
                 project=project,
                 reference__screening_status="included",
-            )
+            ).exclude(status=ReferenceSummary.STATUS_EXCLUDED)
             if selected_ids:
                 qs = qs.filter(id__in=selected_ids)
             else:
@@ -6804,7 +8066,7 @@ def reference_summary_board(request, project_id):
                 project=project,
                 reference__screening_status="included",
                 assigned_to__isnull=False,
-            )
+            ).exclude(status=ReferenceSummary.STATUS_EXCLUDED)
             if selected_ids:
                 qs = qs.filter(id__in=selected_ids)
             updated = qs.update(assigned_to=None, updated_at=timezone.now())
@@ -6830,9 +8092,37 @@ def reference_summary_board(request, project_id):
             status = request.POST.get("status")
             valid_statuses = {choice[0] for choice in ReferenceSummary.STATUS_CHOICES}
             if status in valid_statuses:
+                exclusion_reason = (request.POST.get("exclusion_reason") or "").strip()
+                if status == ReferenceSummary.STATUS_EXCLUDED and not exclusion_reason:
+                    messages.error(
+                        request,
+                        "Provide a reason before excluding this summary after full-text review.",
+                    )
+                    return redirect(
+                        "synopsis:reference_summary_board", project_id=project.id
+                    )
                 summary.status = status
-                summary.save(update_fields=["status", "updated_at"])
-                messages.success(request, "Summary status updated.")
+                if status == ReferenceSummary.STATUS_EXCLUDED:
+                    summary.exclusion_reason = exclusion_reason
+                    removed_assignments = _remove_summary_from_synopsis(summary)
+                    summary.save(
+                        update_fields=["status", "exclusion_reason", "updated_at"]
+                    )
+                    messages.success(
+                        request,
+                        "Summary excluded after full-text review."
+                        + (
+                            f" Removed it from {removed_assignments} intervention assignment(s)."
+                            if removed_assignments
+                            else ""
+                        ),
+                    )
+                else:
+                    summary.exclusion_reason = exclusion_reason if summary.status == ReferenceSummary.STATUS_EXCLUDED else summary.exclusion_reason
+                    summary.save(
+                        update_fields=["status", "exclusion_reason", "updated_at"]
+                    )
+                    messages.success(request, "Summary status updated.")
             else:
                 messages.error(request, "Invalid summary status selected.")
         return redirect("synopsis:reference_summary_board", project_id=project.id)
@@ -6854,12 +8144,20 @@ def reference_summary_board(request, project_id):
             item.variant_label = _reference_summary_display_label(item, index)
             item.variant_count = group_size
 
+    active_summaries = [
+        item for item in summaries if item.status != ReferenceSummary.STATUS_EXCLUDED
+    ]
+    excluded_after_full_text = [
+        item for item in summaries if item.status == ReferenceSummary.STATUS_EXCLUDED
+    ]
+
     assigned_counts = Counter()
     needs_help_by_author = Counter()
     summarised_by_author = Counter()
+    excluded_by_author = Counter()
     unassigned_count = 0
     needs_help_count = 0
-    for item in summaries:
+    for item in active_summaries:
         if item.assigned_to_id is None:
             unassigned_count += 1
         else:
@@ -6870,6 +8168,9 @@ def reference_summary_board(request, project_id):
                 summarised_by_author[item.assigned_to_id] += 1
         if item.needs_help:
             needs_help_count += 1
+    for item in excluded_after_full_text:
+        if item.assigned_to_id is not None:
+            excluded_by_author[item.assigned_to_id] += 1
 
     author_options = list(project.author_users.order_by("first_name", "last_name"))
     workload = []
@@ -6885,6 +8186,7 @@ def reference_summary_board(request, project_id):
                 if assigned
                 else 0,
                 "needs_help": needs_help_by_author.get(author.id, 0),
+                "excluded_after_full_text": excluded_by_author.get(author.id, 0),
             }
         )
 
@@ -6905,7 +8207,7 @@ def reference_summary_board(request, project_id):
         for code, label in ReferenceSummary.STATUS_CHOICES
     ]
 
-    total_summaries = len(summaries)
+    total_summaries = len(active_summaries)
     total_included = len(included_references)
     completed = len(status_map.get(ReferenceSummary.STATUS_DONE, {}).get("items", []))
     progress = int((completed / total_summaries) * 100) if total_summaries else 0
@@ -6919,6 +8221,7 @@ def reference_summary_board(request, project_id):
             "total_included": total_summaries,
             "completed": completed,
             "progress": progress,
+            "excluded_after_full_text_count": len(excluded_after_full_text),
             "author_options": author_options,
             "status_choices": ReferenceSummary.STATUS_CHOICES,
             "reference_count": total_included,
@@ -6966,6 +8269,7 @@ def reference_summary_detail(request, project_id, summary_id):
     summary_form = ReferenceSummaryUpdateForm(
         request.POST if active_action == "save-summary" else None,
         instance=summary,
+        project=project,
     )
     assignment_initial = {
         "assigned_to": summary.assigned_to_id,
@@ -6981,8 +8285,16 @@ def reference_summary_detail(request, project_id, summary_id):
         "reference_folder": summary.reference.reference_folder,
         "screening_notes": summary.reference.screening_notes,
     }
+    classification_data = None
+    if active_action == "update-classification":
+        classification_data = request.POST.copy()
+        classification_command = (classification_data.get("classification_command") or "").strip()
+        if classification_command == "exclude":
+            classification_data["screening_status"] = "excluded"
+        elif classification_command == "include":
+            classification_data["screening_status"] = "included"
     classification_form = ReferenceClassificationForm(
-        request.POST if active_action == "update-classification" else None,
+        classification_data,
         initial=classification_initial,
     )
     draft_form = ReferenceSummaryDraftForm(
@@ -7001,6 +8313,17 @@ def reference_summary_detail(request, project_id, summary_id):
             messages.success(
                 request,
                 "New summary tab created for this reference. Use it for a distinct intervention or study summary.",
+            )
+            return redirect(
+                "synopsis:reference_summary_detail",
+                project_id=project.id,
+                summary_id=new_summary.id,
+            )
+        if action == "duplicate-summary-tab":
+            new_summary = _duplicate_reference_summary(summary, request.user)
+            messages.success(
+                request,
+                "Summary tab duplicated. Review the copied text and adjust it for the new intervention or study summary.",
             )
             return redirect(
                 "synopsis:reference_summary_detail",
@@ -7042,6 +8365,9 @@ def reference_summary_detail(request, project_id, summary_id):
                 summary_id=next_summary.id,
             )
         if action == "save-summary" and summary_form.is_valid():
+            previous_status = summary.status
+            previous_generated_summary = generated_summary.strip()
+            previous_saved_draft = (summary.synopsis_draft or "").strip()
             summary = summary_form.save(commit=False)
             if not summary.summary_author:
                 summary.summary_author = (
@@ -7050,7 +8376,30 @@ def reference_summary_detail(request, project_id, summary_id):
             summary.save()
             _sync_reference_summary_identifiers_for_reference(summary.reference, save=True)
             summary_form.save_m2m()
-            messages.success(request, "Summary updated.")
+            refreshed_saved_draft = False
+            if previous_saved_draft and previous_saved_draft == previous_generated_summary:
+                updated_generated_summary = _structured_summary_paragraph(summary).strip()
+                summary.synopsis_draft = updated_generated_summary
+                summary.save(update_fields=["synopsis_draft", "updated_at"])
+                refreshed_saved_draft = True
+            auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
+            if refreshed_saved_draft and auto_promoted:
+                messages.success(
+                    request,
+                    "Summary updated. Status moved to In progress automatically. The saved paragraph draft was refreshed automatically.",
+                )
+            elif refreshed_saved_draft:
+                messages.success(
+                    request,
+                    "Summary updated. The saved paragraph draft was refreshed automatically.",
+                )
+            elif auto_promoted:
+                messages.success(
+                    request,
+                    "Summary updated. Status moved to In progress automatically.",
+                )
+            else:
+                messages.success(request, "Summary updated.")
             return redirect(
                 "synopsis:reference_summary_detail",
                 project_id=project.id,
@@ -7069,14 +8418,22 @@ def reference_summary_detail(request, project_id, summary_id):
                 error_list.append("Unable to save summary. Please review your inputs.")
             messages.error(request, " ".join(error_list))
         if action == "save-synopsis-draft":
+            previous_status = summary.status
             draft_command = request.POST.get("draft_command") or "save"
             if draft_command == "use-generated":
                 summary.synopsis_draft = generated_summary
                 summary.save(update_fields=["synopsis_draft", "updated_at"])
-                messages.success(
-                    request,
-                    "Generated paragraph copied into the editable draft.",
-                )
+                auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
+                if auto_promoted:
+                    messages.success(
+                        request,
+                        "Generated paragraph copied into the editable draft. Status moved to In progress automatically.",
+                    )
+                else:
+                    messages.success(
+                        request,
+                        "Generated paragraph copied into the editable draft.",
+                    )
                 return redirect(
                     "synopsis:reference_summary_detail",
                     project_id=project.id,
@@ -7097,7 +8454,14 @@ def reference_summary_detail(request, project_id, summary_id):
             if draft_form.is_valid():
                 summary = draft_form.save(commit=False)
                 summary.save(update_fields=["synopsis_draft", "updated_at"])
-                messages.success(request, "Summary paragraph draft saved.")
+                auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
+                if auto_promoted:
+                    messages.success(
+                        request,
+                        "Summary paragraph draft saved. Status moved to In progress automatically.",
+                    )
+                else:
+                    messages.success(request, "Summary paragraph draft saved.")
                 return redirect(
                     "synopsis:reference_summary_detail",
                     project_id=project.id,
@@ -7107,11 +8471,13 @@ def reference_summary_detail(request, project_id, summary_id):
         if action == "update-classification" and classification_form.is_valid():
             reference = summary.reference
             previous_status = reference.screening_status
-            folders = classification_form.cleaned_data.get("reference_folder") or []
+            folders = normalize_reference_folder_values(
+                classification_form.cleaned_data.get("reference_folder") or []
+            )
             reference.screening_status = classification_form.cleaned_data[
                 "screening_status"
             ]
-            reference.reference_folder = [folder for folder in folders if folder]
+            reference.reference_folder = folders
             reference.screening_notes = (
                 classification_form.cleaned_data.get("screening_notes") or ""
             )
@@ -7127,33 +8493,53 @@ def reference_summary_detail(request, project_id, summary_id):
                     "updated_at",
                 ]
             )
+            shared_folder_changed = False
+            shared_synced_count = 0
+            if reference.library_reference_id:
+                (
+                    shared_folder_changed,
+                    shared_synced_count,
+                    _previous_shared_folders,
+                    _new_shared_folders,
+                ) = _update_shared_library_reference_folders(
+                    reference.library_reference,
+                    folders,
+                    changed_by=request.user,
+                    source_project=project,
+                    source_reference=reference,
+                    change_source="summary_reference_management",
+                )
 
             if reference.screening_status == "excluded":
                 removed_assignments = _remove_reference_from_synopsis(reference)
-                messages.success(
-                    request,
-                    "Reference excluded from this synopsis."
-                    + (
-                        f" Removed it from {removed_assignments} intervention assignment(s)."
-                        if removed_assignments
-                        else ""
-                    ),
-                )
+                message = "Reference excluded from this synopsis."
+                if removed_assignments:
+                    message += f" Removed it from {removed_assignments} intervention assignment(s)."
+                if shared_folder_changed:
+                    message += (
+                        f" Shared CE subject folders were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                    )
+                messages.success(request, message)
                 return redirect(
-                    f"{reverse('synopsis:reference_batch_detail', args=[project.id, reference.batch_id])}?focus=1&ref={reference.id}"
+                    f"{reverse('synopsis:reference_summary_detail', args=[project.id, summary.id])}?panel=management"
                 )
 
             if previous_status == "excluded":
-                messages.success(
-                    request,
-                    "Reference re-included in this synopsis. You can now continue summarising it.",
-                )
+                message = "Reference re-included in this synopsis. You can now continue summarising it."
+                if shared_folder_changed:
+                    message += (
+                        f" Shared CE subject folders were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                    )
+                messages.success(request, message)
             else:
-                messages.success(request, "Reference classification updated.")
+                message = "Reference classification updated."
+                if shared_folder_changed:
+                    message += (
+                        f" Shared CE subject folders were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                    )
+                messages.success(request, message)
             return redirect(
-                "synopsis:reference_summary_detail",
-                project_id=project.id,
-                summary_id=summary.id,
+                f"{reverse('synopsis:reference_summary_detail', args=[project.id, summary.id])}?panel=management"
             )
         if action == "assign" and assignment_form.is_valid():
             summary.assigned_to = assignment_form.cleaned_data["assigned_to"]
@@ -7191,13 +8577,55 @@ def reference_summary_detail(request, project_id, summary_id):
             else:
                 messages.error(request, "Could not add comment.")
         if action == "update-status":
+            previous_status = summary.status
             if request.POST.get("quick_done") == "1":
                 summary.status = ReferenceSummary.STATUS_DONE
             elif request.POST.get("status") in dict(ReferenceSummary.STATUS_CHOICES):
                 summary.status = request.POST.get("status")
+            exclusion_reason = (request.POST.get("exclusion_reason") or "").strip()
+            if summary.status == ReferenceSummary.STATUS_EXCLUDED and not exclusion_reason:
+                messages.error(
+                    request,
+                    "Provide a reason before excluding this summary after full-text review.",
+                )
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
             summary.needs_help = bool(request.POST.get("needs_help"))
-            summary.save(update_fields=["status", "needs_help", "updated_at"])
-            messages.success(request, "Status updated.")
+            summary.exclusion_reason = (
+                exclusion_reason
+                if summary.status == ReferenceSummary.STATUS_EXCLUDED
+                else summary.exclusion_reason
+            )
+            if (
+                summary.status == ReferenceSummary.STATUS_EXCLUDED
+                and previous_status != ReferenceSummary.STATUS_EXCLUDED
+            ):
+                removed_assignments = _remove_summary_from_synopsis(summary)
+            else:
+                removed_assignments = 0
+            summary.save(
+                update_fields=[
+                    "status",
+                    "needs_help",
+                    "exclusion_reason",
+                    "updated_at",
+                ]
+            )
+            if summary.status == ReferenceSummary.STATUS_EXCLUDED:
+                messages.success(
+                    request,
+                    "Summary excluded after full-text review."
+                    + (
+                        f" Removed it from {removed_assignments} intervention assignment(s)."
+                        if removed_assignments
+                        else ""
+                    ),
+                )
+            else:
+                messages.success(request, "Status updated.")
             return redirect(
                 "synopsis:reference_summary_detail",
                 project_id=project.id,
@@ -7313,6 +8741,13 @@ def reference_summary_detail(request, project_id, summary_id):
             "generated_summary": generated_summary,
             "current_summary_paragraph": current_summary_paragraph,
             "status_choices": ReferenceSummary.STATUS_CHOICES,
+            "all_summary_tabs_excluded": not summary.reference.summaries.exclude(
+                status=ReferenceSummary.STATUS_EXCLUDED
+            ).exists(),
+            "open_management_panel": (
+                request.GET.get("panel") == "management"
+                or bool(classification_form.errors)
+            ),
         },
     )
 
@@ -7613,6 +9048,28 @@ def _project_synopsis_workspace(
                 messages.success(request, "Intervention reordered.")
             else:
                 messages.info(request, "Already at the edge.")
+            return redirect(redirect_url)
+        elif action == "move-intervention-to-subheading":
+            intervention = _intervention_from_post()
+            old_subheading = intervention.subheading
+            target_subheading = get_object_or_404(
+                SynopsisSubheading,
+                pk=request.POST.get("target_subheading_id"),
+                chapter=old_subheading.chapter,
+                chapter__project=project,
+            )
+            if target_subheading.id == old_subheading.id:
+                messages.info(request, "Intervention is already in that group.")
+                return redirect(redirect_url)
+
+            intervention.subheading = target_subheading
+            intervention.position = _next_intervention_position(target_subheading)
+            intervention.save(update_fields=["subheading", "position", "updated_at"])
+            _resequence_intervention_positions(old_subheading)
+            _resequence_intervention_positions(target_subheading)
+            messages.success(
+                request, f"Moved intervention to “{target_subheading.title}”."
+            )
             return redirect(redirect_url)
         elif action == "delete-intervention":
             intervention = _intervention_from_post()
@@ -8001,6 +9458,14 @@ def _project_synopsis_workspace(
                         "paper_title": assignment.paper_title,
                         "summary_label": assignment.summary_label,
                         "summary_display": assignment.summary_display,
+                        "paragraph": _reference_summary_paragraph(
+                            assignment.reference_summary,
+                            reference_identifier_override=(
+                                str(assignment.ce_reference_number)
+                                if assignment.ce_reference_number
+                                else None
+                            ),
+                        ),
                     }
                     for assignment in assignments
                 ]
@@ -8463,6 +9928,58 @@ def reference_batch_detail(request, project_id, batch_id):
                     redirect_url = f"{redirect_url}?status={status_filter}"
                 return redirect(redirect_url)
 
+            if bulk_action == "save-folders":
+                folder = normalize_reference_folder_values(
+                    request.POST.getlist("reference_folder")
+                )
+                updated = 0
+                shared_updated = 0
+                synced_project_refs = 0
+                now = timezone.now()
+                for ref in batch.references.filter(pk__in=selected_ids):
+                    ref.reference_folder = folder
+                    ref.screening_decision_at = now
+                    if request.user.is_authenticated:
+                        ref.screened_by = request.user
+                    ref.save(
+                        update_fields=[
+                            "reference_folder",
+                            "screening_decision_at",
+                            "screened_by",
+                            "updated_at",
+                        ]
+                    )
+                    if ref.library_reference_id:
+                        changed, synced_count, _previous, _new = (
+                            _update_shared_library_reference_folders(
+                                ref.library_reference,
+                                folder,
+                                changed_by=request.user,
+                                source_project=project,
+                                source_reference=ref,
+                                change_source="screening_bulk_save_folders",
+                            )
+                        )
+                        if changed:
+                            shared_updated += 1
+                        synced_project_refs += synced_count
+                    updated += 1
+
+                message = f"Updated folders for {updated} reference(s)."
+                if shared_updated:
+                    message += (
+                        f" Updated the shared library folders for {shared_updated} linked reference(s)"
+                        f" and synced {synced_project_refs} linked synopsis copy/copies."
+                    )
+                messages.success(request, message)
+                redirect_url = reverse(
+                    "synopsis:reference_batch_detail",
+                    kwargs={"project_id": project.id, "batch_id": batch.id},
+                )
+                if status_filter in status_choices:
+                    redirect_url = f"{redirect_url}?status={status_filter}"
+                return redirect(redirect_url)
+
             action_map = {
                 "include": "included",
                 "exclude": "excluded",
@@ -8482,27 +9999,54 @@ def reference_batch_detail(request, project_id, batch_id):
 
             updated = 0
             now = timezone.now()
+            bulk_folder = normalize_reference_folder_values(
+                request.POST.getlist("reference_folder")
+            )
+            apply_bulk_folder = "reference_folder" in request.POST and bool(bulk_folder)
+            shared_updated = 0
+            synced_project_refs = 0
             for ref in batch.references.filter(pk__in=selected_ids):
                 ref.screening_status = new_status
                 ref.screening_decision_at = now
                 if request.user.is_authenticated:
                     ref.screened_by = request.user
-                ref.save(
-                    update_fields=[
-                        "screening_status",
-                        "screening_decision_at",
-                        "screened_by",
-                        "updated_at",
-                    ]
-                )
+                update_fields = [
+                    "screening_status",
+                    "screening_decision_at",
+                    "screened_by",
+                    "updated_at",
+                ]
+                if apply_bulk_folder:
+                    ref.reference_folder = bulk_folder
+                    update_fields.append("reference_folder")
+                ref.save(update_fields=update_fields)
+                if apply_bulk_folder and ref.library_reference_id:
+                    changed, synced_count, _previous, _new = (
+                        _update_shared_library_reference_folders(
+                            ref.library_reference,
+                            bulk_folder,
+                            changed_by=request.user,
+                            source_project=project,
+                            source_reference=ref,
+                            change_source=f"screening_bulk_{new_status}",
+                        )
+                    )
+                    if changed:
+                        shared_updated += 1
+                    synced_project_refs += synced_count
                 updated += 1
 
             if updated:
                 status_label = status_choices.get(new_status, new_status.title())
-                messages.success(
-                    request,
-                    f"Marked {updated} reference(s) as {status_label}.",
-                )
+                message = f"Marked {updated} reference(s) as {status_label}."
+                if apply_bulk_folder:
+                    message += " Applied the selected folders at the same time."
+                    if shared_updated:
+                        message += (
+                            f" Updated the shared library folders for {shared_updated} linked reference(s)"
+                            f" and synced {synced_project_refs} linked synopsis copy/copies."
+                        )
+                messages.success(request, message)
             else:
                 messages.info(request, "No references matched the selection.")
 
@@ -8529,8 +10073,9 @@ def reference_batch_detail(request, project_id, batch_id):
                 project=project,
             )
             status = form.cleaned_data["screening_status"]
-            raw_folder = form.cleaned_data.get("reference_folder") or []
-            folder = [value for value in raw_folder if value]
+            folder = normalize_reference_folder_values(
+                form.cleaned_data.get("reference_folder") or []
+            )
             ref.screening_status = status
             update_fields = [
                 "screening_status",
@@ -8547,10 +10092,23 @@ def reference_batch_detail(request, project_id, batch_id):
             ref.screening_decision_at = timezone.now()
             ref.screened_by = request.user
             ref.save(update_fields=update_fields)
-            messages.success(
-                request,
-                f"Updated screening status for '{ref.canonical.title[:80]}'.",
-            )
+            message = f"Updated screening status for '{ref.canonical.title[:80]}'."
+            if "reference_folder" in request.POST and ref.library_reference_id:
+                shared_changed, synced_count, _previous, _new = (
+                    _update_shared_library_reference_folders(
+                        ref.library_reference,
+                        folder,
+                        changed_by=request.user,
+                        source_project=project,
+                        source_reference=ref,
+                        change_source="screening_single",
+                    )
+                )
+                if shared_changed:
+                    message += (
+                        f" Shared CE subject folders were updated and synced to {synced_count} linked synopsis copy/copies."
+                    )
+            messages.success(request, message)
             redirect_params = []
             if status_filter:
                 redirect_params.append(("status", status_filter))
@@ -8564,6 +10122,8 @@ def reference_batch_detail(request, project_id, batch_id):
             )
             if redirect_params:
                 redirect_url = f"{redirect_url}?{urlencode(redirect_params)}"
+            if not is_focus_post:
+                redirect_url = f"{redirect_url}#ref-{ref.id}"
             return redirect(redirect_url)
         else:
             messages.error(
@@ -8883,7 +10443,9 @@ def reference_batch_upload(request, project_id):
                                 url=data["url"],
                                 language=data["language"],
                                 raw_ris=record,
-                                reference_folder=[],
+                                reference_folder=normalize_reference_folder_values(
+                                    library_ref.reference_folder
+                                ),
                             )
                             imported += 1
 
@@ -9166,6 +10728,7 @@ def advisory_invite_create(request, project_id, member_id=None):
                     request,
                     project,
                     CollaborativeSession.DOCUMENT_ACTION_LIST,
+                    inv,
                     member=member,
                 )
                 if collab_url:
@@ -9173,7 +10736,7 @@ def advisory_invite_create(request, project_id, member_id=None):
 
             text, html = _build_advisory_invitation_email(
                 project=project,
-                recipient_name=member.first_name if member else "",
+                recipient_name=advisory_member_display_name(member),
                 due_date=due_date,
                 yes_url=yes_url,
                 no_url=no_url,
@@ -9217,7 +10780,7 @@ def advisory_invite_create(request, project_id, member_id=None):
             "collaborative_available": collaborative_available,
             "default_invitation_message": default_advisory_invitation_message(),
             "preview_recipient_name": (
-                member.first_name if member and member.first_name else "colleague"
+                advisory_member_display_name(member)
             ),
             "preview_is_bulk": False,
         },
@@ -9231,36 +10794,14 @@ def advisory_invite_accept(request, token):
     New invites should use Yes/No links via advisory_invite_reply.
     """
     inv = get_object_or_404(AdvisoryBoardInvitation, token=token)
-    if inv.accepted is not True:
-        inv.accepted = True
-        inv.responded_at = timezone.now()
-        inv.save(update_fields=["accepted", "responded_at"])
-
-        if inv.member:
-            member = inv.member
-            member.response_date = timezone.localdate()
-            member.response = "Y"
-            member.participation_confirmed = True
-            member.participation_confirmed_at = timezone.now()
-            if not member.participation_statement:
-                member.participation_statement = (
-                    "Confirmed participation via legacy link"
-                )
-            member.save(
-                update_fields=[
-                    "response_date",
-                    "response",
-                    "participation_confirmed",
-                    "participation_confirmed_at",
-                    "participation_statement",
-                ]
-            )
-
-    return render(
-        request,
-        "synopsis/advisory_invite_accept.html",
-        {"project": inv.project, "invitation": inv},
+    _log_project_change(
+        inv.project,
+        request.user,
+        "Opened advisory invite link",
+        f"Source: legacy accept link | Email: {inv.email or '—'}",
     )
+    reply_url = reverse("synopsis:advisory_invite_reply", args=[str(inv.token), "yes"])
+    return redirect(f"{reply_url}?source=legacy_accept")
 
 
 def advisory_invite_reply(request, token, choice):
@@ -9276,6 +10817,7 @@ def advisory_invite_reply(request, token, choice):
 
     accepted = choice == "yes"
     member = inv.member
+    link_source = (request.GET.get("source") or "reply_link").strip() or "reply_link"
 
     if accepted:
         if member and member.participation_confirmed:
@@ -9283,6 +10825,12 @@ def advisory_invite_reply(request, token, choice):
                 inv.accepted = True
                 inv.responded_at = timezone.now()
                 inv.save(update_fields=["accepted", "responded_at"])
+            _log_project_change(
+                inv.project,
+                request.user,
+                "Opened advisory invite link",
+                f"Source: {link_source} | Choice: yes | Email: {inv.email or '—'} | Already confirmed: yes",
+            )
             return render(
                 request,
                 "synopsis/invite_thanks.html",
@@ -9290,6 +10838,13 @@ def advisory_invite_reply(request, token, choice):
             )
 
         form = ParticipationConfirmForm(request.POST or None)
+        if request.method != "POST":
+            _log_project_change(
+                inv.project,
+                request.user,
+                "Opened advisory invite link",
+                f"Source: {link_source} | Choice: yes | Email: {inv.email or '—'} | Showing participation form",
+            )
         if request.method == "POST":
             if form.is_valid():
                 statement = (form.cleaned_data.get("statement") or "").strip()
@@ -9330,6 +10885,12 @@ def advisory_invite_reply(request, token, choice):
                 inv.accepted = True
                 inv.responded_at = now
                 inv.save(update_fields=["accepted", "responded_at", "member"])
+                _log_project_change(
+                    inv.project,
+                    request.user,
+                    "Confirmed advisory participation",
+                    f"Source: {link_source} | Email: {inv.email or '—'}",
+                )
 
                 return render(
                     request,
@@ -9353,6 +10914,13 @@ def advisory_invite_reply(request, token, choice):
         )
 
     decline_form = ParticipationDeclineForm(request.POST or None)
+    if request.method != "POST":
+        _log_project_change(
+            inv.project,
+            request.user,
+            "Opened advisory invite link",
+            f"Source: {link_source} | Choice: no | Email: {inv.email or '—'} | Showing decline form",
+        )
 
     if request.method == "POST" and decline_form.is_valid():
         reason = (decline_form.cleaned_data.get("reason") or "").strip()
@@ -9374,6 +10942,12 @@ def advisory_invite_reply(request, token, choice):
         inv.accepted = False
         inv.responded_at = timezone.now()
         inv.save(update_fields=["accepted", "responded_at", "member"] if member else ["accepted", "responded_at"])
+        _log_project_change(
+            inv.project,
+            request.user,
+            "Declined advisory invitation",
+            f"Source: {link_source} | Email: {inv.email or '—'}",
+        )
 
         return render(
             request,
@@ -9437,7 +11011,7 @@ def send_advisory_invites(request, project_id):
         subject = email_subject("invite", project, m.response_date)
         text, html = _build_advisory_invitation_email(
             project=project,
-            recipient_name=m.first_name,
+            recipient_name="advisory board member",
             due_date=m.response_date,
             yes_url=yes_url,
             no_url=no_url,
@@ -9551,6 +11125,7 @@ def advisory_send_invites_bulk(request, project_id):
                     request,
                     project,
                     CollaborativeSession.DOCUMENT_ACTION_LIST,
+                    inv,
                     member=member,
                 )
                 if collab_url:
@@ -9558,7 +11133,7 @@ def advisory_send_invites_bulk(request, project_id):
 
             text, html = _build_advisory_invitation_email(
                 project=project,
-                recipient_name=member.first_name or "colleague",
+                recipient_name="advisory board member",
                 due_date=due_date,
                 yes_url=yes_url,
                 no_url=no_url,
@@ -9603,7 +11178,7 @@ def advisory_send_invites_bulk(request, project_id):
             "action_list_available": action_document_available,
             "collaborative_available": collaborative_available,
             "default_invitation_message": default_advisory_invitation_message(),
-            "preview_recipient_name": "colleague",
+            "preview_recipient_name": _invite_preview_recipient_name(project),
             "preview_is_bulk": True,
         },
     )
@@ -9625,7 +11200,7 @@ def send_protocol(request, project_id):
     subject = email_subject("protocol_review", project)
     for m in members:
         text = (
-            f"Dear {m.first_name or 'colleague'},\n\n"
+            "Dear advisory board member,\n\n"
             f"Please review the protocol{label_snippet} for '{project.title}':\n{proto_url}\n\n"
             f"Deadline for protocol feedback: "
             f"{_format_deadline(m.feedback_on_protocol_deadline)}\n"
@@ -9683,7 +11258,7 @@ def advisory_send_protocol_bulk(request, project_id):
     sent = 0
     for m in members:
         text = (
-            f"Dear {m.first_name or 'colleague'},\n\n"
+            "Dear advisory board member,\n\n"
             f"Please review the protocol{label_snippet} for '{project.title}':\n{proto_url}\n\n"
             f"Deadline for protocol feedback: "
             f"{_format_deadline(m.feedback_on_protocol_deadline)}\n"
@@ -9740,7 +11315,7 @@ def advisory_send_protocol_member(request, project_id, member_id):
     )
 
     text = (
-        f"Dear {m.first_name or 'colleague'},\n\n"
+        f"Dear {advisory_member_display_name(m)},\n\n"
         f"Please review the protocol{label_snippet} for '{project.title}':\n{proto_url}\n\n"
         f"Deadline for protocol feedback: {deadline_text}\n"
         f"Provide feedback: {feedback_url}\n"
@@ -9771,7 +11346,7 @@ def advisory_send_protocol_member(request, project_id, member_id):
         reply_to=reply_to_list(getattr(request.user, "email", None)),
     )
     html = (
-        f"<p>Dear {m.first_name or 'colleague'},</p>"
+        f"<p>Dear {html_lib.escape(advisory_member_display_name(m))},</p>"
         f"<p>Please review the protocol{label_snippet} for '<strong>{project.title}</strong>': "
         f"<a href='{proto_url}'>View document</a></p>"
         f"<p>Deadline for protocol feedback: {deadline_text}</p>"
@@ -9822,21 +11397,16 @@ def advisory_send_protocol_compose_all(request, project_id):
             document_available=protocol_document_available,
         )
         if form.is_valid():
-            members = (
-                AdvisoryBoardMember.objects.filter(
-                    project=project,
-                    response="Y",
-                    participation_confirmed=True,
-                )
-                .exclude(email__isnull=True)
-                .exclude(email__exact="")
-            )
+            members = _eligible_advisory_members(project)
             if not members:
                 messages.info(
                     request,
                     "No eligible members found. Only members who accepted and confirmed participation can receive the protocol.",
                 )
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
+            standard_message = _document_review_message(
+                "protocol", form.cleaned_data.get("standard_message")
+            )
             message_body = form.cleaned_data.get("message") or ""
             include_collab = collaborative_enabled and form.cleaned_data.get(
                 "include_collaborative_link"
@@ -9873,15 +11443,19 @@ def advisory_send_protocol_compose_all(request, project_id):
                     reverse("synopsis:protocol_feedback", args=[str(fb.token)])
                 )
                 subject = email_subject("protocol_review", project)
-                text = f"Dear {m.first_name or 'colleague'},\n\n"
-                html = f"<p>Dear {m.first_name or 'colleague'},</p>"
+                recipient_name = "advisory board member"
+                text = f"Dear {recipient_name},\n\n"
+                html = f"<p>Dear {html_lib.escape(recipient_name)},</p>"
+                if standard_message:
+                    text += f"{standard_message}\n\n"
+                    html += _html_message_blocks(standard_message)
                 if message_body:
                     text += f"{message_body}\n\n"
-                    html += f"<p>{message_body}</p>"
+                    html += _html_message_blocks(message_body)
                 if proto_url:
-                    text += f"Please review the protocol{label_snippet}: {proto_url}\n\n"
+                    text += f"Protocol document{label_snippet}: {proto_url}\n\n"
                     html += (
-                        "<p>Please review the protocol"
+                        "<p>Protocol document"
                         f"{label_snippet}: <a href='{proto_url}'>View document</a></p>"
                     )
                 elif proto_text:
@@ -9948,6 +11522,8 @@ def advisory_send_protocol_compose_all(request, project_id):
             "form": form,
             "scope": "all",
             "collaborative_available": collaborative_enabled,
+            "preview_recipient_name": _document_preview_recipient_name(project),
+            "preview_is_bulk": True,
         },
     )
 
@@ -9981,6 +11557,9 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             document_available=protocol_document_available,
         )
         if form.is_valid():
+            standard_message = _document_review_message(
+                "protocol", form.cleaned_data.get("standard_message")
+            )
             message_body = form.cleaned_data.get("message") or ""
             include_document = protocol_document_available and form.cleaned_data.get(
                 "include_protocol_document"
@@ -10002,11 +11581,15 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
                 reverse("synopsis:protocol_feedback", args=[str(fb.token)])
             )
             subject = email_subject("protocol_review", project)
-            text = f"Dear {m.first_name or 'colleague'},\n\n"
-            html = f"<p>Dear {m.first_name or 'colleague'},</p>"
+            recipient_name = advisory_member_display_name(m)
+            text = f"Dear {recipient_name},\n\n"
+            html = f"<p>Dear {html_lib.escape(recipient_name)},</p>"
+            if standard_message:
+                text += f"{standard_message}\n\n"
+                html += _html_message_blocks(standard_message)
             if message_body:
                 text += f"{message_body}\n\n"
-                html += f"<p>{message_body}</p>"
+                html += _html_message_blocks(message_body)
             proto_url = (
                 request.build_absolute_uri(proto_doc.url)
                 if include_document and proto_doc
@@ -10016,9 +11599,9 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             proto_label = _current_revision_label(proto)
             label_snippet = f" ({proto_label})" if proto_label else ""
             if proto_url:
-                text += f"Please review the protocol{label_snippet}: {proto_url}\n\n"
+                text += f"Protocol document{label_snippet}: {proto_url}\n\n"
                 html += (
-                    "<p>Please review the protocol"
+                    "<p>Protocol document"
                     f"{label_snippet}: <a href='{proto_url}'>View document</a></p>"
                 )
             elif proto_text:
@@ -10092,6 +11675,8 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             "scope": "member",
             "member": m,
             "collaborative_available": collaborative_enabled,
+            "preview_recipient_name": advisory_member_display_name(m),
+            "preview_is_bulk": False,
         },
     )
 
@@ -10117,21 +11702,16 @@ def advisory_send_action_list_compose_all(request, project_id):
             document_available=action_document_available,
         )
         if form.is_valid():
-            members = (
-                AdvisoryBoardMember.objects.filter(
-                    project=project,
-                    response="Y",
-                    participation_confirmed=True,
-                )
-                .exclude(email__isnull=True)
-                .exclude(email__exact="")
-            )
+            members = _eligible_advisory_members(project)
             if not members:
                 messages.info(
                     request,
                     "No eligible members found. Only members who accepted and confirmed participation can receive the action list.",
                 )
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
+            standard_message = _document_review_message(
+                "action_list", form.cleaned_data.get("standard_message")
+            )
             message_body = form.cleaned_data.get("message") or ""
             include_document = action_document_available and form.cleaned_data.get(
                 "include_action_list_document"
@@ -10166,15 +11746,19 @@ def advisory_send_action_list_compose_all(request, project_id):
                     reverse("synopsis:action_list_feedback", args=[str(fb.token)])
                 )
                 subject = email_subject("action_list_review", project)
-                text = f"Dear {m.first_name or 'colleague'},\n\n"
-                html = f"<p>Dear {m.first_name or 'colleague'},</p>"
+                recipient_name = "advisory board member"
+                text = f"Dear {recipient_name},\n\n"
+                html = f"<p>Dear {html_lib.escape(recipient_name)},</p>"
+                if standard_message:
+                    text += f"{standard_message}\n\n"
+                    html += _html_message_blocks(standard_message)
                 if message_body:
                     text += f"{message_body}\n\n"
-                    html += f"<p>{message_body}</p>"
+                    html += _html_message_blocks(message_body)
                 if doc_url:
-                    text += f"Please review the action list{label_snippet}: {doc_url}\n\n"
+                    text += f"Action list document{label_snippet}: {doc_url}\n\n"
                     html += (
-                        "<p>Please review the action list"
+                        "<p>Action list document"
                         f"{label_snippet}: <a href='{doc_url}'>View document</a></p>"
                     )
                 elif text_version:
@@ -10242,6 +11826,8 @@ def advisory_send_action_list_compose_all(request, project_id):
             "scope": "all",
             "member": None,
             "collaborative_available": collaborative_enabled,
+            "preview_recipient_name": _document_preview_recipient_name(project),
+            "preview_is_bulk": True,
         },
     )
 
@@ -10277,6 +11863,9 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             document_available=action_document_available,
         )
         if form.is_valid():
+            standard_message = _document_review_message(
+                "action_list", form.cleaned_data.get("standard_message")
+            )
             message_body = form.cleaned_data.get("message") or ""
             include_document = action_document_available and form.cleaned_data.get(
                 "include_action_list_document"
@@ -10303,13 +11892,15 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
                 reverse("synopsis:action_list_feedback", args=[str(fb.token)])
             )
             subject = email_subject("action_list_review", project)
-            text = f"Dear {member.first_name or 'colleague'},\n\n"
-            html = (
-                f"<p>Dear {member.first_name or 'colleague'},</p>"
-            )
+            recipient_name = advisory_member_display_name(member)
+            text = f"Dear {recipient_name},\n\n"
+            html = f"<p>Dear {html_lib.escape(recipient_name)},</p>"
+            if standard_message:
+                text += f"{standard_message}\n\n"
+                html += _html_message_blocks(standard_message)
             if message_body:
                 text += f"{message_body}\n\n"
-                html += f"<p>{message_body}</p>"
+                html += _html_message_blocks(message_body)
             doc_url = (
                 request.build_absolute_uri(action_list.document.url)
                 if include_document and action_document_available
@@ -10319,9 +11910,9 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             action_label = _current_revision_label(action_list)
             label_snippet = f" ({action_label})" if action_label else ""
             if doc_url:
-                text += f"Please review the action list{label_snippet}: {doc_url}\n\n"
+                text += f"Action list document{label_snippet}: {doc_url}\n\n"
                 html += (
-                    "<p>Please review the action list"
+                    "<p>Action list document"
                     f"{label_snippet}: <a href='{doc_url}'>View document</a></p>"
                 )
             elif text_version:
@@ -10393,6 +11984,273 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             "scope": "member",
             "member": member,
             "collaborative_available": collaborative_enabled,
+            "preview_recipient_name": advisory_member_display_name(member),
+            "preview_is_bulk": False,
+        },
+    )
+
+
+def _synopsis_export_attachment(project):
+    payload = _generate_synopsis_docx(project)
+    filename = slugify(f"{project.title}-synopsis").replace(" ", "-") + ".docx"
+    return (
+        filename,
+        payload,
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
+def _synopsis_send_attachment(form, project):
+    uploaded = form.cleaned_data.get("synopsis_document")
+    if uploaded:
+        uploaded.seek(0)
+        return (
+            os.path.basename(uploaded.name),
+            uploaded.read(),
+            uploaded.content_type or "application/octet-stream",
+        )
+    return _synopsis_export_attachment(project)
+
+
+def _send_synopsis_review_email(
+    request,
+    project,
+    member,
+    *,
+    standard_message="",
+    message_body="",
+    deadline=None,
+    attachment_filename=None,
+    attachment_payload=None,
+    attachment_content_type=None,
+    feedback_url="",
+    recipient_name=None,
+):
+    subject = email_subject("synopsis_review", project)
+    deadline_text = _format_deadline(deadline)
+    recipient_name = recipient_name or advisory_member_display_name(member)
+    text = f"Dear {recipient_name},\n\n"
+    html = f"<p>Dear {html_lib.escape(recipient_name)},</p>"
+    if standard_message:
+        text += f"{standard_message}\n\n"
+        html += _html_message_blocks(standard_message)
+    if message_body:
+        text += f"{message_body}\n\n"
+        html += _html_message_blocks(message_body)
+    text += f"Synopsis document for '{project.title}' is attached to this email.\n\n"
+    html += (
+        "<p>Synopsis document for "
+        f"'<strong>{project.title}</strong>' is attached to this email.</p>"
+    )
+    if deadline_text:
+        text += f"Deadline for synopsis feedback: {deadline_text}\n"
+        html += f"<p>Deadline for synopsis feedback: {deadline_text}</p>"
+    if feedback_url:
+        text += f"Provide feedback: {feedback_url}\n"
+        html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
+    else:
+        text += "\nPlease send your feedback to the synopsis author team.\n"
+        html += "<p>Please send your feedback to the synopsis author team.</p>"
+
+    msg = EmailMultiAlternatives(
+        subject,
+        text,
+        to=[member.email],
+        reply_to=reply_to_list(getattr(request.user, "email", None)),
+    )
+    msg.attach_alternative(html, "text/html")
+    if attachment_filename and attachment_payload:
+        msg.attach(
+            attachment_filename,
+            attachment_payload,
+            attachment_content_type or "application/octet-stream",
+        )
+    inviter_email = getattr(request.user, "email", None)
+    if inviter_email:
+        msg.extra_headers = msg.extra_headers or {}
+        msg.extra_headers["List-Unsubscribe"] = f"<mailto:{inviter_email}>"
+    msg.send()
+
+
+@login_required
+def advisory_send_synopsis_compose_all(request, project_id):
+    project = get_object_or_404(Project, id=project_id)
+    if request.method == "POST":
+        form = SynopsisSendForm(request.POST, request.FILES)
+        if form.is_valid():
+            members = _eligible_advisory_members(project)
+            if not members:
+                messages.info(
+                    request,
+                    "No eligible members found. Only members who accepted and confirmed participation can receive the synopsis.",
+                )
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
+            try:
+                (
+                    attachment_filename,
+                    attachment_payload,
+                    attachment_content_type,
+                ) = _synopsis_send_attachment(form, project)
+            except ImportError as exc:
+                messages.error(request, str(exc))
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+            standard_message = _document_review_message(
+                "synopsis", form.cleaned_data.get("standard_message")
+            )
+            message_body = form.cleaned_data.get("message") or ""
+            sent = 0
+            for member in members:
+                member_deadline = member.feedback_on_synopsis_deadline
+                deadline_changed = False
+                resolved_deadline = _resolve_document_feedback_deadline(
+                    form.cleaned_data.get("due_date"),
+                    current_deadline=member_deadline,
+                )
+                if member_deadline != resolved_deadline:
+                    member_deadline = resolved_deadline
+                    member.feedback_on_synopsis_deadline = resolved_deadline
+                    member.synopsis_reminder_sent = False
+                    member.synopsis_reminder_sent_at = None
+                    deadline_changed = True
+                fb = _create_synopsis_feedback(project, member=member, email=member.email)
+                feedback_url = request.build_absolute_uri(
+                    reverse("synopsis:synopsis_feedback", args=[str(fb.token)])
+                )
+
+                _send_synopsis_review_email(
+                    request,
+                    project,
+                    member,
+                    standard_message=standard_message,
+                    message_body=message_body,
+                    deadline=member_deadline,
+                    attachment_filename=attachment_filename,
+                    attachment_payload=attachment_payload,
+                    attachment_content_type=attachment_content_type,
+                    feedback_url=feedback_url,
+                    recipient_name="advisory board member",
+                )
+                member.sent_synopsis_at = timezone.now()
+                member.synopsis_reminder_sent = False
+                member.synopsis_reminder_sent_at = None
+                update_fields = [
+                    "sent_synopsis_at",
+                    "synopsis_reminder_sent",
+                    "synopsis_reminder_sent_at",
+                ]
+                if deadline_changed:
+                    update_fields.append("feedback_on_synopsis_deadline")
+                member.save(update_fields=update_fields)
+                sent += 1
+            messages.success(request, f"Sent synopsis to {sent} member(s).")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    else:
+        form = SynopsisSendForm(
+            initial={"due_date": _default_document_feedback_due_date()}
+        )
+    return render(
+        request,
+        "synopsis/synopsis_send_compose.html",
+        {
+            "project": project,
+            "form": form,
+            "scope": "all",
+            "member": None,
+            "preview_recipient_name": _document_preview_recipient_name(project),
+            "preview_is_bulk": True,
+        },
+    )
+
+
+@login_required
+def advisory_send_synopsis_compose_member(request, project_id, member_id):
+    project = get_object_or_404(Project, id=project_id)
+    member = get_object_or_404(AdvisoryBoardMember, id=member_id, project=project)
+    if not member.email:
+        messages.error(request, "This member has no email.")
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+    if member.response != "Y" or not member.participation_confirmed:
+        messages.error(
+            request,
+            "This member has not accepted the invitation or has declined participation.",
+        )
+        return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+    if request.method == "POST":
+        form = SynopsisSendForm(request.POST, request.FILES)
+        if form.is_valid():
+            try:
+                (
+                    attachment_filename,
+                    attachment_payload,
+                    attachment_content_type,
+                ) = _synopsis_send_attachment(form, project)
+            except ImportError as exc:
+                messages.error(request, str(exc))
+                return redirect("synopsis:advisory_board_list", project_id=project.id)
+
+            member_deadline = member.feedback_on_synopsis_deadline
+            deadline_changed = False
+            resolved_deadline = _resolve_document_feedback_deadline(
+                form.cleaned_data.get("due_date"),
+                current_deadline=member_deadline,
+            )
+            if member_deadline != resolved_deadline:
+                member_deadline = resolved_deadline
+                member.feedback_on_synopsis_deadline = resolved_deadline
+                member.synopsis_reminder_sent = False
+                member.synopsis_reminder_sent_at = None
+                deadline_changed = True
+            fb = _create_synopsis_feedback(project, member=member, email=member.email)
+            feedback_url = request.build_absolute_uri(
+                reverse("synopsis:synopsis_feedback", args=[str(fb.token)])
+            )
+
+            _send_synopsis_review_email(
+                request,
+                project,
+                member,
+                standard_message=_document_review_message(
+                    "synopsis", form.cleaned_data.get("standard_message")
+                ),
+                message_body=form.cleaned_data.get("message") or "",
+                deadline=member_deadline,
+                attachment_filename=attachment_filename,
+                attachment_payload=attachment_payload,
+                attachment_content_type=attachment_content_type,
+                feedback_url=feedback_url,
+            )
+            member.sent_synopsis_at = timezone.now()
+            member.synopsis_reminder_sent = False
+            member.synopsis_reminder_sent_at = None
+            update_fields = [
+                "sent_synopsis_at",
+                "synopsis_reminder_sent",
+                "synopsis_reminder_sent_at",
+            ]
+            if deadline_changed:
+                update_fields.append("feedback_on_synopsis_deadline")
+            member.save(update_fields=update_fields)
+            messages.success(request, f"Sent synopsis to {member.email}.")
+            return redirect("synopsis:advisory_board_list", project_id=project.id)
+    else:
+        if member.feedback_on_synopsis_deadline:
+            local_deadline = timezone.localtime(member.feedback_on_synopsis_deadline)
+            deadline_initial = local_deadline.date()
+        else:
+            deadline_initial = _default_document_feedback_due_date()
+        form = SynopsisSendForm(initial={"due_date": deadline_initial})
+    return render(
+        request,
+        "synopsis/synopsis_send_compose.html",
+        {
+            "project": project,
+            "form": form,
+            "scope": "member",
+            "member": member,
+            "preview_recipient_name": advisory_member_display_name(member),
+            "preview_is_bulk": False,
         },
     )
 
@@ -10752,6 +12610,116 @@ def action_list_feedback(request, token):
     )
 
 
+def synopsis_feedback(request, token):
+    fb = get_object_or_404(SynopsisFeedback, token=token)
+    member = fb.member
+    project = fb.project
+
+    deadline = fb.feedback_deadline_at
+    if member and member.feedback_on_synopsis_deadline:
+        deadline = member.feedback_on_synopsis_deadline
+        if fb.feedback_deadline_at != deadline:
+            fb.feedback_deadline_at = deadline
+            fb.save(update_fields=["feedback_deadline_at"])
+    if member and member.response != "Y":
+        if fb.feedback_deadline_at:
+            fb.feedback_deadline_at = None
+            fb.save(update_fields=["feedback_deadline_at"])
+        deadline = None
+    now = timezone.now()
+
+    if member and member.response == "N":
+        return render(
+            request,
+            "synopsis/synopsis_feedback_thanks.html",
+            {
+                "project": project,
+                "error": "This link is no longer available because you declined the invitation.",
+            },
+        )
+
+    if deadline and now >= deadline:
+        closure_message = (
+            "The feedback deadline has passed (" f"{_format_deadline(deadline)})."
+        )
+        return render(
+            request,
+            "synopsis/synopsis_feedback_thanks.html",
+            {
+                "project": project,
+                "feedback": fb,
+                "closed_message": closure_message,
+                "deadline": deadline,
+                "closed": True,
+            },
+        )
+
+    if request.method == "POST":
+        form = SynopsisFeedbackForm(request.POST, request.FILES)
+        if form.is_valid():
+            content = form.cleaned_data["content"].strip()
+            uploaded_doc = form.cleaned_data["uploaded_document"]
+            updates = []
+            if content:
+                fb.content = content
+                updates.append("content")
+            if uploaded_doc:
+                fb.uploaded_document = uploaded_doc
+                updates.append("uploaded_document")
+            if updates:
+                fb.submitted_at = timezone.now()
+                updates.append("submitted_at")
+                fb.save(update_fields=updates)
+
+                if member:
+                    member_updates = set()
+                    today = timezone.localdate()
+                    if member.feedback_on_synopsis_received != today:
+                        member.feedback_on_synopsis_received = today
+                        member_updates.add("feedback_on_synopsis_received")
+                    if member_updates:
+                        member.save(update_fields=list(member_updates))
+
+                details = []
+                if uploaded_doc:
+                    details.append(
+                        f"Document uploaded: {fb.latest_document_label or uploaded_doc.name}"
+                    )
+                if content:
+                    snippet = (content[:97] + "…") if len(content) > 100 else content
+                    details.append(f"Comments provided: {snippet}")
+                if details:
+                    _log_project_change(
+                        project,
+                        request.user,
+                        "Synopsis feedback submitted",
+                        " | ".join(details),
+                    )
+            return render(
+                request,
+                "synopsis/synopsis_feedback_thanks.html",
+                {
+                    "project": project,
+                    "feedback": fb,
+                    "deadline": deadline,
+                },
+            )
+    else:
+        form = SynopsisFeedbackForm(initial={"content": fb.content})
+
+    return render(
+        request,
+        "synopsis/synopsis_feedback_form.html",
+        {
+            "project": project,
+            "token": fb.token,
+            "feedback": fb,
+            "deadline": deadline,
+            "form": form,
+        },
+    )
+
+
 @login_required
 def action_list_delete_revision(request, project_id, revision_id):
     if request.method != "POST":
@@ -10844,7 +12812,7 @@ def advisory_send_invite_member(request, project_id, member_id):
     subject = email_subject("invite", project, due_date)
     text, html = _build_advisory_invitation_email(
         project=project,
-        recipient_name=m.first_name or "colleague",
+        recipient_name=advisory_member_display_name(m),
         due_date=due_date,
         yes_url=yes_url,
         no_url=no_url,

@@ -4,7 +4,7 @@ from django.utils import timezone
 from datetime import timedelta
 from synopsis.models import AdvisoryBoardMember
 from django.core.mail import EmailMultiAlternatives
-from synopsis.utils import email_subject, reply_to_list
+from synopsis.utils import advisory_member_display_name, email_subject, reply_to_list
 
 # TODO: #26 Need to consider using a library for business days calculations if there are any for send_due_reminders.py. Also, need to handle holidays and abroad if applicable.
 
@@ -65,7 +65,7 @@ class Command(BaseCommand):
         for m in to_remind:
             subj = email_subject("invite_reminder", m.project, m.response_date)
             body = (
-                f"Dear {m.first_name or 'colleague'},\n\n"
+                f"Dear {advisory_member_display_name(m)},\n\n"
                 f"This is a reminder that your response for '{m.project.title}' is due by "
                 f"{m.response_date.strftime('%d %b %Y')}.\n\nThank you."
             )
@@ -95,7 +95,7 @@ class Command(BaseCommand):
                 "protocol_reminder", m.project, m.feedback_on_protocol_deadline
             )
             body = (
-                f"Dear {m.first_name or 'colleague'},\n\n"
+                f"Dear {advisory_member_display_name(m)},\n\n"
                 f"A reminder that protocol feedback for '{m.project.title}' is due by "
                 f"{format_deadline(m.feedback_on_protocol_deadline)}.\n\nThank you."
             )
@@ -127,7 +127,7 @@ class Command(BaseCommand):
                 "action_list_reminder", m.project, m.feedback_on_action_list_deadline
             )
             body = (
-                f"Dear {m.first_name or 'colleague'},\n\n"
+                f"Dear {advisory_member_display_name(m)},\n\n"
                 f"A reminder that action list feedback for '{m.project.title}' is due by "
                 f"{format_deadline(m.feedback_on_action_list_deadline)}.\n\nThank you."
             )
@@ -143,12 +143,48 @@ class Command(BaseCommand):
                     "action_list_reminder_sent_at",
                 ]
             )
+        synopsis_qs = AdvisoryBoardMember.objects.filter(
+            sent_synopsis_at__isnull=False,
+            feedback_on_synopsis_deadline__isnull=False,
+            synopsis_reminder_sent=False,
+            response="Y",
+        )
+        synopsis_qs = synopsis_qs.filter(feedback_on_synopsis_received__isnull=True)
+        synopsis_to_remind = []
+        for m in synopsis_qs:
+            deadline = m.feedback_on_synopsis_deadline
+            if not deadline:
+                continue
+            if minus_business_days(deadline, lead_days) == today:
+                synopsis_to_remind.append(m)
+        for m in synopsis_to_remind:
+            subj = email_subject(
+                "synopsis_reminder", m.project, m.feedback_on_synopsis_deadline
+            )
+            body = (
+                f"Dear {advisory_member_display_name(m)},\n\n"
+                f"A reminder that synopsis feedback for '{m.project.title}' is due by "
+                f"{format_deadline(m.feedback_on_synopsis_deadline)}.\n\nThank you."
+            )
+            msg = EmailMultiAlternatives(
+                subj, body, to=[m.email], reply_to=reply_to_list(None)
+            )
+            msg.send()
+            m.synopsis_reminder_sent = True
+            m.synopsis_reminder_sent_at = timezone.now()
+            m.save(
+                update_fields=[
+                    "synopsis_reminder_sent",
+                    "synopsis_reminder_sent_at",
+                ]
+            )
         self.stdout.write(
             self.style.SUCCESS(
                 (
                     f"Reminders sent: invites={len(to_remind)}, "
                     f"protocol={len(proto_to_remind)}, "
-                    f"action_list={len(action_to_remind)}"
+                    f"action_list={len(action_to_remind)}, "
+                    f"synopsis={len(synopsis_to_remind)}"
                 )
             )
         )

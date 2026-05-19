@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 import importlib.util
 import os
+import subprocess
 from pathlib import Path
 from decouple import AutoConfig, Config, RepositoryEnv, UndefinedValueError, strtobool
 
@@ -85,6 +86,39 @@ def _bool_config(name: str, default: bool = False, fallback_names: tuple[str, ..
         return config(name, cast=bool, default=default)
     except (UndefinedValueError, ValueError):
         return default
+
+
+def _git_release_label() -> str:
+    if not (REPO_ROOT / ".git").exists():
+        return ""
+
+    try:
+        branch = subprocess.check_output(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        short_sha = subprocess.check_output(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+    if not short_sha:
+        return ""
+    if branch and branch != "HEAD":
+        return f"{branch}@{short_sha}"
+    return short_sha
+
+
+def _release_label_file() -> str:
+    release_path = REPO_ROOT / ".release-label"
+    try:
+        return release_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 # Quick-start development settings - unsuitable for production
@@ -227,10 +261,13 @@ MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 SERVE_MEDIA = config("SERVE_MEDIA", cast=bool, default=False)
 
-EMAIL_BACKEND = config(
-    "EMAIL_BACKEND",
-    default="django.core.mail.backends.console.EmailBackend",
-)
+DEFAULT_CONSOLE_EMAIL_BACKEND = "synopsis.email_backends.AttachmentSummaryConsoleEmailBackend"
+EMAIL_BACKEND = config("EMAIL_BACKEND", default=DEFAULT_CONSOLE_EMAIL_BACKEND)
+if (
+    EMAIL_BACKEND == "django.core.mail.backends.console.EmailBackend"
+    and not config("EMAIL_CONSOLE_PRINT_RAW_ATTACHMENTS", cast=bool, default=False)
+):
+    EMAIL_BACKEND = DEFAULT_CONSOLE_EMAIL_BACKEND
 EMAIL_HOST = config("EMAIL_HOST", default="localhost")
 EMAIL_PORT = config("EMAIL_PORT", cast=int, default=25)
 EMAIL_HOST_USER = config("EMAIL_HOST_USER", default="")
@@ -243,6 +280,12 @@ DEFAULT_FROM_EMAIL = config(
     default="CE Synopsis Portal <ce-portal@localhost>",
 )
 SERVER_EMAIL = config("SERVER_EMAIL", default=DEFAULT_FROM_EMAIL)
+APP_RELEASE_LABEL = (
+    _release_label_file()
+    or config("APP_RELEASE_LABEL", default="").strip()
+    or _git_release_label()
+    or "unlabelled build"
+)
 
 USE_X_FORWARDED_HOST = config("USE_X_FORWARDED_HOST", cast=bool, default=False)
 USE_X_FORWARDED_PORT = config("USE_X_FORWARDED_PORT", cast=bool, default=False)
