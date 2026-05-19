@@ -1717,6 +1717,7 @@
 
 {% if action_list_feedback_members %}
     {% for action_feedback_member in action_list_feedback_members %}
+        {% with feedback=action_feedback_member.latest_action_list_feedback_obj %}
     <div class="modal fade" id="action-list-feedback-{{ action_feedback_member.id }}" tabindex="-1" aria-labelledby="action-list-feedback-{{ action_feedback_member.id }}-label" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content">
@@ -1725,7 +1726,6 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body text-start">
-                    {% with feedback=action_feedback_member.latest_action_list_feedback_obj %}
                     {% if feedback.submitted_at %}
                     <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
                     {% endif %}
@@ -1749,7 +1749,6 @@
                             {% endif %}
                         </div>
                     </div>
-                    {% endwith %}
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -1757,12 +1756,6 @@
             </div>
         </div>
     </div>
-    {% endfor %}
-{% endif %}
-
-{% if action_list_feedback_members %}
-    {% for action_feedback_member in action_list_feedback_members %}
-        {% with feedback=action_feedback_member.latest_action_list_feedback_obj %}
             {% if feedback.uploaded_document %}
     <div class="modal fade" id="action-list-feedback-document-{{ action_feedback_member.id }}" tabindex="-1" aria-labelledby="action-list-feedback-document-{{ action_feedback_member.id }}-label" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
@@ -1794,6 +1787,7 @@
 
 {% if protocol_feedback_members %}
     {% for protocol_feedback_member in protocol_feedback_members %}
+        {% with feedback=protocol_feedback_member.latest_feedback %}
     <div class="modal fade" id="protocol-feedback-{{ protocol_feedback_member.id }}" tabindex="-1" aria-labelledby="protocol-feedback-{{ protocol_feedback_member.id }}-label" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-lg">
             <div class="modal-content">
@@ -1802,7 +1796,6 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body text-start">
-                    {% with feedback=protocol_feedback_member.latest_feedback %}
                     {% if feedback.submitted_at %}
                     <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
                     {% endif %}
@@ -1826,7 +1819,6 @@
                             {% endif %}
                         </div>
                     </div>
-                    {% endwith %}
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -1834,12 +1826,6 @@
             </div>
         </div>
     </div>
-    {% endfor %}
-{% endif %}
-
-{% if protocol_feedback_members %}
-    {% for protocol_feedback_member in protocol_feedback_members %}
-        {% with feedback=protocol_feedback_member.latest_feedback %}
             {% if feedback.uploaded_document %}
     <div class="modal fade" id="protocol-feedback-document-{{ protocol_feedback_member.id }}" tabindex="-1" aria-labelledby="protocol-feedback-document-{{ protocol_feedback_member.id }}-label" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
