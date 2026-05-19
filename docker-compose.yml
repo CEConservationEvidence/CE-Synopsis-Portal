@@ -42,20 +42,6 @@ services:
       ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-change-me}
       ONLYOFFICE_CALLBACK_TIMEOUT: ${ONLYOFFICE_CALLBACK_TIMEOUT:-10}
       ONLYOFFICE_TRUSTED_DOWNLOAD_URLS: ${ONLYOFFICE_TRUSTED_DOWNLOAD_URLS:-}
-    command:
-      - sh
-      - -c
-      - >
-        exec gunicorn ce_portal.wsgi:application
-        --bind 0.0.0.0:8000
-        --worker-class gthread
-        --workers "$${GUNICORN_WORKERS:-3}"
-        --threads "$${GUNICORN_THREADS:-8}"
-        --timeout "$${GUNICORN_TIMEOUT:-300}"
-        --graceful-timeout "$${GUNICORN_GRACEFUL_TIMEOUT:-30}"
-        --keep-alive "$${GUNICORN_KEEP_ALIVE:-5}"
-        --access-logfile -
-        --error-logfile -
     ports:
       - "${WEB_BIND_HOST:-0.0.0.0}:${WEB_PORT:-8000}:8000"
     volumes:

@@ -38,4 +38,18 @@ PY
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 
+if [ "$#" -eq 0 ]; then
+    set -- \
+        gunicorn ce_portal.wsgi:application \
+        --bind 0.0.0.0:8000 \
+        --worker-class gthread \
+        --workers "${GUNICORN_WORKERS:-3}" \
+        --threads "${GUNICORN_THREADS:-8}" \
+        --timeout "${GUNICORN_TIMEOUT:-300}" \
+        --graceful-timeout "${GUNICORN_GRACEFUL_TIMEOUT:-30}" \
+        --keep-alive "${GUNICORN_KEEP_ALIVE:-5}" \
+        --access-logfile - \
+        --error-logfile -
+fi
+
 exec "$@"
