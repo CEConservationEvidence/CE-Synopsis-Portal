@@ -16,9 +16,12 @@
                     {% block nav_actions %}
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:dashboard' %}">Home</a>
                     {% if user.is_authenticated %}
-                    {# TODO: #85 keep Reference Database entry points restricted to authenticated users. #}
+                    {% if nav_can_manage_library %}
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:reference_library' %}">Reference Database</a>
+                    {% endif %}
+                    {% if nav_can_create_project %}
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:project_create' %}">Create New Synopsis</a>
+                    {% endif %}
                     {% if user.is_staff %}
                     <a class="btn btn-warning btn-sm" href="{% url 'synopsis:manager_dashboard' %}">Manager</a>
                     {% endif %}

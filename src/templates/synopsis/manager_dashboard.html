@@ -84,23 +84,48 @@
                     <tr>
                         <th>Name</th>
                         <th>Email</th>
-                        <th>Groups (Global Roles)</th>
-                        <th>Staff?</th>
+                        <th>Global role</th>
+                        <th>Status</th>
+                        <th>Access</th>
+                        <th>Manage</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for u in users %}
+                    {% for entry in user_entries %}
+                    {% with u=entry.user %}
                     <tr>
                         <td>{{ u.get_full_name|default:u.username }}</td>
-                        <td>{{ u.email }}</td>
                         <td>
-                            {% for g in u.groups.all %}
-                            <span class="badge bg-secondary">{{ g.name }}</span>
-                            {% empty %}
-                            <span class="text-muted">—</span>
-                            {% endfor %}
+                            <div>{{ u.email|default:u.username }}</div>
+                            <div class="small text-muted">Login: {{ u.username }}</div>
                         </td>
-                        <td>{% if u.is_staff %}Yes{% else %}No{% endif %}</td>
+                        <td>
+                            <span class="badge {% if entry.global_role == 'manager' %}text-bg-warning{% elif entry.global_role == 'external_collaborator' %}text-bg-info{% elif entry.global_role == 'system_admin' %}text-bg-dark{% else %}text-bg-secondary{% endif %}">
+                                {{ entry.global_role_label }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge {% if u.is_active %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+                                {{ entry.status_label }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge {% if entry.password_state == 'Password set' %}text-bg-success{% else %}text-bg-warning text-dark{% endif %}">
+                                {{ entry.password_state }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if entry.is_protected %}
+                            <span class="text-muted small">Protected</span>
+                            {% else %}
+                            <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:manager_user_edit' u.id %}">Manage user</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endwith %}
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-muted text-center">No users yet.</td>
                     </tr>
                     {% endfor %}
                 </tbody>

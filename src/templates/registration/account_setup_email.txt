@@ -1,0 +1,13 @@
+Hello{% if user.first_name %} {{ user.first_name }}{% endif %},
+
+An account has been created for you on the CE Synopsis Portal.
+
+Set your password:
+{{ reset_url }}
+
+After that, sign in here:
+{{ login_url }}
+
+If you were not expecting this email, please contact the project manager.
+
+CE Synopsis Portal

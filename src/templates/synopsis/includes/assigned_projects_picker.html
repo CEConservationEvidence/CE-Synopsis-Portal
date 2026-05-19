@@ -1,0 +1,19 @@
+<div class="border rounded bg-light-subtle">
+    {% if intro_text %}
+    <div class="px-3 py-2 border-bottom small text-muted">
+        {{ intro_text }}
+    </div>
+    {% endif %}
+    {% if field.field.queryset %}
+    <div class="list-group list-group-flush overflow-auto" style="max-height: 18rem;">
+        {% for option in field %}
+        <label class="list-group-item d-flex align-items-start gap-2 py-2">
+            <span class="pt-1">{{ option.tag }}</span>
+            <span class="small">{{ option.choice_label }}</span>
+        </label>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="p-3 text-muted small">No synopses available yet.</div>
+    {% endif %}
+</div>
