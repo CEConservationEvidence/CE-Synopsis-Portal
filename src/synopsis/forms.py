@@ -2,6 +2,11 @@ import re
 
 from django import forms
 from django.conf import settings
+from django.contrib.auth.forms import (
+    AuthenticationForm,
+    PasswordResetForm,
+    SetPasswordForm,
+)
 from django.contrib.auth.models import User
 from django.core.validators import FileExtensionValidator
 from django.forms.models import BaseInlineFormSet, inlineformset_factory
@@ -303,7 +308,7 @@ GLOBAL_ROLE_CHOICES = [
     ("author", "Author"),
     (
         "external_collaborator",
-        "External Collaborator",
+        "External Author",
     ),
     ("manager", "Manager"),
 ]
@@ -391,12 +396,188 @@ class CreateUserForm(forms.Form):
     first_name = forms.CharField(max_length=150)
     last_name = forms.CharField(max_length=150, required=False)
     email = forms.EmailField(help_text="Used as the username")
-    password = forms.CharField(
-        max_length=128, required=False, widget=forms.PasswordInput
-    )
     global_role = forms.ChoiceField(
         choices=GLOBAL_ROLE_CHOICES, help_text="Global role (not tied to a project)"
     )
+    assigned_projects = forms.ModelMultipleChoiceField(
+        queryset=Project.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple(
+            attrs={"class": "form-check-input"}
+        ),
+        label="Assigned synopses",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["first_name"].widget.attrs.update(
+            {"class": "form-control", "autocomplete": "given-name"}
+        )
+        self.fields["last_name"].widget.attrs.update(
+            {"class": "form-control", "autocomplete": "family-name"}
+        )
+        self.fields["email"].widget.attrs.update(
+            {"class": "form-control", "autocomplete": "email"}
+        )
+        self.fields["global_role"].widget.attrs.update({"class": "form-select"})
+        self.fields["email"].help_text = (
+            "This will be the login email and username."
+        )
+        self.fields["global_role"].help_text = (
+            "Managers can access the manager dashboard. Authors use project-level roles."
+        )
+        self.fields["assigned_projects"].queryset = Project.objects.order_by("title")
+        self.fields["assigned_projects"].label_from_instance = (
+            lambda project: project.title
+        )
+        self.fields["assigned_projects"].help_text = (
+            "Optional. For external authors, these are the only synopses they can see on their home page and open directly."
+        )
+
+    def clean_email(self):
+        return self.cleaned_data["email"].strip().lower()
+
+
+class ManagerUserUpdateForm(forms.Form):
+    first_name = forms.CharField(max_length=150)
+    last_name = forms.CharField(max_length=150, required=False)
+    email = forms.EmailField(help_text="This will be the login email and username.")
+    global_role = forms.ChoiceField(choices=GLOBAL_ROLE_CHOICES)
+    is_active = forms.BooleanField(required=False, label="Account is active")
+    assigned_projects = forms.ModelMultipleChoiceField(
+        queryset=Project.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple(
+            attrs={"class": "form-check-input"}
+        ),
+        label="Assigned synopses",
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.fields["first_name"].widget.attrs.update(
+            {"class": "form-control", "autocomplete": "given-name"}
+        )
+        self.fields["last_name"].widget.attrs.update(
+            {"class": "form-control", "autocomplete": "family-name"}
+        )
+        self.fields["email"].widget.attrs.update(
+            {"class": "form-control", "autocomplete": "email"}
+        )
+        self.fields["global_role"].widget.attrs.update({"class": "form-select"})
+        self.fields["is_active"].widget.attrs.update({"class": "form-check-input"})
+        self.fields["global_role"].help_text = (
+            "This controls the user’s global portal access level."
+        )
+        self.fields["assigned_projects"].queryset = Project.objects.order_by("title")
+        self.fields["assigned_projects"].label_from_instance = (
+            lambda project: project.title
+        )
+        self.fields["assigned_projects"].help_text = (
+            "These synopses are assigned to this user as an author. For external authors, only these synopses appear on the dashboard and can be opened."
+        )
+        if self.user is not None and not self.is_bound:
+            self.initial["assigned_projects"] = UserRole.objects.filter(
+                user=self.user, role="author"
+            ).values_list("project_id", flat=True)
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].strip().lower()
+        if not email:
+            return email
+        qs = User.objects.filter(email__iexact=email) | User.objects.filter(
+            username__iexact=email
+        )
+        if self.user is not None:
+            qs = qs.exclude(pk=self.user.pk)
+        if qs.exists():
+            raise forms.ValidationError("A user with that email already exists.")
+        return email
+
+
+class ManagerUserDeleteForm(forms.Form):
+    confirm_email = forms.EmailField(
+        label="Type the account email to confirm deletion"
+    )
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.user = user
+        self.fields["confirm_email"].widget.attrs.update(
+            {"class": "form-control", "autocomplete": "off"}
+        )
+
+    def clean_confirm_email(self):
+        value = self.cleaned_data["confirm_email"].strip().lower()
+        if self.user is None:
+            return value
+        expected = (self.user.email or self.user.username or "").strip().lower()
+        if value != expected:
+            raise forms.ValidationError("Enter the exact account email to confirm deletion.")
+        return value
+
+
+class PortalAuthenticationForm(AuthenticationForm):
+    username = forms.CharField(
+        label="Email or username",
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "autocomplete": "username",
+                "autofocus": True,
+            }
+        ),
+    )
+    password = forms.CharField(
+        label="Password",
+        strip=False,
+        widget=forms.PasswordInput(
+            attrs={"class": "form-control", "autocomplete": "current-password"}
+        ),
+    )
+    remember_me = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="Keep me signed in on this device",
+    )
+
+    error_messages = {
+        "invalid_login": "Enter a correct email and password.",
+        "inactive": "This account is inactive.",
+    }
+
+    def __init__(self, request=None, *args, **kwargs):
+        super().__init__(request=request, *args, **kwargs)
+        self.fields["remember_me"].widget.attrs.update({"class": "form-check-input"})
+
+    def clean_username(self):
+        value = (self.cleaned_data.get("username") or "").strip()
+        return value.lower() if "@" in value else value
+
+
+class PortalPasswordResetForm(PasswordResetForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["email"].widget.attrs.update(
+            {"class": "form-control", "autocomplete": "email"}
+        )
+
+
+class PortalSetPasswordForm(SetPasswordForm):
+    error_messages = {
+        **SetPasswordForm.error_messages,
+        "password_mismatch": "The two password fields did not match.",
+    }
+
+    def __init__(self, user, *args, **kwargs):
+        super().__init__(user, *args, **kwargs)
+        self.fields["new_password1"].widget.attrs.update(
+            {"class": "form-control", "autocomplete": "new-password"}
+        )
+        self.fields["new_password2"].widget.attrs.update(
+            {"class": "form-control", "autocomplete": "new-password"}
+        )
 
 
 class AssignRoleForm(forms.Form):

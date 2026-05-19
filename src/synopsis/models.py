@@ -323,7 +323,7 @@ class UserRole(models.Model):
         ("advisory_board", "Advisory Board Member"),
         (
             "external_collaborator",
-            "External Collaborator",
+            "External Author",
         ),
     ]
 
