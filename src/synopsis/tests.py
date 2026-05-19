@@ -6845,6 +6845,7 @@ class ReferenceSummaryFormTests(TestCase):
 class ReferenceSummaryDetailViewTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="author", password="pass123")
+        self.viewer = User.objects.create_user(username="viewer", password="pass123")
         self.project = Project.objects.create(title="Coral Reefs Synopsis")
         UserRole.objects.create(user=self.user, project=self.project, role="author")
         self.batch = ReferenceSourceBatch.objects.create(
@@ -6862,6 +6863,39 @@ class ReferenceSummaryDetailViewTests(TestCase):
             project=self.project,
             reference=self.reference,
             status=ReferenceSummary.STATUS_TODO,
+        )
+
+    def test_detail_page_is_forbidden_for_non_project_editors(self):
+        self.client.login(username="viewer", password="pass123")
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_duplicate_summary_tab_is_forbidden_for_non_project_editors(self):
+        self.client.login(username="viewer", password="pass123")
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {"action": "duplicate-summary-tab"},
+            follow=False,
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(
+            ReferenceSummary.objects.filter(
+                project=self.project,
+                reference=self.reference,
+            ).count(),
+            1,
         )
 
     def test_detail_page_shows_project_action_dropdown_options(self):
