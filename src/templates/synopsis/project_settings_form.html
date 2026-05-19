@@ -168,7 +168,7 @@
                         {% if step.can_set %}
                         <form method="post" action="{% url 'synopsis:project_phase_confirm' project.id step.key %}" class="m-0">
                             {% csrf_token %}
-                            <button class="btn btn-outline-primary btn-sm py-0" onclick="return confirm('Set the current phase to {{ step.label }}? This updates the progress tracker and can be changed again later.');">
+                            <button class="btn btn-outline-primary btn-sm py-0" onclick="return confirm('Set the current phase to {{ step.label }}? This can move the project forwards or back to an earlier step, and it can be changed again later.');">
                                 Set current phase
                             </button>
                         </form>
