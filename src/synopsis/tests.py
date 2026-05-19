@@ -8735,6 +8735,31 @@ class ExternalAuthorAccessTests(TestCase):
         self.assertTrue(protocol.document)
         self.assertTrue(action_list.document)
 
+    def test_external_author_cannot_mark_completed_or_reactivate_completed_synopsis(self):
+        self.assigned_project.status = "completed"
+        self.assigned_project.save(update_fields=["status"])
+        self.client.login(username="external@example.com", password="pass123")
+
+        dashboard_response = self.client.get(reverse("synopsis:dashboard"))
+        direct_post_response = self.client.post(
+            reverse("synopsis:project_settings", args=[self.assigned_project.id]),
+            {"status_action": "reactivate", "return_to": "dashboard"},
+            follow=True,
+        )
+
+        self.assertContains(dashboard_response, "Assigned Synopsis")
+        self.assertNotContains(dashboard_response, "Move to active")
+        self.assertRedirects(
+            direct_post_response,
+            reverse("synopsis:project_hub", args=[self.assigned_project.id]),
+        )
+        self.assertContains(
+            direct_post_response,
+            "You do not have permission to update project settings for this synopsis.",
+        )
+        self.assigned_project.refresh_from_db()
+        self.assertEqual(self.assigned_project.status, "completed")
+
 
 class ProjectAuthorSelectionUiTests(TestCase):
     def setUp(self):

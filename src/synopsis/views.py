@@ -2710,6 +2710,9 @@ def dashboard(request):
             role.user for role in proj.userrole_set.all() if role.role == "author"
         ]
         proj.can_edit_project = _user_can_edit_project(request.user, proj)
+        proj.can_manage_project_configuration = _user_can_manage_project_configuration(
+            request.user, proj
+        )
     return render(
         request,
         "synopsis/dashboard.html",
