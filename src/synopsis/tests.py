@@ -1700,6 +1700,12 @@ class MemberReminderUpdateTests(TestCase):
         self.assertContains(response, "FEEDBACK DOCUMENT", count=3)
         self.assertContains(response, "AUTHOR REPLIED", count=3)
         self.assertContains(response, "REMINDER SENT", count=4)
+        self.assertContains(response, 'th class="ab-status-action text-start"', count=7)
+        self.assertContains(response, 'td class="ab-status-action"', count=7)
+        self.assertContains(response, 'th class="ab-status-protocol text-start"', count=7)
+        self.assertContains(response, 'td class="ab-status-protocol"', count=7)
+        self.assertContains(response, 'th class="ab-status-synopsis text-start"', count=7)
+        self.assertContains(response, 'td class="ab-status-synopsis"', count=7)
 
     def test_can_toggle_action_list_author_replied_from_board(self):
         member = AdvisoryBoardMember.objects.create(
