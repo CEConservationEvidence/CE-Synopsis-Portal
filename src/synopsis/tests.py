@@ -5652,7 +5652,7 @@ class LibraryReferenceBatchUploadTests(TestCase):
             },
         )
 
-        self.assertRedirects(response, reverse("synopsis:library_batch_list"))
+        self.assertRedirects(response, reverse("synopsis:reference_library"))
         self.assertEqual(LibraryReference.objects.count(), 2)
         titles = set(LibraryReference.objects.values_list("title", flat=True))
         self.assertEqual(titles, {"First RIS entry", "Second RIS entry"})
