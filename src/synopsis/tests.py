@@ -8835,6 +8835,16 @@ class ProjectDescriptionUiTests(TestCase):
         self.assertContains(response, "Protocol is relevant for this project")
         self.assertContains(response, "Advisory board is relevant for this project")
 
+    def test_project_pages_show_back_to_project_button_in_nav(self):
+        self.client.login(username="manager", password="pass123")
+
+        response = self.client.get(
+            reverse("synopsis:project_authors_manage", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, ">Back to project</a>", html=False)
+
 
 class ProjectHomepageStatusUiTests(TestCase):
     def setUp(self):
