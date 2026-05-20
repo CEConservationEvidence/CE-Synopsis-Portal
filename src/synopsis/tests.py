@@ -5622,6 +5622,43 @@ class LibraryReferenceBatchUploadTests(TestCase):
             any("Skipped 1 reference(s) already in the library." in message for message in messages)
         )
 
+    def test_imports_ris_like_txt_file_with_utf8_bom(self):
+        ris_payload = (
+            "\ufeffTY  - JOUR\n"
+            "TI  - First RIS entry\n"
+            "AU  - Morgan, Will\n"
+            "PY  - 2024\n"
+            "DO  - 10.1000/first\n"
+            "ER  -\n\n"
+            "TY  - JOUR\n"
+            "TI  - Second RIS entry\n"
+            "AU  - Thornton, Ann\n"
+            "PY  - 2023\n"
+            "DO  - 10.1000/second\n"
+            "ER  -\n"
+        )
+        upload = SimpleUploadedFile(
+            "references.txt",
+            ris_payload.encode("utf-8"),
+            content_type="text/plain",
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "label": "BOM library batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+
+        self.assertRedirects(response, reverse("synopsis:library_batch_list"))
+        self.assertEqual(LibraryReference.objects.count(), 2)
+        titles = set(LibraryReference.objects.values_list("title", flat=True))
+        self.assertEqual(titles, {"First RIS entry", "Second RIS entry"})
+        batch = LibraryImportBatch.objects.get(label="BOM library batch")
+        self.assertEqual(batch.record_count, 2)
+
 
 class ReferenceBatchUploadParsingTests(TestCase):
     def setUp(self):
@@ -5750,6 +5787,49 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertEqual(ref.journal, "Marine Science Quarterly")
         self.assertEqual(ref.pages, "101-110")
         self.assertEqual(ref.doi, "10.1000/example")
+
+    def test_imports_ris_like_txt_file_with_utf8_bom(self):
+        ris_payload = (
+            "\ufeffTY  - JOUR\n"
+            "TI  - First RIS entry\n"
+            "AU  - Morgan, Will\n"
+            "PY  - 2024\n"
+            "DO  - 10.1000/first\n"
+            "ER  -\n\n"
+            "TY  - JOUR\n"
+            "TI  - Second RIS entry\n"
+            "AU  - Thornton, Ann\n"
+            "PY  - 2023\n"
+            "DO  - 10.1000/second\n"
+            "ER  -\n"
+        )
+        upload = SimpleUploadedFile(
+            "references.txt",
+            ris_payload.encode("utf-8"),
+            content_type="text/plain",
+        )
+
+        response = self.client.post(
+            self.url,
+            {
+                "label": "BOM batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:reference_batch_list", args=[self.project.id]),
+        )
+        refs = Reference.objects.filter(project=self.project).order_by("title")
+        self.assertEqual(refs.count(), 2)
+        self.assertEqual(
+            list(refs.values_list("title", flat=True)),
+            ["First RIS entry", "Second RIS entry"],
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project, label="BOM batch")
+        self.assertEqual(batch.record_count, 2)
 
     def test_skips_duplicates_within_project(self):
         first_upload = SimpleUploadedFile(
