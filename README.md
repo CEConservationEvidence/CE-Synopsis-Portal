@@ -113,7 +113,7 @@ What is actually in the repo today:
 - PostgreSQL
 - Django REST Framework
 - Celery and Redis dependencies
-- WeasyPrint and `python-docx` dependencies for export/output work
+- `python-docx` dependencies for export/output work
 - OnlyOffice configuration hooks for collaborative editing
 
 The main application code lives in:
