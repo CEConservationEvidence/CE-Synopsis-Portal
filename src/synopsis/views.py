@@ -198,6 +198,8 @@ class PortalPasswordResetConfirmView(auth_views.PasswordResetConfirmView):
 
 
 def _send_account_setup_email(user, request):
+    # TODO: #100 Move outbound email sending onto Celery so account creation does
+    # not block a request thread on SMTP/network latency.
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
     reset_url = request.build_absolute_uri(
@@ -225,6 +227,8 @@ def _send_account_setup_email(user, request):
 
 
 def _send_password_reset_email(user, request):
+    # TODO: #100 Move outbound email sending onto Celery so password reset requests
+    # stay fast under concurrent usage.
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
     context = {
@@ -1179,6 +1183,9 @@ def _get_active_collaborative_session(project, document_type):
 def _end_active_collaborative_session(
     project, document_type, *, ended_by=None, reason=""
 ):
+    # TODO: #101 Guard collaborative session creation with a distributed lock
+    # (Redis) and/or a database uniqueness guarantee so concurrent requests cannot
+    # create competing active sessions under load.
     session = _get_active_collaborative_session(project, document_type)
     if not session:
         return None
@@ -1802,6 +1809,8 @@ def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[str,
 
 
 def _wait_for_collaborative_save(session, document_type, timeout_seconds: int) -> bool:
+    # TODO: #102 Reduce blocking waits during collaborative final-save handling,
+    # ideally by shifting the long-running part onto callback-driven or background work.
     deadline = time.monotonic() + max(timeout_seconds, 1)
     if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
         result_field = "result_protocol_revision_id"

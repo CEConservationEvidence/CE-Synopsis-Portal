@@ -1,4 +1,6 @@
 services:
+  # TODO: #95 Add Redis here for shared cache, session storage, distributed locks,
+  # and Celery broker/backend before the next heavier multi-author pilot.
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -31,6 +33,8 @@ services:
       DB_HOST: db
       DB_PORT: "5432"
       SERVE_MEDIA: "True"
+      # TODO: #96 Re-tune Gunicorn workers/threads against real 10+ author load,
+      # memory limits, and OnlyOffice traffic rather than keeping the current pilot defaults.
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
       GUNICORN_THREADS: ${GUNICORN_THREADS:-8}
       GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-300}
@@ -49,6 +53,8 @@ services:
 
   onlyoffice:
     # Pin the validated Document Server version so pilot deployments stay reproducible.
+    # TODO: #97 Move OnlyOffice off the main app host, or give it dedicated resources,
+    # so collaborative editing does not compete directly with Django and Postgres.
     image: onlyoffice/documentserver:9.0.4
     restart: unless-stopped
     environment:
