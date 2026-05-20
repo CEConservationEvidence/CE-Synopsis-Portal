@@ -2002,6 +2002,12 @@ PLAIN_REFERENCE_DOI_RE = re.compile(r"doi[:\s]+(?P<doi>\S+)", re.IGNORECASE)
 PLAIN_REFERENCE_URL_RE = re.compile(r"(https?://\S+)", re.IGNORECASE)
 
 
+def _decode_reference_upload_text(raw_bytes: bytes) -> str:
+    """Decode uploaded reference files and strip a UTF-8 BOM if present."""
+
+    return raw_bytes.decode("utf-8", errors="ignore").lstrip("\ufeff")
+
+
 def _parse_plaintext_references(payload: str) -> list[dict]:
     """
     Parse a plain-text reference list.
@@ -7303,7 +7309,7 @@ def library_reference_batch_upload(request):
                 form.add_error("ris_file", "The uploaded file appears to be empty.")
             else:
                 sha1 = hashlib.sha1(raw_bytes).hexdigest()
-                text_payload = raw_bytes.decode("utf-8", errors="ignore")
+                text_payload = _decode_reference_upload_text(raw_bytes)
                 records = []
                 ris_error = None
                 plaintext_used = False
@@ -10816,7 +10822,7 @@ def reference_batch_upload(request, project_id):
                 form.add_error("ris_file", "The uploaded file appears to be empty.")
             else:
                 sha1 = hashlib.sha1(raw_bytes).hexdigest()
-                text_payload = raw_bytes.decode("utf-8", errors="ignore")
+                text_payload = _decode_reference_upload_text(raw_bytes)
                 records = []
                 ris_error = None
                 try:
