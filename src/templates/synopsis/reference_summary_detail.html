@@ -244,7 +244,7 @@
             {% csrf_token %}
             <input type="hidden" name="action" value="update-classification">
             <div>
-                <div class="fw-semibold mb-1">Synopsis status and shared CE folders</div>
+                <div class="fw-semibold mb-1">Synopsis status and shared CE subject categories</div>
                 <div class="small text-muted">
                     Screening status and notes apply only to this synopsis copy of the reference. They do not change the global Reference Database record.
                 </div>
@@ -252,7 +252,7 @@
                     Use this section to exclude or re-include the whole reference for this synopsis. This is separate from excluding a single summary tab after full-text review.
                 </div>
                 <div class="small text-muted mt-1">
-                    Shared CE subject folders are stored on the reference, not on this individual summary tab. For library-linked references, changing them here updates the shared reference record and linked synopsis copies, including any other summary tabs for the same paper.
+                    Shared CE subject categories are stored on the reference, not on this individual summary tab. For library-linked references, changing them here updates the shared reference record everywhere it is linked, including any other summary tabs for the same paper and any linked synopsis copies in other projects.
                 </div>
             </div>
             {% if summary.status == 'excluded' and reference.screening_status == 'included' %}
@@ -273,7 +273,7 @@
                 {% endif %}
             </div>
             <div>
-                <label class="form-label small" for="{{ classification_form.reference_folder.id_for_label }}">Shared CE subject folders</label>
+                <label class="form-label small" for="{{ classification_form.reference_folder.id_for_label }}">Shared CE subject categories</label>
                 {{ classification_form.reference_folder }}
                 <div class="form-text">{{ classification_form.reference_folder.help_text }}</div>
                 {% if classification_form.reference_folder.errors %}

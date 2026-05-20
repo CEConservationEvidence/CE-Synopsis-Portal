@@ -6172,7 +6172,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
 
         self.assertContains(
             response,
-            "Applied the selected folders at the same time.",
+            "Applied the selected categories at the same time.",
         )
         for ref in Reference.objects.filter(pk__in=include_ids):
             self.assertEqual(ref.screening_status, "included")
@@ -6217,15 +6217,15 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertContains(response, "folder-select-shell")
         self.assertContains(response, "folder-select")
         self.assertContains(response, "screening-bulk-sticky")
-        self.assertContains(response, "Apply folders")
-        self.assertContains(response, "Multiple folders are allowed.")
+        self.assertContains(response, "Apply categories")
+        self.assertContains(response, "Multiple categories are allowed.")
         self.assertContains(
             response,
-            "This is the main folder-classification step while screening.",
+            "This is the main category-classification step while screening.",
         )
         self.assertContains(
             response,
-            "changing folders here updates the shared reference library record and linked synopsis copies in other projects",
+            "changing categories here updates the shared reference library record and linked synopsis copies in other projects",
         )
 
     def test_bulk_apply_folders_to_selected_references(self):
@@ -6739,7 +6739,7 @@ class LibraryReferenceDetailTests(TestCase):
         self.assertEqual(self.project_reference.reference_folder, ["2", "15"])
         self.assertContains(
             response,
-            "Shared CE subject folders were updated.",
+            "Shared CE subject categories were updated.",
         )
         self.assertContains(
             response,
@@ -8248,7 +8248,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(other_reference.reference_folder, ["2", "15"])
         self.assertContains(
             response,
-            "Shared CE subject folders were updated and synced to 1 linked synopsis copy/copies.",
+            "Shared CE subject categories were updated and synced to 1 linked synopsis copy/copies.",
         )
         self.assertTrue(
             LibraryReferenceFolderHistory.objects.filter(
@@ -8416,7 +8416,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Exclude whole reference from synopsis too")
         self.assertContains(
             response,
-            "Shared CE subject folders are stored on the reference, not on this individual summary tab.",
+            "Shared CE subject categories are stored on the reference, not on this individual summary tab.",
         )
         self.assertContains(
             response,

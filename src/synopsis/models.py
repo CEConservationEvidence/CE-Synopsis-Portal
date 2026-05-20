@@ -1382,7 +1382,7 @@ class LibraryReference(models.Model):
     reference_folder = models.JSONField(
         default=list,
         blank=True,
-        help_text="Shared CE subject folders assigned to this reference across the library.",
+        help_text="Shared CE subject categories assigned to this reference across the library.",
     )
 
     class Meta:
@@ -1523,7 +1523,7 @@ class Reference(models.Model):
     reference_folder = models.JSONField(
         default=list,
         blank=True,
-        help_text="List of CE subject folders assigned to this reference.",
+        help_text="List of CE subject categories assigned to this reference.",
     )
     screening_notes = models.TextField(blank=True)
     screening_decision_at = models.DateTimeField(null=True, blank=True)

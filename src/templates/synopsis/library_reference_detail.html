@@ -100,7 +100,7 @@
                         <option value="{{ proj.id }}">{{ proj.title }}</option>
                         {% endfor %}
                     </select>
-                    <label class="form-label">Override shared CE subject folders before linking</label>
+                    <label class="form-label">Override shared CE subject categories before linking</label>
                     <select name="reference_folder" class="form-select" multiple style="height: 160px;">
                         {% for val,label in folder_choices %}
                         {% if val in reference.reference_folder %}
@@ -110,7 +110,7 @@
                         {% endif %}
                         {% endfor %}
                     </select>
-                    <div class="form-text">Leave the existing selection as-is to link with the current shared folders. Changing the selection here updates the shared library record before linking.</div>
+                    <div class="form-text">Leave the existing selection as-is to link with the current shared categories. Changing the selection here updates the shared library record before linking.</div>
                     <button class="btn btn-outline-secondary" type="submit">Link reference</button>
                 </form>
                 {% else %}
@@ -121,9 +121,9 @@
         {% if folder_history %}
         <div class="card mt-3">
             <div class="card-body">
-                <h5 class="mb-3">Shared folder history</h5>
+                <h5 class="mb-3">Shared category history</h5>
                 <div class="small text-muted mb-3">
-                    Recent changes to the shared CE subject folders for this reference.
+                    Recent changes to the shared CE subject categories for this reference.
                 </div>
                 <div class="d-flex flex-column gap-3">
                     {% for entry in folder_history %}

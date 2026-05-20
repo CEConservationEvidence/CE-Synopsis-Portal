@@ -7163,7 +7163,7 @@ def reference_library(request):
                     parts.append(f"Reused {reused} existing reference(s)")
                 msg = " and ".join(parts) + f" into {target_project.title}."
                 if folder:
-                    msg += " Shared CE subject folders were updated before linking."
+                    msg += " Shared CE subject categories were updated before linking."
                 messages.success(request, msg)
             else:
                 messages.info(request, "No references were linked (possible duplicates).")
@@ -7270,7 +7270,7 @@ def library_batch_detail(request, batch_id):
                     parts.append(f"Reused {reused} existing reference(s)")
                 msg = " and ".join(parts) + f" into {target_project.title}."
                 if folder:
-                    msg += " Shared CE subject folders were updated before linking."
+                    msg += " Shared CE subject categories were updated before linking."
                 messages.success(request, msg)
             else:
                 messages.info(request, "No references were linked (possible duplicates).")
@@ -7460,7 +7460,7 @@ def library_reference_detail(request, reference_id):
             if linked:
                 message = f"Linked reference to {target_project.title}."
                 if folder:
-                    message += " Shared CE subject folders were updated before linking."
+                    message += " Shared CE subject categories were updated before linking."
                 messages.success(request, message)
                 return redirect(
                     "synopsis:library_reference_detail",
@@ -7493,7 +7493,7 @@ def library_reference_detail(request, reference_id):
                         )
                     )
                 if shared_changed:
-                    message = "Library reference updated. Shared CE subject folders were updated."
+                    message = "Library reference updated. Shared CE subject categories were updated."
                     if synced_count:
                         message += f" Synced {synced_count} linked synopsis copy/copies."
                     messages.success(request, message)
@@ -8993,7 +8993,7 @@ def reference_summary_detail(request, project_id, summary_id):
                     message += f" Removed it from {removed_assignments} intervention assignment(s)."
                 if shared_folder_changed:
                     message += (
-                        f" Shared CE subject folders were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                        f" Shared CE subject categories were updated and synced to {shared_synced_count} linked synopsis copy/copies."
                     )
                 messages.success(request, message)
                 return redirect(
@@ -9004,14 +9004,14 @@ def reference_summary_detail(request, project_id, summary_id):
                 message = "Reference re-included in this synopsis. You can now continue summarising it."
                 if shared_folder_changed:
                     message += (
-                        f" Shared CE subject folders were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                        f" Shared CE subject categories were updated and synced to {shared_synced_count} linked synopsis copy/copies."
                     )
                 messages.success(request, message)
             else:
                 message = "Reference classification updated."
                 if shared_folder_changed:
                     message += (
-                        f" Shared CE subject folders were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                        f" Shared CE subject categories were updated and synced to {shared_synced_count} linked synopsis copy/copies."
                     )
                 messages.success(request, message)
             return redirect(
@@ -10441,10 +10441,10 @@ def reference_batch_detail(request, project_id, batch_id):
                         synced_project_refs += synced_count
                     updated += 1
 
-                message = f"Updated folders for {updated} reference(s)."
+                message = f"Updated categories for {updated} reference(s)."
                 if shared_updated:
                     message += (
-                        f" Updated the shared library folders for {shared_updated} linked reference(s)"
+                        f" Updated the shared library categories for {shared_updated} linked reference(s)"
                         f" and synced {synced_project_refs} linked synopsis copy/copies."
                     )
                 messages.success(request, message)
@@ -10516,10 +10516,10 @@ def reference_batch_detail(request, project_id, batch_id):
                 status_label = status_choices.get(new_status, new_status.title())
                 message = f"Marked {updated} reference(s) as {status_label}."
                 if apply_bulk_folder:
-                    message += " Applied the selected folders at the same time."
+                    message += " Applied the selected categories at the same time."
                     if shared_updated:
                         message += (
-                            f" Updated the shared library folders for {shared_updated} linked reference(s)"
+                            f" Updated the shared library categories for {shared_updated} linked reference(s)"
                             f" and synced {synced_project_refs} linked synopsis copy/copies."
                         )
                 messages.success(request, message)
@@ -10582,7 +10582,7 @@ def reference_batch_detail(request, project_id, batch_id):
                 )
                 if shared_changed:
                     message += (
-                        f" Shared CE subject folders were updated and synced to {synced_count} linked synopsis copy/copies."
+                        f" Shared CE subject categories were updated and synced to {synced_count} linked synopsis copy/copies."
                     )
             messages.success(request, message)
             redirect_params = []

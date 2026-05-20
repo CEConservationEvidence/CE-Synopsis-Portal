@@ -49,13 +49,13 @@
                     </select>
                 </div>
                 <div class="d-flex flex-column gap-1">
-                    <label class="fw-semibold mb-0" for="library-folders">Override shared CE subject folders before linking (optional)</label>
+                    <label class="fw-semibold mb-0" for="library-folders">Override shared CE subject categories before linking (optional)</label>
                     <select id="library-folders" name="reference_folder" class="form-select form-select-sm" multiple style="max-width: 260px; height: 120px;">
                         {% for val,label in folder_choices %}
                         <option value="{{ val }}">{{ label }}</option>
                         {% endfor %}
                     </select>
-                    <span class="small text-muted">Leave blank to use each reference's current shared folders. If you choose folders here, the shared library record and linked synopsis copies are updated before linking.</span>
+                    <span class="small text-muted">Leave blank to use each reference's current shared categories. If you choose categories here, the shared library record and linked synopsis copies are updated before linking.</span>
                 </div>
                 <div class="d-flex flex-column gap-1">
                     <span class="small text-muted">Selected: <span id="selected-count">0</span></span>
@@ -75,7 +75,7 @@
                         <th>Authors</th>
                         <th class="text-center" style="width: 7%;">Year</th>
                         <th>Journal</th>
-                        <th>Shared folders</th>
+                        <th>Shared categories</th>
                         <th class="text-center" style="width: 7%;">Projects</th>
                         <th class="text-center" style="width: 9%;">Actions</th>
                     </tr>

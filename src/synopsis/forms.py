@@ -1946,9 +1946,9 @@ class ReferenceScreeningForm(forms.Form):
         choices=Reference.FOLDER_CHOICES,
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "form-select form-select-sm", "size": "6"}),
-        label="Shared CE subject folders",
+        label="Shared CE subject categories",
         help_text=(
-            "For library-linked references, changing these folders updates the shared library record and linked synopsis copies."
+            "For library-linked references, changing these categories updates the shared library record and linked synopsis copies."
         ),
     )
     screening_notes = forms.CharField(
@@ -1981,9 +1981,9 @@ class ReferenceClassificationForm(forms.Form):
         choices=Reference.FOLDER_CHOICES,
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "6"}),
-        label="Shared CE subject folders",
+        label="Shared CE subject categories",
         help_text=(
-            "This is a reference-level setting. For library-linked references, changing these folders updates the shared library record and linked synopsis copies."
+            "This is a reference-level setting. For library-linked references, changing these categories updates the shared library record and linked synopsis copies."
         ),
     )
     screening_notes = forms.CharField(
@@ -2024,9 +2024,9 @@ class LibraryReferenceUpdateForm(forms.ModelForm):
         choices=CE_REFERENCE_FOLDER_CHOICES,
         required=False,
         widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "8"}),
-        label="Shared CE subject folders",
+        label="Shared CE subject categories",
         help_text=(
-            "These shared folders apply across the CE reference database and are reused when the reference is linked into synopses."
+            "These shared categories apply across the CE reference database and are reused when the reference is linked into synopses."
         ),
     )
 
