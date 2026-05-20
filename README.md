@@ -1,6 +1,6 @@
 # CE Synopsis Portal
 
-_Working title. Final product name to be agreed with the Conservation Evidence team._
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/CEConservationEvidence/CE-Synopsis-Portal/8-synopsis-structure-and-compilation)
 
 A Django-based workspace for planning, screening, summarising, compiling, and exporting Conservation Evidence synopses from a single system instead of scattered Word, Excel, and manual website workflows.
 
