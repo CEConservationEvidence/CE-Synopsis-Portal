@@ -4,7 +4,6 @@
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <h1 class="mb-0">Protocol – {{ project.title }}</h1>
     <div class="d-flex flex-wrap gap-2">
-        <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
         {% if can_edit_documents %}
         <button
             class="btn btn-primary"
@@ -94,7 +93,6 @@
                 </div>
                 <div class="d-flex flex-wrap gap-2">
                     <button class="btn btn-primary">Save revision</button>
-                    <a class="btn btn-light" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
                 </div>
             </form>
         </div>

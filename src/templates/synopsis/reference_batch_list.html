@@ -7,7 +7,6 @@
     Step 1: add references from the library or import a RIS file. Step 2: screen references. Step 3: summarise included studies.
 </p>
 <div class="d-flex flex-wrap gap-2 mb-4">
-    <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
     <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#project-reference-workflow-modal">How this works</button>
     {% if nav_can_manage_library %}
     <a class="btn btn-primary" href="{% url 'synopsis:reference_library' %}?project={{ project.id }}&next={% url 'synopsis:reference_batch_list' project.id %}">Link from library</a>

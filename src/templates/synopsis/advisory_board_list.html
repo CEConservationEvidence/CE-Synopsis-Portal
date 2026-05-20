@@ -135,7 +135,6 @@
     }
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3">
-    <a class="btn btn-outline-secondary" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
     {% if total_member_count %}
     <a class="btn btn-outline-primary" href="{% url 'synopsis:advisory_invite_compose_all' project.id %}" title="Compose invites for every listed member">Send invitations to all</a>
     {% else %}
