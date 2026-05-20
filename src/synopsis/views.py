@@ -311,10 +311,11 @@ def _decode_entities(text):
     try:
         text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), text)
     except Exception:
-        pass
+        logging.debug("Unexpected error during unicode escape decoding.", exc_info=True)
     try:
         return html.unescape(text)
     except Exception:
+        logging.debug("Unexpected error during HTML unescaping.", exc_info=True)
         return text
 
 
