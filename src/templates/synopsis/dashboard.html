@@ -7,12 +7,14 @@
     <code>{{ app_release_label }}</code>
 </div>
 {% if user.is_authenticated %}
+{% if nav_can_manage_library %}
 <div class="d-flex flex-wrap gap-2 mt-3 mb-4">
     <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:reference_library' %}">Open Reference Database</a>
     <div class="small text-muted align-self-center">
         This sits above individual synopses and can be used to link references into project batches.
     </div>
 </div>
+{% endif %}
 {% endif %}
 <br>
 <h2 class="mb-3">Synopses</h2>
@@ -80,7 +82,7 @@
             <td>{{ p.get_status_display|default:p.status|title }}</td>
             <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
             <td class="text-end">
-                {% if p.can_edit_project %}
+                {% if p.can_manage_project_configuration %}
                 <form method="post" action="{% url 'synopsis:project_settings' p.id %}" class="d-inline">
                     {% csrf_token %}
                     <input type="hidden" name="status_action" value="reactivate">

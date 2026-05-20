@@ -21,8 +21,10 @@ from defusedxml import ElementTree as ET
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User, Group
+from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives
@@ -39,8 +41,11 @@ from django.http import (
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.template.loader import render_to_string
 from django.utils import timezone
+from django.utils.encoding import force_bytes
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.http import urlsafe_base64_encode
 from django.utils.text import slugify
 from django import forms
 from django.views.decorators.csrf import csrf_exempt
@@ -48,9 +53,15 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.http import FileResponse
 
 from .forms import (
+    GLOBAL_ROLE_CHOICES,
     ProtocolUpdateForm,
     ActionListUpdateForm,
     CreateUserForm,
+    ManagerUserDeleteForm,
+    ManagerUserUpdateForm,
+    PortalAuthenticationForm,
+    PortalPasswordResetForm,
+    PortalSetPasswordForm,
     AdvisoryBoardMemberForm,
     AdvisoryInviteForm,
     AssignAuthorsForm,
@@ -145,6 +156,7 @@ from .utils import (
     default_synopsis_review_message,
     ensure_global_groups,
     email_subject,
+    is_external_author_user,
     minimum_allowed_deadline_date,
     reply_to_list,
     reference_hash,
@@ -154,6 +166,139 @@ from .utils import (
 ONLYOFFICE_SETTINGS = getattr(settings, "ONLYOFFICE", {})
 
 logger = logging.getLogger(__name__)
+GLOBAL_ROLE_LABELS = dict(GLOBAL_ROLE_CHOICES)
+
+
+class PortalLoginView(auth_views.LoginView):
+    template_name = "registration/login.html"
+    authentication_form = PortalAuthenticationForm
+    redirect_authenticated_user = True
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        if not form.cleaned_data.get("remember_me"):
+            self.request.session.set_expiry(0)
+        return response
+
+
+class PortalLogoutView(auth_views.LogoutView):
+    http_method_names = ["post", "options"]
+
+
+class PortalPasswordResetView(auth_views.PasswordResetView):
+    template_name = "registration/password_reset_form.html"
+    email_template_name = "registration/password_reset_email.txt"
+    subject_template_name = "registration/password_reset_subject.txt"
+    form_class = PortalPasswordResetForm
+
+
+class PortalPasswordResetConfirmView(auth_views.PasswordResetConfirmView):
+    template_name = "registration/password_reset_confirm.html"
+    form_class = PortalSetPasswordForm
+
+
+def _send_account_setup_email(user, request):
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    reset_url = request.build_absolute_uri(
+        reverse("synopsis:password_reset_confirm", args=[uid, token])
+    )
+    login_url = request.build_absolute_uri(reverse("synopsis:login"))
+    context = {
+        "user": user,
+        "reset_url": reset_url,
+        "login_url": login_url,
+        "request": request,
+    }
+    subject = render_to_string(
+        "registration/account_setup_subject.txt", context
+    ).strip()
+    body = render_to_string("registration/account_setup_email.txt", context)
+    sent = EmailMultiAlternatives(
+        subject=subject,
+        body=body,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user.email],
+    ).send()
+    if sent != 1:
+        raise RuntimeError("Account setup email was not sent.")
+
+
+def _send_password_reset_email(user, request):
+    uid = urlsafe_base64_encode(force_bytes(user.pk))
+    token = default_token_generator.make_token(user)
+    context = {
+        "user": user,
+        "uid": uid,
+        "token": token,
+        "domain": request.get_host(),
+        "protocol": "https" if request.is_secure() else "http",
+    }
+    subject = render_to_string(
+        "registration/password_reset_subject.txt", context
+    ).strip()
+    body = render_to_string("registration/password_reset_email.txt", context)
+    sent = EmailMultiAlternatives(
+        subject=subject,
+        body=body,
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        to=[user.email],
+    ).send()
+    if sent != 1:
+        raise RuntimeError("Password reset email was not sent.")
+
+
+def _manager_user_global_role(user):
+    if getattr(user, "is_superuser", False):
+        return "system_admin"
+    user_groups = set(user.groups.values_list("name", flat=True))
+    for role_value, _label in GLOBAL_ROLE_CHOICES:
+        if role_value in user_groups:
+            return role_value
+    if user.is_staff:
+        return "manager"
+    return ""
+
+
+def _manager_user_global_role_label(user):
+    role_value = _manager_user_global_role(user)
+    if role_value == "system_admin":
+        return "System admin"
+    return GLOBAL_ROLE_LABELS.get(role_value, "—")
+
+
+def _set_manager_user_global_role(user, global_role):
+    group_names = [value for value, _label in GLOBAL_ROLE_CHOICES]
+    existing_groups = list(Group.objects.filter(name__in=group_names, user__id=user.id))
+    if existing_groups:
+        user.groups.remove(*existing_groups)
+    desired_group = Group.objects.get(name=global_role)
+    user.groups.add(desired_group)
+    user.is_staff = global_role == "manager"
+
+
+def _manager_user_entries():
+    users = User.objects.prefetch_related("groups").order_by(
+        "-is_superuser",
+        "-is_staff",
+        "username",
+    )
+    entries = []
+    for user in users:
+        role_value = _manager_user_global_role(user)
+        entries.append(
+            {
+                "user": user,
+                "global_role": role_value,
+                "global_role_label": _manager_user_global_role_label(user),
+                "password_state": (
+                    "Password set" if user.has_usable_password() else "Setup pending"
+                ),
+                "status_label": "Active" if user.is_active else "Inactive",
+                "is_protected": bool(user.is_superuser),
+            }
+        )
+    return entries
 
 
 def _decode_entities(text):
@@ -253,9 +398,36 @@ def _user_can_manage_library(user) -> bool:
         return False
     if user.is_staff:
         return True
+    if is_external_author_user(user):
+        return False
     if user.groups.filter(name__in=["manager", "author"]).exists():
         return True
     return UserRole.objects.filter(user=user, role__in=["manager", "author"]).exists()
+
+
+def _user_can_view_project(user, project) -> bool:
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if _user_is_manager(user):
+        return True
+    if is_external_author_user(user):
+        try:
+            return project.author_users.filter(id=user.id).exists()
+        except Exception:
+            return False
+    return True
+
+
+def _user_can_manage_project_configuration(user, project) -> bool:
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if _user_is_manager(user):
+        return True
+    if is_external_author_user(user):
+        return False
+    return UserRole.objects.filter(
+        user=user, project=project, role__in=["author", "manager"]
+    ).exists()
 
 
 def _user_can_edit_project(user, project) -> bool:
@@ -2526,6 +2698,9 @@ def dashboard(request):
     base_qs = Project.objects.prefetch_related("userrole_set__user").order_by(
         "-created_at"
     )
+    if is_external_author_user(request.user):
+        base_qs = base_qs.filter(userrole__user=request.user, userrole__role="author")
+    base_qs = base_qs.distinct()
     completed_statuses = ["completed", "archived"]
     active_projects = list(base_qs.exclude(status__in=completed_statuses))
     completed_projects = list(base_qs.filter(status__in=completed_statuses))
@@ -2535,6 +2710,9 @@ def dashboard(request):
             role.user for role in proj.userrole_set.all() if role.role == "author"
         ]
         proj.can_edit_project = _user_can_edit_project(request.user, proj)
+        proj.can_manage_project_configuration = _user_can_manage_project_configuration(
+            request.user, proj
+        )
     return render(
         request,
         "synopsis/dashboard.html",
@@ -2586,6 +2764,13 @@ class ProjectCreateForm(forms.ModelForm):
 
 @login_required
 def project_create(request):
+    if is_external_author_user(request.user):
+        messages.error(
+            request,
+            "External author accounts cannot create new synopses.",
+        )
+        return redirect("synopsis:dashboard")
+
     today = timezone.localdate()
     contact_instance = Funder()
     if request.method == "POST":
@@ -2793,6 +2978,9 @@ def project_hub(request, project_id):
         ),
         pk=project_id,
     )
+    if not _user_can_view_project(request.user, project):
+        messages.error(request, "You do not have access to that synopsis.")
+        return redirect("synopsis:dashboard")
     protocol = getattr(project, "protocol", None)
     action_list = getattr(project, "action_list", None)
     can_manage = _user_is_manager(request.user)
@@ -2905,19 +3093,16 @@ def project_hub(request, project_id):
             "funder_summary": funder_summary,
             "can_manage_project": _user_is_manager(request.user),
             "can_edit_project": _user_can_edit_project(request.user, project),
+            "can_manage_project_configuration": _user_can_manage_project_configuration(
+                request.user, project
+            ),
             **phase_context,
         },
     )
 
 
 def _user_can_confirm_phase(user, project: Project) -> bool:
-    if not getattr(user, "is_authenticated", False):
-        return False
-    if _user_is_manager(user):
-        return True
-    return UserRole.objects.filter(
-        user=user, project=project, role__in=["author", "manager"]
-    ).exists()
+    return _user_can_manage_project_configuration(user, project)
 
 
 @login_required
@@ -3237,6 +3422,9 @@ def project_delete(request, project_id):
 @login_required
 def protocol_detail(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_view_project(request.user, project):
+        messages.error(request, "You do not have access to that synopsis.")
+        return redirect("synopsis:dashboard")
     if not project.protocol_relevant:
         messages.info(
             request,
@@ -3246,6 +3434,9 @@ def protocol_detail(request, project_id):
     protocol = getattr(project, "protocol", None)
     can_manage = _user_is_manager(request.user)
     can_edit_documents = _user_can_edit_project(request.user, project)
+    can_delete_documents = _user_can_manage_project_configuration(
+        request.user, project
+    )
     protocol_history_queryset = (
         project.change_log.filter(action__icontains="protocol")
         .select_related("changed_by")
@@ -3601,8 +3792,8 @@ def protocol_detail(request, project_id):
             "first_upload_pending": first_upload_pending,
             "can_manage_project": can_manage,
             "can_toggle_stage": can_edit_documents,
-            "can_toggle_stage": can_edit_documents,
             "can_edit_documents": can_edit_documents,
+            "can_delete_documents": can_delete_documents,
             "collaborative_enabled": collaborative_enabled,
             "collaborative_session": collaborative_session,
             "collaborative_start_url": reverse(
@@ -3629,9 +3820,15 @@ def protocol_detail(request, project_id):
 @login_required
 def action_list_detail(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_view_project(request.user, project):
+        messages.error(request, "You do not have access to that synopsis.")
+        return redirect("synopsis:dashboard")
     action_list = getattr(project, "action_list", None)
     can_manage = _user_is_manager(request.user)
     can_edit_documents = _user_can_edit_project(request.user, project)
+    can_delete_documents = _user_can_manage_project_configuration(
+        request.user, project
+    )
     history_queryset = (
         project.change_log.filter(action__icontains="action list")
         .select_related("changed_by")
@@ -3997,6 +4194,7 @@ def action_list_detail(request, project_id):
             "first_upload_pending": first_upload_pending,
             "can_manage_project": can_manage,
             "can_edit_documents": can_edit_documents,
+            "can_delete_documents": can_delete_documents,
             "collaborative_enabled": collaborative_enabled,
             "collaborative_session": collaborative_session,
             "collaborative_start_url": reverse(
@@ -4292,8 +4490,7 @@ def collaborative_start(request, project_id, document_slug):
         )
         return redirect(_document_detail_url(project.id, document_type))
 
-    # TODO: #17 need to guard against race conditions by wrapping this check/create in a transaction
-    # or enforcing a uniqueness constraint so concurrent POSTs cannot spawn two sessions.
+    # TODO: #17 Make collaborative session creation atomic so concurrent POSTs cannot spawn two active sessions.
     active_session = _get_active_collaborative_session(project, document_type)
     if active_session:
         messages.warning(
@@ -4815,6 +5012,12 @@ def action_list_set_stage(request, project_id):
 @login_required
 def action_list_delete_file(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_manage_project_configuration(request.user, project):
+        messages.error(
+            request,
+            "You do not have permission to delete action list files for this synopsis.",
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
     action_list = getattr(project, "action_list", None)
     if not action_list or not action_list.document:
         messages.info(request, "No action list file to delete.")
@@ -4914,6 +5117,12 @@ def action_list_restore_revision(request, project_id, revision_id):
 @login_required
 def action_list_clear_text(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_manage_project_configuration(request.user, project):
+        messages.error(
+            request,
+            "You do not have permission to clear action list notes for this synopsis.",
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
     action_list = getattr(project, "action_list", None)
     if not action_list or not (action_list.text_version or "").strip():
         messages.info(request, "No action list notes to clear.")
@@ -4946,6 +5155,12 @@ def action_list_clear_text(request, project_id):
 @login_required
 def action_list_delete(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_manage_project_configuration(request.user, project):
+        messages.error(
+            request,
+            "You do not have permission to delete the action list for this synopsis.",
+        )
+        return redirect("synopsis:action_list_detail", project_id=project.id)
     action_list = getattr(project, "action_list", None)
     if not action_list:
         messages.info(request, "No action list to delete.")
@@ -5126,6 +5341,12 @@ def protocol_set_stage(request, project_id):
 @login_required
 def protocol_delete_file(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_manage_project_configuration(request.user, project):
+        messages.error(
+            request,
+            "You do not have permission to delete protocol files for this synopsis.",
+        )
+        return redirect("synopsis:protocol_detail", project_id=project.id)
     protocol = getattr(project, "protocol", None)
     if not protocol or not protocol.document:
         messages.info(request, "No protocol file to delete.")
@@ -5173,9 +5394,10 @@ def protocol_delete_revision(request, project_id, revision_id):
         return HttpResponseBadRequest("Invalid request method.")
 
     project = get_object_or_404(Project, pk=project_id)
-    if not _user_can_edit_project(request.user, project):
+    if not _user_can_manage_project_configuration(request.user, project):
         messages.error(
-            request, "Only assigned authors or managers can delete protocol revisions."
+            request,
+            "You do not have permission to delete protocol revisions for this synopsis.",
         )
         return redirect("synopsis:protocol_detail", project_id=project.id)
 
@@ -5285,6 +5507,12 @@ def protocol_restore_revision(request, project_id, revision_id):
 @login_required
 def protocol_clear_text(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_manage_project_configuration(request.user, project):
+        messages.error(
+            request,
+            "You do not have permission to clear protocol text for this synopsis.",
+        )
+        return redirect("synopsis:protocol_detail", project_id=project.id)
     protocol = getattr(project, "protocol", None)
     if not protocol or not (protocol.text_version or "").strip():
         messages.info(request, "No protocol text to clear.")
@@ -5317,6 +5545,12 @@ def protocol_clear_text(request, project_id):
 @login_required
 def protocol_delete(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_manage_project_configuration(request.user, project):
+        messages.error(
+            request,
+            "You do not have permission to delete the protocol for this synopsis.",
+        )
+        return redirect("synopsis:protocol_detail", project_id=project.id)
     protocol = getattr(project, "protocol", None)
     if not protocol:
         messages.info(request, "No protocol to delete.")
@@ -5360,7 +5594,6 @@ def protocol_delete(request, project_id):
     )
 
 
-# TODO: #21 Expand manager's dashboard to include user management features, such as inviting via email, resetting passwords, and modifying global roles.
 @login_required
 def manager_dashboard(request):
     if not request.user.is_staff:
@@ -5368,7 +5601,6 @@ def manager_dashboard(request):
         return redirect("synopsis:dashboard")
 
     ensure_global_groups()
-    users = User.objects.order_by("username")
 
     projects = Project.objects.prefetch_related("userrole_set__user").order_by(
         "-created_at", "-id"
@@ -5390,17 +5622,231 @@ def manager_dashboard(request):
     return render(
         request,
         "synopsis/manager_dashboard.html",
-        {"users": users, "project_entries": project_entries},
+        {"user_entries": _manager_user_entries(), "project_entries": project_entries},
+    )
+
+
+@login_required
+def manager_user_edit(request, user_id):
+    if not request.user.is_staff:
+        messages.error(request, "Manager access only.")
+        return redirect("synopsis:dashboard")
+
+    ensure_global_groups()
+    managed_user = get_object_or_404(User.objects.prefetch_related("groups"), pk=user_id)
+    if managed_user.is_superuser:
+        messages.info(
+            request,
+            "System admin accounts are managed outside this screen.",
+        )
+        return redirect("synopsis:manager_dashboard")
+
+    project_roles = list(
+        UserRole.objects.filter(user=managed_user)
+        .select_related("project")
+        .order_by("project__title", "role")
+    )
+    existing_author_project_ids = set(
+        UserRole.objects.filter(user=managed_user, role="author").values_list(
+            "project_id", flat=True
+        )
+    )
+
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "update_user":
+            form = ManagerUserUpdateForm(request.POST, user=managed_user)
+            delete_form = ManagerUserDeleteForm(user=managed_user)
+            if form.is_valid():
+                if (
+                    managed_user == request.user
+                    and form.cleaned_data["global_role"] != "manager"
+                ):
+                    messages.error(request, "You cannot remove your own manager access.")
+                elif managed_user == request.user and not form.cleaned_data["is_active"]:
+                    messages.error(request, "You cannot deactivate your own account.")
+                else:
+                    old_first_name = managed_user.first_name
+                    old_last_name = managed_user.last_name
+                    old_email = managed_user.email
+                    old_role = _manager_user_global_role(managed_user)
+                    old_active = managed_user.is_active
+                    selected_projects = list(form.cleaned_data["assigned_projects"])
+                    selected_project_ids = {project.id for project in selected_projects}
+                    managed_user.first_name = form.cleaned_data["first_name"].strip()
+                    managed_user.last_name = form.cleaned_data["last_name"].strip()
+                    managed_user.email = form.cleaned_data["email"]
+                    managed_user.username = form.cleaned_data["email"]
+                    managed_user.is_active = form.cleaned_data["is_active"]
+                    _set_manager_user_global_role(
+                        managed_user,
+                        form.cleaned_data["global_role"],
+                    )
+                    managed_user.save()
+                    details = []
+                    if (
+                        old_first_name != managed_user.first_name
+                        or old_last_name != managed_user.last_name
+                    ):
+                        details.append("Name updated")
+                    if old_email != managed_user.email:
+                        details.append(f"Email/login: {old_email} → {managed_user.email}")
+                    if old_role != form.cleaned_data["global_role"]:
+                        details.append(
+                            "Global role: "
+                            f"{GLOBAL_ROLE_LABELS.get(old_role, old_role or '—')} → "
+                            f"{GLOBAL_ROLE_LABELS.get(form.cleaned_data['global_role'], form.cleaned_data['global_role'])}"
+                        )
+                    if old_active != managed_user.is_active:
+                        details.append(
+                            f"Account {'activated' if managed_user.is_active else 'deactivated'}"
+                        )
+                    added_project_ids = selected_project_ids - existing_author_project_ids
+                    removed_project_ids = (
+                        existing_author_project_ids - selected_project_ids
+                    )
+                    if removed_project_ids:
+                        UserRole.objects.filter(
+                            user=managed_user,
+                            role="author",
+                            project_id__in=removed_project_ids,
+                        ).delete()
+                    for project in selected_projects:
+                        UserRole.objects.get_or_create(
+                            user=managed_user, project=project, role="author"
+                        )
+                    if added_project_ids or removed_project_ids:
+                        added_titles = list(
+                            Project.objects.filter(id__in=added_project_ids)
+                            .order_by("title")
+                            .values_list("title", flat=True)
+                        )
+                        removed_titles = list(
+                            Project.objects.filter(id__in=removed_project_ids)
+                            .order_by("title")
+                            .values_list("title", flat=True)
+                        )
+                        if added_titles:
+                            details.append(
+                                "Assigned synopses added: "
+                                + ", ".join(added_titles)
+                            )
+                        if removed_titles:
+                            details.append(
+                                "Assigned synopses removed: "
+                                + ", ".join(removed_titles)
+                            )
+                    if details:
+                        messages.success(request, "User account updated.")
+                    else:
+                        messages.info(request, "No changes saved.")
+                    return redirect("synopsis:manager_user_edit", user_id=managed_user.id)
+        elif action == "send_access_email":
+            form = ManagerUserUpdateForm(
+                initial={
+                    "first_name": managed_user.first_name,
+                    "last_name": managed_user.last_name,
+                    "email": managed_user.email,
+                    "global_role": _manager_user_global_role(managed_user) or "author",
+                    "is_active": managed_user.is_active,
+                    "assigned_projects": sorted(existing_author_project_ids),
+                },
+                user=managed_user,
+            )
+            delete_form = ManagerUserDeleteForm(user=managed_user)
+            if not managed_user.email:
+                messages.error(request, "This account does not have an email address.")
+            elif not managed_user.is_active:
+                messages.error(request, "Reactivate the account before sending access emails.")
+            else:
+                try:
+                    if managed_user.has_usable_password():
+                        _send_password_reset_email(managed_user, request)
+                        messages.success(
+                            request,
+                            f"Password reset email sent to {managed_user.email}.",
+                        )
+                    else:
+                        _send_account_setup_email(managed_user, request)
+                        messages.success(
+                            request,
+                            f"Account setup email sent to {managed_user.email}.",
+                        )
+                except Exception:
+                    logger.exception("Failed to send access email for user %s", managed_user.id)
+                    messages.error(request, "The access email could not be sent.")
+                return redirect("synopsis:manager_user_edit", user_id=managed_user.id)
+        elif action == "delete_user":
+            form = ManagerUserUpdateForm(
+                initial={
+                    "first_name": managed_user.first_name,
+                    "last_name": managed_user.last_name,
+                    "email": managed_user.email,
+                    "global_role": _manager_user_global_role(managed_user) or "author",
+                    "is_active": managed_user.is_active,
+                    "assigned_projects": sorted(existing_author_project_ids),
+                },
+                user=managed_user,
+            )
+            delete_form = ManagerUserDeleteForm(request.POST, user=managed_user)
+            if managed_user == request.user:
+                messages.error(request, "You cannot delete your own account.")
+                return redirect("synopsis:manager_user_edit", user_id=managed_user.id)
+            elif delete_form.is_valid():
+                email = managed_user.email or managed_user.username
+                managed_user.delete()
+                messages.success(request, f"User {email} deleted.")
+                return redirect("synopsis:manager_dashboard")
+        else:
+            form = ManagerUserUpdateForm(
+                initial={
+                    "first_name": managed_user.first_name,
+                    "last_name": managed_user.last_name,
+                    "email": managed_user.email,
+                    "global_role": _manager_user_global_role(managed_user) or "author",
+                    "is_active": managed_user.is_active,
+                    "assigned_projects": sorted(existing_author_project_ids),
+                },
+                user=managed_user,
+            )
+            delete_form = ManagerUserDeleteForm(user=managed_user)
+    else:
+        form = ManagerUserUpdateForm(
+            initial={
+                "first_name": managed_user.first_name,
+                "last_name": managed_user.last_name,
+                "email": managed_user.email,
+                "global_role": _manager_user_global_role(managed_user) or "author",
+                "is_active": managed_user.is_active,
+                "assigned_projects": sorted(existing_author_project_ids),
+            },
+            user=managed_user,
+        )
+        delete_form = ManagerUserDeleteForm(user=managed_user)
+
+    return render(
+        request,
+        "synopsis/user_edit.html",
+        {
+            "managed_user": managed_user,
+            "form": form,
+            "delete_form": delete_form,
+            "project_roles": project_roles,
+            "password_state": (
+                "Password set" if managed_user.has_usable_password() else "Setup pending"
+            ),
+            "global_role_label": _manager_user_global_role_label(managed_user),
+        },
     )
 
 
 @login_required
 def project_settings(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
-    if not _user_can_edit_project(request.user, project):
+    if not _user_can_manage_project_configuration(request.user, project):
         messages.error(
             request,
-            "Only managers or project authors can edit project settings.",
+            "You do not have permission to update project settings for this synopsis.",
         )
         return redirect("synopsis:project_hub", project_id=project.id)
 
@@ -5580,7 +6026,6 @@ def project_settings(request, project_id):
     )
 
 
-# TODO: #20 Implement email verification and password setup workflow for newly created users.
 @login_required
 def user_create(request):
     if not request.user.is_staff:
@@ -5593,45 +6038,61 @@ def user_create(request):
         form = CreateUserForm(request.POST)
         if form.is_valid():
             email = form.cleaned_data["email"].strip().lower()
-            password = (
-                form.cleaned_data["password"] or User.objects.make_random_password()
-            )
             first_name = form.cleaned_data["first_name"].strip()
             last_name = form.cleaned_data["last_name"].strip()
             global_role = form.cleaned_data["global_role"]
+            assigned_projects = list(form.cleaned_data["assigned_projects"])
 
-            if User.objects.filter(username=email).exists():
+            if User.objects.filter(
+                Q(username=email) | Q(email__iexact=email)
+            ).exists():
                 messages.error(request, "A user with that email already exists.")
             else:
-                user = User.objects.create_user(
-                    username=email,
-                    email=email,
-                    password=password,
-                    first_name=first_name,
-                    last_name=last_name,
-                )
-                group = Group.objects.get(name=global_role)
-                user.groups.add(group)
+                try:
+                    with transaction.atomic():
+                        user = User.objects.create_user(
+                            username=email,
+                            email=email,
+                            password=None,
+                            first_name=first_name,
+                            last_name=last_name,
+                        )
+                        user.set_unusable_password()
+                        if global_role == "manager":
+                            user.is_staff = True
+                        user.save()
 
-                if global_role == "manager":
-                    user.is_staff = True
-                    user.save(update_fields=["is_staff"])
+                        group = Group.objects.get(name=global_role)
+                        user.groups.add(group)
+                        for project in assigned_projects:
+                            UserRole.objects.get_or_create(
+                                user=user, project=project, role="author"
+                            )
 
-                messages.success(request, f"User {email} created as {global_role}.")
-                return redirect("synopsis:manager_dashboard")
+                        _send_account_setup_email(user, request)
+                except Exception:
+                    logger.exception("Failed to create user or send account setup email.")
+                    messages.error(
+                        request,
+                        "The account could not be created because the setup email was not sent.",
+                    )
+                else:
+                    messages.success(
+                        request,
+                        f"User {email} created as {GLOBAL_ROLE_LABELS.get(global_role, global_role)}. A password setup email has been sent.",
+                    )
+                    return redirect("synopsis:manager_dashboard")
     else:
         form = CreateUserForm()
 
     return render(request, "synopsis/user_create.html", {"form": form})
 
 
-# TODO: #22 Add pagination and search functionality to the advisory board member list for improved usability with large datasets.
-# TODO: #23 Implement CSV export functionality for advisory board members and their responses.
-# TODO: #24 Add email notification functionality for scheduled reminders.
-# TODO: #25 Implement role-based access control for advisory board management (or a mechanism for accessing files shared with advisory board members securely such as signed URLs, tokens, etc.).
-# TODO: #26 Add ability to edit advisory board member details after creation.
-# TODO: #40 Add ability to resend invitations to advisory board members.
-# TODO: #39 Add ability to bulk import advisory board members via CSV upload.
+# TODO: #22 Add search, filtering, and pagination to the advisory board list once larger projects need it.
+# TODO: #23 Add CSV export for advisory board members and their response state.
+# TODO: #25 Finish advisory-board access control and replace any remaining broad file access with scoped links or tokens.
+# TODO: #40 Add a resend-invitation action that preserves the original member record and audit history.
+# TODO: #39 Add bulk CSV import for advisory board members.
 
 @login_required
 def advisory_board_list(request, project_id):
@@ -12726,10 +13187,10 @@ def action_list_delete_revision(request, project_id, revision_id):
         return HttpResponseBadRequest("Invalid request method.")
 
     project = get_object_or_404(Project, pk=project_id)
-    if not _user_can_edit_project(request.user, project):
+    if not _user_can_manage_project_configuration(request.user, project):
         messages.error(
             request,
-            "Only assigned authors or managers can delete action list revisions.",
+            "You do not have permission to delete action list revisions for this synopsis.",
         )
         return redirect("synopsis:action_list_detail", project_id=project.id)
 

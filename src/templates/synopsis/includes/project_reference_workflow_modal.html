@@ -12,8 +12,13 @@
                 <section>
                     <h6 class="mb-2">The basic workflow</h6>
                     <ol class="mb-0 text-muted ps-3">
+                        {% if nav_can_manage_library %}
                         <li>Add references to this synopsis by linking from the global library or importing a RIS/plain-text file.</li>
                         <li>Each import or link creates a batch that can be screened.</li>
+                        {% else %}
+                        <li>Add references to this synopsis by importing a RIS/plain-text file.</li>
+                        <li>Each import creates a batch that can be screened.</li>
+                        {% endif %}
                         <li>Screen references as included, excluded, or pending.</li>
                         <li>Included references automatically appear on the summary board.</li>
                         <li>Create and assign summary tabs, then connect those summaries into the synopsis structure.</li>
@@ -21,8 +26,9 @@
                 </section>
 
                 <section>
-                    <h6 class="mb-2">Two ways to add references</h6>
+                    <h6 class="mb-2">{% if nav_can_manage_library %}Two ways to add references{% else %}How references are added{% endif %}</h6>
                     <div class="row g-3">
+                        {% if nav_can_manage_library %}
                         <div class="col-md-6">
                             <div class="border rounded p-3 h-100">
                                 <div class="fw-semibold mb-2">Link from library</div>
@@ -31,6 +37,17 @@
                                 </p>
                             </div>
                         </div>
+                        {% else %}
+                        <div class="col-12">
+                            <div class="border rounded p-3 h-100">
+                                <div class="fw-semibold mb-2">Import directly into this synopsis</div>
+                                <p class="small text-muted mb-0">
+                                    External authors work inside their assigned synopsis only, so references are added here by importing a RIS or plain-text file into this project.
+                                </p>
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% if nav_can_manage_library %}
                         <div class="col-md-6">
                             <div class="border rounded p-3 h-100">
                                 <div class="fw-semibold mb-2">Import directly into this synopsis</div>
@@ -39,6 +56,7 @@
                                 </p>
                             </div>
                         </div>
+                        {% endif %}
                     </div>
                 </section>
 
@@ -74,7 +92,9 @@
                         It does not copy the current team workflow exactly. A simple way to think about it is:
                     </p>
                     <ul class="mb-0 text-muted ps-3">
+                        {% if nav_can_manage_library %}
                         <li><strong>Shared library</strong> = the main source of references</li>
+                        {% endif %}
                         <li><strong>Project references</strong> = the working list for one synopsis</li>
                         <li><strong>Summary board</strong> = the place where included studies are written up and assigned</li>
                     </ul>

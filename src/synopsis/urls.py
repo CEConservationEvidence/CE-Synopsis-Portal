@@ -1,5 +1,4 @@
 from django.urls import path, reverse_lazy
-from django.contrib.auth import views as auth_views
 from . import views
 
 app_name = "synopsis"
@@ -8,13 +7,41 @@ urlpatterns = [
     path("", views.dashboard, name="dashboard"),
     path(
         "login/",
-        auth_views.LoginView.as_view(template_name="registration/login.html"),
+        views.PortalLoginView.as_view(),
         name="login",
     ),
     path(
         "logout/",
-        auth_views.LogoutView.as_view(next_page=reverse_lazy("synopsis:login")),
+        views.PortalLogoutView.as_view(next_page=reverse_lazy("synopsis:login")),
         name="logout",
+    ),
+    path(
+        "accounts/password_reset/",
+        views.PortalPasswordResetView.as_view(
+            success_url=reverse_lazy("synopsis:password_reset_done")
+        ),
+        name="password_reset",
+    ),
+    path(
+        "accounts/password_reset/done/",
+        views.auth_views.PasswordResetDoneView.as_view(
+            template_name="registration/password_reset_done.html"
+        ),
+        name="password_reset_done",
+    ),
+    path(
+        "accounts/reset/<uidb64>/<token>/",
+        views.PortalPasswordResetConfirmView.as_view(
+            success_url=reverse_lazy("synopsis:password_reset_complete")
+        ),
+        name="password_reset_confirm",
+    ),
+    path(
+        "accounts/reset/complete/",
+        views.auth_views.PasswordResetCompleteView.as_view(
+            template_name="registration/password_reset_complete.html"
+        ),
+        name="password_reset_complete",
     ),
     path("project/new/", views.project_create, name="project_create"),
     path("project/<int:project_id>/", views.project_hub, name="project_hub"),
@@ -145,6 +172,7 @@ urlpatterns = [
     ),
     path("manager/", views.manager_dashboard, name="manager_dashboard"),
     path("manager/users/new/", views.user_create, name="user_create"),
+    path("manager/users/<int:user_id>/", views.manager_user_edit, name="manager_user_edit"),
     path(
         "project/<int:project_id>/advisory-board/",
         views.advisory_board_list,

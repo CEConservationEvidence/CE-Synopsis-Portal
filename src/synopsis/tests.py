@@ -2,6 +2,7 @@ from datetime import date, datetime, timedelta
 import importlib
 import io
 import json
+import re
 from urllib.parse import urlparse
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -9,6 +10,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 import jwt
 from django.contrib.auth.models import Group, User, AnonymousUser
+from django.core import mail
 from django.core.mail import EmailMessage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings, RequestFactory, SimpleTestCase
@@ -122,7 +124,7 @@ from .views import (
     _structured_summary_paragraph,
 )
 
-# TODO: #25 Clean up tests.py and see if some tests can be split into separate files.
+# TODO: #25 Split this test module into smaller files once the current workflow areas stop moving around so it stays easier to navigate.
 
 
 class EmailSubjectTests(TestCase):
@@ -137,6 +139,319 @@ class EmailSubjectTests(TestCase):
             subject,
             f"[{BRAND}] Invitation to advise on {self.project.title} (reply by {expected_due})",
         )
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class AuthenticationFlowTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="author@example.com",
+            email="author@example.com",
+            password="StrongPass123!",
+            first_name="Author",
+        )
+        self.manager = User.objects.create_user(
+            username="manager@example.com",
+            email="manager@example.com",
+            password="StrongPass123!",
+            is_staff=True,
+        )
+        self.project = Project.objects.create(title="Creation Assignment Project")
+
+    def test_login_remember_me_controls_session_expiry(self):
+        response = self.client.post(
+            reverse("synopsis:login"),
+            {"username": "author@example.com", "password": "StrongPass123!"},
+        )
+        self.assertRedirects(response, reverse("synopsis:dashboard"))
+        self.assertTrue(self.client.session.get_expire_at_browser_close())
+
+        self.client.post(reverse("synopsis:logout"))
+
+        response = self.client.post(
+            reverse("synopsis:login"),
+            {
+                "username": "author@example.com",
+                "password": "StrongPass123!",
+                "remember_me": "on",
+            },
+        )
+        self.assertRedirects(response, reverse("synopsis:dashboard"))
+        self.assertFalse(self.client.session.get_expire_at_browser_close())
+
+    def test_login_allows_standard_django_username_for_superuser_style_accounts(self):
+        root_user = User.objects.create_user(
+            username="admin",
+            email="admin@example.com",
+            password="RootPass123!",
+            is_staff=True,
+            is_superuser=True,
+        )
+
+        response = self.client.post(
+            reverse("synopsis:login"),
+            {"username": "admin", "password": "RootPass123!"},
+        )
+
+        self.assertRedirects(response, reverse("synopsis:dashboard"))
+        self.assertEqual(int(self.client.session["_auth_user_id"]), root_user.id)
+
+    def test_logout_requires_post(self):
+        self.client.login(username="author@example.com", password="StrongPass123!")
+        response = self.client.get(reverse("synopsis:logout"))
+        self.assertEqual(response.status_code, 405)
+
+    def test_password_reset_request_sends_email(self):
+        response = self.client.post(
+            reverse("synopsis:password_reset"),
+            {"email": "author@example.com"},
+        )
+
+        self.assertRedirects(response, reverse("synopsis:password_reset_done"))
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("/accounts/reset/", mail.outbox[0].body)
+        self.assertEqual(mail.outbox[0].to, ["author@example.com"])
+
+    def test_manager_create_user_sends_account_setup_email_and_allows_password_setup(self):
+        self.client.login(username="manager@example.com", password="StrongPass123!")
+
+        response = self.client.post(
+            reverse("synopsis:user_create"),
+            {
+                "first_name": "New",
+                "last_name": "Author",
+                "email": "new.author@example.com",
+                "global_role": "author",
+            },
+        )
+
+        self.assertRedirects(response, reverse("synopsis:manager_dashboard"))
+        created_user = User.objects.get(username="new.author@example.com")
+        self.assertFalse(created_user.has_usable_password())
+        self.assertEqual(created_user.email, "new.author@example.com")
+        self.assertTrue(created_user.groups.filter(name="author").exists())
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["new.author@example.com"])
+        self.assertIn("Set up your CE Synopsis Portal account", mail.outbox[0].subject)
+
+        match = re.search(r"http://testserver(/accounts/reset/\S+)", mail.outbox[0].body)
+        self.assertIsNotNone(match)
+        reset_path = match.group(1)
+
+        response = self.client.get(reset_path, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Set password")
+        confirm_path = response.request["PATH_INFO"]
+
+        response = self.client.post(
+            confirm_path,
+            {
+                "new_password1": "EvenStrongerPass123!",
+                "new_password2": "EvenStrongerPass123!",
+            },
+        )
+        self.assertRedirects(response, reverse("synopsis:password_reset_complete"))
+
+        created_user.refresh_from_db()
+        self.assertTrue(created_user.has_usable_password())
+        self.client.post(reverse("synopsis:logout"))
+        self.assertTrue(
+            self.client.login(
+                username="new.author@example.com",
+                password="EvenStrongerPass123!",
+            )
+        )
+
+    def test_manager_can_create_external_author_with_assigned_synopsis(self):
+        self.client.login(username="manager@example.com", password="StrongPass123!")
+
+        response = self.client.post(
+            reverse("synopsis:user_create"),
+            {
+                "first_name": "External",
+                "last_name": "Author",
+                "email": "external.author@example.com",
+                "global_role": "external_collaborator",
+                "assigned_projects": [str(self.project.id)],
+            },
+        )
+
+        self.assertRedirects(response, reverse("synopsis:manager_dashboard"))
+        created_user = User.objects.get(username="external.author@example.com")
+        self.assertTrue(
+            created_user.groups.filter(name="external_collaborator").exists()
+        )
+        self.assertTrue(
+            UserRole.objects.filter(
+                user=created_user, project=self.project, role="author"
+            ).exists()
+        )
+
+
+@override_settings(EMAIL_BACKEND="django.core.mail.backends.locmem.EmailBackend")
+class ManagerUserManagementTests(TestCase):
+    def setUp(self):
+        ensure_global_groups()
+        self.manager = User.objects.create_user(
+            username="manager@example.com",
+            email="manager@example.com",
+            password="StrongPass123!",
+            is_staff=True,
+        )
+        self.manager.groups.add(Group.objects.get(name="manager"))
+        self.target = User.objects.create_user(
+            username="target@example.com",
+            email="target@example.com",
+            password="StrongPass123!",
+            first_name="Target",
+            last_name="User",
+        )
+        self.target.groups.add(Group.objects.get(name="author"))
+        self.pending_user = User.objects.create_user(
+            username="pending@example.com",
+            email="pending@example.com",
+            first_name="Pending",
+        )
+        self.pending_user.set_unusable_password()
+        self.pending_user.save(update_fields=["password"])
+        self.pending_user.groups.add(Group.objects.get(name="external_collaborator"))
+        self.project = Project.objects.create(title="Seagrass Pilot")
+        self.superuser = User.objects.create_superuser(
+            username="root",
+            email="root@example.com",
+            password="StrongPass123!",
+        )
+        self.client.login(username="manager@example.com", password="StrongPass123!")
+
+    def test_manager_dashboard_removes_staff_column_and_shows_manage_actions(self):
+        response = self.client.get(reverse("synopsis:manager_dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Staff?")
+        self.assertContains(response, "Global role")
+        self.assertContains(response, "Access")
+        self.assertContains(response, "Manage user")
+        self.assertContains(response, "Protected")
+
+    def test_manager_can_update_global_role_and_account_status(self):
+        response = self.client.post(
+            reverse("synopsis:manager_user_edit", args=[self.target.id]),
+            {
+                "action": "update_user",
+                "first_name": "Updated",
+                "last_name": "User",
+                "email": "updated.target@example.com",
+                "global_role": "external_collaborator",
+                "is_active": "",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:manager_user_edit", args=[self.target.id])
+        )
+        self.target.refresh_from_db()
+        self.assertEqual(self.target.username, "updated.target@example.com")
+        self.assertEqual(self.target.email, "updated.target@example.com")
+        self.assertFalse(self.target.is_active)
+        self.assertFalse(self.target.is_staff)
+        self.assertTrue(self.target.groups.filter(name="external_collaborator").exists())
+        self.assertFalse(self.target.groups.filter(name="author").exists())
+
+    def test_manager_can_send_password_reset_email_for_existing_account(self):
+        response = self.client.post(
+            reverse("synopsis:manager_user_edit", args=[self.target.id]),
+            {"action": "send_access_email"},
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:manager_user_edit", args=[self.target.id])
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("password reset", mail.outbox[0].subject.lower())
+        self.assertEqual(mail.outbox[0].to, ["target@example.com"])
+
+    def test_manager_can_resend_setup_email_for_pending_account(self):
+        response = self.client.post(
+            reverse("synopsis:manager_user_edit", args=[self.pending_user.id]),
+            {"action": "send_access_email"},
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:manager_user_edit", args=[self.pending_user.id]),
+        )
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn("set up your ce synopsis portal account", mail.outbox[0].subject.lower())
+        self.assertEqual(mail.outbox[0].to, ["pending@example.com"])
+
+    def test_manager_can_assign_synopses_to_external_author(self):
+        response = self.client.post(
+            reverse("synopsis:manager_user_edit", args=[self.pending_user.id]),
+            {
+                "action": "update_user",
+                "first_name": "Pending",
+                "last_name": "",
+                "email": "pending@example.com",
+                "global_role": "external_collaborator",
+                "is_active": "on",
+                "assigned_projects": [str(self.project.id)],
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:manager_user_edit", args=[self.pending_user.id]),
+        )
+        self.assertTrue(
+            UserRole.objects.filter(
+                user=self.pending_user, project=self.project, role="author"
+            ).exists()
+        )
+
+    def test_manager_can_delete_user_with_email_confirmation(self):
+        response = self.client.post(
+            reverse("synopsis:manager_user_edit", args=[self.target.id]),
+            {
+                "action": "delete_user",
+                "confirm_email": "target@example.com",
+            },
+        )
+
+        self.assertRedirects(response, reverse("synopsis:manager_dashboard"))
+        self.assertFalse(User.objects.filter(pk=self.target.id).exists())
+
+    def test_manager_cannot_delete_own_account(self):
+        response = self.client.post(
+            reverse("synopsis:manager_user_edit", args=[self.manager.id]),
+            {
+                "action": "delete_user",
+                "confirm_email": "manager@example.com",
+            },
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:manager_user_edit", args=[self.manager.id])
+        )
+        self.assertTrue(User.objects.filter(pk=self.manager.id).exists())
+        self.assertContains(response, "You cannot delete your own account.")
+
+    def test_superuser_accounts_are_protected_from_manager_edit_screen(self):
+        response = self.client.get(
+            reverse("synopsis:manager_user_edit", args=[self.superuser.id]),
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse("synopsis:manager_dashboard"))
+        self.assertContains(
+            response,
+            "System admin accounts are managed outside this screen.",
+        )
+
+
+class EmailSubjectFormattingTests(TestCase):
+    def setUp(self):
+        self.project = SimpleNamespace(title="Coastal Restoration")
 
     def test_invite_reminder_with_date(self):
         due = date(2025, 5, 10)
@@ -8158,6 +8473,7 @@ class GlobalReferenceLibraryAccessTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="authorlib", password="pass123")
         self.project = Project.objects.create(title="Coral Project")
+        self.other_project = Project.objects.create(title="Unassigned Project")
         UserRole.objects.create(user=self.user, project=self.project, role="author")
 
     @override_settings(APP_RELEASE_LABEL="pilot-2026-03-29")
@@ -8174,12 +8490,24 @@ class GlobalReferenceLibraryAccessTests(TestCase):
         self.assertContains(dashboard_response, "Open Reference Database")
         self.assertContains(dashboard_response, "Reference Database")
         self.assertNotContains(dashboard_response, "How this works for authors")
+        self.assertContains(dashboard_response, "Coral Project")
+        self.assertContains(dashboard_response, "Unassigned Project")
         self.assertContains(project_response, "Browse Reference Database")
         self.assertContains(
             project_response,
             reverse("synopsis:reference_library") + f"?project={self.project.id}",
             html=False,
         )
+
+    def test_author_can_open_unassigned_synopsis(self):
+        self.client.login(username="authorlib", password="pass123")
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.other_project.id]),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Unassigned Project")
 
     def test_library_pages_show_global_workflow_help(self):
         self.client.login(username="authorlib", password="pass123")
@@ -8252,6 +8580,185 @@ class ProjectReferenceWorkflowHelpUiTests(TestCase):
                 response,
                 "It does not copy the current team workflow exactly",
             )
+
+
+class ExternalAuthorAccessTests(TestCase):
+    def setUp(self):
+        ensure_global_groups()
+        self.media_dir = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(self.media_dir, ignore_errors=True))
+        override = override_settings(MEDIA_ROOT=self.media_dir)
+        override.enable()
+        self.addCleanup(override.disable)
+        self.user = User.objects.create_user(
+            username="external@example.com",
+            email="external@example.com",
+            password="pass123",
+        )
+        self.user.groups.add(Group.objects.get(name="external_collaborator"))
+        self.assigned_project = Project.objects.create(title="Assigned Synopsis")
+        self.unassigned_project = Project.objects.create(title="Hidden Synopsis")
+        UserRole.objects.create(
+            user=self.user, project=self.assigned_project, role="author"
+        )
+
+    def _docx_upload(self, name, content):
+        return SimpleUploadedFile(
+            name,
+            content,
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+
+    def test_external_author_dashboard_only_shows_assigned_synopses(self):
+        self.client.login(username="external@example.com", password="pass123")
+
+        response = self.client.get(reverse("synopsis:dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Assigned Synopsis")
+        self.assertNotContains(response, "Hidden Synopsis")
+        self.assertNotContains(response, "Open Reference Database")
+        self.assertNotContains(response, "Reference Database")
+        self.assertNotContains(response, "Create New Synopsis")
+
+    def test_external_author_cannot_create_synopsis_or_open_reference_library(self):
+        self.client.login(username="external@example.com", password="pass123")
+
+        create_response = self.client.get(reverse("synopsis:project_create"), follow=True)
+        library_response = self.client.get(reverse("synopsis:reference_library"))
+
+        self.assertRedirects(create_response, reverse("synopsis:dashboard"))
+        self.assertContains(
+            create_response,
+            "External author accounts cannot create new synopses.",
+        )
+        self.assertEqual(library_response.status_code, 403)
+
+    def test_external_author_can_open_assigned_synopsis_only(self):
+        self.client.login(username="external@example.com", password="pass123")
+
+        assigned_response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.assigned_project.id])
+        )
+        unassigned_response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.unassigned_project.id]),
+            follow=True,
+        )
+
+        self.assertEqual(assigned_response.status_code, 200)
+        self.assertNotContains(assigned_response, "Browse Reference Database")
+        self.assertNotContains(assigned_response, "Project settings")
+        self.assertNotContains(assigned_response, "Manage phase tracker")
+        self.assertNotContains(assigned_response, "Move to ")
+        self.assertRedirects(unassigned_response, reverse("synopsis:dashboard"))
+        self.assertContains(
+            unassigned_response,
+            "You do not have access to that synopsis.",
+        )
+
+    def test_external_author_cannot_open_project_settings(self):
+        self.client.login(username="external@example.com", password="pass123")
+
+        response = self.client.get(
+            reverse("synopsis:project_settings", args=[self.assigned_project.id]),
+            follow=True,
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:project_hub", args=[self.assigned_project.id])
+        )
+        self.assertContains(
+            response,
+            "You do not have permission to update project settings for this synopsis.",
+        )
+
+    def test_external_author_project_reference_page_hides_library_buttons(self):
+        self.client.login(username="external@example.com", password="pass123")
+
+        response = self.client.get(
+            reverse("synopsis:reference_batch_list", args=[self.assigned_project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Import RIS")
+        self.assertNotContains(response, "Link from library")
+        self.assertNotContains(response, "Browse library")
+
+    def test_external_author_cannot_delete_protocol_or_action_list_documents(self):
+        protocol = Protocol.objects.create(
+            project=self.assigned_project,
+            document=self._docx_upload("protocol.docx", b"protocol"),
+        )
+        action_list = ActionList.objects.create(
+            project=self.assigned_project,
+            document=self._docx_upload("action-list.docx", b"action-list"),
+        )
+        self.client.login(username="external@example.com", password="pass123")
+
+        protocol_page = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.assigned_project.id])
+        )
+        action_list_page = self.client.get(
+            reverse("synopsis:action_list_detail", args=[self.assigned_project.id])
+        )
+        protocol_delete_response = self.client.post(
+            reverse("synopsis:protocol_delete_file", args=[self.assigned_project.id]),
+            follow=True,
+        )
+        action_delete_response = self.client.post(
+            reverse(
+                "synopsis:action_list_delete_file", args=[self.assigned_project.id]
+            ),
+            follow=True,
+        )
+
+        self.assertNotContains(protocol_page, "Danger zone")
+        self.assertNotContains(action_list_page, "Danger zone")
+        self.assertRedirects(
+            protocol_delete_response,
+            reverse("synopsis:protocol_detail", args=[self.assigned_project.id]),
+        )
+        self.assertContains(
+            protocol_delete_response,
+            "You do not have permission to delete protocol files for this synopsis.",
+        )
+        self.assertRedirects(
+            action_delete_response,
+            reverse("synopsis:action_list_detail", args=[self.assigned_project.id]),
+        )
+        self.assertContains(
+            action_delete_response,
+            "You do not have permission to delete action list files for this synopsis.",
+        )
+        protocol.refresh_from_db()
+        action_list.refresh_from_db()
+        self.assertTrue(protocol.document)
+        self.assertTrue(action_list.document)
+
+    def test_external_author_cannot_mark_completed_or_reactivate_completed_synopsis(self):
+        self.assigned_project.status = "completed"
+        self.assigned_project.save(update_fields=["status"])
+        self.client.login(username="external@example.com", password="pass123")
+
+        dashboard_response = self.client.get(reverse("synopsis:dashboard"))
+        direct_post_response = self.client.post(
+            reverse("synopsis:project_settings", args=[self.assigned_project.id]),
+            {"status_action": "reactivate", "return_to": "dashboard"},
+            follow=True,
+        )
+
+        self.assertContains(dashboard_response, "Assigned Synopsis")
+        self.assertNotContains(dashboard_response, "Move to active")
+        self.assertRedirects(
+            direct_post_response,
+            reverse("synopsis:project_hub", args=[self.assigned_project.id]),
+        )
+        self.assertContains(
+            direct_post_response,
+            "You do not have permission to update project settings for this synopsis.",
+        )
+        self.assigned_project.refresh_from_db()
+        self.assertEqual(self.assigned_project.status, "completed")
 
 
 class ProjectAuthorSelectionUiTests(TestCase):

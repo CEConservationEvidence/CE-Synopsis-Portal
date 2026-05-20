@@ -114,6 +114,14 @@ def ensure_global_groups():
         Group.objects.get_or_create(name=name)
 
 
+def is_external_author_user(user) -> bool:
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if getattr(user, "is_staff", False):
+        return False
+    return user.groups.filter(name="external_collaborator").exists()
+
+
 def reference_hash(*parts: str) -> str:
     """Return a stable sha1 fingerprint for deduplication."""
 

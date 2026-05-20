@@ -1,6 +1,6 @@
-{# TODO: #66 The form could be cleaned up to make it easier for authors to send invitations without needing to understand the underlying data model. For example, instead of showing checkboxes for including the action list and collaborative editor link, we could show a single "Include project resources" checkbox that includes both if selected. We could also automatically include the collaborative editor link if the project has an active editor, without showing an explicit option for it in the form. #}
-{# TODO: #68 Finally, can make that the form is accessible and mobile-friendly, with clear labels and error messages for any validation issues. #}
-{# TODO: #67 low priority but adding a feature that allows authors to save a draft of the invitation before sending it, so that they can come back and edit it later if needed. #}
+{# TODO: #66 Simplify the invite form so authors choose resources in workflow terms rather than internal link types. #}
+{# TODO: #68 Make the invite form fully accessible and mobile-friendly, with clearer inline validation. #}
+{# TODO: #67 Allow authors to save an invitation draft and return to it later. #}
 
 {% extends "synopsis/base.html" %}
 {% block title %}Invite Advisory Member – {{ project.title }}{% endblock %}
