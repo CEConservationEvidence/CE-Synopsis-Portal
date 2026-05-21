@@ -4892,7 +4892,42 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response.context["editor_config"]["editorConfig"]["user"]["id"],
             f"abm:{self.member.id}",
         )
-        self.assertContains(response, "You are editing as Asha Reviewer.")
+        self.assertFalse(response.context["editor_config"]["document"]["permissions"]["edit"])
+        self.assertTrue(response.context["editor_config"]["document"]["permissions"]["comment"])
+        self.assertFalse(response.context["editor_config"]["document"]["permissions"]["review"])
+        self.assertContains(response, "Reviewing as")
+        self.assertContains(response, "Asha Reviewer")
+        self.assertContains(
+            response,
+            "To comment, highlight text and use the comment button in the toolbar.",
+        )
+        self.assertContains(
+            response,
+            "Authors will review your comments and decide whether to apply them.",
+        )
+        self.assertContains(
+            response,
+            "Comments save automatically while you work.",
+        )
+        self.assertContains(
+            response,
+            "Comments accepted until",
+        )
+        self.assertContains(
+            response,
+            _format_deadline(self.member.feedback_on_protocol_deadline),
+        )
+        self.assertContains(
+            response,
+            "Comment-only access",
+        )
+        self.assertContains(response, "Leave review page")
+        self.assertContains(response, "reviewer-tab-lock-key")
+        self.assertContains(
+            response,
+            "This review page is already open in another tab. Return to that tab or close it before opening another one.",
+        )
+        self.assertNotContains(response, "How collaborative editing works")
 
     def test_anonymous_reviewer_can_open_editor_with_invitation_token(self):
         invitation = AdvisoryBoardInvitation.objects.create(
@@ -4913,6 +4948,64 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response.context["editor_config"]["editorConfig"]["user"]["id"],
             f"abm:{self.member.id}",
         )
+        self.assertFalse(response.context["editor_config"]["document"]["permissions"]["edit"])
+        self.assertTrue(response.context["editor_config"]["document"]["permissions"]["comment"])
+        self.assertFalse(response.context["editor_config"]["document"]["permissions"]["review"])
+        self.assertContains(response, "Comments accepted until")
+        self.assertContains(response, "Leave review page")
+        self.assertNotContains(response, "How collaborative editing works")
+
+    def test_anonymous_reviewer_invitation_link_restarts_when_session_is_closed(self):
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=self.member,
+            email=self.member.email,
+            invited_by=self.author,
+            due_date=timezone.localdate() + timedelta(days=7),
+        )
+        self.session.invitations.add(invitation)
+        original_token = self.session.token
+        self.session.mark_inactive(reason="Closed for restart test")
+
+        response = self.client.get(
+            self._editor_url(f"?invite={invitation.token}&member={self.member.id}")
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(str(invitation.token), response["Location"])
+        self.assertNotIn(str(original_token), response["Location"])
+        new_session = CollaborativeSession.objects.get(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            is_active=True,
+        )
+        self.assertNotEqual(new_session.token, original_token)
+        self.assertTrue(new_session.invitations.filter(pk=invitation.pk).exists())
+
+    def test_anonymous_reviewer_feedback_link_restarts_when_session_expires(self):
+        feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            member=self.member,
+            email=self.member.email,
+            feedback_deadline_at=self.member.feedback_on_protocol_deadline,
+        )
+        original_token = self.session.token
+        self.session.last_activity_at = timezone.now() - timedelta(hours=5)
+        self.session.save(update_fields=["last_activity_at"])
+
+        response = self.client.get(self._editor_url(f"?feedback={feedback.token}"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(str(feedback.token), response["Location"])
+        self.assertNotIn(str(original_token), response["Location"])
+        self.session.refresh_from_db()
+        self.assertFalse(self.session.is_active)
+        new_session = CollaborativeSession.objects.get(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            is_active=True,
+        )
+        self.assertNotEqual(new_session.token, original_token)
 
     def test_member_id_only_link_is_blocked_for_anonymous_users(self):
         response = self.client.get(self._editor_url(f"?member={self.member.id}"))
@@ -4934,6 +5027,86 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response.context["editor_config"]["editorConfig"]["user"]["id"],
             str(self.author.id),
         )
+        self.assertTrue(response.context["editor_config"]["document"]["permissions"]["edit"])
+        self.assertTrue(response.context["editor_config"]["document"]["permissions"]["comment"])
+        self.assertTrue(response.context["editor_config"]["document"]["permissions"]["review"])
+        self.assertContains(response, "Back to protocol page")
+        self.assertContains(
+            response,
+            "To save and close the shared session for everyone, return to the protocol detail page.",
+        )
+        self.assertContains(response, "Active in this document:")
+        self.assertContains(response, "visibilitychange")
+        self.assertContains(response, "startPresencePolling")
+        self.assertNotContains(response, "reviewer-tab-lock-key")
+        self.assertNotContains(response, "How collaborative editing works")
+        self.assertNotContains(
+            response,
+            reverse(
+                "synopsis:collaborative_force_end",
+                args=[self.project.id, "protocol", self.session.token],
+            ),
+        )
+
+    @patch(
+        "synopsis.views._collaborative_active_participant_names",
+        return_value=["Asha Reviewer", "external-author"],
+    )
+    def test_author_can_fetch_active_collaborative_participants(
+        self, mock_active_names
+    ):
+        self.client.force_login(self.author)
+
+        response = self.client.get(
+            reverse(
+                "synopsis:collaborative_presence",
+                args=[self.project.id, "protocol", self.session.token],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"participants": ["Asha Reviewer", "external-author"]},
+        )
+        mock_active_names.assert_called_once_with(
+            self.project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+            self.session,
+        )
+
+    def test_anonymous_reviewer_can_leave_editor_without_closing_shared_session(self):
+        feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            member=self.member,
+            email=self.member.email,
+            feedback_deadline_at=self.member.feedback_on_protocol_deadline,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:collaborative_leave",
+                args=[self.project.id, "protocol", self.session.token],
+            )
+            + f"?feedback={feedback.token}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertTrue(self.session.is_active)
+        self.assertContains(
+            response,
+            "You left the review page. This did not close the shared session for other participants.",
+        )
+        self.assertContains(response, "Reviewing as")
+        self.assertContains(response, "Asha Reviewer")
+        self.assertContains(response, "Comment-only access")
+        self.assertContains(response, "Comments accepted until")
+        self.assertContains(
+            response, _format_deadline(self.member.feedback_on_protocol_deadline)
+        )
+        self.assertContains(response, "Reopen review page")
+        self.assertContains(response, "Close this tab")
 
 class CollaborativeForceSaveCloseTests(TestCase):
     def setUp(self):
@@ -5140,6 +5313,44 @@ class CollaborativePanelViewTests(TestCase):
         )
         self.assertNotContains(
             response, "Upload the action list before starting a collaborative session."
+        )
+
+    def test_protocol_panel_active_session_explains_global_close_scope(self):
+        from . import views
+
+        original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "http://localhost:8080",
+            "internal_url": "http://onlyoffice",
+            "app_base_url": "http://web:8000",
+            "jwt_secret": "change-me",
+            "callback_timeout": 10,
+            "trusted_download_urls": [
+                "http://localhost:8080",
+                "http://onlyoffice",
+            ],
+        }
+        self.addCleanup(lambda: setattr(views, "ONLYOFFICE_SETTINGS", original_settings))
+
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            started_by=self.user,
+            last_activity_at=timezone.now(),
+        )
+
+        response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Save and close session for everyone")
+        self.assertContains(
+            response,
+            "Participants can leave the editor without using this button. Use this only when everyone is finished.",
         )
 
     def test_advisory_board_shows_custom_columns_button_and_not_document_feedback_windows(self):
