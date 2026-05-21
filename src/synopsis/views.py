@@ -10485,24 +10485,19 @@ def reference_batch_detail(request, project_id, batch_id):
                     "screened_by",
                     "updated_at",
                 ]
-                if apply_bulk_folder:
-                    ref.reference_folder = bulk_folder
-                    update_fields.append("reference_folder")
                 ref.save(update_fields=update_fields)
-                if apply_bulk_folder and ref.library_reference_id:
-                    changed, synced_count, _previous, _new = (
-                        _update_shared_library_reference_folders(
-                            ref.library_reference,
+                if apply_bulk_folder:
+                    changed, _linked_count, _local_changed, _saved_categories = (
+                        _update_reference_categories(
+                            ref,
                             bulk_folder,
                             changed_by=request.user,
                             source_project=project,
-                            source_reference=ref,
                             change_source=f"screening_bulk_{new_status}",
                         )
                     )
                     if changed:
                         shared_updated += 1
-                    synced_project_refs += synced_count
                 updated += 1
 
             if updated:
@@ -10512,8 +10507,7 @@ def reference_batch_detail(request, project_id, batch_id):
                     message += " Applied the selected categories at the same time."
                     if shared_updated:
                         message += (
-                            f" Updated the shared library categories for {shared_updated} linked reference(s)"
-                            f" and synced {synced_project_refs} linked synopsis copy/copies."
+                            f" Updated the shared library categories for {shared_updated} linked reference(s)."
                         )
                 messages.success(request, message)
             else:
@@ -10536,7 +10530,7 @@ def reference_batch_detail(request, project_id, batch_id):
                 if focus_ref_override.isdigit():
                     ref_id = int(focus_ref_override)
             ref = get_object_or_404(
-                Reference,
+                Reference.objects.select_related("library_reference"),
                 pk=ref_id,
                 batch=batch,
                 project=project,
@@ -10555,27 +10549,23 @@ def reference_batch_detail(request, project_id, batch_id):
             if "screening_notes" in request.POST:
                 ref.screening_notes = form.cleaned_data.get("screening_notes") or ""
                 update_fields.append("screening_notes")
-            if "reference_folder" in request.POST:
-                ref.reference_folder = folder
-                update_fields.append("reference_folder")
             ref.screening_decision_at = timezone.now()
             ref.screened_by = request.user
             ref.save(update_fields=update_fields)
             message = f"Updated screening status for '{ref.canonical.title[:80]}'."
-            if "reference_folder" in request.POST and ref.library_reference_id:
-                shared_changed, synced_count, _previous, _new = (
-                    _update_shared_library_reference_folders(
-                        ref.library_reference,
+            if "reference_folder" in request.POST:
+                shared_changed, _linked_count, _local_changed, _saved_categories = (
+                    _update_reference_categories(
+                        ref,
                         folder,
                         changed_by=request.user,
                         source_project=project,
-                        source_reference=ref,
                         change_source="screening_single",
                     )
                 )
                 if shared_changed:
                     message += (
-                        f" Shared CE subject categories were updated and synced to {synced_count} linked synopsis copy/copies."
+                        " Shared CE subject categories were updated for all linked synopsis copies."
                     )
             messages.success(request, message)
             redirect_params = []
@@ -10912,9 +10902,6 @@ def reference_batch_upload(request, project_id):
                                 url=data["url"],
                                 language=data["language"],
                                 raw_ris=record,
-                                reference_folder=normalize_reference_folder_values(
-                                    library_ref.reference_folder
-                                ),
                             )
                             imported += 1
 
