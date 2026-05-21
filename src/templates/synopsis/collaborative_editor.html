@@ -247,7 +247,7 @@
                     <div class="collab-header-status">
                         {% if participant_display %}
                         <span class="collab-pill">
-                            You are signed in as <strong>{{ participant_display }}</strong>
+                            {% if editor_comment_only %}Reviewing as{% else %}You are signed in as{% endif %} <strong>{{ participant_display }}</strong>
                         </span>
                         {% endif %}
                         {% if editor_comment_only %}

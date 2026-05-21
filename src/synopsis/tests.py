@@ -4835,7 +4835,7 @@ class OnlyOfficeExternalAccessTests(TestCase):
         self.assertFalse(response.context["editor_config"]["document"]["permissions"]["edit"])
         self.assertTrue(response.context["editor_config"]["document"]["permissions"]["comment"])
         self.assertFalse(response.context["editor_config"]["document"]["permissions"]["review"])
-        self.assertContains(response, "You are signed in as")
+        self.assertContains(response, "Reviewing as")
         self.assertContains(response, "Asha Reviewer")
         self.assertContains(
             response,
