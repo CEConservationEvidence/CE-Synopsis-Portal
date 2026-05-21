@@ -114,6 +114,21 @@
     gap: 0.5rem;
   }
 
+  .collab-review-summary {
+    margin-top: 0.5rem;
+    color: #475569;
+    font-size: 0.92rem;
+    line-height: 1.4;
+  }
+
+  .collab-save-status {
+    font-weight: 600;
+  }
+
+  .collab-save-status.is-saved {
+    color: #166534;
+  }
+
   .collab-review-guide {
     margin-top: 0.75rem;
     padding-top: 0.75rem;
@@ -221,6 +236,12 @@
                         <a class="collab-link" href="{{ detail_url }}">Back to {{ document_label|lower }} detail</a>
                         {% endif %}
                     </div>
+                    {% if editor_comment_only %}
+                    <div class="collab-review-summary">
+                        To comment, highlight text and use the comment button in the toolbar. Authors will review your comments and decide whether to apply them.
+                        <span id="collab-save-status" class="collab-save-status">Comments save automatically while you work.</span>
+                    </div>
+                    {% endif %}
                 </div>
                 <div class="collab-header-actions">
                     <div class="collab-header-status">
@@ -232,11 +253,14 @@
                         {% if editor_comment_only %}
                         <span class="collab-pill collab-pill-strong">Comment-only access</span>
                         {% endif %}
+                        {% if review_deadline_display %}
+                        <span class="collab-pill">Comments accepted until <strong>{{ review_deadline_display }}</strong></span>
+                        {% endif %}
                     </div>
                     {% if leave_url %}
-                    <a class="btn btn-primary btn-sm" href="{{ leave_url }}">Leave editor</a>
+                    <a class="btn btn-primary btn-sm" href="{{ leave_url }}">{% if editor_comment_only %}Leave review page{% else %}Leave editor{% endif %}</a>
                     {% elif detail_url %}
-                    <a class="btn btn-primary btn-sm" href="{{ detail_url }}">Leave editor</a>
+                    <a class="btn btn-primary btn-sm" href="{{ detail_url }}">{% if editor_comment_only %}Leave review page{% else %}Leave editor{% endif %}</a>
                     {% endif %}
                 </div>
             </div>
@@ -275,7 +299,7 @@
 </div>
 <div class="mx-3 mx-md-4 mb-3 d-flex flex-wrap gap-2">
     {% if reopen_url %}
-    <a class="btn btn-outline-primary btn-sm" href="{{ reopen_url }}">Reopen editor</a>
+    <a class="btn btn-outline-primary btn-sm" href="{{ reopen_url }}">{{ reopen_label|default:"Reopen editor" }}</a>
     {% endif %}
     {% if detail_url %}
     <a class="btn btn-outline-secondary btn-sm" href="{{ detail_url }}">Back to {{ document_label|lower }} detail</a>
@@ -337,6 +361,22 @@
             container.style.height = `${height}px`;
             config.width = '100%';
             config.height = `${height}px`;
+            {% if editor_comment_only %}
+            const saveStatus = document.getElementById('collab-save-status');
+            const setSaveStatus = function(message, isSaved) {
+                if (!saveStatus) return;
+                saveStatus.textContent = message;
+                saveStatus.classList.toggle('is-saved', Boolean(isSaved));
+            };
+            config.events = config.events || {};
+            config.events.onDocumentStateChange = function(event) {
+                if (event && event.data) {
+                    setSaveStatus('Saving comments...', false);
+                } else {
+                    setSaveStatus('Comments saved.', true);
+                }
+            };
+            {% endif %}
             window.docEditor = new DocsAPI.DocEditor('onlyoffice-editor', config);
         }
 
