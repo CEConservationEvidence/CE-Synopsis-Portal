@@ -27,14 +27,6 @@
             {% elif detail_url %}
             <a class="btn btn-primary btn-sm" href="{{ detail_url }}">Leave editor</a>
             {% endif %}
-            <button
-                type="button"
-                class="btn btn-outline-secondary btn-sm"
-                data-bs-toggle="modal"
-                data-bs-target="#{{ document_label|slugify }}-editor-workflow-help"
-            >
-                How collaborative editing works
-            </button>
         </div>
     </div>
     {% if participant_display %}
@@ -46,7 +38,6 @@
     </div>
     {% endif %}
 </div>
-{% include "synopsis/includes/collaborative_workflow_modal.html" with workflow_help_slug=document_label|slugify|add:"-editor" %}
 {% if window_closed_message %}
 <div class="alert alert-warning mx-3 mx-md-4 mt-3" role="alert">
     {{ window_closed_message }}
@@ -65,6 +56,17 @@
     {% else %}
     <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.close()">Close this tab</button>
     {% endif %}
+</div>
+{% endif %}
+{% if editor_config and not detail_url and participant_display %}
+<div class="alert alert-info mx-3 mx-md-4 mt-3 mb-0" role="alert">
+    <div class="fw-semibold mb-2">How to use this editor</div>
+    <ul class="mb-0 ps-3">
+        <li>Review and edit the {{ document_label|lower }} directly in this document.</li>
+        <li>Your changes save while you work in the editor.</li>
+        <li>Use <strong>Leave editor</strong> when you are finished. This leaves the page without closing the shared session for anyone else.</li>
+        <li>If you need to continue later, reopen the same link while the feedback window is still open.</li>
+    </ul>
 </div>
 {% endif %}
 <style>

@@ -4833,6 +4833,13 @@ class OnlyOfficeExternalAccessTests(TestCase):
             f"abm:{self.member.id}",
         )
         self.assertContains(response, "You are editing as Asha Reviewer.")
+        self.assertContains(response, "How to use this editor")
+        self.assertContains(
+            response,
+            "Use <strong>Leave editor</strong> when you are finished. This leaves the page without closing the shared session for anyone else.",
+            html=True,
+        )
+        self.assertNotContains(response, "How collaborative editing works")
 
     def test_anonymous_reviewer_can_open_editor_with_invitation_token(self):
         invitation = AdvisoryBoardInvitation.objects.create(
@@ -4853,6 +4860,8 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response.context["editor_config"]["editorConfig"]["user"]["id"],
             f"abm:{self.member.id}",
         )
+        self.assertContains(response, "How to use this editor")
+        self.assertNotContains(response, "How collaborative editing works")
 
     def test_member_id_only_link_is_blocked_for_anonymous_users(self):
         response = self.client.get(self._editor_url(f"?member={self.member.id}"))
@@ -4879,6 +4888,7 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response,
             "To save and close the shared session for everyone, return to the protocol detail page.",
         )
+        self.assertNotContains(response, "How collaborative editing works")
         self.assertNotContains(
             response,
             reverse(
