@@ -146,9 +146,19 @@ urlpatterns = [
         name="collaborative_edit",
     ),
     path(
+        "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/leave/",
+        views.collaborative_leave,
+        name="collaborative_leave",
+    ),
+    path(
         "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/force-end/",
         views.collaborative_force_end,
         name="collaborative_force_end",
+    ),
+    path(
+        "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/presence/",
+        views.collaborative_presence,
+        name="collaborative_presence",
     ),
     path(
         "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/callback/",
