@@ -4863,6 +4863,58 @@ class OnlyOfficeExternalAccessTests(TestCase):
         self.assertContains(response, "How to use this editor")
         self.assertNotContains(response, "How collaborative editing works")
 
+    def test_anonymous_reviewer_invitation_link_restarts_when_session_is_closed(self):
+        invitation = AdvisoryBoardInvitation.objects.create(
+            project=self.project,
+            member=self.member,
+            email=self.member.email,
+            invited_by=self.author,
+            due_date=timezone.localdate() + timedelta(days=7),
+        )
+        self.session.invitations.add(invitation)
+        original_token = self.session.token
+        self.session.mark_inactive(reason="Closed for restart test")
+
+        response = self.client.get(
+            self._editor_url(f"?invite={invitation.token}&member={self.member.id}")
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(str(invitation.token), response["Location"])
+        self.assertNotIn(str(original_token), response["Location"])
+        new_session = CollaborativeSession.objects.get(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            is_active=True,
+        )
+        self.assertNotEqual(new_session.token, original_token)
+        self.assertTrue(new_session.invitations.filter(pk=invitation.pk).exists())
+
+    def test_anonymous_reviewer_feedback_link_restarts_when_session_expires(self):
+        feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            member=self.member,
+            email=self.member.email,
+            feedback_deadline_at=self.member.feedback_on_protocol_deadline,
+        )
+        original_token = self.session.token
+        self.session.last_activity_at = timezone.now() - timedelta(hours=5)
+        self.session.save(update_fields=["last_activity_at"])
+
+        response = self.client.get(self._editor_url(f"?feedback={feedback.token}"))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(str(feedback.token), response["Location"])
+        self.assertNotIn(str(original_token), response["Location"])
+        self.session.refresh_from_db()
+        self.assertFalse(self.session.is_active)
+        new_session = CollaborativeSession.objects.get(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            is_active=True,
+        )
+        self.assertNotEqual(new_session.token, original_token)
+
     def test_member_id_only_link_is_blocked_for_anonymous_users(self):
         response = self.client.get(self._editor_url(f"?member={self.member.id}"))
 

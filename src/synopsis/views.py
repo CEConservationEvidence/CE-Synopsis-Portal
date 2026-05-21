@@ -1586,6 +1586,21 @@ def _collaborative_query_suffix(querydict) -> str:
     return f"?{query_string}" if query_string else ""
 
 
+def _restart_external_collaborative_url(
+    request, project, document_type, external_access
+) -> str:
+    if not external_access.get("allowed"):
+        return ""
+    return _ensure_collaborative_invite_link(
+        request,
+        project,
+        document_type,
+        external_access.get("invitation"),
+        member=external_access.get("member"),
+        feedback=external_access.get("feedback"),
+    )
+
+
 def _build_onlyoffice_config(
     request,
     project,
@@ -4627,28 +4642,35 @@ def collaborative_edit(request, project_id, document_slug, token):
         )
 
     session = _collaborative_session_or_404(project, document_type, token)
+    external_access = {"allowed": False}
+    if not user_can_edit:
+        external_access = _resolve_external_collaborative_access(
+            request, project, document_type, session
+        )
+        if not external_access.get("allowed"):
+            return _collaborative_access_closed_response(
+                request,
+                project,
+                document_label,
+                external_access.get("message")
+                or "You do not have access to this collaborative session.",
+            )
+
     if session.has_expired():
         session.mark_inactive(reason="Session expired")
         if user_can_edit:
             messages.warning(request, "This collaborative session has expired.")
             return redirect(detail_url)
+        restart_url = _restart_external_collaborative_url(
+            request, project, document_type, external_access
+        )
+        if restart_url and restart_url != request.build_absolute_uri():
+            return redirect(restart_url)
         return _collaborative_access_closed_response(
             request,
             project,
             document_label,
             "This collaborative session has expired. Ask the authors to resend the link.",
-        )
-
-    external_access = _resolve_external_collaborative_access(
-        request, project, document_type, session
-    )
-    if not user_can_edit and not external_access.get("allowed"):
-        return _collaborative_access_closed_response(
-            request,
-            project,
-            document_label,
-            external_access.get("message")
-            or "You do not have access to this collaborative session.",
         )
 
     document = _get_document_for_type(project, document_type)
@@ -4703,6 +4725,11 @@ def collaborative_edit(request, project_id, document_slug, token):
                 return redirect(restart_url)
             messages.info(request, "This collaborative session is no longer active.")
             return redirect(detail_url)
+        restart_url = _restart_external_collaborative_url(
+            request, project, document_type, external_access
+        )
+        if restart_url and restart_url != request.build_absolute_uri():
+            return redirect(restart_url)
         return _collaborative_access_closed_response(
             request,
             project,
