@@ -1948,7 +1948,7 @@ class ReferenceScreeningForm(forms.Form):
         widget=forms.SelectMultiple(attrs={"class": "form-select form-select-sm", "size": "6"}),
         label="Shared CE subject categories",
         help_text=(
-            "For library-linked references, changing these categories updates the shared library record and linked synopsis copies."
+            "For library-linked references, changing these categories updates the shared library record and is reflected in linked synopsis copies."
         ),
     )
     screening_notes = forms.CharField(
@@ -1983,7 +1983,7 @@ class ReferenceClassificationForm(forms.Form):
         widget=forms.SelectMultiple(attrs={"class": "form-select", "size": "6"}),
         label="Shared CE subject categories",
         help_text=(
-            "This is a reference-level setting. For library-linked references, changing these categories updates the shared library record and linked synopsis copies."
+            "This is a reference-level setting. For library-linked references, changing these categories updates the shared library record and is reflected in linked synopsis copies."
         ),
     )
     screening_notes = forms.CharField(
