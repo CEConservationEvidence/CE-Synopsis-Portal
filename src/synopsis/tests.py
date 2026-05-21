@@ -8636,6 +8636,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             html=False,
         )
         self.assertContains(response, "managementPanelOpen", html=False)
+        self.assertContains(response, "uploadForm.requestSubmit()", html=False)
 
     def test_board_context_workload_counts_are_aggregated_correctly(self):
         other_author = User.objects.create_user(

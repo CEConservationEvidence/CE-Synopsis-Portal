@@ -1017,7 +1017,11 @@
         if (!fileInput) return;
         fileInput.addEventListener("change", () => {
             if (fileInput.files && fileInput.files.length > 0) {
-                uploadForm.submit();
+                if (typeof uploadForm.requestSubmit === "function") {
+                    uploadForm.requestSubmit();
+                } else {
+                    uploadForm.submit();
+                }
             }
         });
     })();
