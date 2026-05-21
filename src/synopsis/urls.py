@@ -156,6 +156,11 @@ urlpatterns = [
         name="collaborative_force_end",
     ),
     path(
+        "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/presence/",
+        views.collaborative_presence,
+        name="collaborative_presence",
+    ),
+    path(
         "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/callback/",
         views.collaborative_edit_callback,
         name="collaborative_edit_callback",
