@@ -4970,7 +4970,7 @@ class OnlyOfficeExternalAccessTests(TestCase):
         self.assertTrue(response.context["editor_config"]["document"]["permissions"]["edit"])
         self.assertTrue(response.context["editor_config"]["document"]["permissions"]["comment"])
         self.assertTrue(response.context["editor_config"]["document"]["permissions"]["review"])
-        self.assertContains(response, "Leave editor")
+        self.assertContains(response, "Back to protocol page")
         self.assertContains(
             response,
             "To save and close the shared session for everyone, return to the protocol detail page.",

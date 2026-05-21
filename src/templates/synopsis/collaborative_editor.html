@@ -281,9 +281,9 @@
                         {% endif %}
                     </div>
                     {% if not editor_comment_only and leave_url %}
-                    <a class="btn btn-primary btn-sm" href="{{ leave_url }}">{% if editor_comment_only %}Leave review page{% else %}Leave editor{% endif %}</a>
+                    <a class="btn btn-primary btn-sm" href="{{ leave_url }}">Back to {{ document_label|lower }} page</a>
                     {% elif not editor_comment_only and detail_url %}
-                    <a class="btn btn-primary btn-sm" href="{{ detail_url }}">{% if editor_comment_only %}Leave review page{% else %}Leave editor{% endif %}</a>
+                    <a class="btn btn-primary btn-sm" href="{{ detail_url }}">Back to {{ document_label|lower }} page</a>
                     {% endif %}
                 </div>
             </div>
