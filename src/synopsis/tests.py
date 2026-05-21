@@ -4976,6 +4976,8 @@ class OnlyOfficeExternalAccessTests(TestCase):
             "To save and close the shared session for everyone, return to the protocol detail page.",
         )
         self.assertContains(response, "Active in this document:")
+        self.assertContains(response, "visibilitychange")
+        self.assertContains(response, "startPresencePolling")
         self.assertNotContains(response, "reviewer-tab-lock-key")
         self.assertNotContains(response, "How collaborative editing works")
         self.assertNotContains(

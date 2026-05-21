@@ -506,6 +506,21 @@
                     // Keep the most recent successful presence text if polling fails.
                 });
         };
+
+        const stopPresencePolling = function () {
+            if (presencePollTimer) {
+                window.clearInterval(presencePollTimer);
+                presencePollTimer = null;
+            }
+        };
+
+        const startPresencePolling = function () {
+            if (presencePollTimer || document.hidden) {
+                return;
+            }
+            refreshPresence();
+            presencePollTimer = window.setInterval(refreshPresence, 15000);
+        };
         {% endif %}
 
         function handleResize() {
@@ -520,12 +535,16 @@
             window.addEventListener('resize', handleResize);
             window.addEventListener('load', handleResize);
             {% if collaborative_presence_url %}
-            refreshPresence();
-            presencePollTimer = window.setInterval(refreshPresence, 15000);
-            window.addEventListener('beforeunload', function () {
-                if (presencePollTimer) {
-                    window.clearInterval(presencePollTimer);
+            startPresencePolling();
+            document.addEventListener('visibilitychange', function () {
+                if (document.hidden) {
+                    stopPresencePolling();
+                    return;
                 }
+                startPresencePolling();
+            });
+            window.addEventListener('beforeunload', function () {
+                stopPresencePolling();
             });
             {% endif %}
         } else {

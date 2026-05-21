@@ -26,6 +26,7 @@ from django.contrib.auth import views as auth_views
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User, Group
 from django.contrib.auth.tokens import default_token_generator
+from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.base import ContentFile
 from django.core.mail import EmailMultiAlternatives
@@ -1943,6 +1944,18 @@ def _collaborative_active_participant_names(project, document_type, session) -> 
         )
         if name and name not in names:
             names.append(name)
+    return names
+
+
+def _collaborative_active_participant_names_cached(
+    project, document_type, session, *, ttl_seconds=10
+) -> list[str]:
+    cache_key = f"collab-presence:{session.id}:{document_type}"
+    cached_names = cache.get(cache_key)
+    if isinstance(cached_names, list):
+        return cached_names
+    names = _collaborative_active_participant_names(project, document_type, session)
+    cache.set(cache_key, names, ttl_seconds)
     return names
 
 
@@ -4931,7 +4944,7 @@ def collaborative_edit(request, project_id, document_slug, token):
     active_participant_names = []
     collaborative_presence_url = ""
     if user_can_edit:
-        active_participant_names = _collaborative_active_participant_names(
+        active_participant_names = _collaborative_active_participant_names_cached(
             project, document_type, session
         )
         collaborative_presence_url = reverse(
@@ -5053,7 +5066,9 @@ def collaborative_presence(request, project_id, document_slug, token):
     session = _collaborative_session_or_404(project, document_type, token)
     names = []
     if session.is_active and not session.has_expired():
-        names = _collaborative_active_participant_names(project, document_type, session)
+        names = _collaborative_active_participant_names_cached(
+            project, document_type, session
+        )
     return JsonResponse({"participants": names})
 
 
