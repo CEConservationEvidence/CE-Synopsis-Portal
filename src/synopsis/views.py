@@ -4769,12 +4769,19 @@ def collaborative_edit(request, project_id, document_slug, token):
     participant_display = ""
     participant_context = None
     editor_access_mode = "edit"
+    review_deadline_display = ""
     if external_access.get("allowed"):
         participant_member = external_access.get("member")
         participant_feedback = external_access.get("feedback")
         participant_display = external_access.get("participant_display", "")
         participant_context = external_access.get("participant_context")
         editor_access_mode = external_access.get("editor_access_mode", "comment")
+        if editor_access_mode == "comment":
+            review_deadline = _member_feedback_deadline(
+                participant_member, document_type
+            ) or getattr(participant_feedback, "feedback_deadline_at", None)
+            if review_deadline:
+                review_deadline_display = _format_deadline(review_deadline)
 
     if not participant_member and not participant_context and user_can_edit:
         member_id = request.GET.get("member")
@@ -4857,6 +4864,7 @@ def collaborative_edit(request, project_id, document_slug, token):
             "leave_url": leave_url,
             "participant_display": participant_display,
             "editor_comment_only": editor_access_mode == "comment",
+            "review_deadline_display": review_deadline_display,
         },
     )
 
@@ -4893,6 +4901,7 @@ def collaborative_leave(request, project_id, document_slug, token):
 
     reopen_url = ""
     document = _get_document_for_type(project, document_type)
+    reviewer_comment_only = external_access.get("editor_access_mode") == "comment"
     if (
         session.is_active
         and not session.has_expired()
@@ -4911,9 +4920,14 @@ def collaborative_leave(request, project_id, document_slug, token):
             "document_label": document_label,
             "detail_url": project_editor_detail_url,
             "leave_message": (
-                "You left the collaborative editor. This did not close the shared session for other participants."
+                "You left the review page. This did not close the shared session for other participants."
+                if reviewer_comment_only
+                else "You left the collaborative editor. This did not close the shared session for other participants."
             ),
             "reopen_url": reopen_url,
+            "reopen_label": (
+                "Reopen review page" if reviewer_comment_only else "Reopen editor"
+            ),
             "can_force_end": False,
             "force_end_url": "",
             "leave_url": "",
