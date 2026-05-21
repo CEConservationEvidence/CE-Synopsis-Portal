@@ -9337,6 +9337,7 @@ class GlobalReferenceLibraryAccessTests(TestCase):
         self.assertContains(dashboard_response, "Deployed version")
         self.assertContains(dashboard_response, "pilot-2026-03-29")
         self.assertContains(dashboard_response, "Shared Reference Library")
+        self.assertContains(dashboard_response, "Create New Synopsis")
         self.assertNotContains(dashboard_response, "How this works for authors")
         self.assertNotContains(
             dashboard_response,
@@ -9344,6 +9345,7 @@ class GlobalReferenceLibraryAccessTests(TestCase):
         )
         self.assertContains(dashboard_response, "Coral Project")
         self.assertContains(dashboard_response, "Unassigned Project")
+        self.assertNotContains(project_response, "Create New Synopsis")
         self.assertContains(project_response, "Browse Shared Reference Library")
         self.assertContains(
             project_response,
