@@ -3,6 +3,7 @@
 {% block title %}Screening Batch – {{ batch.label }}{% endblock %}
 {% block content %}
 {% include "synopsis/includes/project_reference_workflow_modal.html" with modal_id="project-reference-workflow-modal" %}
+<div id="reference-batch-page">
 <h1 class="mb-1">{{ batch.label }}</h1>
 <p class="text-muted mb-3">
     Project: {{ project.title }}
@@ -898,6 +899,17 @@ document.addEventListener("DOMContentLoaded", function () {
     })();
 
     (() => {
+        window.cePreservePageState({
+            key: "screening-batch-state-{{ project.id }}-{{ batch.id }}",
+            formSelector: "#reference-batch-page form",
+            shouldRestore: () => {
+                const params = new URLSearchParams(window.location.search);
+                return !window.location.hash && !params.has("focus");
+            },
+        });
+    })();
+
+    (() => {
         const overlay = document.getElementById("focus-overlay");
         if (!overlay) return;
         const exitUrl = "{% url 'synopsis:reference_batch_detail' project.id batch.id %}{% if status_filter %}?status={{ status_filter }}{% endif %}";
@@ -927,4 +939,5 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     })();
 </script>
+</div>
 {% endblock %}

@@ -5,6 +5,7 @@
 {% block title %}Reference summary – {{ project.title }}{% endblock %}
 {% block content %}
 {{ summary_form.media }}
+<div id="reference-summary-page">
 <style>
     .generated-readonly {
         background-color: #f3f4f6;
@@ -982,6 +983,28 @@
 <script>
     (() => {
         const managementPanel = document.getElementById("referenceManagementPanel");
+        window.cePreservePageState({
+            key: "reference-summary-state-{{ project.id }}-{{ summary.id }}",
+            formSelector: "#reference-summary-page form",
+            capture: () => ({
+                managementPanelOpen: Boolean(managementPanel && managementPanel.classList.contains("show")),
+            }),
+            restore: (state) => {
+                if (typeof state.scrollY === "number") {
+                    window.scrollTo(0, state.scrollY);
+                }
+                if (
+                    state.managementPanelOpen &&
+                    managementPanel &&
+                    window.bootstrap &&
+                    bootstrap.Offcanvas
+                ) {
+                    window.setTimeout(() => {
+                        bootstrap.Offcanvas.getOrCreateInstance(managementPanel).show();
+                    }, 0);
+                }
+            },
+        });
         if (managementPanel && window.bootstrap && bootstrap.Offcanvas) {
             {% if open_management_panel %}
             bootstrap.Offcanvas.getOrCreateInstance(managementPanel).show();
@@ -1089,5 +1112,6 @@
 </script>
 <div class="d-flex justify-content-end my-3">
     <a href="#top" class="btn btn-outline-secondary btn-sm">Back to top</a>
+</div>
 </div>
 {% endblock %}
