@@ -6445,6 +6445,8 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertContains(response, "folder-select")
         self.assertContains(response, "screening-bulk-sticky")
         self.assertContains(response, "Apply categories")
+        self.assertContains(response, "Include in synopsis")
+        self.assertContains(response, "Exclude from synopsis")
         self.assertContains(response, "Multiple categories are allowed.")
         self.assertContains(response, 'id="reference-batch-page"', html=False)
         self.assertContains(response, "cePreservePageState({", html=False)
@@ -6452,6 +6454,10 @@ class ReferenceBatchUploadParsingTests(TestCase):
             response,
             f'"screening-batch-state-{self.project.id}-{batch.id}"',
             html=False,
+        )
+        self.assertContains(
+            response,
+            "Inclusion and exclusion here apply only to this synopsis. Category changes feed back into the shared CE reference library.",
         )
         self.assertContains(
             response,

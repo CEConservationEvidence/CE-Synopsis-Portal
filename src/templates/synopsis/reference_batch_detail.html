@@ -136,8 +136,8 @@ details.abstract-details[open] .abstract-full {
                 {% endif %}
                 <input type="hidden" name="action" value="bulk-screen">
                 <span class="fw-semibold small text-uppercase text-muted">Bulk</span>
-                <button class="btn btn-success btn-sm bulk-action-btn" type="submit" name="bulk_action" value="include" disabled>Mark as Include</button>
-                <button class="btn btn-outline-danger btn-sm bulk-action-btn" type="submit" name="bulk_action" value="exclude" disabled>Mark as Exclude</button>
+                <button class="btn btn-success btn-sm bulk-action-btn" type="submit" name="bulk_action" value="include" disabled>Include in synopsis</button>
+                <button class="btn btn-outline-danger btn-sm bulk-action-btn" type="submit" name="bulk_action" value="exclude" disabled>Exclude from synopsis</button>
                 <button class="btn btn-outline-secondary btn-sm bulk-action-btn" type="submit" name="bulk_action" value="pending" disabled>Reset to Pending</button>
                 <button class="btn btn-outline-secondary btn-sm bulk-action-btn" type="submit" name="bulk_action" value="save-folders" disabled>Apply categories</button>
             </form>
@@ -148,6 +148,9 @@ details.abstract-details[open] .abstract-full {
                 <input type="text" class="form-control form-control-sm" id="batch-filter-input" placeholder="Search title/author/DOI">
             </div>
             <div class="col-12 col-lg-7">
+                <div class="small text-muted mb-1">
+                    Inclusion and exclusion here apply only to this synopsis. Category changes feed back into the shared CE reference library.
+                </div>
                 <div class="small text-muted mb-1">
                     <span class="badge text-bg-light border me-1">Shared library data</span>
                     Assign one or more shared CE subject categories to the selected references. This is the main category-classification step while screening. For library-linked references, changing categories here updates the shared reference library record and is reflected in linked synopsis copies in other projects. You can still use categories on excluded references to flag papers relevant to other taxa or habitats. If categories are selected here, bulk include/exclude will apply them at the same time.
@@ -212,6 +215,9 @@ details.abstract-details[open] .abstract-full {
                         <span class="status-dot {% if focused_reference.screening_status == 'included' %}status-dot-included{% elif focused_reference.screening_status == 'excluded' %}status-dot-excluded{% else %}status-dot-pending{% endif %}"></span>
                         {{ focused_reference.get_screening_status_display }}
                     </span>
+                    <div class="small text-muted mt-2">
+                        This status applies only to this synopsis. Category changes feed back into the shared CE reference library.
+                    </div>
                     {% if focused_reference.needs_help %}
                     <span class="badge text-bg-warning text-dark ms-2">Needs help</span>
                     {% endif %}
@@ -288,8 +294,8 @@ details.abstract-details[open] .abstract-full {
                     <input type="hidden" name="next_ref_id" value="{{ focused_reference.id }}">
                     {% endif %}
                     <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
-                    <button class="btn btn-success" type="submit" name="screening_status" value="included">Include</button>
-                    <button class="btn btn-outline-danger" type="submit" name="screening_status" value="excluded">Exclude</button>
+                    <button class="btn btn-success" type="submit" name="screening_status" value="included">Include in synopsis</button>
+                    <button class="btn btn-outline-danger" type="submit" name="screening_status" value="excluded">Exclude from synopsis</button>
                     <button class="btn btn-outline-secondary" type="submit" name="screening_status" value="pending">Pending</button>
                 </form>
             </div>
@@ -376,6 +382,7 @@ details.abstract-details[open] .abstract-full {
                         <td class="small text-center px-3">{{ ref.canonical.journal|default:"—" }}</td>
                         <td class="text-center px-3">
                             <span class="badge {% if ref.screening_status == 'included' %}text-bg-success{% elif ref.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ ref.get_screening_status_display }}</span>
+                            <div class="small text-muted mt-1">Status applies only to this synopsis.</div>
                             {% if ref.screened_by %}
                             <div class="small text-muted">{{ ref.screened_by.get_full_name|default:ref.screened_by.username }} · {{ ref.screening_decision_at|date:"Y-m-d H:i" }}</div>
                             {% endif %}
@@ -427,8 +434,8 @@ details.abstract-details[open] .abstract-full {
                                     {% csrf_token %}
                                     <input type="hidden" name="reference_id" value="{{ ref.id }}">
                                     <div class="d-flex flex-wrap gap-2">
-                                        <button class="btn btn-success btn-sm" type="submit" name="screening_status" value="included">Include</button>
-                                        <button class="btn btn-outline-danger btn-sm" type="submit" name="screening_status" value="excluded">Exclude</button>
+                                        <button class="btn btn-success btn-sm" type="submit" name="screening_status" value="included">Include in synopsis</button>
+                                        <button class="btn btn-outline-danger btn-sm" type="submit" name="screening_status" value="excluded">Exclude from synopsis</button>
                                         <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="pending">Pending</button>
                                     </div>
                                 </form>
