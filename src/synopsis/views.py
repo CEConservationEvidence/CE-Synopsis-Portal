@@ -355,8 +355,49 @@ def _update_shared_library_reference_folders(
             source_reference=source_reference,
             change_source=change_source,
         )
-    synced_project_refs = _sync_project_reference_folders_from_library(library_reference)
-    return changed, synced_project_refs, previous_values, shared_folders
+    linked_project_refs = _linked_project_reference_count(library_reference)
+    return changed, linked_project_refs, previous_values, shared_folders
+
+
+def _reference_category_values(reference):
+    return list(reference.category_values)
+
+
+def _update_reference_categories(
+    reference,
+    category_values,
+    *,
+    changed_by=None,
+    source_project=None,
+    change_source="",
+):
+    categories = normalize_reference_folder_values(category_values)
+    shared_changed = False
+    shared_linked_count = 0
+    local_changed = False
+    if reference.library_reference_id:
+        (
+            shared_changed,
+            shared_linked_count,
+            _previous_shared_folders,
+            _new_shared_folders,
+        ) = _update_shared_library_reference_folders(
+            reference.library_reference,
+            categories,
+            changed_by=changed_by,
+            source_project=source_project,
+            source_reference=reference,
+            change_source=change_source,
+        )
+    else:
+        local_before = normalize_reference_folder_values(
+            reference.unlinked_reference_folder
+        )
+        local_changed = local_before != categories
+        if local_changed:
+            reference.unlinked_reference_folder = categories
+            reference.save(update_fields=["unlinked_reference_folder", "updated_at"])
+    return shared_changed, shared_linked_count, local_changed, categories
 
 
 def _collaborative_invitation_table_ready():
