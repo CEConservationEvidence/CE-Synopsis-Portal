@@ -10588,8 +10588,10 @@ def reference_batch_detail(request, project_id, batch_id):
         form = ReferenceScreeningForm(request.POST)
         if form.is_valid():
             is_focus_post = (request.POST.get("focus") or "").strip() == "1"
-            is_focus_category_save = (
-                is_focus_post and request.POST.get("action") == "save-categories"
+            focus_stay_put_actions = {"save-categories", "save-notes"}
+            is_focus_stay_put_action = (
+                is_focus_post
+                and request.POST.get("action") in focus_stay_put_actions
             )
             ref_id = form.cleaned_data["reference_id"]
             if is_focus_post:
@@ -10642,7 +10644,7 @@ def reference_batch_detail(request, project_id, batch_id):
                 redirect_params.append(("focus", "1"))
                 next_ref_id = (
                     ref.id
-                    if is_focus_category_save
+                    if is_focus_stay_put_action
                     else (request.POST.get("next_ref_id") or ref.id)
                 )
                 redirect_params.append(("ref", next_ref_id))
