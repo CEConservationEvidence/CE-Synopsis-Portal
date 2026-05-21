@@ -101,7 +101,11 @@
                 } else {
                     bindForms();
                 }
-                window.addEventListener("load", restoreState, { once: true });
+                if (document.readyState === "complete") {
+                    restoreState();
+                } else {
+                    window.addEventListener("load", restoreState, { once: true });
+                }
             };
         </script>
     </head>
