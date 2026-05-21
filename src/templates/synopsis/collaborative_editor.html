@@ -11,32 +11,258 @@
 {# TODO: #58 Add document version history or snapshots that collaborators can inspect and restore. #}
 {# TODO: #59 Support inline document comments, either through OnlyOffice features or a portal-side comment layer. #}
 {# TODO: #60 Show who is currently viewing or editing the document in real time. #}
+<style>
+  .collab-top {
+    background: linear-gradient(180deg, #f7f9fc 0%, #ffffff 100%);
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  }
 
-<div class="collab-header py-3 px-3 px-md-4">
-    <h1 class="mb-2">Collaborative editor – {{ document_label }}</h1>
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <div>
-            <div class="fw-semibold">{{ project.title }}</div>
-            {% if detail_url %}
-            <a class="small" href="{{ detail_url }}">Back to {{ document_label|lower }} detail</a>
-            {% endif %}
-        </div>
-        <div class="d-flex flex-wrap align-items-center gap-2">
-            {% if leave_url %}
-            <a class="btn btn-primary btn-sm" href="{{ leave_url }}">Leave editor</a>
-            {% elif detail_url %}
-            <a class="btn btn-primary btn-sm" href="{{ detail_url }}">Leave editor</a>
+  .collab-header-card {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 1rem;
+    background: #ffffff;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+    padding: 1rem 1.1rem;
+  }
+
+  .collab-header-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1rem;
+    align-items: start;
+  }
+
+  .collab-kicker {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #5b6b7f;
+    margin-bottom: 0.35rem;
+  }
+
+  .collab-title {
+    font-size: 1.45rem;
+    line-height: 1.15;
+    margin: 0;
+  }
+
+  .collab-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .collab-project-inline {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #475569;
+  }
+
+  .collab-project {
+    font-weight: 600;
+    color: #1f2937;
+    margin-top: 0.3rem;
+  }
+
+  .collab-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.65rem;
+  }
+
+  .collab-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    background: #eef3f8;
+    color: #334155;
+    font-size: 0.9rem;
+  }
+
+  .collab-pill-strong {
+    background: #e7f1ff;
+    color: #0b4a8b;
+  }
+
+  .collab-link {
+    font-size: 0.95rem;
+    text-decoration: none;
+  }
+
+  .collab-link:hover {
+    text-decoration: underline;
+  }
+
+  .collab-header-actions {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: flex-end;
+    gap: 0.75rem;
+  }
+
+  .collab-header-status {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .collab-review-guide {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(15, 23, 42, 0.08);
+  }
+
+  .collab-review-guide summary {
+    cursor: pointer;
+    font-weight: 700;
+    color: #0f172a;
+    list-style: none;
+  }
+
+  .collab-review-guide summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .collab-review-guide-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 0.8rem;
+    background: #f8fafc;
+    padding: 0.7rem 0.9rem;
+  }
+
+  .collab-review-guide-summary small {
+    color: #5b6b7f;
+    font-weight: 500;
+  }
+
+  .collab-review-guide-body {
+    margin-top: 0.65rem;
+    padding: 0 0.15rem;
+  }
+
+  .collab-review-guide-body ul {
+    margin: 0;
+    padding-left: 1.1rem;
+  }
+
+  .collab-review-guide-body li {
+    margin-bottom: 0.35rem;
+    color: #475569;
+    font-size: 0.92rem;
+    line-height: 1.4;
+  }
+
+  #onlyoffice-editor {
+    width: 100%;
+    min-height: 420px;
+    height: 100%;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  @media (max-width: 900px) {
+    .collab-header-main {
+      grid-template-columns: 1fr;
+    }
+
+    .collab-header-actions {
+      justify-content: flex-start;
+      align-items: flex-start;
+    }
+
+    .collab-header-status {
+      justify-content: flex-start;
+    }
+  }
+
+  @media (max-width: 768px) {
+    #onlyoffice-editor {
+      min-height: 360px;
+    }
+
+    .collab-header-card {
+      padding: 0.9rem;
+      border-radius: 0.85rem;
+    }
+
+    .collab-title {
+      font-size: 1.25rem;
+    }
+  }
+</style>
+
+<div class="collab-top">
+    <div class="collab-header py-3 px-3 px-md-4">
+        <div class="collab-header-card">
+            <div class="collab-header-main">
+                <div>
+                    <div class="collab-kicker">
+                        {% if editor_comment_only %}Advisory board review workspace{% else %}Collaborative editing workspace{% endif %}
+                    </div>
+                    <div class="collab-title-row">
+                        <h1 class="collab-title">{{ document_label }} editor</h1>
+                        <span class="collab-project-inline">{{ project.title }}</span>
+                    </div>
+                    <div class="collab-meta">
+                        {% if detail_url %}
+                        <a class="collab-link" href="{{ detail_url }}">Back to {{ document_label|lower }} detail</a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="collab-header-actions">
+                    <div class="collab-header-status">
+                        {% if participant_display %}
+                        <span class="collab-pill">
+                            You are signed in as <strong>{{ participant_display }}</strong>
+                        </span>
+                        {% endif %}
+                        {% if editor_comment_only %}
+                        <span class="collab-pill collab-pill-strong">Comment-only access</span>
+                        {% endif %}
+                    </div>
+                    {% if leave_url %}
+                    <a class="btn btn-primary btn-sm" href="{{ leave_url }}">Leave editor</a>
+                    {% elif detail_url %}
+                    <a class="btn btn-primary btn-sm" href="{{ detail_url }}">Leave editor</a>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if editor_config and editor_comment_only and participant_display %}
+            <details class="collab-review-guide">
+                <summary class="collab-review-guide-summary">
+                    <span>How to review this document</span>
+                    <small>Open instructions</small>
+                </summary>
+                <div class="collab-review-guide-body">
+                    <ul>
+                        <li>Advisory board feedback is collected as comments so the authors can review each suggestion and decide what to change.</li>
+                        <li>Highlight the relevant text and use the comment button in the editor toolbar, or right-click the highlighted text and choose the comment option.</li>
+                        <li>Place the cursor near the relevant section first, then add the comment from the toolbar so the authors can see what part of the document it refers to.</li>
+                        <li>Use <strong>Leave editor</strong>. This does not close the shared session for anyone else, and you can reopen the same link later while the feedback window is still open.</li>
+                    </ul>
+                </div>
+            </details>
+            {% elif can_force_end and detail_url %}
+            <div class="small text-muted mt-3">
+                To save and close the shared session for everyone, return to the {{ document_label|lower }} detail page.
+            </div>
             {% endif %}
         </div>
     </div>
-    {% if participant_display %}
-    <div class="small text-muted mt-2">You are editing as {{ participant_display }}.</div>
-    {% endif %}
-    {% if can_force_end and detail_url %}
-    <div class="small text-muted mt-2">
-        To save and close the shared session for everyone, return to the {{ document_label|lower }} detail page.
-    </div>
-    {% endif %}
 </div>
 {% if window_closed_message %}
 <div class="alert alert-warning mx-3 mx-md-4 mt-3" role="alert">
@@ -58,33 +284,6 @@
     {% endif %}
 </div>
 {% endif %}
-{% if editor_config and not detail_url and participant_display %}
-<div class="alert alert-info mx-3 mx-md-4 mt-3 mb-0" role="alert">
-    <div class="fw-semibold mb-2">How to use this editor</div>
-    <ul class="mb-0 ps-3">
-        <li>Review and edit the {{ document_label|lower }} directly in this document.</li>
-        <li>Your changes save while you work in the editor.</li>
-        <li>Use <strong>Leave editor</strong> when you are finished. This leaves the page without closing the shared session for anyone else.</li>
-        <li>If you need to continue later, reopen the same link while the feedback window is still open.</li>
-    </ul>
-</div>
-{% endif %}
-<style>
-  #onlyoffice-editor {
-    width: 100%;
-    min-height: 420px;
-    height: 100%;
-    border: 1px solid var(--bs-border-color);
-    border-radius: 0.5rem;
-    overflow: hidden;
-  }
-
-  @media (max-width: 768px) {
-    #onlyoffice-editor {
-      min-height: 360px;
-    }
-  }
-</style>
 {% if editor_config %}
 <div id="onlyoffice-editor"></div>
 {{ editor_config|json_script:"onlyoffice-editor-config" }}
