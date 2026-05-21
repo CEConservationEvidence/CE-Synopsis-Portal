@@ -1581,6 +1581,11 @@ def _collaborative_document_key(project, document_type, session) -> str:
     ]
 
 
+def _collaborative_query_suffix(querydict) -> str:
+    query_string = querydict.urlencode()
+    return f"?{query_string}" if query_string else ""
+
+
 def _build_onlyoffice_config(
     request,
     project,
@@ -4787,6 +4792,13 @@ def collaborative_edit(request, project_id, document_slug, token):
         "synopsis:collaborative_force_end",
         args=[project.id, _document_type_slug(document_type), session.token],
     )
+    leave_url = (
+        reverse(
+            "synopsis:collaborative_leave",
+            args=[project.id, _document_type_slug(document_type), session.token],
+        )
+        + _collaborative_query_suffix(request.GET)
+    )
     can_force_end = _user_can_force_end_session(request.user, project, session)
 
     return render(
@@ -4801,8 +4813,71 @@ def collaborative_edit(request, project_id, document_slug, token):
             "detail_url": project_editor_detail_url,
             "can_force_end": can_force_end,
             "force_end_url": force_end_url,
+            "leave_url": leave_url,
             "participant_display": participant_display,
         },
+    )
+
+
+def collaborative_leave(request, project_id, document_slug, token):
+    project = get_object_or_404(Project, pk=project_id)
+    document_type = _normalize_document_type(document_slug)
+    if not document_type:
+        raise Http404("Unknown document type")
+
+    document_label = _document_label(document_type)
+    detail_url = _document_detail_url(project.id, document_type)
+    user_can_edit = _user_can_edit_project(request.user, project)
+    project_editor_detail_url = detail_url if user_can_edit else ""
+    session = _collaborative_session_or_404(project, document_type, token)
+    external_access = _resolve_external_collaborative_access(
+        request, project, document_type, session
+    )
+    if not user_can_edit and not external_access.get("allowed"):
+        return _collaborative_access_closed_response(
+            request,
+            project,
+            document_label,
+            external_access.get("message")
+            or "You do not have access to this collaborative session.",
+        )
+
+    if user_can_edit:
+        messages.info(
+            request,
+            "You left the collaborative editor. The shared session is still open for other participants.",
+        )
+        return redirect(detail_url)
+
+    reopen_url = ""
+    document = _get_document_for_type(project, document_type)
+    if (
+        session.is_active
+        and not session.has_expired()
+        and not getattr(document, "feedback_closed_at", None)
+    ):
+        reopen_url = reverse(
+            "synopsis:collaborative_edit",
+            args=[project.id, _document_type_slug(document_type), session.token],
+        ) + _collaborative_query_suffix(request.GET)
+
+    return render(
+        request,
+        "synopsis/collaborative_editor.html",
+        {
+            "project": project,
+            "document_label": document_label,
+            "detail_url": project_editor_detail_url,
+            "leave_message": (
+                "You left the collaborative editor. This did not close the shared session for other participants."
+            ),
+            "reopen_url": reopen_url,
+            "can_force_end": False,
+            "force_end_url": "",
+            "leave_url": "",
+            "participant_display": "",
+        },
+        status=200,
     )
 
 
