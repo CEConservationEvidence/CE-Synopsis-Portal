@@ -22,6 +22,11 @@
             {% endif %}
         </div>
         <div class="d-flex flex-wrap align-items-center gap-2">
+            {% if leave_url %}
+            <a class="btn btn-primary btn-sm" href="{{ leave_url }}">Leave editor</a>
+            {% elif detail_url %}
+            <a class="btn btn-primary btn-sm" href="{{ detail_url }}">Leave editor</a>
+            {% endif %}
             <button
                 type="button"
                 class="btn btn-outline-secondary btn-sm"
@@ -30,27 +35,36 @@
             >
                 How collaborative editing works
             </button>
-            {% if can_force_end %}
-            <form
-                method="post"
-                action="{{ force_end_url }}"
-                class="d-inline"
-                onsubmit="return confirm('Request a final save and end this collaborative session for everyone?');"
-            >
-                {% csrf_token %}
-                <button type="submit" class="btn btn-outline-danger btn-sm">Save and end session</button>
-            </form>
-            {% endif %}
         </div>
     </div>
     {% if participant_display %}
     <div class="small text-muted mt-2">You are editing as {{ participant_display }}.</div>
+    {% endif %}
+    {% if can_force_end and detail_url %}
+    <div class="small text-muted mt-2">
+        To save and close the shared session for everyone, return to the {{ document_label|lower }} detail page.
+    </div>
     {% endif %}
 </div>
 {% include "synopsis/includes/collaborative_workflow_modal.html" with workflow_help_slug=document_label|slugify|add:"-editor" %}
 {% if window_closed_message %}
 <div class="alert alert-warning mx-3 mx-md-4 mt-3" role="alert">
     {{ window_closed_message }}
+</div>
+{% endif %}
+{% if leave_message %}
+<div class="alert alert-info mx-3 mx-md-4 mt-3" role="alert">
+    {{ leave_message }}
+</div>
+<div class="mx-3 mx-md-4 mb-3 d-flex flex-wrap gap-2">
+    {% if reopen_url %}
+    <a class="btn btn-outline-primary btn-sm" href="{{ reopen_url }}">Reopen editor</a>
+    {% endif %}
+    {% if detail_url %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ detail_url }}">Back to {{ document_label|lower }} detail</a>
+    {% else %}
+    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.close()">Close this tab</button>
+    {% endif %}
 </div>
 {% endif %}
 <style>
@@ -139,7 +153,7 @@
         }
     })();
 </script>
-{% elif not window_closed_message %}
+{% elif not window_closed_message and not leave_message %}
 <div class="p-4 text-muted">
     Collaborative editing is currently unavailable.
 </div>
