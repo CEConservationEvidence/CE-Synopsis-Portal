@@ -1582,6 +1582,25 @@ class SynopsisStructureTests(TestCase):
             urlparse(url).path,
         )
 
+    def test_narrative_workspace_renders_restore_state_hooks(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+
+        response = self.client.get(url)
+
+        self.assertContains(response, 'id="synopsis-narrative-page"', html=False)
+        self.assertContains(response, "cePreservePageState({", html=False)
+        self.assertContains(
+            response,
+            f'"synopsis-narrative-state-{self.project.id}"',
+            html=False,
+        )
+
 
 class AdvisoryDeadlineValidationTests(TestCase):
     def test_invite_due_date_rejects_today_and_past_dates(self):
