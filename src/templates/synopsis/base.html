@@ -7,6 +7,107 @@
         <title>{% block title %}Conservation Evidence{% endblock %}</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+        <script>
+            window.cePreservePageState = function (config) {
+                if (!config || !config.key) {
+                    return;
+                }
+
+                let storage = null;
+                try {
+                    storage = window.sessionStorage;
+                    const probeKey = "__ce_page_state_probe__";
+                    storage.setItem(probeKey, "1");
+                    storage.removeItem(probeKey);
+                } catch (error) {
+                    return;
+                }
+
+                const storageKey = config.key;
+                const formSelector = config.formSelector || "form";
+                const clearStoredState = function () {
+                    try {
+                        storage.removeItem(storageKey);
+                    } catch (error) {
+                        console.warn("Could not clear saved page state.", error);
+                    }
+                };
+
+                const bindForms = function () {
+                    document.querySelectorAll(formSelector).forEach(function (form) {
+                        form.addEventListener("submit", function () {
+                            if (typeof config.shouldCapture === "function" && config.shouldCapture(form) === false) {
+                                return;
+                            }
+                            const state = {
+                                scrollY: window.scrollY,
+                            };
+                            if (typeof config.capture === "function") {
+                                Object.assign(state, config.capture(form) || {});
+                            }
+                            try {
+                                storage.setItem(storageKey, JSON.stringify(state));
+                            } catch (error) {
+                                console.warn("Could not save page state.", error);
+                            }
+                        });
+                    });
+                };
+
+                const restoreState = function () {
+                    let raw = null;
+                    try {
+                        raw = storage.getItem(storageKey);
+                    } catch (error) {
+                        console.warn("Could not read saved page state.", error);
+                    }
+                    if (!raw) {
+                        return;
+                    }
+
+                    let state = null;
+                    try {
+                        state = JSON.parse(raw);
+                    } catch (error) {
+                        console.warn("Could not parse saved page state.", error);
+                        clearStoredState();
+                        return;
+                    }
+
+                    if (typeof config.shouldRestore === "function" && config.shouldRestore(state) === false) {
+                        clearStoredState();
+                        return;
+                    }
+
+                    window.requestAnimationFrame(function () {
+                        try {
+                            if (typeof config.restore === "function") {
+                                config.restore(state);
+                                return;
+                            }
+                            if (typeof state.scrollY === "number") {
+                                window.scrollTo(0, state.scrollY);
+                            }
+                        } catch (error) {
+                            console.warn("Could not restore saved page state.", error);
+                        } finally {
+                            clearStoredState();
+                        }
+                    });
+                };
+
+                if (document.readyState === "loading") {
+                    document.addEventListener("DOMContentLoaded", bindForms, { once: true });
+                } else {
+                    bindForms();
+                }
+                if (document.readyState === "complete") {
+                    restoreState();
+                } else {
+                    window.addEventListener("load", restoreState, { once: true });
+                }
+            };
+        </script>
     </head>
     <body class="bg-light">
         <nav class="navbar navbar-expand navbar-dark bg-dark mb-4">
