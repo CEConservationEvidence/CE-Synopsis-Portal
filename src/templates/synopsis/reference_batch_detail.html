@@ -71,6 +71,12 @@ details.abstract-details[open] .abstract-full {
     box-shadow: 0 1rem 2.4rem rgba(0,0,0,0.28);
     border: 1px solid rgba(255,255,255,0.08);
 }
+.focus-screening-meta {
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr);
+    gap: 1rem;
+    align-items: start;
+}
 .focus-decision-bar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -152,6 +158,9 @@ details.abstract-details[open] .abstract-full {
     box-shadow: 0 0.35rem 1rem rgba(0, 0, 0, 0.08);
 }
 @media (max-width: 991.98px) {
+    .focus-screening-meta {
+        grid-template-columns: 1fr;
+    }
     .focus-decision-bar {
         grid-template-columns: 1fr;
     }
@@ -276,60 +285,72 @@ details.abstract-details[open] .abstract-full {
                     {% if focused_reference.needs_help %}
                     <span class="badge text-bg-warning text-dark">Needs help</span>
                     {% endif %}
-                    <div class="{% if focused_reference.needs_help %}mt-2{% endif %}">
-                        <label class="form-label small mb-1">Shared CE subject categories <span class="badge text-bg-light border ms-1">Shared library data</span></label>
-                        <form method="post" class="d-flex flex-wrap gap-2 align-items-center mb-0">
-                            {% csrf_token %}
-                            {% if status_filter %}
-                            <input type="hidden" name="status_filter" value="{{ status_filter }}">
-                            {% endif %}
-                            <input type="hidden" name="action" value="save-categories">
-                            <input type="hidden" name="focus" value="1">
-                            <input type="hidden" name="focus_ref" value="{{ focused_reference.id }}">
-                            <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
-                            <div class="folder-multi-group">
-                                <div class="folder-select-tools">
-                                    <span class="small text-muted">Choose one or more shared CE subject categories for this reference. These are shared library data.</span>
-                                    <div class="btn-group btn-group-sm" role="group" aria-label="Category selection tools">
-                                        <button type="button" class="btn btn-outline-secondary" data-folder-select-action="all">Select all</button>
-                                        <button type="button" class="btn btn-outline-secondary" data-folder-select-action="clear">Clear</button>
+                    <div class="focus-screening-meta {% if focused_reference.needs_help %}mt-2{% endif %}">
+                        <div>
+                            <label class="form-label small mb-1">Shared CE subject categories <span class="badge text-bg-light border ms-1">Shared library data</span></label>
+                            <form method="post" class="d-flex flex-wrap gap-2 align-items-center mb-0">
+                                {% csrf_token %}
+                                {% if status_filter %}
+                                <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                                {% endif %}
+                                <input type="hidden" name="action" value="save-categories">
+                                <input type="hidden" name="focus" value="1">
+                                <input type="hidden" name="focus_ref" value="{{ focused_reference.id }}">
+                                <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
+                                <div class="folder-multi-group">
+                                    <div class="folder-select-tools">
+                                        <span class="small text-muted">Choose one or more shared CE subject categories for this reference. These are shared library data.</span>
+                                        <div class="btn-group btn-group-sm" role="group" aria-label="Category selection tools">
+                                            <button type="button" class="btn btn-outline-secondary" data-folder-select-action="all">Select all</button>
+                                            <button type="button" class="btn btn-outline-secondary" data-folder-select-action="clear">Clear</button>
+                                        </div>
+                                    </div>
+                                    <div class="folder-select-shell">
+                                        <select name="reference_folder" class="form-select form-select-sm folder-select" multiple style="height: 150px;" data-folder-multi-select>
+                                            {% for val,label in folder_choices %}
+                                                {% if val in focused_reference.category_values %}
+                                                    <option value="{{ val }}" selected>{{ label }}</option>
+                                                {% else %}
+                                                    <option value="{{ val }}">{{ label }}</option>
+                                                {% endif %}
+                                            {% endfor %}
+                                        </select>
                                     </div>
                                 </div>
-                                <div class="folder-select-shell">
-                                    <select name="reference_folder" class="form-select form-select-sm folder-select" multiple style="height: 150px;" data-folder-multi-select>
-                                        {% for val,label in folder_choices %}
-                                            {% if val in focused_reference.category_values %}
-                                                <option value="{{ val }}" selected>{{ label }}</option>
-                                            {% else %}
-                                                <option value="{{ val }}">{{ label }}</option>
-                                            {% endif %}
-                                        {% endfor %}
-                                    </select>
+                                <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ focused_reference.screening_status }}">Save categories</button>
+                            </form>
+                        </div>
+                        <div>
+                            <label class="form-label small mb-1">Reference notes</label>
+                            <form method="post">
+                                {% csrf_token %}
+                                {% if status_filter %}
+                                <input type="hidden" name="status_filter" value="{{ status_filter }}">
+                                {% endif %}
+                                <input type="hidden" name="action" value="save-notes">
+                                <input type="hidden" name="focus" value="1">
+                                <input type="hidden" name="focus_ref" value="{{ focused_reference.id }}">
+                                <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
+                                <input type="hidden" name="screening_status" value="{{ focused_reference.screening_status }}">
+                                <textarea
+                                    name="screening_notes"
+                                    class="form-control"
+                                    rows="6"
+                                    placeholder="Notes on inclusion/exclusion for this reference"
+                                >{{ focused_reference.screening_notes|default_if_none:"" }}</textarea>
+                                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-2">
+                                    <div class="small text-muted">
+                                        These notes stay on this synopsis copy of the reference. They do not update the shared reference library, and excluding this reference here removes it only from this synopsis.
+                                    </div>
+                                    <button class="btn btn-outline-secondary btn-sm" type="submit">Save notes</button>
                                 </div>
-                            </div>
-                            <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ focused_reference.screening_status }}">Save categories</button>
-                        </form>
-                    </div>
-                    <div class="mt-2 d-flex flex-wrap align-items-center gap-2">
-                        <button
-                            class="btn btn-outline-secondary btn-sm"
-                            type="button"
-                            data-bs-toggle="modal"
-                            data-bs-target="#refCommentsModal-{{ focused_reference.id }}"
-                        >
-                            Notes
-                        </button>
-                        {% with comment_counts|get_item:focused_reference.id as ccount %}
-                        <span class="badge text-bg-light">{{ ccount|default:0 }} note{% if ccount|default:0 != 1 %}s{% endif %}</span>
-                        {% endwith %}
+                            </form>
+                        </div>
                     </div>
                     {% if focused_reference.screened_by %}
                     <div class="small text-muted mt-1">
-                        {{ focused_reference.screened_by.get_full_name|default:focused_reference.screened_by.username }} · {{ focused_reference.screening_decision_at|date:"Y-m-d H:i" }}
+                        Last screening update by {{ focused_reference.screened_by.get_full_name|default:focused_reference.screened_by.username }} on {{ focused_reference.screening_decision_at|date:"Y-m-d H:i" }}
                     </div>
-                    {% endif %}
-                    {% if focused_reference.screening_notes %}
-                    <div class="small mt-1">{{ focused_reference.screening_notes }}</div>
                     {% endif %}
                 </div>
                 <form method="post" class="focus-decision-bar">
@@ -352,7 +373,6 @@ details.abstract-details[open] .abstract-full {
                             <span class="focus-status-pill {% if focused_reference.screening_status == 'included' %}is-active{% endif %}">Included</span>
                             <span class="focus-status-pill {% if focused_reference.screening_status == 'excluded' %}is-active{% endif %}">Excluded</span>
                         </div>
-                        <div class="small text-muted mt-2">Choosing a button below replaces this synopsis status.</div>
                     </div>
                     <div class="focus-decision-actions">
                         <button class="btn btn-success" type="submit" name="screening_status" value="included">Include in synopsis</button>
@@ -446,7 +466,7 @@ details.abstract-details[open] .abstract-full {
                             <span class="badge {% if ref.screening_status == 'included' %}text-bg-success{% elif ref.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ ref.get_screening_status_display }}</span>
                             <div class="small text-muted mt-1">Status applies only to this synopsis.</div>
                             {% if ref.screened_by %}
-                            <div class="small text-muted">{{ ref.screened_by.get_full_name|default:ref.screened_by.username }} · {{ ref.screening_decision_at|date:"Y-m-d H:i" }}</div>
+                            <div class="small text-muted">Last screening update by {{ ref.screened_by.get_full_name|default:ref.screened_by.username }} on {{ ref.screening_decision_at|date:"Y-m-d H:i" }}</div>
                             {% endif %}
               {% if ref.screening_notes %}
                             <div class="small mt-1">{{ ref.screening_notes }}</div>
@@ -547,7 +567,7 @@ details.abstract-details[open] .abstract-full {
         <div class="mb-3 small text-muted d-flex flex-wrap align-items-center gap-2">
             <span class="badge {% if ref.screening_status == 'included' %}text-bg-success{% elif ref.screening_status == 'excluded' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ ref.get_screening_status_display }}</span>
             {% if ref.screened_by %}
-            <span>Last by {{ ref.screened_by.get_full_name|default:ref.screened_by.username }} · {{ ref.screening_decision_at|date:"Y-m-d H:i" }}</span>
+            <span>Last screening update by {{ ref.screened_by.get_full_name|default:ref.screened_by.username }} on {{ ref.screening_decision_at|date:"Y-m-d H:i" }}</span>
             {% endif %}
         </div>
         <div class="row g-3">
