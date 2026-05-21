@@ -10412,33 +10412,28 @@ def reference_batch_detail(request, project_id, batch_id):
                         ref.screened_by = request.user
                     ref.save(
                         update_fields=[
-                            "reference_folder",
                             "screening_decision_at",
                             "screened_by",
                             "updated_at",
                         ]
                     )
-                    if ref.library_reference_id:
-                        changed, synced_count, _previous, _new = (
-                            _update_shared_library_reference_folders(
-                                ref.library_reference,
-                                folder,
-                                changed_by=request.user,
-                                source_project=project,
-                                source_reference=ref,
-                                change_source="screening_bulk_save_folders",
-                            )
+                    changed, _linked_count, _local_changed, _saved_categories = (
+                        _update_reference_categories(
+                            ref,
+                            categories,
+                            changed_by=request.user,
+                            source_project=project,
+                            change_source="screening_bulk_save_folders",
                         )
-                        if changed:
-                            shared_updated += 1
-                        synced_project_refs += synced_count
+                    )
+                    if changed:
+                        shared_updated += 1
                     updated += 1
 
                 message = f"Updated categories for {updated} reference(s)."
                 if shared_updated:
                     message += (
-                        f" Updated the shared library categories for {shared_updated} linked reference(s)"
-                        f" and synced {synced_project_refs} linked synopsis copy/copies."
+                        f" Updated the shared library categories for {shared_updated} linked reference(s)."
                     )
                 messages.success(request, message)
                 redirect_url = reverse(
@@ -10473,8 +10468,9 @@ def reference_batch_detail(request, project_id, batch_id):
             )
             apply_bulk_folder = "reference_folder" in request.POST and bool(bulk_folder)
             shared_updated = 0
-            synced_project_refs = 0
-            for ref in batch.references.filter(pk__in=selected_ids):
+            for ref in batch.references.select_related("library_reference").filter(
+                pk__in=selected_ids
+            ):
                 ref.screening_status = new_status
                 ref.screening_decision_at = now
                 if request.user.is_authenticated:
