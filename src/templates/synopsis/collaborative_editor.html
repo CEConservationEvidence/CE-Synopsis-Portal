@@ -256,10 +256,15 @@
                         {% if review_deadline_display %}
                         <span class="collab-pill">Comments accepted until <strong>{{ review_deadline_display }}</strong></span>
                         {% endif %}
+                        {% if editor_comment_only and leave_url %}
+                        <a class="btn btn-primary btn-sm" href="{{ leave_url }}">Leave review page</a>
+                        {% elif editor_comment_only and detail_url %}
+                        <a class="btn btn-primary btn-sm" href="{{ detail_url }}">Leave review page</a>
+                        {% endif %}
                     </div>
-                    {% if leave_url %}
+                    {% if not editor_comment_only and leave_url %}
                     <a class="btn btn-primary btn-sm" href="{{ leave_url }}">{% if editor_comment_only %}Leave review page{% else %}Leave editor{% endif %}</a>
-                    {% elif detail_url %}
+                    {% elif not editor_comment_only and detail_url %}
                     <a class="btn btn-primary btn-sm" href="{{ detail_url }}">{% if editor_comment_only %}Leave review page{% else %}Leave editor{% endif %}</a>
                     {% endif %}
                 </div>
