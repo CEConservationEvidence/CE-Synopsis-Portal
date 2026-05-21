@@ -4589,6 +4589,66 @@ class ProtocolUploadFlowTests(TestCase):
             "This action is final and cannot be undone from the portal.",
         )
 
+    def test_protocol_revision_history_uses_clear_current_and_earlier_sections(self):
+        detail_url = reverse("synopsis:protocol_detail", args=[self.project.id])
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-protocol.docx", b"first"),
+            },
+        )
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "Updated methods section",
+                "version_label": "v2",
+                "document": self._docx_upload("draft-protocol.docx", b"second"),
+            },
+        )
+
+        response = self.client.get(detail_url)
+
+        self.assertContains(response, "Current live version")
+        self.assertContains(response, "Earlier saved versions")
+        self.assertContains(response, "Working draft")
+        self.assertContains(response, "Revision note:")
+        self.assertContains(response, "Restore as current")
+        self.assertContains(response, "Delete revision")
+
+    def test_action_list_revision_history_uses_clear_current_and_earlier_sections(self):
+        detail_url = reverse("synopsis:action_list_detail", args=[self.project.id])
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-action-list.docx", b"first"),
+            },
+        )
+        self.client.post(
+            detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "Added missing interventions",
+                "version_label": "v2",
+                "document": self._docx_upload("draft-action-list.docx", b"second"),
+            },
+        )
+
+        response = self.client.get(detail_url)
+
+        self.assertContains(response, "Current live version")
+        self.assertContains(response, "Earlier saved versions")
+        self.assertContains(response, "Working draft")
+        self.assertContains(response, "Revision note:")
+        self.assertContains(response, "Restore as current")
+        self.assertContains(response, "Delete revision")
+
     def test_protocol_delete_closes_stale_collaborative_session_before_reupload(self):
         detail_url = reverse("synopsis:protocol_detail", args=[self.project.id])
         self.client.post(

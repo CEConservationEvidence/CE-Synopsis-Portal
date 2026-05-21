@@ -446,30 +446,84 @@
     <div class="col-12">
         <div class="card">
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="card-title mb-0">Revision history</h5>
+                <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+                    <div>
+                        <h5 class="card-title mb-1">Revision history</h5>
+                        <div class="small text-muted">
+                            The current live version is pinned first. Older saved versions appear below so authors can quickly see what changed and restore one if needed.
+                        </div>
+                    </div>
                     {% if action_list_revision_entries %}
-                    <span class="text-muted small">Newest first</span>
+                    <span class="badge rounded-pill text-bg-light text-dark border">
+                        {{ action_list_revision_entries|length }} saved revision{{ action_list_revision_entries|length|pluralize }}
+                    </span>
                     {% endif %}
                 </div>
                 {% if action_list_revision_entries %}
-                <div class="list-group list-group-flush">
+                {% if current_revision_entry %}
+                <div class="border rounded-3 bg-body-tertiary p-3 mb-3">
+                    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div class="flex-grow-1">
+                            <div class="small text-uppercase text-muted fw-semibold mb-2">Current live version</div>
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <span class="fw-semibold">{{ current_revision_entry.display_title }}</span>
+                                {% if current_revision_entry.stage_badge_label %}
+                                <span class="badge text-bg-{% if current_revision_entry.revision.stage == 'final' %}success{% else %}warning text-dark{% endif %}">
+                                    {{ current_revision_entry.stage_badge_label }}
+                                </span>
+                                {% endif %}
+                                <span class="badge text-bg-primary">Current</span>
+                            </div>
+                            <div class="small text-muted mt-2">
+                                Saved {{ current_revision_entry.revision.uploaded_at|date:"Y-m-d H:i" }}
+                                {% if current_revision_entry.uploaded_by and current_revision_entry.uploaded_by != '—' %}
+                                by {{ current_revision_entry.uploaded_by }}
+                                {% endif %}
+                                {% if current_revision_entry.file_size and current_revision_entry.file_size != '—' %}
+                                · {{ current_revision_entry.file_size }}
+                                {% endif %}
+                            </div>
+                            <div class="small mt-2">
+                                <strong>File:</strong>
+                                <span class="text-break">{{ current_revision_entry.file_name }}</span>
+                            </div>
+                            <div class="small mt-2">
+                                <strong>Revision note:</strong>
+                                {% if current_revision_entry.change_reason_missing %}
+                                <span class="text-muted">{{ current_revision_entry.change_reason_display }}</span>
+                                {% else %}
+                                {{ current_revision_entry.change_reason_display }}
+                                {% endif %}
+                            </div>
+                            <div class="small text-muted mt-2">
+                                This is the live version authors should keep using unless an earlier version is restored below.
+                            </div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:document_view' project.id 'action-list' %}" target="_blank" rel="noopener">
+                                Download current document
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                <div class="d-grid gap-3">
+                    {% if action_list_revision_entries|length > 1 or not current_revision_entry %}
+                    <div class="small text-uppercase text-muted fw-semibold">Earlier saved versions</div>
+                    {% endif %}
                     {% for entry in action_list_revision_entries %}
-                    <div class="list-group-item">
+                    {% if not entry.is_current %}
+                    <div class="border rounded-3 p-3">
                         <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-                            <div>
+                            <div class="flex-grow-1">
                                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                                    <span class="fw-semibold">{{ entry.file_name }}</span>
-                                    {% if entry.version_label %}
-                                    <span class="badge text-bg-info-subtle text-dark">{{ entry.version_label }}</span>
-                                    {% endif %}
-                                    <span class="badge text-bg-{% if entry.revision.stage == 'final' %}success{% else %}warning text-dark{% endif %}">{{ entry.revision.get_stage_display }}</span>
-                                    {% if entry.is_current %}
-                                    <span class="badge text-bg-primary">Current</span>
+                                    <span class="fw-semibold">{{ entry.display_title }}</span>
+                                    {% if entry.stage_badge_label %}
+                                    <span class="badge text-bg-success">{{ entry.stage_badge_label }}</span>
                                     {% endif %}
                                 </div>
                                 <div class="small text-muted mt-1">
-                                    Uploaded {{ entry.revision.uploaded_at|date:"Y-m-d H:i" }}
+                                    Saved {{ entry.revision.uploaded_at|date:"Y-m-d H:i" }}
                                     {% if entry.uploaded_by and entry.uploaded_by != '—' %}
                                     by {{ entry.uploaded_by }}
                                     {% endif %}
@@ -477,71 +531,57 @@
                                     · {{ entry.file_size }}
                                     {% endif %}
                                 </div>
-                                {% if entry.revision.change_reason %}
-                                <div class="mt-1 small">{{ entry.revision.change_reason }}</div>
-                                {% endif %}
-                            </div>
-                            <div class="text-end ms-auto">
-                                <div class="dropdown">
-                                    <button
-                                        class="btn btn-outline-secondary btn-sm dropdown-toggle"
-                                        type="button"
-                                        data-bs-toggle="dropdown"
-                                        aria-expanded="false"
-                                    >
-                                        Actions
-                                    </button>
-                                    <ul class="dropdown-menu dropdown-menu-end">
-                                        {% if entry.download_url %}
-                                        <li>
-                                            <a class="dropdown-item" href="{{ entry.download_url }}" download>
-                                                Download
-                                            </a>
-                                        </li>
-                                        {% endif %}
-                                        {% if entry.is_current %}
-                                        <li><span class="dropdown-item-text text-muted">Current revision</span></li>
-                                        {% else %}
-                                        <li>
-                                            <button
-                                                class="dropdown-item"
-                                                type="button"
-                                                data-bs-toggle="modal"
-                                                data-bs-target="#actionListRestoreModal-{{ entry.revision.id }}"
-                                            >
-                                                Restore
-                                            </button>
-                                        </li>
-                                        {% endif %}
-                                        {% if entry.can_mark_final %}
-                                        <li>
-                                            <button
-                                                class="dropdown-item"
-                                                type="button"
-                                                data-bs-toggle="modal"
-                                                data-bs-target="#actionListSetFinalModal-{{ entry.revision.id }}"
-                                            >
-                                                Set as Final
-                                            </button>
-                                        </li>
-                                        {% endif %}
-                                        {% if can_delete_documents %}
-                                        <li>
-                                            <button
-                                                class="dropdown-item text-danger"
-                                                type="button"
-                                                data-bs-toggle="modal"
-                                                data-bs-target="#actionListDeleteModal-{{ entry.revision.id }}"
-                                            >
-                                                Delete
-                                            </button>
-                                        </li>
-                                        {% endif %}
-                                    </ul>
+                                <div class="small mt-2">
+                                    <strong>File:</strong>
+                                    <span class="text-break">{{ entry.file_name }}</span>
                                 </div>
+                                <div class="small mt-2">
+                                    <strong>Revision note:</strong>
+                                    {% if entry.change_reason_missing %}
+                                    <span class="text-muted">{{ entry.change_reason_display }}</span>
+                                    {% else %}
+                                    {{ entry.change_reason_display }}
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="d-flex flex-wrap gap-2 ms-auto">
+                                {% if entry.download_url %}
+                                <a class="btn btn-outline-secondary btn-sm" href="{{ entry.download_url }}" download>
+                                    Download
+                                </a>
+                                {% endif %}
+                                <button
+                                    class="btn btn-outline-primary btn-sm"
+                                    type="button"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#actionListRestoreModal-{{ entry.revision.id }}"
+                                >
+                                    Restore as current
+                                </button>
+                                {% if entry.can_mark_final %}
+                                <button
+                                    class="btn btn-outline-success btn-sm"
+                                    type="button"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#actionListSetFinalModal-{{ entry.revision.id }}"
+                                >
+                                    Set as final
+                                </button>
+                                {% endif %}
+                                {% if can_delete_documents %}
+                                <button
+                                    class="btn btn-outline-danger btn-sm"
+                                    type="button"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#actionListDeleteModal-{{ entry.revision.id }}"
+                                >
+                                    Delete revision
+                                </button>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
+                    {% endif %}
                     {% if not entry.is_current %}
                     <div class="modal fade" id="actionListRestoreModal-{{ entry.revision.id }}" tabindex="-1" aria-labelledby="actionListRestoreModalLabel-{{ entry.revision.id }}" aria-hidden="true">
                         <div class="modal-dialog modal-dialog-centered">
@@ -620,6 +660,9 @@
                     {% endif %}
                     {% endfor %}
                 </div>
+                {% if action_list_revision_entries|length == 1 and current_revision_entry %}
+                <p class="text-muted mb-0">No earlier versions yet. Save another revision to build the timeline.</p>
+                {% endif %}
                 {% else %}
                 <p class="text-muted mb-0">Upload an action list to start building a revision timeline.</p>
                 {% endif %}

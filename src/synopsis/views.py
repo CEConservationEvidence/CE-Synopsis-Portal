@@ -3515,8 +3515,19 @@ def protocol_detail(request, project_id):
 
     revision_entries = []
     if protocol:
-        revision_queryset = protocol.revisions.select_related("uploaded_by")
-        for revision in revision_queryset:
+        revision_list = list(protocol.revisions.select_related("uploaded_by"))
+        total_revisions = len(revision_list)
+        for index, revision in enumerate(revision_list, start=1):
+            revision_number = total_revisions - index + 1
+            is_current = protocol.current_revision_id == revision.id
+            if is_current:
+                stage_badge_label = (
+                    "Final" if revision.stage == "final" else "Working draft"
+                )
+            elif revision.stage == "final":
+                stage_badge_label = "Was final"
+            else:
+                stage_badge_label = ""
             file_name = revision.original_name or os.path.basename(revision.file.name)
             try:
                 download_url = revision.file.url
@@ -3525,7 +3536,8 @@ def protocol_detail(request, project_id):
             revision_entries.append(
                 {
                     "revision": revision,
-                    "is_current": protocol.current_revision_id == revision.id,
+                    "is_current": is_current,
+                    "display_title": revision.version_label or f"Revision {revision_number}",
                     "file_name": file_name,
                     "file_size": _format_file_size(revision.file_size),
                     "uploaded_by": (
@@ -3534,12 +3546,21 @@ def protocol_detail(request, project_id):
                         else "—"
                     ),
                     "download_url": download_url,
+                    "stage_badge_label": stage_badge_label,
                     "can_mark_final": can_manage
                     and (
                         protocol.stage != "final"
-                        or protocol.current_revision_id != revision.id
+                        or not is_current
                     ),
                     "version_label": revision.version_label or "",
+                    "change_reason_display": (
+                        revision.change_reason.strip()
+                        if revision.change_reason
+                        else "No revision note was provided for this saved version."
+                    ),
+                    "change_reason_missing": not bool(
+                        revision.change_reason and revision.change_reason.strip()
+                    ),
                 }
             )
 
@@ -3907,8 +3928,19 @@ def action_list_detail(request, project_id):
 
     revision_entries = []
     if action_list:
-        revision_queryset = action_list.revisions.select_related("uploaded_by")
-        for revision in revision_queryset:
+        revision_list = list(action_list.revisions.select_related("uploaded_by"))
+        total_revisions = len(revision_list)
+        for index, revision in enumerate(revision_list, start=1):
+            revision_number = total_revisions - index + 1
+            is_current = action_list.current_revision_id == revision.id
+            if is_current:
+                stage_badge_label = (
+                    "Final" if revision.stage == "final" else "Working draft"
+                )
+            elif revision.stage == "final":
+                stage_badge_label = "Was final"
+            else:
+                stage_badge_label = ""
             file_name = revision.original_name or os.path.basename(revision.file.name)
             try:
                 download_url = revision.file.url
@@ -3917,7 +3949,8 @@ def action_list_detail(request, project_id):
             revision_entries.append(
                 {
                     "revision": revision,
-                    "is_current": action_list.current_revision_id == revision.id,
+                    "is_current": is_current,
+                    "display_title": revision.version_label or f"Revision {revision_number}",
                     "file_name": file_name,
                     "file_size": _format_file_size(revision.file_size),
                     "uploaded_by": (
@@ -3926,12 +3959,21 @@ def action_list_detail(request, project_id):
                         else "—"
                     ),
                     "download_url": download_url,
+                    "stage_badge_label": stage_badge_label,
                     "can_mark_final": can_manage
                     and (
                         action_list.stage != "final"
-                        or action_list.current_revision_id != revision.id
+                        or not is_current
                     ),
                     "version_label": revision.version_label or "",
+                    "change_reason_display": (
+                        revision.change_reason.strip()
+                        if revision.change_reason
+                        else "No revision note was provided for this saved version."
+                    ),
+                    "change_reason_missing": not bool(
+                        revision.change_reason and revision.change_reason.strip()
+                    ),
                 }
             )
 

@@ -181,9 +181,6 @@
                     {% if nav_can_manage_library %}
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:reference_library' %}">Shared Reference Library</a>
                     {% endif %}
-                    {% if nav_can_create_project %}
-                    <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:project_create' %}">Create New Synopsis</a>
-                    {% endif %}
                     {% if user.is_staff %}
                     <a class="btn btn-warning btn-sm" href="{% url 'synopsis:manager_dashboard' %}">Manager</a>
                     {% endif %}
