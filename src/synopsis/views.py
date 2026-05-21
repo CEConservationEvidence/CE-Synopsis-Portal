@@ -7086,7 +7086,6 @@ def _link_library_references_to_project(user, target_project, ref_ids, folder):
             reference_document=lib_ref.reference_document,
             reference_document_uploaded_at=lib_ref.reference_document_uploaded_at,
             screening_status="pending",
-            reference_folder=normalize_reference_folder_values(lib_ref.reference_folder),
         )
         linked += 1
 
@@ -7469,14 +7468,14 @@ def library_reference_detail(request, reference_id):
             form = LibraryReferenceUpdateForm(request.POST, instance=library_reference)
             if form.is_valid():
                 library_reference = form.save()
-                shared_changed, synced_count, old_folders, new_folders = (
+                shared_changed, _linked_count, old_folders, new_folders = (
                     False,
                     0,
                     previous_folders,
                     normalize_reference_folder_values(library_reference.reference_folder),
                 )
                 if previous_folders != new_folders:
-                    shared_changed, synced_count, old_folders, new_folders = (
+                    shared_changed, _linked_count, old_folders, new_folders = (
                         _update_shared_library_reference_folders(
                             library_reference,
                             new_folders,
@@ -7487,8 +7486,9 @@ def library_reference_detail(request, reference_id):
                     )
                 if shared_changed:
                     message = "Library reference updated. Shared CE subject categories were updated."
-                    if synced_count:
-                        message += f" Synced {synced_count} linked synopsis copy/copies."
+                    message += (
+                        " Linked synopsis copies now read those shared categories automatically."
+                    )
                     messages.success(request, message)
                 else:
                     messages.success(request, "Library reference updated.")
@@ -8751,7 +8751,7 @@ def reference_summary_detail(request, project_id, summary_id):
     )
     classification_initial = {
         "screening_status": summary.reference.screening_status,
-        "reference_folder": summary.reference.reference_folder,
+        "reference_folder": _reference_category_values(summary.reference),
         "screening_notes": summary.reference.screening_notes,
     }
     classification_data = None
@@ -8940,13 +8940,12 @@ def reference_summary_detail(request, project_id, summary_id):
         if action == "update-classification" and classification_form.is_valid():
             reference = summary.reference
             previous_status = reference.screening_status
-            folders = normalize_reference_folder_values(
+            categories = normalize_reference_folder_values(
                 classification_form.cleaned_data.get("reference_folder") or []
             )
             reference.screening_status = classification_form.cleaned_data[
                 "screening_status"
             ]
-            reference.reference_folder = folders
             reference.screening_notes = (
                 classification_form.cleaned_data.get("screening_notes") or ""
             )
@@ -8955,29 +8954,24 @@ def reference_summary_detail(request, project_id, summary_id):
             reference.save(
                 update_fields=[
                     "screening_status",
-                    "reference_folder",
                     "screening_notes",
                     "screening_decision_at",
                     "screened_by",
                     "updated_at",
                 ]
             )
-            shared_folder_changed = False
-            shared_synced_count = 0
-            if reference.library_reference_id:
-                (
-                    shared_folder_changed,
-                    shared_synced_count,
-                    _previous_shared_folders,
-                    _new_shared_folders,
-                ) = _update_shared_library_reference_folders(
-                    reference.library_reference,
-                    folders,
-                    changed_by=request.user,
-                    source_project=project,
-                    source_reference=reference,
-                    change_source="summary_reference_management",
-                )
+            (
+                shared_folder_changed,
+                _shared_linked_count,
+                _local_category_changed,
+                _saved_categories,
+            ) = _update_reference_categories(
+                reference,
+                categories,
+                changed_by=request.user,
+                source_project=project,
+                change_source="summary_reference_management",
+            )
 
             if reference.screening_status == "excluded":
                 removed_assignments = _remove_reference_from_synopsis(reference)
@@ -8986,7 +8980,7 @@ def reference_summary_detail(request, project_id, summary_id):
                     message += f" Removed it from {removed_assignments} intervention assignment(s)."
                 if shared_folder_changed:
                     message += (
-                        f" Shared CE subject categories were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                        " Shared CE subject categories were updated for all linked synopsis copies."
                     )
                 messages.success(request, message)
                 return redirect(
@@ -8997,14 +8991,14 @@ def reference_summary_detail(request, project_id, summary_id):
                 message = "Reference re-included in this synopsis. You can now continue summarising it."
                 if shared_folder_changed:
                     message += (
-                        f" Shared CE subject categories were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                        " Shared CE subject categories were updated for all linked synopsis copies."
                     )
                 messages.success(request, message)
             else:
                 message = "Reference classification updated."
                 if shared_folder_changed:
                     message += (
-                        f" Shared CE subject categories were updated and synced to {shared_synced_count} linked synopsis copy/copies."
+                        " Shared CE subject categories were updated for all linked synopsis copies."
                     )
                 messages.success(request, message)
             return redirect(
@@ -10398,15 +10392,15 @@ def reference_batch_detail(request, project_id, batch_id):
                 return redirect(redirect_url)
 
             if bulk_action == "save-folders":
-                folder = normalize_reference_folder_values(
+                categories = normalize_reference_folder_values(
                     request.POST.getlist("reference_folder")
                 )
                 updated = 0
                 shared_updated = 0
-                synced_project_refs = 0
                 now = timezone.now()
-                for ref in batch.references.filter(pk__in=selected_ids):
-                    ref.reference_folder = folder
+                for ref in batch.references.select_related("library_reference").filter(
+                    pk__in=selected_ids
+                ):
                     ref.screening_decision_at = now
                     if request.user.is_authenticated:
                         ref.screened_by = request.user
