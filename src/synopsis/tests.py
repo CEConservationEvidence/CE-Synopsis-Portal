@@ -9272,6 +9272,67 @@ class ProjectDescriptionUiTests(TestCase):
         self.assertContains(response, ">Back to project</a>", html=False)
 
 
+class NavbarIdentityUiTests(TestCase):
+    def setUp(self):
+        ensure_global_groups()
+        self.project = Project.objects.create(title="Navbar Synopsis")
+        self.manager = User.objects.create_user(
+            username="nav-manager",
+            password="pass123",
+            first_name="Mina",
+            last_name="Manager",
+            is_staff=True,
+        )
+        self.author = User.objects.create_user(
+            username="nav-author",
+            password="pass123",
+        )
+        self.external = User.objects.create_user(
+            username="nav-external@example.com",
+            email="nav-external@example.com",
+            password="pass123",
+            first_name="Eli",
+            last_name="External",
+        )
+        self.external.groups.add(Group.objects.get(name="external_collaborator"))
+        UserRole.objects.create(user=self.author, project=self.project, role="author")
+        UserRole.objects.create(user=self.external, project=self.project, role="author")
+
+    def test_manager_nav_shows_signed_in_name_and_manager_role(self):
+        self.client.login(username="nav-manager", password="pass123")
+
+        response = self.client.get(reverse("synopsis:dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="nav-user-summary"', html=False)
+        self.assertContains(response, "Mina Manager")
+        self.assertContains(response, "Manager")
+
+    def test_project_author_nav_uses_project_role_label(self):
+        self.client.login(username="nav-author", password="pass123")
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="nav-user-summary"', html=False)
+        self.assertContains(response, "nav-author")
+        self.assertContains(response, "Author")
+
+    def test_external_author_nav_prefers_external_author_account_type(self):
+        self.client.login(username="nav-external@example.com", password="pass123")
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="nav-user-summary"', html=False)
+        self.assertContains(response, "Eli External")
+        self.assertContains(response, "External Author")
+
+
 class ProjectHomepageStatusUiTests(TestCase):
     def setUp(self):
         self.author = User.objects.create_user(

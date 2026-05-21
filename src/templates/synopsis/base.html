@@ -1,5 +1,4 @@
 {# TODO: #92 Add a help entry point for workflow guidance and troubleshooting. #}
-{# TODO: #94 Show the signed-in user and their role in the nav bar. #}
 <!doctype html>
 <html>
     <head>
@@ -108,16 +107,75 @@
                 }
             };
         </script>
+        <style>
+            .ce-navbar-layout {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+                align-items: center;
+                gap: 0.75rem;
+                width: 100%;
+            }
+            .ce-nav-brand {
+                justify-self: start;
+                min-width: 0;
+            }
+            .ce-nav-center {
+                justify-self: center;
+                display: inline-flex;
+                align-items: center;
+                gap: 0.5rem;
+                flex-wrap: nowrap;
+                overflow-x: auto;
+                scrollbar-width: thin;
+                min-width: 0;
+            }
+            .ce-nav-right {
+                justify-self: end;
+                display: inline-flex;
+                align-items: center;
+                gap: 0.5rem;
+                flex-wrap: nowrap;
+                min-width: 0;
+            }
+            .ce-nav-user-chip {
+                display: inline-flex;
+                align-items: center;
+                padding: 0.25rem 0.6rem;
+                border: 1px solid rgba(255, 255, 255, 0.35);
+                border-radius: 999px;
+                color: #fff;
+                white-space: nowrap;
+                flex-shrink: 0;
+                line-height: 1.2;
+            }
+            .ce-nav-user-chip .ce-nav-user-role {
+                color: rgba(255, 255, 255, 0.7);
+            }
+            .ce-nav-user-chip .ce-nav-user-separator {
+                margin: 0 0.3rem;
+                color: rgba(255, 255, 255, 0.7);
+            }
+            @media (max-width: 991.98px) {
+                .ce-navbar-layout {
+                    grid-template-columns: 1fr;
+                    justify-items: start;
+                }
+                .ce-nav-center,
+                .ce-nav-right {
+                    justify-self: start;
+                }
+            }
+        </style>
     </head>
     <body class="bg-light">
         <nav class="navbar navbar-expand navbar-dark bg-dark mb-4">
-            <div class="container-fluid px-3 px-xl-4">
-                <a class="navbar-brand" href="{% url 'synopsis:dashboard' %}">Conservation Evidence</a>
-                <div class="ms-auto d-flex align-items-center gap-2">
+            <div class="container-fluid px-3 px-xl-4 ce-navbar-layout">
+                <a class="navbar-brand ce-nav-brand" href="{% url 'synopsis:dashboard' %}">Conservation Evidence</a>
+                {% block nav_actions %}
+                <div class="ce-nav-center">
                     {% if user.is_authenticated and project and request.resolver_match.url_name != "project_hub" %}
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:project_hub' project.id %}">Back to project</a>
                     {% endif %}
-                    {% block nav_actions %}
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:dashboard' %}">Home</a>
                     {% if user.is_authenticated %}
                     {% if nav_can_manage_library %}
@@ -129,15 +187,26 @@
                     {% if user.is_staff %}
                     <a class="btn btn-warning btn-sm" href="{% url 'synopsis:manager_dashboard' %}">Manager</a>
                     {% endif %}
+                    {% else %}
+                    <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:login' %}">Login</a>
+                    {% endif %}
+                </div>
+                <div class="ce-nav-right">
+                    {% if user.is_authenticated %}
+                    <span class="ce-nav-user-chip small" id="nav-user-summary">
+                        <span class="fw-semibold">{{ nav_user_display_name }}</span>
+                        {% if nav_user_role_label %}
+                        <span class="ce-nav-user-separator" aria-hidden="true">·</span>
+                        <span class="ce-nav-user-role">{{ nav_user_role_label }}</span>
+                        {% endif %}
+                    </span>
                     <form method="post" action="{% url 'synopsis:logout' %}" class="d-inline">
                         {% csrf_token %}
                         <button class="btn btn-outline-light btn-sm" type="submit">Logout</button>
                     </form>
-                    {% else %}
-                    <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:login' %}">Login</a>
                     {% endif %}
-                    {% endblock %}
                 </div>
+                {% endblock %}
             </div>
         </nav>
         <div class="{% block page_container_class %}container{% endblock %}">
