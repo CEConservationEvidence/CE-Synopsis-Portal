@@ -1445,6 +1445,7 @@ def _resolve_external_collaborative_access(request, project, document_type, sess
                 "allowed": True,
                 "member": member,
                 "feedback": feedback,
+                "editor_access_mode": "comment",
                 "participant_display": display,
                 "participant_context": {
                     "id": f"abm:{member.id}",
@@ -1458,6 +1459,7 @@ def _resolve_external_collaborative_access(request, project, document_type, sess
             "allowed": True,
             "member": None,
             "feedback": feedback,
+            "editor_access_mode": "comment",
             "participant_display": display,
             "participant_context": {
                 "id": f"abe:{display.lower()}",
@@ -1525,6 +1527,7 @@ def _resolve_external_collaborative_access(request, project, document_type, sess
             "allowed": True,
             "member": member,
             "invitation": invitation,
+            "editor_access_mode": "comment",
             "participant_display": display,
             "participant_context": {
                 "id": participant_id,
@@ -1608,6 +1611,7 @@ def _build_onlyoffice_config(
     session,
     document_type,
     participant=None,
+    access_mode="edit",
 ):
     document_file = getattr(document, "document", None)
     if not document_file:
@@ -1640,6 +1644,8 @@ def _build_onlyoffice_config(
         )
     )
 
+    comment_only = access_mode == "comment"
+
     config = {
         "document": {
             "fileType": file_type,
@@ -1647,10 +1653,11 @@ def _build_onlyoffice_config(
             "title": title,
             "url": file_url,
             "permissions": {
-                "edit": True,
+                "edit": not comment_only,
+                "comment": True,
                 "download": True,
                 "print": True,
-                "review": True,
+                "review": not comment_only,
             },
         },
         "editorConfig": {
@@ -1666,6 +1673,10 @@ def _build_onlyoffice_config(
             },
         },
     }
+
+    if comment_only:
+        config["document"]["permissions"]["editCommentAuthorOnly"] = True
+        config["document"]["permissions"]["deleteCommentAuthorOnly"] = True
 
     if user_email:
         config["editorConfig"]["user"]["email"] = user_email
@@ -4757,11 +4768,13 @@ def collaborative_edit(request, project_id, document_slug, token):
     participant_feedback = None
     participant_display = ""
     participant_context = None
+    editor_access_mode = "edit"
     if external_access.get("allowed"):
         participant_member = external_access.get("member")
         participant_feedback = external_access.get("feedback")
         participant_display = external_access.get("participant_display", "")
         participant_context = external_access.get("participant_context")
+        editor_access_mode = external_access.get("editor_access_mode", "comment")
 
     if not participant_member and not participant_context and user_can_edit:
         member_id = request.GET.get("member")
@@ -4796,6 +4809,7 @@ def collaborative_edit(request, project_id, document_slug, token):
             session,
             document_type,
             participant=participant_context,
+            access_mode=editor_access_mode,
         )
     except ValueError as exc:
         if user_can_edit:
@@ -4842,6 +4856,7 @@ def collaborative_edit(request, project_id, document_slug, token):
             "force_end_url": force_end_url,
             "leave_url": leave_url,
             "participant_display": participant_display,
+            "editor_comment_only": editor_access_mode == "comment",
         },
     )
 
