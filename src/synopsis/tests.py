@@ -6548,13 +6548,26 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "focus-screening-meta")
+        self.assertContains(response, "focus-category-actions")
         self.assertContains(response, "focus-decision-bar")
         self.assertContains(response, "focus-decision-actions")
         self.assertContains(response, "Current synopsis status")
         self.assertNotContains(response, "Current status")
+        self.assertContains(response, "Reference notes")
         self.assertContains(
             response,
-            "Choosing a button below replaces this synopsis status.",
+            "These notes stay on this synopsis copy of the reference. They do not update the shared reference library, and excluding this reference here removes it only from this synopsis.",
+        )
+        self.assertContains(response, "Save notes")
+        self.assertContains(
+            response,
+            f"Last screening update by {self.user.username} on",
+        )
+        self.assertNotContains(
+            response,
+            f'data-bs-target="#refCommentsModal-{ref.id}"',
+            html=False,
         )
         self.assertContains(
             response,
@@ -6603,6 +6616,51 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         ref.refresh_from_db()
         self.assertEqual(ref.category_values, ["3a"])
+
+    def test_focused_save_notes_stays_on_same_reference(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Focused notes save batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        references = list(batch.references.order_by("id"))
+        ref = references[0]
+        next_ref = references[1]
+        ref.screening_status = "included"
+        ref.save(update_fields=["screening_status", "updated_at"])
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            ),
+            {
+                "action": "save-notes",
+                "focus": "1",
+                "focus_ref": str(ref.id),
+                "reference_id": str(ref.id),
+                "screening_status": "included",
+                "screening_notes": "Keep for synopsis discussion.",
+                "next_ref_id": str(next_ref.id),
+            },
+        )
+
+        self.assertEqual(
+            response["Location"],
+            f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, batch.id])}?focus=1&ref={ref.id}",
+        )
+        ref.refresh_from_db()
+        self.assertEqual(ref.screening_status, "included")
+        self.assertEqual(ref.screening_notes, "Keep for synopsis discussion.")
 
     def test_bulk_apply_folders_to_selected_references(self):
         upload = SimpleUploadedFile(
