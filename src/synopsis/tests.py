@@ -4874,6 +4874,44 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response.context["editor_config"]["editorConfig"]["user"]["id"],
             str(self.author.id),
         )
+        self.assertContains(response, "Leave editor")
+        self.assertContains(
+            response,
+            "To save and close the shared session for everyone, return to the protocol detail page.",
+        )
+        self.assertNotContains(
+            response,
+            reverse(
+                "synopsis:collaborative_force_end",
+                args=[self.project.id, "protocol", self.session.token],
+            ),
+        )
+
+    def test_anonymous_reviewer_can_leave_editor_without_closing_shared_session(self):
+        feedback = ProtocolFeedback.objects.create(
+            project=self.project,
+            member=self.member,
+            email=self.member.email,
+            feedback_deadline_at=self.member.feedback_on_protocol_deadline,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:collaborative_leave",
+                args=[self.project.id, "protocol", self.session.token],
+            )
+            + f"?feedback={feedback.token}"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertTrue(self.session.is_active)
+        self.assertContains(
+            response,
+            "You left the collaborative editor. This did not close the shared session for other participants.",
+        )
+        self.assertContains(response, "Reopen editor")
+        self.assertContains(response, "Close this tab")
 
 class CollaborativeForceSaveCloseTests(TestCase):
     def setUp(self):
@@ -5080,6 +5118,44 @@ class CollaborativePanelViewTests(TestCase):
         )
         self.assertNotContains(
             response, "Upload the action list before starting a collaborative session."
+        )
+
+    def test_protocol_panel_active_session_explains_global_close_scope(self):
+        from . import views
+
+        original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "http://localhost:8080",
+            "internal_url": "http://onlyoffice",
+            "app_base_url": "http://web:8000",
+            "jwt_secret": "change-me",
+            "callback_timeout": 10,
+            "trusted_download_urls": [
+                "http://localhost:8080",
+                "http://onlyoffice",
+            ],
+        }
+        self.addCleanup(lambda: setattr(views, "ONLYOFFICE_SETTINGS", original_settings))
+
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        CollaborativeSession.objects.create(
+            project=self.project,
+            document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+            started_by=self.user,
+            last_activity_at=timezone.now(),
+        )
+
+        response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Save and close session for everyone")
+        self.assertContains(
+            response,
+            "Participants can leave the editor without using this button. Use this only when everyone is finished.",
         )
 
     def test_advisory_board_shows_custom_columns_button_and_not_document_feedback_windows(self):
