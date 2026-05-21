@@ -77,6 +77,13 @@ details.abstract-details[open] .abstract-full {
     gap: 1rem;
     align-items: start;
 }
+.focus-category-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 0.75rem;
+}
 .focus-decision-bar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
@@ -160,6 +167,10 @@ details.abstract-details[open] .abstract-full {
 @media (max-width: 991.98px) {
     .focus-screening-meta {
         grid-template-columns: 1fr;
+    }
+    .focus-category-actions {
+        justify-content: flex-start;
+        flex-wrap: wrap;
     }
     .focus-decision-bar {
         grid-template-columns: 1fr;
@@ -300,10 +311,6 @@ details.abstract-details[open] .abstract-full {
                                 <div class="folder-multi-group">
                                     <div class="folder-select-tools">
                                         <span class="small text-muted">Choose one or more shared CE subject categories for this reference. These are shared library data.</span>
-                                        <div class="btn-group btn-group-sm" role="group" aria-label="Category selection tools">
-                                            <button type="button" class="btn btn-outline-secondary" data-folder-select-action="all">Select all</button>
-                                            <button type="button" class="btn btn-outline-secondary" data-folder-select-action="clear">Clear</button>
-                                        </div>
                                     </div>
                                     <div class="folder-select-shell">
                                         <select name="reference_folder" class="form-select form-select-sm folder-select" multiple style="height: 150px;" data-folder-multi-select>
@@ -317,7 +324,13 @@ details.abstract-details[open] .abstract-full {
                                         </select>
                                     </div>
                                 </div>
-                                <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ focused_reference.screening_status }}">Save categories</button>
+                                <div class="focus-category-actions">
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Category selection tools">
+                                        <button type="button" class="btn btn-outline-secondary" data-folder-select-action="all">Select all</button>
+                                        <button type="button" class="btn btn-outline-secondary" data-folder-select-action="clear">Clear</button>
+                                    </div>
+                                    <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ focused_reference.screening_status }}">Save categories</button>
+                                </div>
                             </form>
                         </div>
                         <div>
