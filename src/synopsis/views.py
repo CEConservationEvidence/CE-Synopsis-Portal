@@ -322,16 +322,8 @@ def _decode_entities(text):
 _COLLAB_INVITE_TABLE_EXISTS = None
 
 
-def _sync_project_reference_folders_from_library(library_reference):
-    shared_folders = normalize_reference_folder_values(library_reference.reference_folder)
-    synced = 0
-    for project_reference in Reference.objects.filter(library_reference=library_reference):
-        if normalize_reference_folder_values(project_reference.reference_folder) == shared_folders:
-            continue
-        project_reference.reference_folder = shared_folders
-        project_reference.save(update_fields=["reference_folder", "updated_at"])
-        synced += 1
-    return synced
+def _linked_project_reference_count(library_reference):
+    return Reference.objects.filter(library_reference=library_reference).count()
 
 
 def _update_shared_library_reference_folders(
