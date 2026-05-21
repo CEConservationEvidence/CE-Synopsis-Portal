@@ -1824,8 +1824,9 @@ def _onlyoffice_command_headers(payload: dict) -> dict[str, str]:
 
 def _onlyoffice_command_request(payload: dict) -> tuple[dict | None, str]:
     command_url = _onlyoffice_command_url()
+    command_name = payload.get("c") or "unknown"
     if not command_url:
-        return None, "OnlyOffice command service is not configured."
+        return None, f"OnlyOffice command '{command_name}' is not configured."
 
     timeout = ONLYOFFICE_SETTINGS.get("callback_timeout", 10)
     try:
@@ -1837,11 +1838,10 @@ def _onlyoffice_command_request(payload: dict) -> tuple[dict | None, str]:
         )
         response.raise_for_status()
         data = response.json()
-    except (requests.RequestException, ValueError) as exc:
-        logger.error("OnlyOffice command request failed: %s", exc)
-        return None, "Unable to contact OnlyOffice."
+    except (requests.RequestException, ValueError):
+        return None, f"OnlyOffice command '{command_name}' could not be completed."
     if not isinstance(data, dict):
-        return None, "OnlyOffice returned an unexpected response."
+        return None, f"OnlyOffice command '{command_name}' returned an unexpected response."
     return data, ""
 
 
