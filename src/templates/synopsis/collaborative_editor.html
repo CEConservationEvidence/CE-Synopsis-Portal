@@ -121,6 +121,17 @@
     line-height: 1.4;
   }
 
+  .collab-active-participants {
+    margin-top: 0.5rem;
+    color: #475569;
+    font-size: 0.92rem;
+    line-height: 1.4;
+  }
+
+  .collab-active-participants strong {
+    color: #0f172a;
+  }
+
   .collab-save-status {
     font-weight: 600;
   }
@@ -231,11 +242,18 @@
                         <h1 class="collab-title">{{ document_label }} editor</h1>
                         <span class="collab-project-inline">{{ project.title }}</span>
                     </div>
-                    <div class="collab-meta">
-                        {% if detail_url %}
-                        <a class="collab-link" href="{{ detail_url }}">Back to {{ document_label|lower }} detail</a>
-                        {% endif %}
+                    {% if collaborative_presence_url %}
+                    <div class="collab-active-participants">
+                        <strong>Active in this document:</strong>
+                        <span id="collab-active-participants-text">
+                            {% if active_participant_names %}
+                                {{ active_participant_names|join:", " }}
+                            {% else %}
+                                No other reviewers or authors are active right now.
+                            {% endif %}
+                        </span>
                     </div>
+                    {% endif %}
                     {% if editor_comment_only %}
                     <div class="collab-review-summary">
                         To comment, highlight text and use the comment button in the toolbar. Authors will review your comments and decide whether to apply them.
@@ -316,11 +334,19 @@
 {% if editor_config %}
 <div id="onlyoffice-editor"></div>
 {{ editor_config|json_script:"onlyoffice-editor-config" }}
+{% if reviewer_tab_lock_key %}
+{{ reviewer_tab_lock_key|json_script:"reviewer-tab-lock-key" }}
+{% endif %}
 <script src="{{ onlyoffice_js_url }}"></script>
 <script>
     (function() {
         const container = document.getElementById('onlyoffice-editor');
         const errorMessage = `<div class="p-4 text-danger">Unable to load the OnlyOffice editor. Check your OnlyOffice configuration.</div>`;
+        const duplicateTabMessage = `
+            <div class="alert alert-warning mx-3 mx-md-4 mt-3" role="alert">
+                This review page is already open in another tab. Return to that tab or close it before opening another one.
+            </div>
+        `;
         if (!container) {
             console.error('OnlyOffice editor container is missing.');
             return;
@@ -343,6 +369,71 @@
         }
 
         const MIN_HEIGHT = 420;
+        let reviewTabLockRelease = null;
+
+        const establishReviewerTabLock = function () {
+            {% if reviewer_tab_lock_key %}
+            const lockSource = document.getElementById('reviewer-tab-lock-key');
+            const resolvedLockKey = lockSource ? JSON.parse(lockSource.textContent) : '';
+            if (!resolvedLockKey) {
+                return true;
+            }
+            const tabId = 'tab-' + Math.random().toString(36).slice(2);
+            const heartbeatMs = 5000;
+            const staleAfterMs = 15000;
+
+            const readLock = function () {
+                try {
+                    const raw = window.localStorage.getItem(resolvedLockKey);
+                    return raw ? JSON.parse(raw) : null;
+                } catch (error) {
+                    return null;
+                }
+            };
+
+            const writeLock = function () {
+                try {
+                    window.localStorage.setItem(
+                        resolvedLockKey,
+                        JSON.stringify({ tabId: tabId, ts: Date.now() })
+                    );
+                    return true;
+                } catch (error) {
+                    return true;
+                }
+            };
+
+            const existing = readLock();
+            if (existing && existing.tabId !== tabId && (Date.now() - (existing.ts || 0)) < staleAfterMs) {
+                container.style.display = 'none';
+                container.insertAdjacentHTML('beforebegin', duplicateTabMessage);
+                return false;
+            }
+
+            writeLock();
+            const heartbeat = window.setInterval(writeLock, heartbeatMs);
+            reviewTabLockRelease = function () {
+                window.clearInterval(heartbeat);
+                const latest = readLock();
+                if (latest && latest.tabId === tabId) {
+                    try {
+                        window.localStorage.removeItem(resolvedLockKey);
+                    } catch (error) {
+                        // ignore
+                    }
+                }
+            };
+
+            window.addEventListener('beforeunload', function () {
+                if (reviewTabLockRelease) {
+                    reviewTabLockRelease();
+                }
+            });
+            return true;
+            {% else %}
+            return true;
+            {% endif %}
+        };
 
         function calculateEditorHeight() {
             const viewportHeight = window.innerHeight || document.documentElement.clientHeight || MIN_HEIGHT;
@@ -385,14 +476,58 @@
             window.docEditor = new DocsAPI.DocEditor('onlyoffice-editor', config);
         }
 
+        {% if collaborative_presence_url %}
+        const participantsText = document.getElementById('collab-active-participants-text');
+        let presencePollTimer = null;
+        const renderParticipants = function (participants) {
+            if (!participantsText) return;
+            if (Array.isArray(participants) && participants.length) {
+                participantsText.textContent = participants.join(', ');
+                return;
+            }
+            participantsText.textContent = 'No other reviewers or authors are active right now.';
+        };
+
+        const refreshPresence = function () {
+            fetch('{{ collaborative_presence_url }}', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin'
+            })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('Presence request failed');
+                    }
+                    return response.json();
+                })
+                .then(function (data) {
+                    renderParticipants(data.participants || []);
+                })
+                .catch(function () {
+                    // Keep the most recent successful presence text if polling fails.
+                });
+        };
+        {% endif %}
+
         function handleResize() {
             applyHeight(calculateEditorHeight());
         }
 
         if (window.DocsAPI && window.DocsAPI.DocEditor) {
+            if (!establishReviewerTabLock()) {
+                return;
+            }
             initialiseEditor();
             window.addEventListener('resize', handleResize);
             window.addEventListener('load', handleResize);
+            {% if collaborative_presence_url %}
+            refreshPresence();
+            presencePollTimer = window.setInterval(refreshPresence, 15000);
+            window.addEventListener('beforeunload', function () {
+                if (presencePollTimer) {
+                    window.clearInterval(presencePollTimer);
+                }
+            });
+            {% endif %}
         } else {
             console.error('OnlyOffice DocsAPI is not available.');
             container.innerHTML = errorMessage;

@@ -1822,19 +1822,11 @@ def _onlyoffice_command_headers(payload: dict) -> dict[str, str]:
     return headers
 
 
-def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[str, str]:
+def _onlyoffice_command_request(payload: dict) -> tuple[dict | None, str]:
     command_url = _onlyoffice_command_url()
     if not command_url:
-        logger.warning(
-            "OnlyOffice force-save skipped for session %s because command URL is missing",
-            session.pk,
-        )
-        return "failed", "Collaborative save is not configured correctly."
+        return None, "OnlyOffice command service is not configured."
 
-    payload = {
-        "c": "forcesave",
-        "key": _collaborative_document_key(project, document_type, session),
-    }
     timeout = ONLYOFFICE_SETTINGS.get("callback_timeout", 10)
     try:
         response = requests.post(
@@ -1846,10 +1838,24 @@ def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[str,
         response.raise_for_status()
         data = response.json()
     except (requests.RequestException, ValueError) as exc:
+        logger.error("OnlyOffice command request failed: %s", exc)
+        return None, "Unable to contact OnlyOffice."
+    if not isinstance(data, dict):
+        return None, "OnlyOffice returned an unexpected response."
+    return data, ""
+
+
+def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[str, str]:
+    payload = {
+        "c": "forcesave",
+        "key": _collaborative_document_key(project, document_type, session),
+    }
+    data, error_message = _onlyoffice_command_request(payload)
+    if data is None:
         logger.error(
             "OnlyOffice force-save request failed for session %s: %s",
             session.pk,
-            exc,
+            error_message,
         )
         return "failed", "Unable to request a final save from OnlyOffice."
 
@@ -1872,6 +1878,70 @@ def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[str,
             data,
         )
         return "failed", "OnlyOffice did not accept the final save request."
+
+
+def _resolve_collaborative_participant_name(participant_id, *, users_by_id, members_by_id):
+    raw_id = str(participant_id or "").strip()
+    if not raw_id:
+        return ""
+    if raw_id.startswith("abm:"):
+        member = members_by_id.get(raw_id.split(":", 1)[1])
+        return _advisory_member_display(member) if member else raw_id
+    if raw_id.startswith("abe:"):
+        return raw_id.split(":", 1)[1]
+    user = users_by_id.get(raw_id)
+    if user:
+        return _user_display(user)
+    return raw_id
+
+
+def _collaborative_active_participant_names(project, document_type, session) -> list[str]:
+    payload = {
+        "c": "info",
+        "key": _collaborative_document_key(project, document_type, session),
+    }
+    data, error_message = _onlyoffice_command_request(payload)
+    if data is None:
+        logger.info(
+            "OnlyOffice session info unavailable for session %s: %s",
+            session.pk,
+            error_message,
+        )
+        return []
+
+    raw_users = data.get("users") or []
+    if not isinstance(raw_users, list):
+        return []
+
+    participant_ids = [
+        str(user_id).strip() for user_id in raw_users if str(user_id).strip()
+    ]
+    if not participant_ids:
+        return []
+
+    user_ids = [pid for pid in participant_ids if pid.isdigit()]
+    member_ids = [
+        pid.split(":", 1)[1]
+        for pid in participant_ids
+        if pid.startswith("abm:") and pid.split(":", 1)[1].isdigit()
+    ]
+
+    users_by_id = {str(user.pk): user for user in User.objects.filter(pk__in=user_ids)}
+    members_by_id = {
+        str(member.pk): member
+        for member in AdvisoryBoardMember.objects.filter(project=project, pk__in=member_ids)
+    }
+
+    names: list[str] = []
+    for participant_id in participant_ids:
+        name = _resolve_collaborative_participant_name(
+            participant_id,
+            users_by_id=users_by_id,
+            members_by_id=members_by_id,
+        )
+        if name and name not in names:
+            names.append(name)
+    return names
 
 
 def _wait_for_collaborative_save(session, document_type, timeout_seconds: int) -> bool:
@@ -4770,6 +4840,7 @@ def collaborative_edit(request, project_id, document_slug, token):
     participant_context = None
     editor_access_mode = "edit"
     review_deadline_display = ""
+    reviewer_tab_lock_key = ""
     if external_access.get("allowed"):
         participant_member = external_access.get("member")
         participant_feedback = external_access.get("feedback")
@@ -4782,6 +4853,13 @@ def collaborative_edit(request, project_id, document_slug, token):
             ) or getattr(participant_feedback, "feedback_deadline_at", None)
             if review_deadline:
                 review_deadline_display = _format_deadline(review_deadline)
+            participant_lock_id = (
+                participant_context.get("id", "") if participant_context else ""
+            )
+            if participant_lock_id:
+                reviewer_tab_lock_key = (
+                    f"ce-review-tab-{project.id}-{document_type}-{participant_lock_id}"
+                )
 
     if not participant_member and not participant_context and user_can_edit:
         member_id = request.GET.get("member")
@@ -4848,6 +4926,16 @@ def collaborative_edit(request, project_id, document_slug, token):
         + _collaborative_query_suffix(request.GET)
     )
     can_force_end = _user_can_force_end_session(request.user, project, session)
+    active_participant_names = []
+    collaborative_presence_url = ""
+    if user_can_edit:
+        active_participant_names = _collaborative_active_participant_names(
+            project, document_type, session
+        )
+        collaborative_presence_url = reverse(
+            "synopsis:collaborative_presence",
+            args=[project.id, _document_type_slug(document_type), session.token],
+        )
 
     return render(
         request,
@@ -4865,6 +4953,9 @@ def collaborative_edit(request, project_id, document_slug, token):
             "participant_display": participant_display,
             "editor_comment_only": editor_access_mode == "comment",
             "review_deadline_display": review_deadline_display,
+            "reviewer_tab_lock_key": reviewer_tab_lock_key,
+            "active_participant_names": active_participant_names,
+            "collaborative_presence_url": collaborative_presence_url,
         },
     )
 
@@ -4942,9 +5033,26 @@ def collaborative_leave(request, project_id, document_slug, token):
             "participant_display": participant_display,
             "editor_comment_only": reviewer_comment_only,
             "review_deadline_display": review_deadline_display,
+            "reviewer_tab_lock_key": "",
         },
         status=200,
     )
+
+
+@login_required
+def collaborative_presence(request, project_id, document_slug, token):
+    project = get_object_or_404(Project, pk=project_id)
+    document_type = _normalize_document_type(document_slug)
+    if not document_type:
+        raise Http404("Unknown document type")
+    if not _user_can_edit_project(request.user, project):
+        return JsonResponse({"detail": "Forbidden"}, status=403)
+
+    session = _collaborative_session_or_404(project, document_type, token)
+    names = []
+    if session.is_active and not session.has_expired():
+        names = _collaborative_active_participant_names(project, document_type, session)
+    return JsonResponse({"participants": names})
 
 
 @login_required
