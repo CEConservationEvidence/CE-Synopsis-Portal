@@ -1879,6 +1879,8 @@ def _request_onlyoffice_forcesave(project, document_type, session) -> tuple[str,
         )
         return "failed", "OnlyOffice did not accept the final save request."
 
+    return "failed", "OnlyOffice did not accept the final save request."
+
 
 def _resolve_collaborative_participant_name(participant_id, *, users_by_id, members_by_id):
     raw_id = str(participant_id or "").strip()
