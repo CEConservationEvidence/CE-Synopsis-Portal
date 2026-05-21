@@ -4832,12 +4832,32 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response.context["editor_config"]["editorConfig"]["user"]["id"],
             f"abm:{self.member.id}",
         )
-        self.assertContains(response, "You are editing as Asha Reviewer.")
-        self.assertContains(response, "How to use this editor")
+        self.assertFalse(response.context["editor_config"]["document"]["permissions"]["edit"])
+        self.assertTrue(response.context["editor_config"]["document"]["permissions"]["comment"])
+        self.assertFalse(response.context["editor_config"]["document"]["permissions"]["review"])
+        self.assertContains(response, "You are signed in as")
+        self.assertContains(response, "Asha Reviewer")
+        self.assertContains(response, "How to review this document")
         self.assertContains(
             response,
-            "Use <strong>Leave editor</strong> when you are finished. This leaves the page without closing the shared session for anyone else.",
+            "Advisory board feedback is collected as comments so the authors can review each suggestion and decide what to change.",
+        )
+        self.assertContains(
+            response,
+            "Highlight the relevant text and use the comment button in the editor toolbar, or right-click the highlighted text and choose the comment option.",
+        )
+        self.assertContains(
+            response,
+            "Place the cursor near the relevant section first, then add the comment from the toolbar so the authors can see what part of the document it refers to.",
+        )
+        self.assertContains(
+            response,
+            "Use <strong>Leave editor</strong>. This does not close the shared session for anyone else, and you can reopen the same link later while the feedback window is still open.",
             html=True,
+        )
+        self.assertContains(
+            response,
+            "Comment-only access",
         )
         self.assertNotContains(response, "How collaborative editing works")
 
@@ -4860,7 +4880,10 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response.context["editor_config"]["editorConfig"]["user"]["id"],
             f"abm:{self.member.id}",
         )
-        self.assertContains(response, "How to use this editor")
+        self.assertFalse(response.context["editor_config"]["document"]["permissions"]["edit"])
+        self.assertTrue(response.context["editor_config"]["document"]["permissions"]["comment"])
+        self.assertFalse(response.context["editor_config"]["document"]["permissions"]["review"])
+        self.assertContains(response, "How to review this document")
         self.assertNotContains(response, "How collaborative editing works")
 
     def test_anonymous_reviewer_invitation_link_restarts_when_session_is_closed(self):
@@ -4935,6 +4958,9 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response.context["editor_config"]["editorConfig"]["user"]["id"],
             str(self.author.id),
         )
+        self.assertTrue(response.context["editor_config"]["document"]["permissions"]["edit"])
+        self.assertTrue(response.context["editor_config"]["document"]["permissions"]["comment"])
+        self.assertTrue(response.context["editor_config"]["document"]["permissions"]["review"])
         self.assertContains(response, "Leave editor")
         self.assertContains(
             response,
