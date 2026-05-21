@@ -5971,7 +5971,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
             "2002",
             "",
         )
-        existing_library_ref = LibraryReference.objects.create(
+        LibraryReference.objects.create(
             hash_key=existing_hash,
             title="Existing canonical title",
             publication_year=2002,
