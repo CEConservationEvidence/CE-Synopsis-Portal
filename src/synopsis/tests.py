@@ -4837,28 +4837,31 @@ class OnlyOfficeExternalAccessTests(TestCase):
         self.assertFalse(response.context["editor_config"]["document"]["permissions"]["review"])
         self.assertContains(response, "You are signed in as")
         self.assertContains(response, "Asha Reviewer")
-        self.assertContains(response, "How to review this document")
         self.assertContains(
             response,
-            "Advisory board feedback is collected as comments so the authors can review each suggestion and decide what to change.",
+            "To comment, highlight text and use the comment button in the toolbar.",
         )
         self.assertContains(
             response,
-            "Highlight the relevant text and use the comment button in the editor toolbar, or right-click the highlighted text and choose the comment option.",
+            "Authors will review your comments and decide whether to apply them.",
         )
         self.assertContains(
             response,
-            "Place the cursor near the relevant section first, then add the comment from the toolbar so the authors can see what part of the document it refers to.",
+            "Comments save automatically while you work.",
         )
         self.assertContains(
             response,
-            "Use <strong>Leave editor</strong>. This does not close the shared session for anyone else, and you can reopen the same link later while the feedback window is still open.",
-            html=True,
+            "Comments accepted until",
+        )
+        self.assertContains(
+            response,
+            _format_deadline(self.member.feedback_on_protocol_deadline),
         )
         self.assertContains(
             response,
             "Comment-only access",
         )
+        self.assertContains(response, "Leave review page")
         self.assertNotContains(response, "How collaborative editing works")
 
     def test_anonymous_reviewer_can_open_editor_with_invitation_token(self):
@@ -4883,7 +4886,8 @@ class OnlyOfficeExternalAccessTests(TestCase):
         self.assertFalse(response.context["editor_config"]["document"]["permissions"]["edit"])
         self.assertTrue(response.context["editor_config"]["document"]["permissions"]["comment"])
         self.assertFalse(response.context["editor_config"]["document"]["permissions"]["review"])
-        self.assertContains(response, "How to review this document")
+        self.assertContains(response, "Comments accepted until")
+        self.assertContains(response, "Leave review page")
         self.assertNotContains(response, "How collaborative editing works")
 
     def test_anonymous_reviewer_invitation_link_restarts_when_session_is_closed(self):
@@ -4996,9 +5000,9 @@ class OnlyOfficeExternalAccessTests(TestCase):
         self.assertTrue(self.session.is_active)
         self.assertContains(
             response,
-            "You left the collaborative editor. This did not close the shared session for other participants.",
+            "You left the review page. This did not close the shared session for other participants.",
         )
-        self.assertContains(response, "Reopen editor")
+        self.assertContains(response, "Reopen review page")
         self.assertContains(response, "Close this tab")
 
 class CollaborativeForceSaveCloseTests(TestCase):
