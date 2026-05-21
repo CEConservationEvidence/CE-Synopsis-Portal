@@ -25,6 +25,13 @@
 
                 const storageKey = config.key;
                 const formSelector = config.formSelector || "form";
+                const clearStoredState = function () {
+                    try {
+                        storage.removeItem(storageKey);
+                    } catch (error) {
+                        console.warn("Could not clear saved page state.", error);
+                    }
+                };
 
                 const bindForms = function () {
                     document.querySelectorAll(formSelector).forEach(function (form) {
@@ -58,31 +65,33 @@
                         return;
                     }
 
-                    try {
-                        storage.removeItem(storageKey);
-                    } catch (error) {
-                        console.warn("Could not clear saved page state.", error);
-                    }
-
                     let state = null;
                     try {
                         state = JSON.parse(raw);
                     } catch (error) {
                         console.warn("Could not parse saved page state.", error);
+                        clearStoredState();
                         return;
                     }
 
                     if (typeof config.shouldRestore === "function" && config.shouldRestore(state) === false) {
+                        clearStoredState();
                         return;
                     }
 
                     window.requestAnimationFrame(function () {
-                        if (typeof config.restore === "function") {
-                            config.restore(state);
-                            return;
-                        }
-                        if (typeof state.scrollY === "number") {
-                            window.scrollTo(0, state.scrollY);
+                        try {
+                            if (typeof config.restore === "function") {
+                                config.restore(state);
+                                return;
+                            }
+                            if (typeof state.scrollY === "number") {
+                                window.scrollTo(0, state.scrollY);
+                            }
+                        } catch (error) {
+                            console.warn("Could not restore saved page state.", error);
+                        } finally {
+                            clearStoredState();
                         }
                     });
                 };
