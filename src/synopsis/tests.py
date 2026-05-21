@@ -5002,6 +5002,13 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response,
             "You left the review page. This did not close the shared session for other participants.",
         )
+        self.assertContains(response, "Reviewing as")
+        self.assertContains(response, "Asha Reviewer")
+        self.assertContains(response, "Comment-only access")
+        self.assertContains(response, "Comments accepted until")
+        self.assertContains(
+            response, _format_deadline(self.member.feedback_on_protocol_deadline)
+        )
         self.assertContains(response, "Reopen review page")
         self.assertContains(response, "Close this tab")
 

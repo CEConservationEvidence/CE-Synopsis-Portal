@@ -4902,6 +4902,14 @@ def collaborative_leave(request, project_id, document_slug, token):
     reopen_url = ""
     document = _get_document_for_type(project, document_type)
     reviewer_comment_only = external_access.get("editor_access_mode") == "comment"
+    participant_display = external_access.get("participant_display", "")
+    review_deadline_display = ""
+    if reviewer_comment_only:
+        review_deadline = _member_feedback_deadline(
+            external_access.get("member"), document_type
+        ) or getattr(external_access.get("feedback"), "feedback_deadline_at", None)
+        if review_deadline:
+            review_deadline_display = _format_deadline(review_deadline)
     if (
         session.is_active
         and not session.has_expired()
@@ -4931,7 +4939,9 @@ def collaborative_leave(request, project_id, document_slug, token):
             "can_force_end": False,
             "force_end_url": "",
             "leave_url": "",
-            "participant_display": "",
+            "participant_display": participant_display,
+            "editor_comment_only": reviewer_comment_only,
+            "review_deadline_display": review_deadline_display,
         },
         status=200,
     )
