@@ -4862,6 +4862,11 @@ class OnlyOfficeExternalAccessTests(TestCase):
             "Comment-only access",
         )
         self.assertContains(response, "Leave review page")
+        self.assertContains(response, "reviewer-tab-lock-key")
+        self.assertContains(
+            response,
+            "This review page is already open in another tab. Return to that tab or close it before opening another one.",
+        )
         self.assertNotContains(response, "How collaborative editing works")
 
     def test_anonymous_reviewer_can_open_editor_with_invitation_token(self):
@@ -4970,6 +4975,8 @@ class OnlyOfficeExternalAccessTests(TestCase):
             response,
             "To save and close the shared session for everyone, return to the protocol detail page.",
         )
+        self.assertContains(response, "Active in this document:")
+        self.assertNotContains(response, "reviewer-tab-lock-key")
         self.assertNotContains(response, "How collaborative editing works")
         self.assertNotContains(
             response,
@@ -4977,6 +4984,33 @@ class OnlyOfficeExternalAccessTests(TestCase):
                 "synopsis:collaborative_force_end",
                 args=[self.project.id, "protocol", self.session.token],
             ),
+        )
+
+    @patch(
+        "synopsis.views._collaborative_active_participant_names",
+        return_value=["Asha Reviewer", "external-author"],
+    )
+    def test_author_can_fetch_active_collaborative_participants(
+        self, mock_active_names
+    ):
+        self.client.force_login(self.author)
+
+        response = self.client.get(
+            reverse(
+                "synopsis:collaborative_presence",
+                args=[self.project.id, "protocol", self.session.token],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"participants": ["Asha Reviewer", "external-author"]},
+        )
+        mock_active_names.assert_called_once_with(
+            self.project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+            self.session,
         )
 
     def test_anonymous_reviewer_can_leave_editor_without_closing_shared_session(self):
