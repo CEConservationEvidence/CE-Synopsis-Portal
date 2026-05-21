@@ -100,39 +100,10 @@ No author-facing read path should use `Reference.unlinked_reference_folder` for 
 The final schema-level cleanup should happen in stages:
 
 1. Ensure every project `Reference` is linked to a `LibraryReference` where possible.
-2. Run the category audit command to report unlinked project references and legacy linked fallback values.
-3. Move exports, reports, and any remaining read paths to `Reference.category_values`.
-4. Once unlinked references are either eliminated or explicitly supported long term, decide whether to keep or remove `Reference.unlinked_reference_folder`.
+2. Move exports, reports, and any remaining read paths to `Reference.category_values`.
+3. Once unlinked references are either eliminated or explicitly supported long term, decide whether to keep or remove `Reference.unlinked_reference_folder`.
 
 Do not remove `Reference.unlinked_reference_folder` until the project has a migration and rollback plan for old project references that are not linked to the shared library.
-
-## Audit command
-
-Use the category audit command to check whether project references are aligned with the shared library:
-
-```bash
-python src/manage.py audit_reference_categories
-```
-
-This reports:
-- project references with no linked `LibraryReference`
-- linked project references that still have legacy local fallback categories
-
-To clear legacy local fallback categories from linked references:
-
-```bash
-python src/manage.py audit_reference_categories --clear-linked-local-categories
-```
-
-The clear mode updates only linked project references. It does not try to create missing `LibraryReference` links for unlinked project references, because that requires a separate duplicate-matching review.
-
-Optional flags:
-
-```bash
-python src/manage.py audit_reference_categories --project-id 12 --limit 50
-```
-
-Run this after large imports, migration work, or any future refactor that touches reference linking.
 
 ## Practical rules for developers
 
