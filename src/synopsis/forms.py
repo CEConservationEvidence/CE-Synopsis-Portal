@@ -1992,7 +1992,7 @@ class ReferenceClassificationForm(forms.Form):
             attrs={
                 "class": "form-control",
                 "rows": 3,
-                "placeholder": "Reason or notes for this synopsis-level classification",
+                "placeholder": "Reason or notes for this reference classification",
             }
         ),
         label="Reason / notes",
