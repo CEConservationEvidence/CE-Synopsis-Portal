@@ -279,23 +279,23 @@
                         aria-expanded="false"
                         aria-controls="actionListDangerZone"
                     >
-                        Danger zone
+                        Danger zone: permanent deletion
                     </button>
                     {% endif %}
                 </div>
                 {% if action_list.document and can_delete_documents %}
                 <div class="collapse mt-3" id="actionListDangerZone">
                     <div class="border border-danger-subtle rounded p-3 bg-body-tertiary">
-                        <div class="fw-semibold text-danger mb-1">Danger zone</div>
-                        <div class="small text-muted mb-3">Delete actions are placed here to reduce accidental clicks.</div>
+                        <div class="fw-semibold text-danger mb-1">Danger zone: permanent deletion</div>
+                        <div class="small text-muted mb-3">These actions are final and destructive. Deleting the current file or the whole action list removes it from this synopsis and cannot be undone from the portal.</div>
                         <div class="d-flex flex-wrap gap-2">
                             <form method="post" action="{% url 'synopsis:action_list_delete_file' project.id %}" class="d-inline">
                                 {% csrf_token %}
-                                <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Remove the uploaded action list file?');">Delete file</button>
+                                <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Permanently delete the current action list file from this synopsis? This action is final and cannot be undone from the portal.');">Permanently delete file</button>
                             </form>
                             <form method="post" action="{% url 'synopsis:action_list_delete' project.id %}" class="d-inline">
                                 {% csrf_token %}
-                                <button class="btn btn-danger btn-sm" onclick="return confirm('Delete the entire action list (file and notes)? This cannot be undone.');">Delete action list</button>
+                                <button class="btn btn-danger btn-sm" onclick="return confirm('Permanently delete the entire action list from this synopsis, including its current file and saved details? This action is final and cannot be undone from the portal.');">Permanently delete action list</button>
                             </form>
                         </div>
                     </div>

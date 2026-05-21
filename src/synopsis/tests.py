@@ -4463,6 +4463,56 @@ class ProtocolUploadFlowTests(TestCase):
             "Choose an action list file to upload. You can reuse the same filename as a file you deleted.",
         )
 
+    def test_protocol_and_action_list_danger_zones_explain_permanent_deletion(self):
+        protocol_url = reverse("synopsis:protocol_detail", args=[self.project.id])
+        action_list_url = reverse("synopsis:action_list_detail", args=[self.project.id])
+
+        self.client.post(
+            protocol_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-protocol.docx", b"first"),
+            },
+        )
+        self.client.post(
+            action_list_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-action-list.docx", b"first"),
+            },
+        )
+
+        protocol_response = self.client.get(protocol_url)
+        action_list_response = self.client.get(action_list_url)
+
+        self.assertContains(protocol_response, "Danger zone: permanent deletion")
+        self.assertContains(
+            protocol_response,
+            "These actions are final and destructive.",
+        )
+        self.assertContains(protocol_response, "Permanently delete file")
+        self.assertContains(protocol_response, "Permanently delete protocol")
+        self.assertContains(
+            protocol_response,
+            "This action is final and cannot be undone from the portal.",
+        )
+
+        self.assertContains(action_list_response, "Danger zone: permanent deletion")
+        self.assertContains(
+            action_list_response,
+            "These actions are final and destructive.",
+        )
+        self.assertContains(action_list_response, "Permanently delete file")
+        self.assertContains(action_list_response, "Permanently delete action list")
+        self.assertContains(
+            action_list_response,
+            "This action is final and cannot be undone from the portal.",
+        )
+
     def test_protocol_delete_closes_stale_collaborative_session_before_reupload(self):
         detail_url = reverse("synopsis:protocol_detail", args=[self.project.id])
         self.client.post(

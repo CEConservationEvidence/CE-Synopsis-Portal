@@ -230,23 +230,23 @@
                         aria-expanded="false"
                         aria-controls="protocolDangerZone"
                     >
-                        Danger zone
+                        Danger zone: permanent deletion
                     </button>
                     {% endif %}
                 </div>
                 {% if protocol.document and can_delete_documents %}
                 <div class="collapse mt-3" id="protocolDangerZone">
                     <div class="border border-danger-subtle rounded p-3 bg-body-tertiary">
-                        <div class="fw-semibold text-danger mb-1">Danger zone</div>
-                        <div class="small text-muted mb-3">Delete actions are placed here to reduce accidental clicks.</div>
+                        <div class="fw-semibold text-danger mb-1">Danger zone: permanent deletion</div>
+                        <div class="small text-muted mb-3">These actions are final and destructive. Deleting the current file or the whole protocol removes it from this synopsis and cannot be undone from the portal.</div>
                         <div class="d-flex flex-wrap gap-2">
                             <form method="post" action="{% url 'synopsis:protocol_delete_file' project.id %}" class="d-inline">
                                 {% csrf_token %}
-                                <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Remove the uploaded protocol file?');">Delete file</button>
+                                <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Permanently delete the current protocol file from this synopsis? This action is final and cannot be undone from the portal.');">Permanently delete file</button>
                             </form>
                             <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}" class="d-inline">
                                 {% csrf_token %}
-                                <button class="btn btn-danger btn-sm" onclick="return confirm('Delete the entire protocol (file and text)? This cannot be undone.');">Delete protocol</button>
+                                <button class="btn btn-danger btn-sm" onclick="return confirm('Permanently delete the entire protocol from this synopsis, including its current file and saved details? This action is final and cannot be undone from the portal.');">Permanently delete protocol</button>
                             </form>
                         </div>
                     </div>
@@ -271,18 +271,18 @@
                         aria-expanded="false"
                         aria-controls="protocolDangerZoneFallback"
                     >
-                        Danger zone
+                        Danger zone: permanent deletion
                     </button>
                     {% endif %}
                 </div>
                 {% if can_delete_documents %}
                 <div class="collapse mt-3" id="protocolDangerZoneFallback">
                     <div class="border border-danger-subtle rounded p-3 bg-body-tertiary">
-                        <div class="fw-semibold text-danger mb-1">Danger zone</div>
-                        <div class="small text-muted mb-3">Delete actions are placed here to reduce accidental clicks.</div>
+                        <div class="fw-semibold text-danger mb-1">Danger zone: permanent deletion</div>
+                        <div class="small text-muted mb-3">This action is final and destructive. Deleting the whole protocol removes it from this synopsis and cannot be undone from the portal.</div>
                         <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}" class="d-inline">
                             {% csrf_token %}
-                            <button class="btn btn-danger btn-sm" onclick="return confirm('Delete the entire protocol (file and text)? This cannot be undone.');">Delete protocol</button>
+                            <button class="btn btn-danger btn-sm" onclick="return confirm('Permanently delete the entire protocol from this synopsis, including its current file and saved details? This action is final and cannot be undone from the portal.');">Permanently delete protocol</button>
                         </form>
                     </div>
                 </div>
