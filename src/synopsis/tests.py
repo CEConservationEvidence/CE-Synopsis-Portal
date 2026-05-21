@@ -9229,6 +9229,8 @@ class ProjectDescriptionUiTests(TestCase):
         response = self.client.get(reverse("synopsis:project_hub", args=[self.project.id]))
 
         self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Synopsis overview")
+        self.assertContains(response, "Synopsis settings")
         self.assertContains(response, "Description")
         self.assertContains(response, "A pilot synopsis for forest restoration.")
 

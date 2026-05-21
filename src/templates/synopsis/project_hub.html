@@ -1,11 +1,11 @@
 {% extends "synopsis/base.html" %}
-{% block title %}Project – {{ project.title }}{% endblock %}
+{% block title %}Synopsis – {{ project.title }}{% endblock %}
 {% block content %}
 <div class="card mb-3">
     <div class="card-body">
         <div class="row g-3 align-items-stretch">
             <div class="col-lg-6">
-                <p class="text-uppercase text-muted small mb-1">Project overview</p>
+                <p class="text-uppercase text-muted small mb-1">Synopsis overview</p>
                 <h1 class="mb-1">{{ project.title }}</h1>
                 {% if project.description %}
                 <div class="mb-3">
@@ -62,7 +62,7 @@
                         {% endif %}
                         {% if can_manage_project_configuration %}
                         <div class="mt-2 text-end">
-                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
+                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Synopsis settings</a>
                         </div>
                         {% endif %}
                     </div>
@@ -80,14 +80,14 @@
                         {% endif %}
                         <span class="small text-muted">{{ phase_progress_text }}</span>
                     </div>
-                    <div class="progress mb-3" role="progressbar" aria-label="Project phase progress" aria-valuenow="{{ phase_progress_percent }}" aria-valuemin="0" aria-valuemax="100" style="height: 0.75rem;">
+                    <div class="progress mb-3" role="progressbar" aria-label="Synopsis phase progress" aria-valuenow="{{ phase_progress_percent }}" aria-valuemin="0" aria-valuemax="100" style="height: 0.75rem;">
                         <div class="progress-bar" style="width: {{ phase_progress_percent }}%"></div>
                     </div>
                     <div class="small text-muted mb-3">
                         {% if can_manage_project_configuration %}
-                        Authors can update the phase manually in Project settings. Phases that are not relevant for this project are removed from this tracker.
+                        Authors can update the phase manually in Synopsis settings. Phases that are not relevant for this synopsis are removed from this tracker.
                         {% else %}
-                        Phases that are not relevant for this project are removed from this tracker.
+                        Phases that are not relevant for this synopsis are removed from this tracker.
                         {% endif %}
                     </div>
                     <div class="d-flex flex-wrap gap-2">
@@ -115,11 +115,11 @@
                 <h5>Protocol</h5>
                 {% if not project.protocol_relevant %}
                 <div class="mb-2">
-                    <span class="badge text-bg-secondary">Not relevant for this project</span>
+                    <span class="badge text-bg-secondary">Not relevant for this synopsis</span>
                 </div>
                 <p class="text-muted mb-3">This synopsis is not using the protocol workflow in the portal.</p>
                 {% if can_manage_project_configuration %}
-                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Synopsis settings</a>
                 {% endif %}
                 {% else %}
                 {% if protocol %}
@@ -185,11 +185,11 @@
                 <h5>Advisory Board</h5>
                 {% if not project.advisory_board_relevant %}
                 <div class="mb-2">
-                    <span class="badge text-bg-secondary">Not relevant for this project</span>
+                    <span class="badge text-bg-secondary">Not relevant for this synopsis</span>
                 </div>
                 <p class="text-muted mb-3">This synopsis is not using an advisory board in the portal.</p>
                 {% if can_manage_project_configuration %}
-                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Project settings</a>
+                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_settings' project.id %}">Synopsis settings</a>
                 {% endif %}
                 {% else %}
                 <div class="small text-muted mb-2">
