@@ -253,7 +253,7 @@
                 <div class="mt-2">
                     <strong>File:</strong>
                     {% if current_revision_download_url %}
-                    <a class="link-secondary" href="{{ current_revision_download_url }}" target="_blank">
+                    <a class="link-secondary" href="{% url 'synopsis:document_view' project.id 'action-list' %}" target="_blank" rel="noopener">
                         {{ current_revision_entry.file_name }}
                     </a>
                     {% else %}
@@ -267,9 +267,7 @@
                     {% endif %}
                 </div>
                 <div class="mt-2 d-flex flex-wrap gap-2">
-                    {% if current_revision_download_url %}
-                    <a class="btn btn-outline-secondary btn-sm" href="{{ current_revision_download_url }}" download>Download</a>
-                    {% endif %}
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:document_view' project.id 'action-list' %}" target="_blank" rel="noopener">Download current document</a>
                     {% if action_list.document and can_delete_documents %}
                     <button
                         class="btn btn-outline-danger btn-sm ms-md-auto"

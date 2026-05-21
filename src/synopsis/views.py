@@ -4,6 +4,7 @@ import io
 import hashlib
 import json
 import logging
+import mimetypes
 import os
 import re
 import random
@@ -4803,6 +4804,38 @@ def collaborative_edit(request, project_id, document_slug, token):
             "participant_display": participant_display,
         },
     )
+
+
+@login_required
+def document_view(request, project_id, document_slug):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_view_project(request.user, project):
+        messages.error(request, "You do not have access to that synopsis.")
+        return redirect("synopsis:dashboard")
+
+    document_type = _normalize_document_type(document_slug)
+    if not document_type:
+        raise Http404("Unknown document type")
+
+    detail_url = _document_detail_url(project.id, document_type)
+    document = _get_document_for_type(project, document_type)
+    if not _document_requires_file(document):
+        messages.error(
+            request,
+            f"There is no current {_document_label(document_type).lower()} document to view.",
+        )
+        return redirect(detail_url)
+
+    file_handle = document.document.open("rb")
+    filename = document.document.name.rsplit("/", 1)[-1]
+    content_type = (
+        mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    )
+    response = FileResponse(file_handle)
+    response["Content-Type"] = content_type
+    response["Content-Disposition"] = f'inline; filename="{filename}"'
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @login_required

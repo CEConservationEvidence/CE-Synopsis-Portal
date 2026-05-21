@@ -4463,6 +4463,82 @@ class ProtocolUploadFlowTests(TestCase):
             "Choose an action list file to upload. You can reuse the same filename as a file you deleted.",
         )
 
+    def test_current_document_links_use_download_current_document_labels(self):
+        protocol_detail_url = reverse("synopsis:protocol_detail", args=[self.project.id])
+        action_list_detail_url = reverse(
+            "synopsis:action_list_detail", args=[self.project.id]
+        )
+        project_hub_url = reverse("synopsis:project_hub", args=[self.project.id])
+
+        self.client.post(
+            protocol_detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-protocol.docx", b"protocol"),
+            },
+        )
+        self.client.post(
+            action_list_detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-action-list.docx", b"action"),
+            },
+        )
+
+        project_hub_response = self.client.get(project_hub_url)
+        protocol_detail_response = self.client.get(protocol_detail_url)
+        action_list_detail_response = self.client.get(action_list_detail_url)
+
+        protocol_view_url = reverse(
+            "synopsis:document_view", args=[self.project.id, "protocol"]
+        )
+        action_list_view_url = reverse(
+            "synopsis:document_view", args=[self.project.id, "action-list"]
+        )
+
+        self.assertContains(project_hub_response, protocol_view_url)
+        self.assertContains(project_hub_response, action_list_view_url)
+        self.assertContains(protocol_detail_response, protocol_view_url)
+        self.assertContains(action_list_detail_response, action_list_view_url)
+        self.assertContains(project_hub_response, "Download current document")
+        self.assertContains(protocol_detail_response, "Download current document")
+        self.assertContains(action_list_detail_response, "Download current document")
+        self.assertNotContains(protocol_detail_response, "Open in new tab")
+        self.assertNotContains(action_list_detail_response, "Open in new tab")
+
+    def test_document_view_route_returns_latest_document_inline(self):
+        protocol_detail_url = reverse("synopsis:protocol_detail", args=[self.project.id])
+        self.client.post(
+            protocol_detail_url,
+            {
+                "stage": "draft",
+                "change_reason": "",
+                "version_label": "v1",
+                "document": self._docx_upload("draft-protocol.docx", b"protocol"),
+            },
+        )
+
+        response = self.client.get(
+            reverse("synopsis:document_view", args=[self.project.id, "protocol"])
+        )
+        protocol = Protocol.objects.get(project=self.project)
+        expected_filename = protocol.document.name.rsplit("/", 1)[-1]
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Disposition"],
+            f'inline; filename="{expected_filename}"',
+        )
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        self.assertEqual(b"".join(response.streaming_content), b"protocol")
+
     def test_protocol_and_action_list_danger_zones_explain_permanent_deletion(self):
         protocol_url = reverse("synopsis:protocol_detail", args=[self.project.id])
         action_list_url = reverse("synopsis:action_list_detail", args=[self.project.id])

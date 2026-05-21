@@ -136,6 +136,11 @@ urlpatterns = [
         name="collaborative_start",
     ),
     path(
+        "project/<int:project_id>/<slug:document_slug>/view/",
+        views.document_view,
+        name="document_view",
+    ),
+    path(
         "project/<int:project_id>/<slug:document_slug>/collaborative/<uuid:token>/",
         views.collaborative_edit,
         name="collaborative_edit",

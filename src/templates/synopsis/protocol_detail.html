@@ -204,7 +204,7 @@
                 <div class="mt-2">
                     <strong>File:</strong>
                     {% if current_revision_download_url %}
-                    <a class="link-secondary" href="{{ current_revision_download_url }}" target="_blank">
+                    <a class="link-secondary" href="{% url 'synopsis:document_view' project.id 'protocol' %}" target="_blank" rel="noopener">
                         {{ current_revision_entry.file_name }}
                     </a>
                     {% else %}
@@ -218,9 +218,7 @@
                     {% endif %}
                 </div>
                 <div class="mt-2 d-flex flex-wrap gap-2">
-                    {% if current_revision_download_url %}
-                    <a class="btn btn-outline-secondary btn-sm" href="{{ current_revision_download_url }}" download>Download</a>
-                    {% endif %}
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:document_view' project.id 'protocol' %}" target="_blank" rel="noopener">Download current document</a>
                     {% if protocol.document and can_delete_documents %}
                     <button
                         class="btn btn-outline-danger btn-sm ms-md-auto"
@@ -261,7 +259,7 @@
                 {% elif protocol and protocol.document %}
                 <p class="mt-2 text-muted">Protocol record exists but no revision metadata was captured. Upload a new version so the revision timeline can start tracking changes.</p>
                 <div class="mt-2 d-flex flex-wrap gap-2">
-                    <a class="btn btn-outline-secondary btn-sm" href="{{ protocol.document.url }}" download>Download</a>
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:document_view' project.id 'protocol' %}" target="_blank" rel="noopener">Download current document</a>
                     {% if can_delete_documents %}
                     <button
                         class="btn btn-outline-danger btn-sm ms-md-auto"
