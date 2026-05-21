@@ -886,6 +886,50 @@ class SynopsisStructureTests(TestCase):
         self.assertContains(response, "review the assigned summaries here first")
         self.assertContains(response, "mowing more frequently increased arable plant richness")
 
+    def test_structure_page_renders_restore_state_hooks(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Arable",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Mow more frequently",
+            position=1,
+        )
+
+        response = self.client.get(url)
+
+        self.assertContains(response, 'id="synopsis-structure-page"', html=False)
+        self.assertContains(
+            response,
+            f'id="subheading-{subheading.id}"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            f'id="intervention-{intervention.id}"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            f'id="intervention-editor-{intervention.id}"',
+            html=False,
+        )
+        self.assertContains(response, "cePreservePageState({", html=False)
+        self.assertContains(
+            response,
+            f'"synopsis-structure-state-evidence-{self.project.id}"',
+            html=False,
+        )
+
     def test_text_chapter_blocks_subheading_and_intervention(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
         text_chapter = SynopsisChapter.objects.create(
@@ -5971,7 +6015,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
             "2002",
             "",
         )
-        LibraryReference.objects.create(
+        existing_library_ref = LibraryReference.objects.create(
             hash_key=existing_hash,
             title="Existing canonical title",
             publication_year=2002,
@@ -6256,6 +6300,13 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertContains(response, "screening-bulk-sticky")
         self.assertContains(response, "Apply categories")
         self.assertContains(response, "Multiple categories are allowed.")
+        self.assertContains(response, 'id="reference-batch-page"', html=False)
+        self.assertContains(response, "cePreservePageState({", html=False)
+        self.assertContains(
+            response,
+            f'"screening-batch-state-{self.project.id}-{batch.id}"',
+            html=False,
+        )
         self.assertContains(
             response,
             "This is the main category-classification step while screening.",
@@ -8546,6 +8597,25 @@ class ReferenceSummaryDetailViewTests(TestCase):
             response,
             "changing them here updates the shared reference record and is reflected everywhere it is linked",
         )
+
+    def test_summary_detail_renders_restore_state_hooks(self):
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, 'id="reference-summary-page"', html=False)
+        self.assertContains(response, "cePreservePageState({", html=False)
+        self.assertContains(
+            response,
+            f'"reference-summary-state-{self.project.id}-{self.summary.id}"',
+            html=False,
+        )
+        self.assertContains(response, "managementPanelOpen", html=False)
 
     def test_board_context_workload_counts_are_aggregated_correctly(self):
         other_author = User.objects.create_user(
