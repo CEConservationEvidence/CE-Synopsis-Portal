@@ -71,6 +71,61 @@ details.abstract-details[open] .abstract-full {
     box-shadow: 0 1rem 2.4rem rgba(0,0,0,0.28);
     border: 1px solid rgba(255,255,255,0.08);
 }
+.focus-decision-bar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1rem;
+    align-items: end;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid #e5e7eb;
+}
+.focus-decision-status {
+    min-width: 0;
+}
+.focus-status-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+.focus-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.65rem;
+    border: 1px solid #d0d7de;
+    border-radius: 999px;
+    background: #f8f9fa;
+    color: #495057;
+    font-size: 0.85rem;
+    line-height: 1.2;
+}
+.focus-status-pill::before {
+    content: "";
+    width: 0.55rem;
+    height: 0.55rem;
+    border-radius: 50%;
+    background: #adb5bd;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+.focus-status-pill.is-active {
+    border-color: #6c757d;
+    background: #e9ecef;
+    color: #212529;
+    font-weight: 600;
+}
+.focus-status-pill.is-active::before {
+    background: #0d6efd;
+}
+.focus-decision-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 12rem));
+    gap: 0.5rem;
+}
+.focus-decision-actions .btn {
+    width: 100%;
+    white-space: nowrap;
+}
 .folder-select-shell {
     width: min(100%, 28rem);
     min-width: 18rem;
@@ -95,6 +150,14 @@ details.abstract-details[open] .abstract-full {
     top: 0.75rem;
     z-index: 1020;
     box-shadow: 0 0.35rem 1rem rgba(0, 0, 0, 0.08);
+}
+@media (max-width: 991.98px) {
+    .focus-decision-bar {
+        grid-template-columns: 1fr;
+    }
+    .focus-decision-actions {
+        grid-template-columns: 1fr;
+    }
 }
 </style>
 <div class="d-flex flex-wrap gap-2 mb-3 align-items-center justify-content-between">
@@ -210,31 +273,19 @@ details.abstract-details[open] .abstract-full {
                     {% endif %}
                 </div>
                 <div class="mb-3">
-                    <div class="fw-semibold text-uppercase small text-muted mb-1">Current status</div>
-                    <span class="status-chip {% if focused_reference.screening_status == 'included' %}status-chip-included{% elif focused_reference.screening_status == 'excluded' %}status-chip-excluded{% else %}status-chip-pending{% endif %}">
-                        <span class="status-dot {% if focused_reference.screening_status == 'included' %}status-dot-included{% elif focused_reference.screening_status == 'excluded' %}status-dot-excluded{% else %}status-dot-pending{% endif %}"></span>
-                        {{ focused_reference.get_screening_status_display }}
-                    </span>
-                    <div class="small text-muted mt-2">
-                        This status applies only to this synopsis. Category changes feed back into the shared CE reference library.
-                    </div>
                     {% if focused_reference.needs_help %}
-                    <span class="badge text-bg-warning text-dark ms-2">Needs help</span>
+                    <span class="badge text-bg-warning text-dark">Needs help</span>
                     {% endif %}
-                    <div class="mt-2">
+                    <div class="{% if focused_reference.needs_help %}mt-2{% endif %}">
                         <label class="form-label small mb-1">Shared CE subject categories <span class="badge text-bg-light border ms-1">Shared library data</span></label>
                         <form method="post" class="d-flex flex-wrap gap-2 align-items-center mb-0">
                             {% csrf_token %}
                             {% if status_filter %}
                             <input type="hidden" name="status_filter" value="{{ status_filter }}">
                             {% endif %}
+                            <input type="hidden" name="action" value="save-categories">
                             <input type="hidden" name="focus" value="1">
                             <input type="hidden" name="focus_ref" value="{{ focused_reference.id }}">
-                            {% if focus_next_id %}
-                            <input type="hidden" name="next_ref_id" value="{{ focus_next_id }}">
-                            {% else %}
-                            <input type="hidden" name="next_ref_id" value="{{ focused_reference.id }}">
-                            {% endif %}
                             <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
                             <div class="folder-multi-group">
                                 <div class="folder-select-tools">
@@ -281,7 +332,7 @@ details.abstract-details[open] .abstract-full {
                     <div class="small mt-1">{{ focused_reference.screening_notes }}</div>
                     {% endif %}
                 </div>
-                <form method="post" class="d-flex flex-wrap gap-2 justify-content-end">
+                <form method="post" class="focus-decision-bar">
                     {% csrf_token %}
                     {% if status_filter %}
                     <input type="hidden" name="status_filter" value="{{ status_filter }}">
@@ -294,9 +345,20 @@ details.abstract-details[open] .abstract-full {
                     <input type="hidden" name="next_ref_id" value="{{ focused_reference.id }}">
                     {% endif %}
                     <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
-                    <button class="btn btn-success" type="submit" name="screening_status" value="included">Include in synopsis</button>
-                    <button class="btn btn-outline-danger" type="submit" name="screening_status" value="excluded">Exclude from synopsis</button>
-                    <button class="btn btn-outline-secondary" type="submit" name="screening_status" value="pending">Pending</button>
+                    <div class="focus-decision-status">
+                        <div class="small text-uppercase text-muted fw-semibold mb-2">Current synopsis status</div>
+                        <div class="focus-status-legend">
+                            <span class="focus-status-pill {% if focused_reference.screening_status == 'pending' %}is-active{% endif %}">Pending</span>
+                            <span class="focus-status-pill {% if focused_reference.screening_status == 'included' %}is-active{% endif %}">Included</span>
+                            <span class="focus-status-pill {% if focused_reference.screening_status == 'excluded' %}is-active{% endif %}">Excluded</span>
+                        </div>
+                        <div class="small text-muted mt-2">Choosing a button below replaces this synopsis status.</div>
+                    </div>
+                    <div class="focus-decision-actions">
+                        <button class="btn btn-success" type="submit" name="screening_status" value="included">Include in synopsis</button>
+                        <button class="btn btn-outline-danger" type="submit" name="screening_status" value="excluded">Exclude from synopsis</button>
+                        <button class="btn btn-outline-secondary" type="submit" name="screening_status" value="pending">Pending</button>
+                    </div>
                 </form>
             </div>
         </div>
