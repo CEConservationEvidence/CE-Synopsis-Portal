@@ -4973,10 +4973,17 @@ def collaborative_leave(request, project_id, document_slug, token):
     user_can_edit = _user_can_edit_project(request.user, project)
     project_editor_detail_url = detail_url if user_can_edit else ""
     session = _collaborative_session_or_404(project, document_type, token)
+    if user_can_edit:
+        messages.info(
+            request,
+            "You left the collaborative editor. The shared session is still open for other participants.",
+        )
+        return redirect(detail_url)
+
     external_access = _resolve_external_collaborative_access(
         request, project, document_type, session
     )
-    if not user_can_edit and not external_access.get("allowed"):
+    if not external_access.get("allowed"):
         return _collaborative_access_closed_response(
             request,
             project,
@@ -4984,13 +4991,6 @@ def collaborative_leave(request, project_id, document_slug, token):
             external_access.get("message")
             or "You do not have access to this collaborative session.",
         )
-
-    if user_can_edit:
-        messages.info(
-            request,
-            "You left the collaborative editor. The shared session is still open for other participants.",
-        )
-        return redirect(detail_url)
 
     reopen_url = ""
     document = _get_document_for_type(project, document_type)
