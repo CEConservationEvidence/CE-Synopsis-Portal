@@ -821,16 +821,39 @@
         window.cePreservePageState({
             key: "synopsis-structure-state-{{ workspace_mode }}-{{ project.id }}",
             formSelector: "#synopsis-structure-page form",
-            capture: () => ({
-                openDetailIds: Array.from(document.querySelectorAll("details[id]"))
-                    .filter((element) => element.open)
-                    .map((element) => element.id),
-            }),
+            capture: () => {
+                const isVisibleOpenDetail = (element) => {
+                    if (!element.open) {
+                        return false;
+                    }
+                    let parentDetail = element.parentElement?.closest("details");
+                    while (parentDetail) {
+                        if (!parentDetail.open) {
+                            return false;
+                        }
+                        parentDetail = parentDetail.parentElement?.closest("details");
+                    }
+                    return true;
+                };
+
+                return {
+                    openDetailIds: Array.from(document.querySelectorAll("details[id]"))
+                        .filter(isVisibleOpenDetail)
+                        .map((element) => element.id),
+                };
+            },
             restore: (state) => {
                 const openDetailIds = new Set(state.openDetailIds || []);
+                const openDetailChain = (element) => {
+                    let current = element;
+                    while (current) {
+                        current.open = true;
+                        current = current.parentElement?.closest("details[id]");
+                    }
+                };
                 document.querySelectorAll("details[id]").forEach((element) => {
                     if (openDetailIds.has(element.id)) {
-                        element.open = true;
+                        openDetailChain(element);
                     }
                 });
                 if (typeof state.scrollY === "number") {

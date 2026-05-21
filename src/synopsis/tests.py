@@ -929,6 +929,7 @@ class SynopsisStructureTests(TestCase):
             f'"synopsis-structure-state-evidence-{self.project.id}"',
             html=False,
         )
+        self.assertContains(response, 'closest("details[id]")', html=False)
 
     def test_text_chapter_blocks_subheading_and_intervention(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
