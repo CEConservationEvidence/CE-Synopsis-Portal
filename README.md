@@ -72,7 +72,7 @@ Current workflow coverage:
 - draft synopsis protocols
 - invite and track advisory board participation
 - import references into a central library
-- link/import references into project batches
+- link/import references into project batches, reusing canonical library records where possible
 - screen references for inclusion/exclusion
 - write structured study summaries
 - assign summaries to synopsis interventions
@@ -203,6 +203,7 @@ The admin-facing handoff checklist is in [docs/instructions.md](docs/instruction
 
 Current project docs in this repo:
 - [Roadmap](docs/roadmap.md)
+- [Reference Library Model](docs/reference-library-model.md)
 - For a very detailed overview of the system, see the [project wiki](https://deepwiki.com/CEConservationEvidence/CE-Synopsis-Portal/1-overview). Do note that the wiki is a living document and may not always reflect the current state of the system, but it contains a lot of useful information about the design and rationale behind various features.
 
 Additional user and technical documentation still needs to be formalized.

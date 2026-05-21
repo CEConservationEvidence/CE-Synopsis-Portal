@@ -20,7 +20,7 @@
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:dashboard' %}">Home</a>
                     {% if user.is_authenticated %}
                     {% if nav_can_manage_library %}
-                    <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:reference_library' %}">Reference Database</a>
+                    <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:reference_library' %}">Shared Reference Library</a>
                     {% endif %}
                     {% if nav_can_create_project %}
                     <a class="btn btn-outline-light btn-sm" href="{% url 'synopsis:project_create' %}">Create New Synopsis</a>

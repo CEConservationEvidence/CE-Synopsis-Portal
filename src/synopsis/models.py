@@ -1391,10 +1391,14 @@ class LibraryReference(models.Model):
     def __str__(self):
         return self.title[:120]
 
+    @property
+    def category_values(self):
+        return normalize_reference_folder_values(self.reference_folder)
+
     def folder_labels(self):
         return [
             CE_REFERENCE_FOLDER_MAP.get(value, value)
-            for value in normalize_reference_folder_values(self.reference_folder)
+            for value in self.category_values
         ]
 
 
@@ -1520,10 +1524,13 @@ class Reference(models.Model):
         choices=SCREENING_STATUS_CHOICES,
         default="pending",
     )
-    reference_folder = models.JSONField(
+    unlinked_reference_folder = models.JSONField(
         default=list,
         blank=True,
-        help_text="List of CE subject categories assigned to this reference.",
+        help_text=(
+            "Fallback CE subject categories used only when this project reference "
+            "is not linked to the shared reference library."
+        ),
     )
     screening_notes = models.TextField(blank=True)
     screening_decision_at = models.DateTimeField(null=True, blank=True)
@@ -1543,10 +1550,20 @@ class Reference(models.Model):
     def __str__(self):
         return self.title[:120]
 
+    @property
+    def category_source(self):
+        return self.library_reference or self
+
+    @property
+    def category_values(self):
+        if self.library_reference_id:
+            return self.category_source.category_values
+        return normalize_reference_folder_values(self.unlinked_reference_folder)
+
     def folder_labels(self):
         return [
             CE_REFERENCE_FOLDER_MAP.get(value, value)
-            for value in normalize_reference_folder_values(self.reference_folder)
+            for value in self.category_values
         ]
 
     @property

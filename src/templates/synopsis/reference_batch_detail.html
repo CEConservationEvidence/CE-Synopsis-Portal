@@ -147,7 +147,10 @@ details.abstract-details[open] .abstract-full {
                 <input type="text" class="form-control form-control-sm" id="batch-filter-input" placeholder="Search title/author/DOI">
             </div>
             <div class="col-12 col-lg-7">
-                <div class="small text-muted mb-1">Assign one or more shared CE subject categories to the selected references. This is the main category-classification step while screening. For library-linked references, changing categories here updates the shared reference library record and linked synopsis copies in other projects. You can still use categories on excluded references to flag papers relevant to other taxa or habitats. If categories are selected here, bulk include/exclude will apply them at the same time.</div>
+                <div class="small text-muted mb-1">
+                    <span class="badge text-bg-light border me-1">Shared library data</span>
+                    Assign one or more shared CE subject categories to the selected references. This is the main category-classification step while screening. For library-linked references, changing categories here updates the shared reference library record and is reflected in linked synopsis copies in other projects. You can still use categories on excluded references to flag papers relevant to other taxa or habitats. If categories are selected here, bulk include/exclude will apply them at the same time.
+                </div>
                 <div class="folder-multi-group">
                     <div class="folder-select-tools">
                         <span class="small text-muted">Multiple categories are allowed.</span>
@@ -212,7 +215,7 @@ details.abstract-details[open] .abstract-full {
                     <span class="badge text-bg-warning text-dark ms-2">Needs help</span>
                     {% endif %}
                     <div class="mt-2">
-                        <label class="form-label small mb-1">Shared CE subject categories</label>
+                        <label class="form-label small mb-1">Shared CE subject categories <span class="badge text-bg-light border ms-1">Shared library data</span></label>
                         <form method="post" class="d-flex flex-wrap gap-2 align-items-center mb-0">
                             {% csrf_token %}
                             {% if status_filter %}
@@ -228,7 +231,7 @@ details.abstract-details[open] .abstract-full {
                             <input type="hidden" name="reference_id" value="{{ focused_reference.id }}">
                             <div class="folder-multi-group">
                                 <div class="folder-select-tools">
-                                    <span class="small text-muted">Choose one or more shared CE subject categories for this reference.</span>
+                                    <span class="small text-muted">Choose one or more shared CE subject categories for this reference. These are shared library data.</span>
                                     <div class="btn-group btn-group-sm" role="group" aria-label="Category selection tools">
                                         <button type="button" class="btn btn-outline-secondary" data-folder-select-action="all">Select all</button>
                                         <button type="button" class="btn btn-outline-secondary" data-folder-select-action="clear">Clear</button>
@@ -237,7 +240,7 @@ details.abstract-details[open] .abstract-full {
                                 <div class="folder-select-shell">
                                     <select name="reference_folder" class="form-select form-select-sm folder-select" multiple style="height: 150px;" data-folder-multi-select>
                                         {% for val,label in folder_choices %}
-                                            {% if val in focused_reference.reference_folder %}
+                                            {% if val in focused_reference.category_values %}
                                                 <option value="{{ val }}" selected>{{ label }}</option>
                                             {% else %}
                                                 <option value="{{ val }}">{{ label }}</option>
@@ -396,7 +399,7 @@ details.abstract-details[open] .abstract-full {
                                 <input type="hidden" name="reference_id" value="{{ ref.id }}">
                                 <div class="folder-multi-group">
                                     <div class="folder-select-tools">
-                                        <span class="small text-muted">Choose one or more shared CE subject categories for this reference.</span>
+                                        <span class="small text-muted">Choose one or more shared CE subject categories for this reference. These are shared library data.</span>
                                         <div class="btn-group btn-group-sm" role="group" aria-label="Category selection tools">
                                             <button type="button" class="btn btn-outline-secondary" data-folder-select-action="all">Select all</button>
                                             <button type="button" class="btn btn-outline-secondary" data-folder-select-action="clear">Clear</button>
@@ -405,7 +408,7 @@ details.abstract-details[open] .abstract-full {
                                     <div class="folder-select-shell">
                                         <select name="reference_folder" class="form-select form-select-sm folder-select" multiple style="height: 150px;" data-folder-multi-select>
                                             {% for val,label in folder_choices %}
-                                                {% if val in ref.reference_folder %}
+                                                {% if val in ref.category_values %}
                                                     <option value="{{ val }}" selected>{{ label }}</option>
                                                 {% else %}
                                                     <option value="{{ val }}">{{ label }}</option>

@@ -5971,7 +5971,7 @@ class ReferenceBatchUploadParsingTests(TestCase):
             "2002",
             "",
         )
-        existing_library_ref = LibraryReference.objects.create(
+        LibraryReference.objects.create(
             hash_key=existing_hash,
             title="Existing canonical title",
             publication_year=2002,
@@ -5997,7 +5997,43 @@ class ReferenceBatchUploadParsingTests(TestCase):
             hash_key=existing_hash,
         )
         self.assertEqual(project_ref.library_reference_id, existing_library_ref.id)
-        self.assertEqual(project_ref.reference_folder, ["2", "15"])
+        self.assertEqual(project_ref.unlinked_reference_folder, [])
+        self.assertEqual(project_ref.category_values, ["2", "15"])
+
+    def test_project_reference_uses_shared_categories_as_effective_value(self):
+        existing_hash = reference_hash(
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            "2002",
+            "",
+        )
+        existing_library_ref = LibraryReference.objects.create(
+            hash_key=existing_hash,
+            title="Existing canonical title",
+            publication_year=2002,
+            reference_folder=["2", "15"],
+        )
+
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Effective category batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+
+        project_ref = Reference.objects.get(project=self.project, hash_key=existing_hash)
+        project_ref.unlinked_reference_folder = ["3a"]
+        project_ref.save(update_fields=["unlinked_reference_folder", "updated_at"])
+
+        self.assertEqual(project_ref.unlinked_reference_folder, ["3a"])
+        self.assertEqual(project_ref.category_values, ["2", "15"])
+        self.assertEqual(project_ref.folder_labels(), ["2. Birds", "15. Forests/Woodland"])
 
     def test_can_delete_reference_from_batch(self):
         upload = SimpleUploadedFile(
@@ -6176,7 +6212,8 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         for ref in Reference.objects.filter(pk__in=include_ids):
             self.assertEqual(ref.screening_status, "included")
-            self.assertEqual(ref.reference_folder, ["3a", "15"])
+            self.assertEqual(ref.unlinked_reference_folder, [])
+            self.assertEqual(ref.category_values, ["3a", "15"])
 
         linked_library_refs = list(
             LibraryReference.objects.filter(project_references__id__in=include_ids).distinct()
@@ -6225,8 +6262,51 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         self.assertContains(
             response,
-            "changing categories here updates the shared reference library record and linked synopsis copies in other projects",
+            "changing categories here updates the shared reference library record and is reflected in linked synopsis copies in other projects",
         )
+
+    def test_screening_page_uses_shared_categories_when_local_fallback_exists(self):
+        existing_hash = reference_hash(
+            "In situ biofiltration: a means to limit the dispersal of effluents from marine finfish cage aquaculture.",
+            "2002",
+            "",
+        )
+        existing_library_ref = LibraryReference.objects.create(
+            hash_key=existing_hash,
+            title="Existing canonical title",
+            publication_year=2002,
+            reference_folder=["2", "15"],
+        )
+
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Shared screening category batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        ref = Reference.objects.get(project=self.project, hash_key=existing_hash)
+        ref.unlinked_reference_folder = ["3a"]
+        ref.save(update_fields=["unlinked_reference_folder", "updated_at"])
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_batch_detail",
+                args=[self.project.id, batch.id],
+            )
+        )
+
+        self.assertEqual(ref.library_reference_id, existing_library_ref.id)
+        self.assertContains(response, 'option value="2" selected')
+        self.assertContains(response, 'option value="15" selected')
 
     def test_bulk_apply_folders_to_selected_references(self):
         upload = SimpleUploadedFile(
@@ -6268,7 +6348,8 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
 
         for ref in Reference.objects.filter(pk__in=selected_ids):
-            self.assertEqual(ref.reference_folder, ["3a", "15"])
+            self.assertEqual(ref.unlinked_reference_folder, [])
+            self.assertEqual(ref.category_values, ["3a", "15"])
             self.assertEqual(ref.screened_by, self.user)
             self.assertIsNotNone(ref.screening_decision_at)
 
@@ -6309,7 +6390,8 @@ class ReferenceBatchUploadParsingTests(TestCase):
         )
         ref.refresh_from_db()
         self.assertEqual(ref.screening_status, "included")
-        self.assertEqual(ref.reference_folder, ["3a"])
+        self.assertEqual(ref.unlinked_reference_folder, [])
+        self.assertEqual(ref.category_values, ["3a"])
         self.assertEqual(ref.library_reference.reference_folder, ["3a"])
 
     def test_save_folders_preserves_existing_screening_notes(self):
@@ -6349,7 +6431,8 @@ class ReferenceBatchUploadParsingTests(TestCase):
             f"{reverse('synopsis:reference_batch_detail', args=[self.project.id, batch.id])}#ref-{ref.id}",
         )
         ref.refresh_from_db()
-        self.assertEqual(ref.reference_folder, ["15"])
+        self.assertEqual(ref.unlinked_reference_folder, [])
+        self.assertEqual(ref.category_values, ["15"])
         self.assertEqual(ref.screening_notes, "Keep these notes.")
 
     def test_single_reference_can_be_reset_to_pending(self):
@@ -6650,7 +6733,8 @@ class LibraryLinkBatchTests(TestCase):
         self.assertEqual((linked, reused), (1, 0))
         self.assertIsNotNone(batch)
         project_ref = Reference.objects.get(project=self.project, library_reference=lib_ref)
-        self.assertEqual(project_ref.reference_folder, ["2", "15"])
+        self.assertEqual(project_ref.unlinked_reference_folder, [])
+        self.assertEqual(project_ref.category_values, ["2", "15"])
 
     def test_link_folder_override_updates_shared_library_record(self):
         lib_ref = LibraryReference.objects.create(
@@ -6672,7 +6756,8 @@ class LibraryLinkBatchTests(TestCase):
         lib_ref.refresh_from_db()
         self.assertEqual(lib_ref.reference_folder, ["2", "15"])
         project_ref = Reference.objects.get(project=self.project, library_reference=lib_ref)
-        self.assertEqual(project_ref.reference_folder, ["2", "15"])
+        self.assertEqual(project_ref.unlinked_reference_folder, [])
+        self.assertEqual(project_ref.category_values, ["2", "15"])
         self.assertTrue(
             LibraryReferenceFolderHistory.objects.filter(
                 library_reference=lib_ref,
@@ -6705,11 +6790,10 @@ class LibraryReferenceDetailTests(TestCase):
             library_reference=self.library_reference,
             hash_key="lib-detail-hash",
             title="Project copy",
-            reference_folder=["2"],
         )
         self.client.force_login(self.user)
 
-    def test_library_detail_updates_shared_folders_and_syncs_project_copies(self):
+    def test_library_detail_updates_shared_folders_for_linked_project_copies(self):
         response = self.client.post(
             reverse(
                 "synopsis:library_reference_detail",
@@ -6736,14 +6820,15 @@ class LibraryReferenceDetailTests(TestCase):
         self.library_reference.refresh_from_db()
         self.project_reference.refresh_from_db()
         self.assertEqual(self.library_reference.reference_folder, ["2", "15"])
-        self.assertEqual(self.project_reference.reference_folder, ["2", "15"])
+        self.assertEqual(self.project_reference.unlinked_reference_folder, [])
+        self.assertEqual(self.project_reference.category_values, ["2", "15"])
         self.assertContains(
             response,
             "Shared CE subject categories were updated.",
         )
         self.assertContains(
             response,
-            "Synced 1 linked synopsis copy/copies.",
+            "Linked synopsis copies now read those shared categories automatically.",
         )
         self.assertTrue(
             LibraryReferenceFolderHistory.objects.filter(
@@ -8184,11 +8269,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.reference.refresh_from_db()
         self.assertEqual(self.reference.screening_status, "included")
-        self.assertEqual(self.reference.reference_folder, ["3a"])
+        self.assertEqual(self.reference.unlinked_reference_folder, ["3a"])
+        self.assertEqual(self.reference.category_values, ["3a"])
         self.assertEqual(self.reference.screening_notes, "Freshwater fish evidence.")
         self.assertContains(response, "Reference classification updated.")
 
-    def test_summary_detail_folder_update_syncs_shared_library_reference(self):
+    def test_summary_detail_folder_update_updates_shared_library_reference(self):
         canonical = LibraryReference.objects.create(
             title="Canonical library title",
             authors="Alhas, Ibrahim",
@@ -8199,13 +8285,11 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.reference.library_reference = canonical
         self.reference.hash_key = "summary-shared-sync"
         self.reference.screening_status = "included"
-        self.reference.reference_folder = ["2"]
         self.reference.save(
             update_fields=[
                 "library_reference",
                 "hash_key",
                 "screening_status",
-                "reference_folder",
                 "updated_at",
             ]
         )
@@ -8221,7 +8305,6 @@ class ReferenceSummaryDetailViewTests(TestCase):
             library_reference=canonical,
             hash_key="summary-shared-sync",
             title="Other project copy",
-            reference_folder=["2"],
         )
 
         self.client.login(username="author", password="pass123")
@@ -8244,11 +8327,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.reference.refresh_from_db()
         other_reference.refresh_from_db()
         self.assertEqual(canonical.reference_folder, ["2", "15"])
-        self.assertEqual(self.reference.reference_folder, ["2", "15"])
-        self.assertEqual(other_reference.reference_folder, ["2", "15"])
+        self.assertEqual(self.reference.unlinked_reference_folder, [])
+        self.assertEqual(self.reference.category_values, ["2", "15"])
+        self.assertEqual(other_reference.unlinked_reference_folder, [])
+        self.assertEqual(other_reference.category_values, ["2", "15"])
         self.assertContains(
             response,
-            "Shared CE subject categories were updated and synced to 1 linked synopsis copy/copies.",
+            "Shared CE subject categories were updated for all linked synopsis copies.",
         )
         self.assertTrue(
             LibraryReferenceFolderHistory.objects.filter(
@@ -8259,6 +8344,44 @@ class ReferenceSummaryDetailViewTests(TestCase):
                 change_source="summary_reference_management",
             ).exists()
         )
+
+    def test_summary_detail_uses_shared_categories_when_local_fallback_exists(self):
+        canonical = LibraryReference.objects.create(
+            title="Canonical library title",
+            authors="Alhas, Ibrahim",
+            publication_year=2024,
+            hash_key="summary-shared-read",
+            reference_folder=["2", "15"],
+        )
+        self.reference.library_reference = canonical
+        self.reference.hash_key = "summary-shared-read"
+        self.reference.screening_status = "included"
+        self.reference.unlinked_reference_folder = ["3a"]
+        self.reference.save(
+            update_fields=[
+                "library_reference",
+                "hash_key",
+                "screening_status",
+                "unlinked_reference_folder",
+                "updated_at",
+            ]
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        classification_form = response.context["classification_form"]
+        self.assertEqual(
+            classification_form.initial["reference_folder"],
+            ["2", "15"],
+        )
+        self.assertContains(response, 'option value="2" selected')
+        self.assertContains(response, 'option value="15" selected')
 
     def test_summary_detail_filters_blank_reference_folder_values(self):
         self.reference.screening_status = "included"
@@ -8281,7 +8404,8 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
 
         self.reference.refresh_from_db()
-        self.assertEqual(self.reference.reference_folder, ["3a"])
+        self.assertEqual(self.reference.unlinked_reference_folder, ["3a"])
+        self.assertEqual(self.reference.category_values, ["3a"])
         self.assertContains(response, "Reference classification updated.")
 
     def test_excluding_reference_requires_reason_on_summary_page(self):
@@ -8420,7 +8544,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
         self.assertContains(
             response,
-            "changing them here updates the shared reference record and linked synopsis copies",
+            "changing them here updates the shared reference record and is reflected everywhere it is linked",
         )
 
     def test_board_context_workload_counts_are_aggregated_correctly(self):
@@ -8567,12 +8691,12 @@ class GlobalReferenceLibraryAccessTests(TestCase):
 
         self.assertContains(dashboard_response, "Deployed version")
         self.assertContains(dashboard_response, "pilot-2026-03-29")
-        self.assertContains(dashboard_response, "Open Reference Database")
-        self.assertContains(dashboard_response, "Reference Database")
+        self.assertContains(dashboard_response, "Open Shared Reference Library")
+        self.assertContains(dashboard_response, "Shared Reference Library")
         self.assertNotContains(dashboard_response, "How this works for authors")
         self.assertContains(dashboard_response, "Coral Project")
         self.assertContains(dashboard_response, "Unassigned Project")
-        self.assertContains(project_response, "Browse Reference Database")
+        self.assertContains(project_response, "Browse Shared Reference Library")
         self.assertContains(
             project_response,
             reverse("synopsis:reference_library") + f"?project={self.project.id}",
@@ -8697,8 +8821,8 @@ class ExternalAuthorAccessTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Assigned Synopsis")
         self.assertNotContains(response, "Hidden Synopsis")
-        self.assertNotContains(response, "Open Reference Database")
-        self.assertNotContains(response, "Reference Database")
+        self.assertNotContains(response, "Open Shared Reference Library")
+        self.assertNotContains(response, "Shared Reference Library")
         self.assertNotContains(response, "Create New Synopsis")
 
     def test_external_author_cannot_create_synopsis_or_open_reference_library(self):
@@ -8726,7 +8850,7 @@ class ExternalAuthorAccessTests(TestCase):
         )
 
         self.assertEqual(assigned_response.status_code, 200)
-        self.assertNotContains(assigned_response, "Browse Reference Database")
+        self.assertNotContains(assigned_response, "Browse Shared Reference Library")
         self.assertNotContains(assigned_response, "Project settings")
         self.assertNotContains(assigned_response, "Manage phase tracker")
         self.assertNotContains(assigned_response, "Move to ")

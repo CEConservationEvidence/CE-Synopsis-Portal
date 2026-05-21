@@ -103,7 +103,7 @@
                     <label class="form-label">Override shared CE subject categories before linking</label>
                     <select name="reference_folder" class="form-select" multiple style="height: 160px;">
                         {% for val,label in folder_choices %}
-                        {% if val in reference.reference_folder %}
+                        {% if val in reference.category_values %}
                         <option value="{{ val }}" selected>{{ label }}</option>
                         {% else %}
                         <option value="{{ val }}">{{ label }}</option>
