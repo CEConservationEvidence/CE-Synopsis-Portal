@@ -115,15 +115,15 @@
         >
             <div class="summary-editor-presence-line">
                 <span class="fw-semibold small text-uppercase">Active author</span>
-                <span id="summary-editor-presence-text">
+                <span id="summary-editor-presence-text" class="fw-semibold">
                 {% if summary_editor_presence.has_other_participants and summary_editor_presence.current_user_active %}
-                <strong>You + {{ summary_editor_presence.other_participants|join:", " }}</strong>
+                You + {{ summary_editor_presence.other_participants|join:", " }}
                 {% elif summary_editor_presence.has_other_participants %}
-                <strong>{{ summary_editor_presence.other_participants|join:", " }}</strong>
+                {{ summary_editor_presence.other_participants|join:", " }}
                 {% elif summary_editor_presence.current_user_active %}
-                <strong>You</strong>
+                You
                 {% else %}
-                <strong>None</strong>
+                None
                 {% endif %}
                 </span>
             </div>
