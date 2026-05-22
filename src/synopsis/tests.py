@@ -123,6 +123,7 @@ from .views import (
     _reference_export_citation,
     _reference_summary_paragraph,
     _structured_summary_paragraph,
+    _project_reference_summary_ids,
 )
 
 # TODO: #25 Split this test module into smaller files once the current workflow areas stop moving around so it stays easier to navigate.
@@ -8135,6 +8136,28 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_creating_summary_tab_invalidates_board_presence_summary_id_cache(self):
+        self.client.login(username="author", password="pass123")
+        initial_ids = _project_reference_summary_ids(self.project.id)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {"action": "create-summary-tab"},
+            follow=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        new_summary = (
+            ReferenceSummary.objects.filter(project=self.project, reference=self.reference)
+            .exclude(pk=self.summary.id)
+            .get()
+        )
+        self.assertNotIn(new_summary.id, initial_ids)
+        self.assertIn(new_summary.id, _project_reference_summary_ids(self.project.id))
 
     def test_save_summary_persists_changes(self):
         self.client.login(username="author", password="pass123")

@@ -8253,6 +8253,7 @@ def _ensure_reference_summaries(project, references):
             "reference_id", flat=True
         )
     )
+    created_any = False
     with transaction.atomic():
         for ref in references:
             if ref.id not in existing_ref_ids:
@@ -8263,6 +8264,9 @@ def _ensure_reference_summaries(project, references):
                 )
                 _sync_reference_summary_identifiers_for_reference(ref, save=True)
                 existing_ref_ids.add(ref.id)
+                created_any = True
+    if created_any:
+        _invalidate_project_reference_summary_ids_cache(project.id)
     return existing_ref_ids
 
 
@@ -8604,6 +8608,7 @@ def _clone_reference_summary(source_summary, user=None):
     synced = _sync_reference_summary_identifiers_for_reference(
         source_summary.reference, save=True
     )
+    _invalidate_project_reference_summary_ids_cache(source_summary.project_id)
     return next((item for item in synced if item.id == new_summary.id), new_summary)
 
 
@@ -8662,6 +8667,7 @@ def _duplicate_reference_summary(source_summary, user=None):
     synced = _sync_reference_summary_identifiers_for_reference(
         source_summary.reference, save=True
     )
+    _invalidate_project_reference_summary_ids_cache(source_summary.project_id)
     return next((item for item in synced if item.id == new_summary.id), new_summary)
 
 
@@ -9039,10 +9045,36 @@ def _auto_promote_summary_from_todo(summary: ReferenceSummary, previous_status: 
 
 
 SUMMARY_EDITOR_PRESENCE_TTL_SECONDS = 45
+SUMMARY_BOARD_PRESENCE_SUMMARY_IDS_TTL_SECONDS = 60
 
 
 def _summary_editor_presence_cache_key(summary_id: int, user_id: int | str) -> str:
     return f"summary-editor-presence:{summary_id}:user:{user_id}"
+
+
+def _project_reference_summary_ids_cache_key(project_id: int) -> str:
+    return f"reference_summary_board_presence:project:{project_id}:summary_ids"
+
+
+def _invalidate_project_reference_summary_ids_cache(project_id: int) -> None:
+    cache.delete(_project_reference_summary_ids_cache_key(project_id))
+
+
+def _project_reference_summary_ids(project_id: int) -> list[int]:
+    cache_key = _project_reference_summary_ids_cache_key(project_id)
+    summary_ids = cache.get(cache_key)
+    if summary_ids is None:
+        summary_ids = list(
+            ReferenceSummary.objects.filter(project_id=project_id).values_list(
+                "id", flat=True
+            )
+        )
+        cache.set(
+            cache_key,
+            summary_ids,
+            SUMMARY_BOARD_PRESENCE_SUMMARY_IDS_TTL_SECONDS,
+        )
+    return summary_ids
 
 
 def _summary_editor_presence_candidate_user_ids(project: Project) -> list[int]:
@@ -9594,6 +9626,7 @@ def reference_summary_detail(request, project_id, summary_id):
                         id__in=affected_intervention_ids
                     ):
                         _resequence_assignment_positions(intervention)
+            _invalidate_project_reference_summary_ids_cache(project.id)
             _sync_reference_summary_identifiers_for_reference(next_summary.reference, save=True)
             messages.success(request, "Summary tab deleted.")
             return redirect(
@@ -10007,10 +10040,7 @@ def reference_summary_board_presence(request, project_id):
     if not _user_can_edit_project(request.user, project):
         return JsonResponse({"detail": "Forbidden"}, status=403)
 
-    summary_ids = list(
-        ReferenceSummary.objects.filter(project=project)
-        .values_list("id", flat=True)
-    )
+    summary_ids = _project_reference_summary_ids(project.id)
     names_by_summary = _summary_editor_names_by_summary(project, summary_ids)
     return JsonResponse(
         {
