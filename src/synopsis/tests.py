@@ -11,6 +11,7 @@ from django.conf import settings
 import jwt
 from django.contrib.auth.models import Group, User, AnonymousUser
 from django.core import mail
+from django.core.cache import cache
 from django.core.mail import EmailMessage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings, RequestFactory, SimpleTestCase
@@ -514,6 +515,10 @@ class EmailSubjectFormattingTests(TestCase):
             "href='https://files.example.com/doc?version=1&amp;lang=&#x27;en&#x27;'",
             html_body,
         )
+        self.assertIn("Privacy notice:", text)
+        self.assertIn("Lawful basis:", text)
+        self.assertIn("ICO:", text)
+        self.assertIn("<strong>Privacy notice</strong>", html_body)
 
 
 class AdvisoryBoardMemberFormTests(TestCase):
@@ -2316,6 +2321,12 @@ class MemberReminderUpdateTests(TestCase):
             email=member.email,
             feedback_deadline_at=member.feedback_on_synopsis_deadline,
         )
+        get_response = self.client.get(
+            reverse("synopsis:synopsis_feedback", args=[str(feedback.token)])
+        )
+        self.assertEqual(get_response.status_code, 200)
+        self.assertContains(get_response, "How your information is used")
+        self.assertContains(get_response, "authorised project authors and managers")
         uploaded_doc = SimpleUploadedFile(
             "synopsis-comments.pdf",
             b"annotated synopsis",
@@ -2955,6 +2966,8 @@ class AdvisoryInviteFlowTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assert_public_nav_actions_hidden(response)
+        self.assertContains(response, "How your information is used")
+        self.assertContains(response, "authorised project authors and managers")
 
         response = self.client.get(
             reverse(
@@ -2964,6 +2977,8 @@ class AdvisoryInviteFlowTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assert_public_nav_actions_hidden(response)
+        self.assertContains(response, "How your information is used")
+        self.assertContains(response, "authorised project authors and managers")
 
     def test_legacy_accept_link_redirects_to_participation_confirmation(self):
         self.client.logout()
@@ -3032,6 +3047,8 @@ class AdvisoryInviteFlowTests(TestCase):
             response,
             "you will see a separate thank-you page confirming that your response has been recorded",
         )
+        self.assertContains(response, "How your information is used")
+        self.assertContains(response, "Lawful basis used by Conservation Evidence")
 
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_single_invite_sets_due_date_and_resets_flags(self, mock_email):
@@ -7955,6 +7972,7 @@ class ReferenceSummaryFormTests(TestCase):
 
 class ReferenceSummaryDetailViewTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(username="author", password="pass123")
         self.viewer = User.objects.create_user(username="viewer", password="pass123")
         self.project = Project.objects.create(title="Coral Reefs Synopsis")
@@ -8037,6 +8055,74 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.assertContains(response, "Choose an action already added to the project intervention list.")
         self.assertContains(response, '<option value="Install nest boxes">Install nest boxes</option>', html=False)
+
+    def test_detail_page_warns_when_another_author_is_active_in_summary(self):
+        other_author = User.objects.create_user(
+            username="coauthor",
+            password="pass123",
+            first_name="Co",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+
+        self.client.login(username="coauthor", password="pass123")
+        self.client.get(
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "Active author")
+        self.assertContains(response, "You + Co Author")
+        self.assertContains(response, "Co Author")
+        self.assertContains(
+            response,
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            ),
+            html=False,
+        )
+
+    def test_summary_presence_endpoint_returns_active_participants(self):
+        other_author = User.objects.create_user(
+            username="coauthor",
+            password="pass123",
+            first_name="Co",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+
+        self.client.login(username="coauthor", password="pass123")
+        self.client.get(
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["current_user_active"])
+        self.assertIn("Co Author", payload["other_participants"])
+        self.assertIn("author", payload["participant_names"])
 
     def test_save_summary_persists_changes(self):
         self.client.login(username="author", password="pass123")
@@ -9276,6 +9362,40 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
         self.assertEqual(response.context["unassigned_count"], 0)
         self.assertEqual(response.context["needs_help_count"], 1)
+
+    def test_summary_board_shows_active_editor_badge_for_active_summary(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status"])
+
+        other_author = User.objects.create_user(
+            username="coauthor",
+            password="pass123",
+            first_name="Co",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+
+        self.client.login(username="coauthor", password="pass123")
+        self.client.get(
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse("synopsis:reference_summary_board", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Active now")
+        self.assertContains(response, "Co Author")
+        self.assertContains(
+            response,
+            reverse("synopsis:reference_summary_board_presence", args=[self.project.id]),
+            html=False,
+        )
 
     def test_summary_board_shows_excluded_column_reason_and_progress_ignores_excluded(self):
         self.reference.screening_status = "included"
