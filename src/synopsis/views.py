@@ -2924,6 +2924,54 @@ def dashboard(request):
     )
 
 
+def _project_revision_history_entries(project, *, limit=14):
+    phase_label_map = dict(Project.PHASE_CHOICES)
+    entries = []
+
+    for event in project.phase_events.select_related("confirmed_by").all():
+        phase_label = phase_label_map.get(event.phase, event.phase)
+        entries.append(
+            {
+                "kind": "phase",
+                "kind_label": "Phase",
+                "title": f"Phase confirmed: {phase_label}",
+                "details": (event.note or "").strip(),
+                "timestamp": event.confirmed_at,
+                "actor": event.confirmed_by,
+                "actor_name": (
+                    _user_display(event.confirmed_by) if event.confirmed_by else "system"
+                ),
+                "badge_class": "text-bg-primary",
+            }
+        )
+
+    for change in project.change_log.select_related("changed_by").all():
+        action = (change.action or "").strip() or "Project updated"
+        entries.append(
+            {
+                "kind": "change",
+                "kind_label": "Update",
+                "title": action,
+                "details": (change.details or "").strip(),
+                "timestamp": change.created_at,
+                "actor": change.changed_by,
+                "actor_name": (
+                    _user_display(change.changed_by) if change.changed_by else "system"
+                ),
+                "badge_class": "text-bg-light border text-dark",
+            }
+        )
+
+    entries.sort(
+        key=lambda entry: (
+            entry["timestamp"] or timezone.make_aware(dt.datetime.min),
+            entry["title"],
+        ),
+        reverse=True,
+    )
+    return entries[:limit]
+
+
 class ProjectCreateForm(forms.ModelForm):
     start_date = forms.DateField(
         required=False,
@@ -3272,7 +3320,7 @@ def project_hub(request, project_id):
 
     phase_context = _project_phase_context(project, request.user)
 
-    change_log_entries = project.change_log.select_related("changed_by")[:10]
+    revision_history_entries = _project_revision_history_entries(project)
 
     return render(
         request,
@@ -3287,7 +3335,7 @@ def project_hub(request, project_id):
             "summary_stats": summary_stats,
             "structure_stats": structure_stats,
             "authors": list(project.author_users),
-            "change_log_entries": change_log_entries,
+            "revision_history_entries": revision_history_entries,
             "funders": funders,
             "funder_summary": funder_summary,
             "can_manage_project": _user_is_manager(request.user),
