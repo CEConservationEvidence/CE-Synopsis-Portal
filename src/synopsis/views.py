@@ -9963,6 +9963,9 @@ def reference_summary_detail(request, project_id, summary_id):
 
 @login_required
 def reference_summary_presence(request, project_id, summary_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
     project = get_object_or_404(Project, pk=project_id)
     if not _user_can_edit_project(request.user, project):
         return JsonResponse({"detail": "Forbidden"}, status=403)

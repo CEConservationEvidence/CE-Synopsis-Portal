@@ -8066,7 +8066,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         UserRole.objects.create(user=other_author, project=self.project, role="author")
 
         self.client.login(username="coauthor", password="pass123")
-        self.client.get(
+        self.client.post(
             reverse(
                 "synopsis:reference_summary_presence",
                 args=[self.project.id, self.summary.id],
@@ -8103,7 +8103,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         UserRole.objects.create(user=other_author, project=self.project, role="author")
 
         self.client.login(username="coauthor", password="pass123")
-        self.client.get(
+        self.client.post(
             reverse(
                 "synopsis:reference_summary_presence",
                 args=[self.project.id, self.summary.id],
@@ -8111,7 +8111,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
 
         self.client.login(username="author", password="pass123")
-        response = self.client.get(
+        response = self.client.post(
             reverse(
                 "synopsis:reference_summary_presence",
                 args=[self.project.id, self.summary.id],
@@ -8123,6 +8123,18 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertTrue(payload["current_user_active"])
         self.assertIn("Co Author", payload["other_participants"])
         self.assertIn("author", payload["participant_names"])
+
+    def test_summary_presence_endpoint_rejects_get_requests(self):
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 400)
 
     def test_save_summary_persists_changes(self):
         self.client.login(username="author", password="pass123")
@@ -9376,7 +9388,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         UserRole.objects.create(user=other_author, project=self.project, role="author")
 
         self.client.login(username="coauthor", password="pass123")
-        self.client.get(
+        self.client.post(
             reverse(
                 "synopsis:reference_summary_presence",
                 args=[self.project.id, self.summary.id],

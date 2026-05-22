@@ -1044,6 +1044,17 @@
             return names.join(", ");
         };
 
+        const getCookie = (name) => {
+            const cookieValue = document.cookie
+                .split(";")
+                .map((item) => item.trim())
+                .find((item) => item.startsWith(`${name}=`));
+            if (!cookieValue) {
+                return "";
+            }
+            return decodeURIComponent(cookieValue.split("=", 2)[1] || "");
+        };
+
         const renderSummaryPresence = (payload) => {
             latestPresence = Object.assign(
                 {
@@ -1095,10 +1106,13 @@
             if (!summaryPresenceUrl || document.hidden) {
                 return;
             }
+            const csrftoken = getCookie("csrftoken");
             fetch(summaryPresenceUrl, {
+                method: "POST",
                 headers: {
                     "X-Requested-With": "XMLHttpRequest",
                     "Accept": "application/json",
+                    "X-CSRFToken": csrftoken,
                 },
                 credentials: "same-origin",
             })
