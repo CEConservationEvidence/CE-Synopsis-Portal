@@ -1,6 +1,33 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Synopsis – {{ project.title }}{% endblock %}
 {% block content %}
+<style>
+    .revision-history-list {
+        display: grid;
+        gap: 0.85rem;
+    }
+    .revision-history-item {
+        border: 1px solid #dfe6e2;
+        border-radius: 0.9rem;
+        padding: 0.9rem 1rem;
+        background: #fbfcfb;
+    }
+    .revision-history-meta {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.45rem 0.7rem;
+        margin-bottom: 0.45rem;
+    }
+    .revision-history-title {
+        font-weight: 600;
+        color: #22332a;
+    }
+    .revision-history-details {
+        color: #4f6358;
+        white-space: pre-line;
+    }
+</style>
 <div class="card mb-3">
     <div class="card-body">
         <div class="row g-3 align-items-stretch">
@@ -19,11 +46,6 @@
                 {% else %}
                 <p class="text-muted small mb-1">No milestones confirmed yet.</p>
                 {% endif %}
-                {% with change_log_entries|first as latest_change %}
-                {% if latest_change %}
-                <p class="text-muted small mb-0">Last change: {{ latest_change.action }} ({{ latest_change.created_at|date:"Y-m-d H:i" }})</p>
-                {% endif %}
-                {% endwith %}
             </div>
             <div class="col-lg-6">
                 <div class="d-flex flex-column gap-3">
@@ -312,25 +334,37 @@
 </div>
 <div class="card mt-3 mb-4">
     <div class="card-body">
-        <div class="d-flex align-items-center justify-content-between">
-            <h5 class="mb-0">Recent changes</h5>
-            <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#changesCollapse" aria-expanded="true" aria-controls="changesCollapse">Toggle</button>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <div>
+                <h5 class="mb-1">Revision history</h5>
+                <div class="small text-muted">Recent phase confirmations and synopsis updates in one timeline.</div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge text-bg-light border">{{ revision_history_entries|length }} shown</span>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#changesCollapse" aria-expanded="true" aria-controls="changesCollapse">Toggle</button>
+            </div>
         </div>
         <div class="collapse show mt-3" id="changesCollapse">
             <div style="max-height: 240px; overflow-y: auto;">
-                <ul class="list-unstyled mb-0 small">
-                    {% for entry in change_log_entries %}
-                    <li class="mb-2">
-                        <strong>{{ entry.action }}</strong><br>
-                        <span class="text-muted">{{ entry.created_at|date:"Y-m-d H:i" }} · {% if entry.changed_by %}{{ entry.changed_by.get_full_name|default:entry.changed_by.username }}{% else %}system{% endif %}</span>
+                <div class="revision-history-list">
+                    {% for entry in revision_history_entries %}
+                    <div class="revision-history-item">
+                        <div class="revision-history-meta small text-muted">
+                            <span class="badge {{ entry.badge_class }}">{{ entry.kind_label }}</span>
+                            <span>{{ entry.timestamp|date:"Y-m-d H:i" }}</span>
+                            <span>{{ entry.actor_name }}</span>
+                        </div>
+                        <div class="revision-history-title">{{ entry.title }}</div>
                         {% if entry.details %}
-                        <div>{{ entry.details }}</div>
+                        <div class="revision-history-details small mt-1">{{ entry.details }}</div>
+                        {% else %}
+                        <div class="small text-muted mt-1">No additional note recorded.</div>
                         {% endif %}
-                    </li>
+                    </div>
                     {% empty %}
-                    <li class="text-muted">No changes logged yet.</li>
+                    <div class="text-muted small">No history recorded yet.</div>
                     {% endfor %}
-                </ul>
+                </div>
             </div>
         </div>
     </div>

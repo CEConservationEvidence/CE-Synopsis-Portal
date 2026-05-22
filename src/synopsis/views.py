@@ -151,6 +151,7 @@ from .models import (
 )
 from .presets import PRESETS
 from .utils import (
+    advisory_privacy_settings,
     advisory_member_display_name,
     default_action_list_review_message,
     default_advisory_invitation_message,
@@ -1002,6 +1003,36 @@ def _html_message_blocks(text):
     return "".join(blocks)
 
 
+def _advisory_privacy_email_sections() -> tuple[str, str]:
+    privacy = advisory_privacy_settings()
+    text_lines = [
+        "Privacy notice:",
+        (
+            "We use your contact details, invitation or participation responses, "
+            "comments, uploaded files, and review activity to run this advisory "
+            "workflow for the synopsis."
+        ),
+        f"Shared with: {privacy['shared_with']}.",
+        f"Kept: {privacy['retention_summary']}.",
+        f"Lawful basis: {privacy['lawful_basis']}.",
+        f"ICO: {privacy['ico_url']}",
+    ]
+    html_notice = (
+        "<div style='margin-top:16px;padding-top:12px;border-top:1px solid #d7dee7;'>"
+        "<p><strong>Privacy notice</strong></p>"
+        "<p>We use your contact details, invitation or participation responses, "
+        "comments, uploaded files, and review activity to run this advisory "
+        "workflow for the synopsis.</p>"
+        f"<p><strong>Shared with:</strong> {html_lib.escape(privacy['shared_with'])}<br>"
+        f"<strong>Kept:</strong> {html_lib.escape(privacy['retention_summary'])}<br>"
+        f"<strong>Lawful basis:</strong> {html_lib.escape(privacy['lawful_basis'])}<br>"
+        f"<strong>ICO:</strong> <a href='{html_lib.escape(privacy['ico_url'], quote=True)}'>"
+        f"{html_lib.escape(privacy['ico_url'])}</a></p>"
+        "</div>"
+    )
+    return "\n".join(text_lines), html_notice
+
+
 def _build_advisory_invitation_email(
     *,
     project,
@@ -1045,7 +1076,8 @@ def _build_advisory_invitation_email(
         text_parts.extend(
             [""] + [f"{label}: {url}" for label, url in attachment_lines]
         )
-    text_parts.extend(["", "Thank you."])
+    privacy_text, privacy_html = _advisory_privacy_email_sections()
+    text_parts.extend(["", "Thank you.", "", privacy_text])
 
     html_parts = [
         f"<p>Dear {html.escape(recipient_label)},</p>",
@@ -1074,6 +1106,7 @@ def _build_advisory_invitation_email(
                 f"<a href='{safe_url}'>{html.escape(url)}</a></p>"
             )
     html_parts.append("<p>Thank you.</p>")
+    html_parts.append(privacy_html)
     return "\n".join(text_parts), "".join(html_parts)
 
 
@@ -2891,6 +2924,170 @@ def dashboard(request):
     )
 
 
+def _project_revision_history_entries(project, *, limit=14):
+    phase_label_map = dict(Project.PHASE_CHOICES)
+    entries = []
+
+    for event in project.phase_events.select_related("confirmed_by").all():
+        phase_label = phase_label_map.get(event.phase, event.phase)
+        entries.append(
+            {
+                "kind": "phase",
+                "kind_label": "Phase",
+                "title": f"Phase confirmed: {phase_label}",
+                "details": (event.note or "").strip(),
+                "timestamp": event.confirmed_at,
+                "actor": event.confirmed_by,
+                "actor_name": (
+                    _user_display(event.confirmed_by) if event.confirmed_by else "system"
+                ),
+                "badge_class": "text-bg-primary",
+            }
+        )
+
+    for change in project.change_log.select_related("changed_by").all():
+        entry = _project_revision_history_change_entry(change)
+        entries.append(entry)
+
+    entries.sort(
+        key=lambda entry: (
+            entry["timestamp"] or timezone.make_aware(dt.datetime.min),
+            entry["title"],
+        ),
+        reverse=True,
+    )
+    return entries[:limit]
+
+
+def _project_history_kind(action: str) -> tuple[str, str]:
+    action_lower = (action or "").lower()
+    if "phase" in action_lower:
+        return "Phase", "text-bg-primary"
+    if "protocol" in action_lower:
+        return "Protocol", "text-bg-info text-dark"
+    if "action list" in action_lower:
+        return "Action list", "text-bg-success"
+    if any(
+        keyword in action_lower
+        for keyword in ["advisory", "invite", "feedback", "reminder"]
+    ):
+        return "Advisory board", "text-bg-warning text-dark"
+    if "funder" in action_lower:
+        return "Funding", "text-bg-secondary"
+    if any(keyword in action_lower for keyword in ["reference", "library"]):
+        return "References", "text-bg-light border text-dark"
+    if "summary" in action_lower:
+        return "Summary", "text-bg-light border text-dark"
+    return "Project", "text-bg-light border text-dark"
+
+
+def _normalise_history_title(action: str) -> str:
+    action_lower = (action or "").lower()
+    if action_lower == "protocol updated via collaborative edit":
+        return "Protocol revision saved from collaborative editing"
+    if action_lower == "action list updated via collaborative edit":
+        return "Action list revision saved from collaborative editing"
+    if action_lower == "protocol collaborative session closed":
+        return "Protocol collaborative session ended"
+    if action_lower == "action list collaborative session closed":
+        return "Action list collaborative session ended"
+    mapping = {
+        "Updated project settings": "Synopsis settings updated",
+        "Updated project status": "Synopsis status updated",
+        "Deleted advisory member": "Advisory board member removed",
+    }
+    return mapping.get(action, action)
+
+
+def _history_detail_map(details: str) -> dict[str, str]:
+    parsed = {}
+    for segment in [part.strip() for part in (details or "").split(" | ") if part.strip()]:
+        if ": " not in segment:
+            continue
+        key, value = segment.split(": ", 1)
+        parsed[key.strip()] = value.strip()
+    return parsed
+
+
+def _is_generic_collaborative_reason(reason: str) -> bool:
+    text = (reason or "").strip().lower()
+    return text.startswith("collaborative save via onlyoffice") or text.startswith(
+        "collaborative force save via onlyoffice"
+    )
+
+
+def _friendly_collaborative_save_details(details: str) -> str:
+    parsed = _history_detail_map(details)
+    lines = []
+    users = parsed.get("Users")
+    file_name = parsed.get("File")
+    size = parsed.get("Size")
+    reason = parsed.get("Reason")
+
+    if users:
+        lines.append(f"Contributors: {users}")
+    if file_name:
+        lines.append(f"Saved file: {file_name}")
+    if size and size != "—":
+        lines.append(f"File size: {size}")
+    if reason and not _is_generic_collaborative_reason(reason):
+        lines.append(f"Revision note: {reason}")
+    if not lines:
+        lines.append("A collaborative edit created a new document revision.")
+    return "\n".join(lines)
+
+
+def _friendly_collaborative_close_details(details: str) -> str:
+    text = (details or "").strip()
+    lower = text.lower()
+    if not text:
+        return "Collaborative editing ended."
+    if "no unsaved changes" in lower:
+        match = re.search(r"\((.*?)\)\.?$", text)
+        reason = (match.group(1).strip() if match else "").strip()
+        lines = ["Closed with no unsaved document changes."]
+        if reason and reason.lower() != "session ended from portal":
+            lines.append(f"Closure note: {reason}")
+        return "\n".join(lines)
+    if "status 3" in lower:
+        return "Closed without additional document changes."
+    if "status 4" in lower:
+        return "Closed after the collaborative session timed out."
+    if "status 7" in lower:
+        return "Closed after the editor reported an error."
+    if "marked inactive" in lower:
+        return "Collaborative editing was ended from the portal."
+    return text.replace(" | ", "\n")
+
+
+def _normalise_history_details(action: str, details: str) -> str:
+    action_lower = (action or "").lower()
+    if "updated via collaborative edit" in action_lower:
+        return _friendly_collaborative_save_details(details)
+    if "collaborative session closed" in action_lower:
+        return _friendly_collaborative_close_details(details)
+    return (details or "").replace(" | ", "\n")
+
+
+def _project_revision_history_change_entry(change: ProjectChangeLog) -> dict:
+    action = (change.action or "").strip() or "Project updated"
+    title = _normalise_history_title(action)
+    details = _normalise_history_details(action, (change.details or "").strip())
+    kind_label, badge_class = _project_history_kind(action)
+    return {
+        "kind": "change",
+        "kind_label": kind_label,
+        "title": title,
+        "details": details,
+        "timestamp": change.created_at,
+        "actor": change.changed_by,
+        "actor_name": (
+            _user_display(change.changed_by) if change.changed_by else "system"
+        ),
+        "badge_class": badge_class,
+    }
+
+
 class ProjectCreateForm(forms.ModelForm):
     start_date = forms.DateField(
         required=False,
@@ -3239,7 +3436,7 @@ def project_hub(request, project_id):
 
     phase_context = _project_phase_context(project, request.user)
 
-    change_log_entries = project.change_log.select_related("changed_by")[:10]
+    revision_history_entries = _project_revision_history_entries(project)
 
     return render(
         request,
@@ -3254,7 +3451,7 @@ def project_hub(request, project_id):
             "summary_stats": summary_stats,
             "structure_stats": structure_stats,
             "authors": list(project.author_users),
-            "change_log_entries": change_log_entries,
+            "revision_history_entries": revision_history_entries,
             "funders": funders,
             "funder_summary": funder_summary,
             "can_manage_project": _user_is_manager(request.user),
@@ -8056,6 +8253,7 @@ def _ensure_reference_summaries(project, references):
             "reference_id", flat=True
         )
     )
+    created_any = False
     with transaction.atomic():
         for ref in references:
             if ref.id not in existing_ref_ids:
@@ -8066,6 +8264,9 @@ def _ensure_reference_summaries(project, references):
                 )
                 _sync_reference_summary_identifiers_for_reference(ref, save=True)
                 existing_ref_ids.add(ref.id)
+                created_any = True
+    if created_any:
+        _invalidate_project_reference_summary_ids_cache(project.id)
     return existing_ref_ids
 
 
@@ -8407,6 +8608,7 @@ def _clone_reference_summary(source_summary, user=None):
     synced = _sync_reference_summary_identifiers_for_reference(
         source_summary.reference, save=True
     )
+    _invalidate_project_reference_summary_ids_cache(source_summary.project_id)
     return next((item for item in synced if item.id == new_summary.id), new_summary)
 
 
@@ -8465,6 +8667,7 @@ def _duplicate_reference_summary(source_summary, user=None):
     synced = _sync_reference_summary_identifiers_for_reference(
         source_summary.reference, save=True
     )
+    _invalidate_project_reference_summary_ids_cache(source_summary.project_id)
     return next((item for item in synced if item.id == new_summary.id), new_summary)
 
 
@@ -8841,6 +9044,210 @@ def _auto_promote_summary_from_todo(summary: ReferenceSummary, previous_status: 
     return True
 
 
+SUMMARY_EDITOR_PRESENCE_TTL_SECONDS = 45
+SUMMARY_BOARD_PRESENCE_SUMMARY_IDS_TTL_SECONDS = 60
+
+
+def _summary_editor_presence_cache_key(summary_id: int, user_id: int | str) -> str:
+    return f"summary-editor-presence:{summary_id}:user:{user_id}"
+
+
+def _project_reference_summary_ids_cache_key(project_id: int) -> str:
+    return f"reference_summary_board_presence:project:{project_id}:summary_ids"
+
+
+def _invalidate_project_reference_summary_ids_cache(project_id: int) -> None:
+    cache.delete(_project_reference_summary_ids_cache_key(project_id))
+
+
+def _project_reference_summary_ids(project_id: int) -> list[int]:
+    cache_key = _project_reference_summary_ids_cache_key(project_id)
+    summary_ids = cache.get(cache_key)
+    if summary_ids is None:
+        summary_ids = list(
+            ReferenceSummary.objects.filter(project_id=project_id).values_list(
+                "id", flat=True
+            )
+        )
+        cache.set(
+            cache_key,
+            summary_ids,
+            SUMMARY_BOARD_PRESENCE_SUMMARY_IDS_TTL_SECONDS,
+        )
+    return summary_ids
+
+
+def _summary_editor_presence_candidate_user_ids(project: Project) -> list[int]:
+    return list(
+        User.objects.filter(
+            Q(userrole__project=project, userrole__role="author")
+            | Q(is_staff=True)
+            | Q(groups__name="manager")
+        )
+        .distinct()
+        .values_list("id", flat=True)
+    )
+
+
+def _clean_summary_editor_presence_entry(user_key: str, payload):
+    now_ts = time.time()
+    if not isinstance(payload, dict):
+        return None
+    name = str(payload.get("name") or "").strip()
+    expires_at_raw = payload.get("expires_at")
+    try:
+        expires_at = float(expires_at_raw)
+    except (TypeError, ValueError):
+        return None
+    if not name or expires_at <= now_ts:
+        return None
+    return {
+        "user_id": int(user_key) if user_key.isdigit() else user_key,
+        "name": name,
+        "expires_at": expires_at,
+    }
+
+
+def _load_summary_editor_presence(
+    summary: ReferenceSummary, candidate_user_ids: list[int] | None = None
+) -> dict[str, dict]:
+    candidate_user_ids = candidate_user_ids or _summary_editor_presence_candidate_user_ids(
+        summary.project
+    )
+    if not candidate_user_ids:
+        return {}
+
+    cache_keys = {
+        str(user_id): _summary_editor_presence_cache_key(summary.id, user_id)
+        for user_id in candidate_user_ids
+    }
+    cached_presence = cache.get_many(cache_keys.values())
+    active_presence: dict[str, dict] = {}
+    stale_keys: list[str] = []
+
+    for user_key, cache_key in cache_keys.items():
+        payload = cached_presence.get(cache_key)
+        if payload is None:
+            continue
+        cleaned = _clean_summary_editor_presence_entry(user_key, payload)
+        if cleaned:
+            active_presence[user_key] = cleaned
+        else:
+            stale_keys.append(cache_key)
+
+    if stale_keys:
+        cache.delete_many(stale_keys)
+
+    return active_presence
+
+
+def _serialize_summary_editor_presence(
+    active_presence: dict[str, dict], *, current_user_id: int | None = None
+) -> dict:
+    current_user_key = str(current_user_id) if current_user_id else ""
+    participants = []
+    for user_key, payload in sorted(
+        active_presence.items(),
+        key=lambda item: item[1].get("name", "").lower(),
+    ):
+        participants.append(
+            {
+                "user_id": payload.get("user_id"),
+                "name": payload.get("name", ""),
+                "is_current_user": bool(current_user_key and user_key == current_user_key),
+            }
+        )
+    other_participants = [
+        participant["name"]
+        for participant in participants
+        if not participant["is_current_user"]
+    ]
+    return {
+        "participants": participants,
+        "participant_names": [participant["name"] for participant in participants],
+        "other_participants": other_participants,
+        "has_other_participants": bool(other_participants),
+        "current_user_active": any(
+            participant["is_current_user"] for participant in participants
+        ),
+    }
+
+
+def _touch_summary_editor_presence(
+    summary: ReferenceSummary, user: User, *, ttl_seconds: int = SUMMARY_EDITOR_PRESENCE_TTL_SECONDS
+) -> dict:
+    candidate_user_ids = _summary_editor_presence_candidate_user_ids(summary.project)
+    active_presence = _load_summary_editor_presence(
+        summary, candidate_user_ids=candidate_user_ids
+    )
+    if user and user.is_authenticated:
+        current_presence = {
+            "user_id": user.id,
+            "name": _user_display(user),
+            "expires_at": time.time() + ttl_seconds,
+        }
+        active_presence[str(user.id)] = current_presence
+        cache.set(
+            _summary_editor_presence_cache_key(summary.id, user.id),
+            current_presence,
+            ttl_seconds * 2,
+        )
+    return _serialize_summary_editor_presence(
+        active_presence,
+        current_user_id=user.id if user and user.is_authenticated else None,
+    )
+
+
+def _summary_editor_names_by_summary(
+    project: Project, summary_ids: list[int]
+) -> dict[int, list[str]]:
+    if not summary_ids:
+        return {}
+
+    candidate_user_ids = _summary_editor_presence_candidate_user_ids(project)
+    if not candidate_user_ids:
+        return {}
+
+    cache_keys = {}
+    for summary_id in summary_ids:
+        for user_id in candidate_user_ids:
+            cache_keys[(summary_id, str(user_id))] = _summary_editor_presence_cache_key(
+                summary_id, user_id
+            )
+
+    cached_presence = cache.get_many(cache_keys.values())
+    editor_names_by_summary: dict[int, list[str]] = {}
+    stale_keys: list[str] = []
+    active_presence_by_summary: dict[int, dict[str, dict]] = defaultdict(dict)
+
+    for (summary_id, user_key), cache_key in cache_keys.items():
+        payload = cached_presence.get(cache_key)
+        if payload is None:
+            continue
+        cleaned = _clean_summary_editor_presence_entry(user_key, payload)
+        if cleaned:
+            active_presence_by_summary[summary_id][user_key] = cleaned
+        else:
+            stale_keys.append(cache_key)
+
+    if stale_keys:
+        cache.delete_many(stale_keys)
+
+    for summary_id, active_presence in active_presence_by_summary.items():
+        names = [
+            payload.get("name", "")
+            for _user_key, payload in sorted(
+                active_presence.items(),
+                key=lambda item: item[1].get("name", "").lower(),
+            )
+            if payload.get("name")
+        ]
+        if names:
+            editor_names_by_summary[summary_id] = names
+
+    return editor_names_by_summary
+
+
 @login_required
 def reference_summary_board(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -8995,6 +9402,12 @@ def reference_summary_board(request, project_id):
             item.variant_label = _reference_summary_display_label(item, index)
             item.variant_count = group_size
 
+    active_summary_presence_map = _summary_editor_names_by_summary(
+        project, [item.id for item in summaries]
+    )
+    for item in summaries:
+        item.active_editor_names = active_summary_presence_map.get(item.id, [])
+
     active_summaries = [
         item for item in summaries if item.status != ReferenceSummary.STATUS_EXCLUDED
     ]
@@ -9093,6 +9506,10 @@ def reference_summary_board(request, project_id):
                 ),
             ),
             "needs_help_count": needs_help_count,
+            "reference_summary_board_presence_url": reverse(
+                "synopsis:reference_summary_board_presence",
+                args=[project.id],
+            ),
         },
     )
 
@@ -9115,6 +9532,7 @@ def reference_summary_detail(request, project_id, summary_id):
     )
     summary = next((item for item in synced_summaries if item.id == summary.id), summary)
     generated_summary = _structured_summary_paragraph(summary)
+    summary_editor_presence = _touch_summary_editor_presence(summary, request.user)
 
     active_action = request.POST.get("action") if request.method == "POST" else None
     summary_form = ReferenceSummaryUpdateForm(
@@ -9208,6 +9626,7 @@ def reference_summary_detail(request, project_id, summary_id):
                         id__in=affected_intervention_ids
                     ):
                         _resequence_assignment_positions(intervention)
+            _invalidate_project_reference_summary_ids_cache(project.id)
             _sync_reference_summary_identifiers_for_reference(next_summary.reference, save=True)
             messages.success(request, "Summary tab deleted.")
             return redirect(
@@ -9589,11 +10008,47 @@ def reference_summary_detail(request, project_id, summary_id):
             "all_summary_tabs_excluded": not summary.reference.summaries.exclude(
                 status=ReferenceSummary.STATUS_EXCLUDED
             ).exists(),
+            "summary_editor_presence": summary_editor_presence,
+            "summary_presence_url": reverse(
+                "synopsis:reference_summary_presence",
+                args=[project.id, summary.id],
+            ),
             "open_management_panel": (
                 request.GET.get("panel") == "management"
                 or bool(classification_form.errors)
             ),
         },
+    )
+
+
+@login_required
+def reference_summary_presence(request, project_id, summary_id):
+    if request.method != "POST":
+        return HttpResponseBadRequest("POST required")
+
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        return JsonResponse({"detail": "Forbidden"}, status=403)
+
+    summary = get_object_or_404(ReferenceSummary, pk=summary_id, project=project)
+    return JsonResponse(_touch_summary_editor_presence(summary, request.user))
+
+
+@login_required
+def reference_summary_board_presence(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        return JsonResponse({"detail": "Forbidden"}, status=403)
+
+    summary_ids = _project_reference_summary_ids(project.id)
+    names_by_summary = _summary_editor_names_by_summary(project, summary_ids)
+    return JsonResponse(
+        {
+            "summaries": {
+                str(summary_id): names
+                for summary_id, names in names_by_summary.items()
+            }
+        }
     )
 
 
@@ -12175,6 +12630,8 @@ def advisory_send_protocol_member(request, project_id, member_id):
         )
         if collaborative_url:
             text += f"Collaborative editor: {collaborative_url}\n"
+    privacy_text, privacy_html = _advisory_privacy_email_sections()
+    text += f"\n{privacy_text}\n"
 
     msg = EmailMultiAlternatives(
         subject,
@@ -12194,6 +12651,7 @@ def advisory_send_protocol_member(request, project_id, member_id):
             "<p><strong>Collaborative editor:</strong> "
             f"<a href='{collaborative_url}'>Open live editor</a></p>"
         )
+    html += privacy_html
     msg.attach_alternative(html, "text/html")
     msg.send()
 
@@ -12318,6 +12776,9 @@ def advisory_send_protocol_compose_all(request, project_id):
                             "<p><strong>Collaborative editor:</strong> "
                             f"<a href='{collaborative_url}'>Open live editor</a></p>"
                         )
+                privacy_text, privacy_html = _advisory_privacy_email_sections()
+                text += f"\n{privacy_text}\n"
+                html += privacy_html
 
                 msg = EmailMultiAlternatives(
                     subject,
@@ -12466,6 +12927,9 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
                         "<p><strong>Collaborative editor:</strong> "
                         f"<a href='{collaborative_url}'>Open live editor</a></p>"
                     )
+            privacy_text, privacy_html = _advisory_privacy_email_sections()
+            text += f"\n{privacy_text}\n"
+            html += privacy_html
 
             msg = EmailMultiAlternatives(
                 subject,
@@ -12621,6 +13085,9 @@ def advisory_send_action_list_compose_all(request, project_id):
                             "<p><strong>Collaborative editor:</strong> "
                             f"<a href='{collaborative_url}'>Open live editor</a></p>"
                         )
+                privacy_text, privacy_html = _advisory_privacy_email_sections()
+                text += f"\n{privacy_text}\n"
+                html += privacy_html
 
                 msg = EmailMultiAlternatives(
                     subject,
@@ -12775,6 +13242,9 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
                         "<p><strong>Collaborative editor:</strong> "
                         f"<a href='{collaborative_url}'>Open live editor</a></p>"
                     )
+            privacy_text, privacy_html = _advisory_privacy_email_sections()
+            text += f"\n{privacy_text}\n"
+            html += privacy_html
 
             msg = EmailMultiAlternatives(
                 subject,
@@ -12888,6 +13358,9 @@ def _send_synopsis_review_email(
     else:
         text += "\nPlease send your feedback to the synopsis author team.\n"
         html += "<p>Please send your feedback to the synopsis author team.</p>"
+    privacy_text, privacy_html = _advisory_privacy_email_sections()
+    text += f"\n{privacy_text}\n"
+    html += privacy_html
 
     msg = EmailMultiAlternatives(
         subject,

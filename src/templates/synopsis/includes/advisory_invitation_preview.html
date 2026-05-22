@@ -3,6 +3,10 @@
     data-advisory-invite-preview
     data-project-title="{{ project.title|escape }}"
     data-recipient-name="{{ preview_recipient_name|default:'advisory board member'|escape }}"
+    data-privacy-shared-with="{{ advisory_privacy.shared_with|escape }}"
+    data-privacy-retention="{{ advisory_privacy.retention_summary|escape }}"
+    data-privacy-lawful-basis="{{ advisory_privacy.lawful_basis|escape }}"
+    data-privacy-ico-url="{{ advisory_privacy.ico_url|escape }}"
 >
     <div class="card-body">
         <h5 class="card-title mb-1">Invitation preview</h5>
@@ -71,6 +75,10 @@ document.addEventListener("DOMContentLoaded", function () {
         const collaborativeInput = form.querySelector('[name="include_collaborative_link"]');
         const projectTitle = preview.dataset.projectTitle || "";
         const recipientName = preview.dataset.recipientName || "advisory board member";
+        const privacySharedWith = preview.dataset.privacySharedWith || "";
+        const privacyRetention = preview.dataset.privacyRetention || "";
+        const privacyLawfulBasis = preview.dataset.privacyLawfulBasis || "";
+        const privacyIcoUrl = preview.dataset.privacyIcoUrl || "";
 
         const selectedResources = function () {
             const resources = [];
@@ -119,7 +127,17 @@ document.addEventListener("DOMContentLoaded", function () {
             if (resources.length) {
                 bodyLines.push("", ...resources);
             }
-            bodyLines.push("", "Thank you.");
+            bodyLines.push(
+                "",
+                "Thank you.",
+                "",
+                "Privacy notice:",
+                "Your contact details, responses, comments, uploaded files, and review activity are used to run this advisory workflow.",
+                "Shared with: " + privacySharedWith,
+                "Kept: " + privacyRetention,
+                "Lawful basis: " + privacyLawfulBasis,
+                "ICO: " + privacyIcoUrl
+            );
             bodyEl.textContent = bodyLines.join("\n");
         };
 

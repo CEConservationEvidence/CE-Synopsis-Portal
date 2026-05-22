@@ -11,6 +11,7 @@ from django.conf import settings
 import jwt
 from django.contrib.auth.models import Group, User, AnonymousUser
 from django.core import mail
+from django.core.cache import cache
 from django.core.mail import EmailMessage
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings, RequestFactory, SimpleTestCase
@@ -122,6 +123,7 @@ from .views import (
     _reference_export_citation,
     _reference_summary_paragraph,
     _structured_summary_paragraph,
+    _project_reference_summary_ids,
 )
 
 # TODO: #25 Split this test module into smaller files once the current workflow areas stop moving around so it stays easier to navigate.
@@ -514,6 +516,10 @@ class EmailSubjectFormattingTests(TestCase):
             "href='https://files.example.com/doc?version=1&amp;lang=&#x27;en&#x27;'",
             html_body,
         )
+        self.assertIn("Privacy notice:", text)
+        self.assertIn("Lawful basis:", text)
+        self.assertIn("ICO:", text)
+        self.assertIn("<strong>Privacy notice</strong>", html_body)
 
 
 class AdvisoryBoardMemberFormTests(TestCase):
@@ -2316,6 +2322,12 @@ class MemberReminderUpdateTests(TestCase):
             email=member.email,
             feedback_deadline_at=member.feedback_on_synopsis_deadline,
         )
+        get_response = self.client.get(
+            reverse("synopsis:synopsis_feedback", args=[str(feedback.token)])
+        )
+        self.assertEqual(get_response.status_code, 200)
+        self.assertContains(get_response, "How your information is used")
+        self.assertContains(get_response, "authorised project authors and managers")
         uploaded_doc = SimpleUploadedFile(
             "synopsis-comments.pdf",
             b"annotated synopsis",
@@ -2955,6 +2967,8 @@ class AdvisoryInviteFlowTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assert_public_nav_actions_hidden(response)
+        self.assertContains(response, "How your information is used")
+        self.assertContains(response, "authorised project authors and managers")
 
         response = self.client.get(
             reverse(
@@ -2964,6 +2978,8 @@ class AdvisoryInviteFlowTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assert_public_nav_actions_hidden(response)
+        self.assertContains(response, "How your information is used")
+        self.assertContains(response, "authorised project authors and managers")
 
     def test_legacy_accept_link_redirects_to_participation_confirmation(self):
         self.client.logout()
@@ -3032,6 +3048,8 @@ class AdvisoryInviteFlowTests(TestCase):
             response,
             "you will see a separate thank-you page confirming that your response has been recorded",
         )
+        self.assertContains(response, "How your information is used")
+        self.assertContains(response, "Lawful basis used by Conservation Evidence")
 
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_single_invite_sets_due_date_and_resets_flags(self, mock_email):
@@ -7955,6 +7973,7 @@ class ReferenceSummaryFormTests(TestCase):
 
 class ReferenceSummaryDetailViewTests(TestCase):
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(username="author", password="pass123")
         self.viewer = User.objects.create_user(username="viewer", password="pass123")
         self.project = Project.objects.create(title="Coral Reefs Synopsis")
@@ -8037,6 +8056,108 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.assertContains(response, "Choose an action already added to the project intervention list.")
         self.assertContains(response, '<option value="Install nest boxes">Install nest boxes</option>', html=False)
+
+    def test_detail_page_warns_when_another_author_is_active_in_summary(self):
+        other_author = User.objects.create_user(
+            username="coauthor",
+            password="pass123",
+            first_name="Co",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+
+        self.client.login(username="coauthor", password="pass123")
+        self.client.post(
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "Active author")
+        self.assertContains(response, "You + Co Author")
+        self.assertContains(response, "Co Author")
+        self.assertContains(
+            response,
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            ),
+            html=False,
+        )
+
+    def test_summary_presence_endpoint_returns_active_participants(self):
+        other_author = User.objects.create_user(
+            username="coauthor",
+            password="pass123",
+            first_name="Co",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+
+        self.client.login(username="coauthor", password="pass123")
+        self.client.post(
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertTrue(payload["current_user_active"])
+        self.assertIn("Co Author", payload["other_participants"])
+        self.assertIn("author", payload["participant_names"])
+
+    def test_summary_presence_endpoint_rejects_get_requests(self):
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_creating_summary_tab_invalidates_board_presence_summary_id_cache(self):
+        self.client.login(username="author", password="pass123")
+        initial_ids = _project_reference_summary_ids(self.project.id)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {"action": "create-summary-tab"},
+            follow=False,
+        )
+
+        self.assertEqual(response.status_code, 302)
+        new_summary = (
+            ReferenceSummary.objects.filter(project=self.project, reference=self.reference)
+            .exclude(pk=self.summary.id)
+            .get()
+        )
+        self.assertNotIn(new_summary.id, initial_ids)
+        self.assertIn(new_summary.id, _project_reference_summary_ids(self.project.id))
 
     def test_save_summary_persists_changes(self):
         self.client.login(username="author", password="pass123")
@@ -9277,6 +9398,40 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(response.context["unassigned_count"], 0)
         self.assertEqual(response.context["needs_help_count"], 1)
 
+    def test_summary_board_shows_active_editor_badge_for_active_summary(self):
+        self.reference.screening_status = "included"
+        self.reference.save(update_fields=["screening_status"])
+
+        other_author = User.objects.create_user(
+            username="coauthor",
+            password="pass123",
+            first_name="Co",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+
+        self.client.login(username="coauthor", password="pass123")
+        self.client.post(
+            reverse(
+                "synopsis:reference_summary_presence",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse("synopsis:reference_summary_board", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Active now")
+        self.assertContains(response, "Co Author")
+        self.assertContains(
+            response,
+            reverse("synopsis:reference_summary_board_presence", args=[self.project.id]),
+            html=False,
+        )
+
     def test_summary_board_shows_excluded_column_reason_and_progress_ignores_excluded(self):
         self.reference.screening_status = "included"
         self.reference.save(update_fields=["screening_status"])
@@ -10002,6 +10157,64 @@ class ProjectPhaseUiTests(TestCase):
         self.assertIsNotNone(change)
         self.assertIn("Draft protocol", change.details)
         self.assertIn("Invite advisory board", change.details)
+
+    def test_project_hub_shows_revision_history_timeline(self):
+        self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "invite_advisory_board"],
+            )
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Revision history")
+        self.assertContains(response, "Phase confirmed: Invite advisory board")
+        self.assertContains(response, "Updated project phase")
+        self.assertContains(response, "Draft protocol")
+        self.assertContains(response, "phase-author")
+
+    def test_project_hub_normalises_collaborative_history_entries(self):
+        ProjectChangeLog.objects.create(
+            project=self.project,
+            changed_by=self.author,
+            action="Protocol collaborative session closed",
+            details="Session 123e4567-e89b-12d3-a456-426614174000 closed (status 3).",
+        )
+        ProjectChangeLog.objects.create(
+            project=self.project,
+            changed_by=self.author,
+            action="Protocol updated via collaborative edit",
+            details=(
+                "Session: 123e4567-e89b-12d3-a456-426614174000 | "
+                "Status: 6 | File: protocol-v2.docx | Users: phase-author | "
+                "Size: 24.0 KB | Reason: Updated references section"
+            ),
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response, "Protocol collaborative session ended"
+        )
+        self.assertContains(
+            response, "Closed without additional document changes."
+        )
+        self.assertContains(
+            response, "Protocol revision saved from collaborative editing"
+        )
+        self.assertContains(response, "Saved file: protocol-v2.docx")
+        self.assertContains(response, "Revision note: Updated references section")
+        self.assertNotContains(
+            response, "123e4567-e89b-12d3-a456-426614174000"
+        )
+        self.assertNotContains(response, "status 3")
 
     def test_manager_role_can_update_phase(self):
         manager = User.objects.create_user(username="phase-manager", password="pass123")

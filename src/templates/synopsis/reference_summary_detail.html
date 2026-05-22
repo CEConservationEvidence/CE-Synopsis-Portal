@@ -76,21 +76,59 @@
             grid-template-columns: minmax(0, 1fr);
         }
     }
+    .summary-editor-presence {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem 0.6rem;
+        padding: 0.45rem 0.75rem;
+        margin-bottom: 0;
+    }
+    .summary-editor-presence-line {
+        display: inline-flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.35rem 0.6rem;
+        line-height: 1.35;
+    }
 </style>
 <h1 class="mb-3">Reference summary</h1>
-<div class="d-flex flex-wrap gap-2 mb-4">
-    <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_summary_board' project.id %}">Back to summaries</a>
-    <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_list' project.id %}">Screening overview</a>
-    <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#snapshotModal">Snapshot & comments</button>
-    <button
-        class="btn btn-outline-secondary"
-        type="button"
-        data-bs-toggle="offcanvas"
-        data-bs-target="#referenceManagementPanel"
-        aria-controls="referenceManagementPanel"
-    >
-        Reference management
-    </button>
+<div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-center gap-2 mb-4">
+    <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-outline-secondary" href="{% url 'synopsis:reference_summary_board' project.id %}">Back to summaries</a>
+        <a class="btn btn-outline-primary" href="{% url 'synopsis:reference_batch_list' project.id %}">Screening overview</a>
+        <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#snapshotModal">Snapshot & comments</button>
+        <button
+            class="btn btn-outline-secondary"
+            type="button"
+            data-bs-toggle="offcanvas"
+            data-bs-target="#referenceManagementPanel"
+            aria-controls="referenceManagementPanel"
+        >
+            Reference management
+        </button>
+    </div>
+    <div class="d-flex flex-wrap align-items-center justify-content-xl-end gap-2">
+        <div
+            class="alert {% if summary_editor_presence.has_other_participants %}alert-warning{% else %}alert-info{% endif %} summary-editor-presence"
+            id="summary-editor-presence-alert"
+            {% if summary_editor_presence.has_other_participants %}title="Saving can overwrite another author's latest changes."{% endif %}
+        >
+            <div class="summary-editor-presence-line">
+                <span class="fw-semibold small text-uppercase">Active author</span>
+                <span id="summary-editor-presence-text" class="fw-semibold">
+                {% if summary_editor_presence.has_other_participants and summary_editor_presence.current_user_active %}
+                You + {{ summary_editor_presence.other_participants|join:", " }}
+                {% elif summary_editor_presence.has_other_participants %}
+                {{ summary_editor_presence.other_participants|join:", " }}
+                {% elif summary_editor_presence.current_user_active %}
+                You
+                {% else %}
+                None
+                {% endif %}
+                </span>
+            </div>
+        </div>
+    </div>
 </div>
 <div class="card mb-4">
     <div class="card-body">
@@ -389,7 +427,7 @@
                     </ul>
                 </div>
                 {% endif %}
-                <form method="post" class="d-flex flex-column gap-4">
+                <form method="post" class="d-flex flex-column gap-4" id="summary-save-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-summary">
                     <div>
@@ -669,7 +707,7 @@
                 {% else %}
                     <p class="text-muted small mb-3">Fill in the structured fields above to generate a paragraph automatically, or write a custom summary paragraph here.</p>
                 {% endif %}
-                <form method="post" class="d-flex flex-column gap-3">
+                <form method="post" class="d-flex flex-column gap-3" id="summary-draft-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-synopsis-draft">
                     <div>
@@ -850,6 +888,7 @@
     })();
 </script>
 {% endif %}
+{{ summary_editor_presence|json_script:"summary-editor-presence-data" }}
 <script>
     (() => {
         document.querySelectorAll("[data-tag-picker]").forEach((picker) => {
@@ -982,6 +1021,143 @@
 </script>
 <script>
     (() => {
+        const presenceDataEl = document.getElementById("summary-editor-presence-data");
+        const presenceAlert = document.getElementById("summary-editor-presence-alert");
+        const presenceText = document.getElementById("summary-editor-presence-text");
+        const summaryPresenceUrl = "{{ summary_presence_url }}";
+        const summarySaveForms = [
+            document.getElementById("summary-save-form"),
+            document.getElementById("summary-draft-form"),
+        ].filter(Boolean);
+        let latestPresence = {
+            participants: [],
+            other_participants: [],
+            has_other_participants: false,
+            current_user_active: false,
+        };
+        let summaryPresenceTimer = null;
+
+        const formatNames = (names) => {
+            if (!Array.isArray(names) || !names.length) {
+                return "";
+            }
+            return names.join(", ");
+        };
+
+        const getCookie = (name) => {
+            const cookieValue = document.cookie
+                .split(";")
+                .map((item) => item.trim())
+                .find((item) => item.startsWith(`${name}=`));
+            if (!cookieValue) {
+                return "";
+            }
+            return decodeURIComponent(cookieValue.split("=", 2)[1] || "");
+        };
+
+        const renderSummaryPresence = (payload) => {
+            latestPresence = Object.assign(
+                {
+                    participants: [],
+                    other_participants: [],
+                    has_other_participants: false,
+                    current_user_active: false,
+                },
+                payload || {}
+            );
+            if (!presenceAlert || !presenceText) {
+                return;
+            }
+
+            if (latestPresence.has_other_participants) {
+                presenceAlert.classList.remove("alert-info");
+                presenceAlert.classList.add("alert-warning");
+                if (latestPresence.current_user_active) {
+                    presenceText.textContent = `You + ${formatNames(latestPresence.other_participants)}`;
+                } else {
+                    presenceText.textContent = formatNames(latestPresence.other_participants);
+                }
+                presenceAlert.setAttribute(
+                    "title",
+                    "Saving can overwrite another author's latest changes."
+                );
+                return;
+            }
+
+            presenceAlert.classList.remove("alert-warning");
+            presenceAlert.classList.add("alert-info");
+            if (latestPresence.current_user_active) {
+                presenceText.textContent = "You";
+            } else {
+                presenceText.textContent = "None";
+            }
+            presenceAlert.removeAttribute("title");
+        };
+
+        if (presenceDataEl) {
+            try {
+                renderSummaryPresence(JSON.parse(presenceDataEl.textContent));
+            } catch (error) {
+                renderSummaryPresence(null);
+            }
+        }
+
+        const refreshSummaryPresence = () => {
+            if (!summaryPresenceUrl || document.hidden) {
+                return;
+            }
+            const csrftoken = getCookie("csrftoken");
+            fetch(summaryPresenceUrl, {
+                method: "POST",
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Accept": "application/json",
+                    "X-CSRFToken": csrftoken,
+                },
+                credentials: "same-origin",
+            })
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error(`Summary presence request failed with ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(renderSummaryPresence)
+                .catch(() => {
+                    // Ignore transient presence failures so the form remains usable.
+                });
+        };
+
+        if (summaryPresenceUrl) {
+            summaryPresenceTimer = window.setInterval(refreshSummaryPresence, 15000);
+            document.addEventListener("visibilitychange", () => {
+                if (!document.hidden) {
+                    refreshSummaryPresence();
+                }
+            });
+            window.addEventListener("beforeunload", () => {
+                if (summaryPresenceTimer) {
+                    window.clearInterval(summaryPresenceTimer);
+                    summaryPresenceTimer = null;
+                }
+            });
+        }
+
+        summarySaveForms.forEach((form) => {
+            form.addEventListener("submit", (event) => {
+                if (!latestPresence.has_other_participants) {
+                    return;
+                }
+                const names = formatNames(latestPresence.other_participants);
+                const confirmed = window.confirm(
+                    `Another author is active in this summary right now (${names}). Saving now can overwrite their latest changes. Continue anyway?`
+                );
+                if (!confirmed) {
+                    event.preventDefault();
+                }
+            });
+        });
+
         const managementPanel = document.getElementById("referenceManagementPanel");
         window.cePreservePageState({
             key: "reference-summary-state-{{ project.id }}-{{ summary.id }}",

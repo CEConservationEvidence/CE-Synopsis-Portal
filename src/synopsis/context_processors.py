@@ -1,5 +1,5 @@
 from .models import UserRole
-from .utils import is_external_author_user
+from .utils import advisory_privacy_settings, is_external_author_user
 
 
 ROLE_LABELS = dict(UserRole.ROLE_CHOICES)
@@ -62,4 +62,5 @@ def navigation_roles(request):
         "nav_can_create_project": is_authenticated and not is_external_author,
         "nav_user_display_name": _user_display_name(user),
         "nav_user_role_label": _preferred_role_label(user, request),
+        "advisory_privacy": advisory_privacy_settings(),
     }

@@ -79,6 +79,14 @@
                                 <span class="badge text-bg-warning text-dark ms-2">Needs help</span>
                             {% endif %}
                         </div>
+                        <div
+                            class="small mt-2 {% if not summary.active_editor_names %}d-none{% endif %}"
+                            data-summary-active-wrap
+                            data-summary-id="{{ summary.id }}"
+                        >
+                            <span class="badge text-bg-warning text-dark">Active now</span>
+                            <span class="ms-1 text-muted" data-summary-active-text>{% if summary.active_editor_names %}{{ summary.active_editor_names|join:", " }}{% endif %}</span>
+                        </div>
                         {% if summary.status == 'excluded' and summary.exclusion_reason %}
                         <div class="small mt-2 text-danger">
                             <strong>Reason for excluding:</strong> {{ summary.exclusion_reason|linebreaksbr }}
@@ -346,6 +354,69 @@ document.addEventListener("DOMContentLoaded", function () {
                     const text = Array.from(row.querySelectorAll(".dist-text")).map((el) => el.textContent.toLowerCase()).join(" ");
                     row.style.display = text.includes(q) ? "" : "none";
                 });
+            });
+        }
+
+        const boardPresenceUrl = "{{ reference_summary_board_presence_url }}";
+        const presenceRows = Array.from(document.querySelectorAll("[data-summary-active-wrap]"));
+        let boardPresenceTimer = null;
+
+        const renderBoardPresence = (payload) => {
+            const summaries = payload && payload.summaries ? payload.summaries : {};
+            presenceRows.forEach((row) => {
+                const summaryId = row.getAttribute("data-summary-id");
+                const textTarget = row.querySelector("[data-summary-active-text]");
+                const names = Array.isArray(summaries[summaryId]) ? summaries[summaryId] : [];
+                if (names.length) {
+                    row.classList.remove("d-none");
+                    if (textTarget) {
+                        textTarget.textContent = names.join(", ");
+                    }
+                } else {
+                    row.classList.add("d-none");
+                    if (textTarget) {
+                        textTarget.textContent = "";
+                    }
+                }
+            });
+        };
+
+        const refreshBoardPresence = () => {
+            if (!boardPresenceUrl || document.hidden) {
+                return;
+            }
+            fetch(boardPresenceUrl, {
+                headers: {
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Accept": "application/json",
+                },
+                credentials: "same-origin",
+            })
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error(`Presence request failed with ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(renderBoardPresence)
+                .catch(() => {
+                    // Ignore transient presence failures so the board remains usable.
+                });
+        };
+
+        if (boardPresenceUrl && presenceRows.length) {
+            refreshBoardPresence();
+            boardPresenceTimer = window.setInterval(refreshBoardPresence, 15000);
+            document.addEventListener("visibilitychange", () => {
+                if (!document.hidden) {
+                    refreshBoardPresence();
+                }
+            });
+            window.addEventListener("beforeunload", () => {
+                if (boardPresenceTimer) {
+                    window.clearInterval(boardPresenceTimer);
+                    boardPresenceTimer = null;
+                }
             });
         }
     })();

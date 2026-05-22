@@ -1,9 +1,11 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Add User – Manager{% endblock %}
 {% block content %}
-<div class="row justify-content-center">
-    <div class="col-lg-7">
-        <h1 class="mb-3">Add user</h1>
+<div class="row justify-content-center align-items-start g-4 pb-4">
+    <div class="col-lg-2">
+        <h1 class="mb-0 mt-lg-2">Add user</h1>
+    </div>
+    <div class="col-lg-9">
         <div class="card shadow-sm">
             <div class="card-body">
                 <p class="text-muted mb-4">
@@ -50,7 +52,7 @@
                         </div>
                         <div class="col-12">
                             {{ form.assigned_projects.label_tag }}
-                            {% include "synopsis/includes/assigned_projects_picker.html" with field=form.assigned_projects intro_text="Optional. You can pre-assign synopses here. For external authors, these are the only synopses they will see after signing in." %}
+                            {% include "synopsis/includes/assigned_projects_picker.html" with field=form.assigned_projects intro_text="Optional. You can pre-assign synopses here." %}
                             {% if form.assigned_projects.help_text %}
                             <div class="form-text">{{ form.assigned_projects.help_text }}</div>
                             {% endif %}

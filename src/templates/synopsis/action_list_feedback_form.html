@@ -10,6 +10,7 @@
             Please submit any feedback before {{ deadline|date:"Y-m-d H:i" }}. After this point the link will close automatically.
         </div>
         {% endif %}
+        {% include "synopsis/includes/advisory_privacy_notice.html" with extra_classes="mb-3" %}
         {% if action_list and action_list.document %}
         <div class="mb-3">
             <a class="btn btn-outline-secondary btn-sm" href="{{ action_list.document.url }}" target="_blank">View current action list</a>

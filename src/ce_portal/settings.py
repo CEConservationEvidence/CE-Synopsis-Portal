@@ -306,6 +306,31 @@ SECURE_SSL_REDIRECT = config("SECURE_SSL_REDIRECT", cast=bool, default=False)
 ADVISORY_INVITE_RESPONSE_WINDOW_DAYS = 10
 ADVISORY_DOCUMENT_FEEDBACK_WINDOW_DAYS = 10
 ADVISORY_REMINDER_LEAD_BUSINESS_DAYS = 2
+ADVISORY_PRIVACY = {
+    "controller_name": config(
+        "ADVISORY_PRIVACY_CONTROLLER_NAME",
+        default="Conservation Evidence",
+    ),
+    "lawful_basis": config(
+        "ADVISORY_PRIVACY_LAWFUL_BASIS",
+        default="legitimate interests in running the advisory review workflow",
+    ),
+    "retention_summary": config(
+        "ADVISORY_PRIVACY_RETENTION",
+        default=(
+            "for the duration of the synopsis project and afterwards in line with "
+            "the organisation's records retention policy"
+        ),
+    ),
+    "shared_with": config(
+        "ADVISORY_PRIVACY_SHARED_WITH",
+        default="authorised project authors and managers",
+    ),
+    "ico_url": config(
+        "ADVISORY_PRIVACY_ICO_URL",
+        default="https://ico.org.uk/make-a-complaint/",
+    ),
+}
 
 
 # OnlyOffice Document Server configuration (collaborative editing)
