@@ -304,9 +304,19 @@ urlpatterns = [
         name="reference_summary_board",
     ),
     path(
+        "project/<int:project_id>/references/summaries/presence/",
+        views.reference_summary_board_presence,
+        name="reference_summary_board_presence",
+    ),
+    path(
         "project/<int:project_id>/references/summaries/<int:summary_id>/",
         views.reference_summary_detail,
         name="reference_summary_detail",
+    ),
+    path(
+        "project/<int:project_id>/references/summaries/<int:summary_id>/presence/",
+        views.reference_summary_presence,
+        name="reference_summary_presence",
     ),
     path(
         "project/<int:project_id>/references/<int:reference_id>/document/",
