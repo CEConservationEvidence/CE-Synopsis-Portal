@@ -9041,60 +9041,71 @@ def _auto_promote_summary_from_todo(summary: ReferenceSummary, previous_status: 
 SUMMARY_EDITOR_PRESENCE_TTL_SECONDS = 45
 
 
-def _summary_editor_presence_cache_key(summary_id: int) -> str:
-    return f"summary-editor-presence:{summary_id}"
+def _summary_editor_presence_cache_key(summary_id: int, user_id: int | str) -> str:
+    return f"summary-editor-presence:{summary_id}:user:{user_id}"
 
 
-def _clean_summary_editor_presence(raw_presence) -> tuple[dict[str, dict], bool]:
-    if not isinstance(raw_presence, dict):
-        return {}, False
+def _summary_editor_presence_candidate_user_ids(project: Project) -> list[int]:
+    return list(
+        User.objects.filter(
+            Q(userrole__project=project, userrole__role="author")
+            | Q(is_staff=True)
+            | Q(groups__name="manager")
+        )
+        .distinct()
+        .values_list("id", flat=True)
+    )
 
+
+def _clean_summary_editor_presence_entry(user_key: str, payload):
     now_ts = time.time()
+    if not isinstance(payload, dict):
+        return None
+    name = str(payload.get("name") or "").strip()
+    expires_at_raw = payload.get("expires_at")
+    try:
+        expires_at = float(expires_at_raw)
+    except (TypeError, ValueError):
+        return None
+    if not name or expires_at <= now_ts:
+        return None
+    return {
+        "user_id": int(user_key) if user_key.isdigit() else user_key,
+        "name": name,
+        "expires_at": expires_at,
+    }
+
+
+def _load_summary_editor_presence(
+    summary: ReferenceSummary, candidate_user_ids: list[int] | None = None
+) -> dict[str, dict]:
+    candidate_user_ids = candidate_user_ids or _summary_editor_presence_candidate_user_ids(
+        summary.project
+    )
+    if not candidate_user_ids:
+        return {}
+
+    cache_keys = {
+        str(user_id): _summary_editor_presence_cache_key(summary.id, user_id)
+        for user_id in candidate_user_ids
+    }
+    cached_presence = cache.get_many(cache_keys.values())
     active_presence: dict[str, dict] = {}
-    changed = False
+    stale_keys: list[str] = []
 
-    for user_key, payload in raw_presence.items():
-        if not isinstance(payload, dict):
-            changed = True
+    for user_key, cache_key in cache_keys.items():
+        payload = cached_presence.get(cache_key)
+        if payload is None:
             continue
-        name = str(payload.get("name") or "").strip()
-        expires_at_raw = payload.get("expires_at")
-        try:
-            expires_at = float(expires_at_raw)
-        except (TypeError, ValueError):
-            changed = True
-            continue
-        if not name or expires_at <= now_ts:
-            changed = True
-            continue
-        user_key = str(user_key).strip()
-        if not user_key:
-            changed = True
-            continue
-        active_presence[user_key] = {
-            "user_id": int(user_key) if user_key.isdigit() else user_key,
-            "name": name,
-            "expires_at": expires_at,
-        }
-
-    if len(active_presence) != len(raw_presence):
-        changed = True
-
-    return active_presence, changed
-
-
-def _load_summary_editor_presence(summary_id: int) -> dict[str, dict]:
-    cache_key = _summary_editor_presence_cache_key(summary_id)
-    active_presence, changed = _clean_summary_editor_presence(cache.get(cache_key))
-    if changed:
-        if active_presence:
-            cache.set(
-                cache_key,
-                active_presence,
-                SUMMARY_EDITOR_PRESENCE_TTL_SECONDS * 2,
-            )
+        cleaned = _clean_summary_editor_presence_entry(user_key, payload)
+        if cleaned:
+            active_presence[user_key] = cleaned
         else:
-            cache.delete(cache_key)
+            stale_keys.append(cache_key)
+
+    if stale_keys:
+        cache.delete_many(stale_keys)
+
     return active_presence
 
 
@@ -9133,16 +9144,20 @@ def _serialize_summary_editor_presence(
 def _touch_summary_editor_presence(
     summary: ReferenceSummary, user: User, *, ttl_seconds: int = SUMMARY_EDITOR_PRESENCE_TTL_SECONDS
 ) -> dict:
-    active_presence = _load_summary_editor_presence(summary.id)
+    candidate_user_ids = _summary_editor_presence_candidate_user_ids(summary.project)
+    active_presence = _load_summary_editor_presence(
+        summary, candidate_user_ids=candidate_user_ids
+    )
     if user and user.is_authenticated:
-        active_presence[str(user.id)] = {
+        current_presence = {
             "user_id": user.id,
             "name": _user_display(user),
             "expires_at": time.time() + ttl_seconds,
         }
+        active_presence[str(user.id)] = current_presence
         cache.set(
-            _summary_editor_presence_cache_key(summary.id),
-            active_presence,
+            _summary_editor_presence_cache_key(summary.id, user.id),
+            current_presence,
             ttl_seconds * 2,
         )
     return _serialize_summary_editor_presence(
@@ -9151,30 +9166,42 @@ def _touch_summary_editor_presence(
     )
 
 
-def _summary_editor_names_by_summary(summary_ids: list[int]) -> dict[int, list[str]]:
+def _summary_editor_names_by_summary(
+    project: Project, summary_ids: list[int]
+) -> dict[int, list[str]]:
     if not summary_ids:
         return {}
 
-    cache_keys = {
-        summary_id: _summary_editor_presence_cache_key(summary_id)
-        for summary_id in summary_ids
-    }
+    candidate_user_ids = _summary_editor_presence_candidate_user_ids(project)
+    if not candidate_user_ids:
+        return {}
+
+    cache_keys = {}
+    for summary_id in summary_ids:
+        for user_id in candidate_user_ids:
+            cache_keys[(summary_id, str(user_id))] = _summary_editor_presence_cache_key(
+                summary_id, user_id
+            )
+
     cached_presence = cache.get_many(cache_keys.values())
     editor_names_by_summary: dict[int, list[str]] = {}
+    stale_keys: list[str] = []
+    active_presence_by_summary: dict[int, dict[str, dict]] = defaultdict(dict)
 
-    for summary_id, cache_key in cache_keys.items():
-        active_presence, changed = _clean_summary_editor_presence(
-            cached_presence.get(cache_key)
-        )
-        if changed:
-            if active_presence:
-                cache.set(
-                    cache_key,
-                    active_presence,
-                    SUMMARY_EDITOR_PRESENCE_TTL_SECONDS * 2,
-                )
-            else:
-                cache.delete(cache_key)
+    for (summary_id, user_key), cache_key in cache_keys.items():
+        payload = cached_presence.get(cache_key)
+        if payload is None:
+            continue
+        cleaned = _clean_summary_editor_presence_entry(user_key, payload)
+        if cleaned:
+            active_presence_by_summary[summary_id][user_key] = cleaned
+        else:
+            stale_keys.append(cache_key)
+
+    if stale_keys:
+        cache.delete_many(stale_keys)
+
+    for summary_id, active_presence in active_presence_by_summary.items():
         names = [
             payload.get("name", "")
             for _user_key, payload in sorted(
@@ -9344,7 +9371,7 @@ def reference_summary_board(request, project_id):
             item.variant_count = group_size
 
     active_summary_presence_map = _summary_editor_names_by_summary(
-        [item.id for item in summaries]
+        project, [item.id for item in summaries]
     )
     for item in summaries:
         item.active_editor_names = active_summary_presence_map.get(item.id, [])
@@ -9984,7 +10011,7 @@ def reference_summary_board_presence(request, project_id):
         ReferenceSummary.objects.filter(project=project)
         .values_list("id", flat=True)
     )
-    names_by_summary = _summary_editor_names_by_summary(summary_ids)
+    names_by_summary = _summary_editor_names_by_summary(project, summary_ids)
     return JsonResponse(
         {
             "summaries": {
