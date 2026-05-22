@@ -151,6 +151,7 @@ from .models import (
 )
 from .presets import PRESETS
 from .utils import (
+    advisory_privacy_settings,
     advisory_member_display_name,
     default_action_list_review_message,
     default_advisory_invitation_message,
@@ -1002,6 +1003,36 @@ def _html_message_blocks(text):
     return "".join(blocks)
 
 
+def _advisory_privacy_email_sections() -> tuple[str, str]:
+    privacy = advisory_privacy_settings()
+    text_lines = [
+        "Privacy notice:",
+        (
+            "We use your contact details, invitation or participation responses, "
+            "comments, uploaded files, and review activity to run this advisory "
+            "workflow for the synopsis."
+        ),
+        f"Shared with: {privacy['shared_with']}.",
+        f"Kept: {privacy['retention_summary']}.",
+        f"Lawful basis: {privacy['lawful_basis']}.",
+        f"ICO: {privacy['ico_url']}",
+    ]
+    html_notice = (
+        "<div style='margin-top:16px;padding-top:12px;border-top:1px solid #d7dee7;'>"
+        "<p><strong>Privacy notice</strong></p>"
+        "<p>We use your contact details, invitation or participation responses, "
+        "comments, uploaded files, and review activity to run this advisory "
+        "workflow for the synopsis.</p>"
+        f"<p><strong>Shared with:</strong> {html_lib.escape(privacy['shared_with'])}<br>"
+        f"<strong>Kept:</strong> {html_lib.escape(privacy['retention_summary'])}<br>"
+        f"<strong>Lawful basis:</strong> {html_lib.escape(privacy['lawful_basis'])}<br>"
+        f"<strong>ICO:</strong> <a href='{html_lib.escape(privacy['ico_url'], quote=True)}'>"
+        f"{html_lib.escape(privacy['ico_url'])}</a></p>"
+        "</div>"
+    )
+    return "\n".join(text_lines), html_notice
+
+
 def _build_advisory_invitation_email(
     *,
     project,
@@ -1045,7 +1076,8 @@ def _build_advisory_invitation_email(
         text_parts.extend(
             [""] + [f"{label}: {url}" for label, url in attachment_lines]
         )
-    text_parts.extend(["", "Thank you."])
+    privacy_text, privacy_html = _advisory_privacy_email_sections()
+    text_parts.extend(["", "Thank you.", "", privacy_text])
 
     html_parts = [
         f"<p>Dear {html.escape(recipient_label)},</p>",
@@ -1074,6 +1106,7 @@ def _build_advisory_invitation_email(
                 f"<a href='{safe_url}'>{html.escape(url)}</a></p>"
             )
     html_parts.append("<p>Thank you.</p>")
+    html_parts.append(privacy_html)
     return "\n".join(text_parts), "".join(html_parts)
 
 
@@ -8841,6 +8874,157 @@ def _auto_promote_summary_from_todo(summary: ReferenceSummary, previous_status: 
     return True
 
 
+SUMMARY_EDITOR_PRESENCE_TTL_SECONDS = 45
+
+
+def _summary_editor_presence_cache_key(summary_id: int) -> str:
+    return f"summary-editor-presence:{summary_id}"
+
+
+def _clean_summary_editor_presence(raw_presence) -> tuple[dict[str, dict], bool]:
+    if not isinstance(raw_presence, dict):
+        return {}, False
+
+    now_ts = time.time()
+    active_presence: dict[str, dict] = {}
+    changed = False
+
+    for user_key, payload in raw_presence.items():
+        if not isinstance(payload, dict):
+            changed = True
+            continue
+        name = str(payload.get("name") or "").strip()
+        expires_at_raw = payload.get("expires_at")
+        try:
+            expires_at = float(expires_at_raw)
+        except (TypeError, ValueError):
+            changed = True
+            continue
+        if not name or expires_at <= now_ts:
+            changed = True
+            continue
+        user_key = str(user_key).strip()
+        if not user_key:
+            changed = True
+            continue
+        active_presence[user_key] = {
+            "user_id": int(user_key) if user_key.isdigit() else user_key,
+            "name": name,
+            "expires_at": expires_at,
+        }
+
+    if len(active_presence) != len(raw_presence):
+        changed = True
+
+    return active_presence, changed
+
+
+def _load_summary_editor_presence(summary_id: int) -> dict[str, dict]:
+    cache_key = _summary_editor_presence_cache_key(summary_id)
+    active_presence, changed = _clean_summary_editor_presence(cache.get(cache_key))
+    if changed:
+        if active_presence:
+            cache.set(
+                cache_key,
+                active_presence,
+                SUMMARY_EDITOR_PRESENCE_TTL_SECONDS * 2,
+            )
+        else:
+            cache.delete(cache_key)
+    return active_presence
+
+
+def _serialize_summary_editor_presence(
+    active_presence: dict[str, dict], *, current_user_id: int | None = None
+) -> dict:
+    current_user_key = str(current_user_id) if current_user_id else ""
+    participants = []
+    for user_key, payload in sorted(
+        active_presence.items(),
+        key=lambda item: item[1].get("name", "").lower(),
+    ):
+        participants.append(
+            {
+                "user_id": payload.get("user_id"),
+                "name": payload.get("name", ""),
+                "is_current_user": bool(current_user_key and user_key == current_user_key),
+            }
+        )
+    other_participants = [
+        participant["name"]
+        for participant in participants
+        if not participant["is_current_user"]
+    ]
+    return {
+        "participants": participants,
+        "participant_names": [participant["name"] for participant in participants],
+        "other_participants": other_participants,
+        "has_other_participants": bool(other_participants),
+        "current_user_active": any(
+            participant["is_current_user"] for participant in participants
+        ),
+    }
+
+
+def _touch_summary_editor_presence(
+    summary: ReferenceSummary, user: User, *, ttl_seconds: int = SUMMARY_EDITOR_PRESENCE_TTL_SECONDS
+) -> dict:
+    active_presence = _load_summary_editor_presence(summary.id)
+    if user and user.is_authenticated:
+        active_presence[str(user.id)] = {
+            "user_id": user.id,
+            "name": _user_display(user),
+            "expires_at": time.time() + ttl_seconds,
+        }
+        cache.set(
+            _summary_editor_presence_cache_key(summary.id),
+            active_presence,
+            ttl_seconds * 2,
+        )
+    return _serialize_summary_editor_presence(
+        active_presence,
+        current_user_id=user.id if user and user.is_authenticated else None,
+    )
+
+
+def _summary_editor_names_by_summary(summary_ids: list[int]) -> dict[int, list[str]]:
+    if not summary_ids:
+        return {}
+
+    cache_keys = {
+        summary_id: _summary_editor_presence_cache_key(summary_id)
+        for summary_id in summary_ids
+    }
+    cached_presence = cache.get_many(cache_keys.values())
+    editor_names_by_summary: dict[int, list[str]] = {}
+
+    for summary_id, cache_key in cache_keys.items():
+        active_presence, changed = _clean_summary_editor_presence(
+            cached_presence.get(cache_key)
+        )
+        if changed:
+            if active_presence:
+                cache.set(
+                    cache_key,
+                    active_presence,
+                    SUMMARY_EDITOR_PRESENCE_TTL_SECONDS * 2,
+                )
+            else:
+                cache.delete(cache_key)
+        names = [
+            payload.get("name", "")
+            for _user_key, payload in sorted(
+                active_presence.items(),
+                key=lambda item: item[1].get("name", "").lower(),
+            )
+            if payload.get("name")
+        ]
+        if names:
+            editor_names_by_summary[summary_id] = names
+
+    return editor_names_by_summary
+
+
 @login_required
 def reference_summary_board(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -8995,6 +9179,12 @@ def reference_summary_board(request, project_id):
             item.variant_label = _reference_summary_display_label(item, index)
             item.variant_count = group_size
 
+    active_summary_presence_map = _summary_editor_names_by_summary(
+        [item.id for item in summaries]
+    )
+    for item in summaries:
+        item.active_editor_names = active_summary_presence_map.get(item.id, [])
+
     active_summaries = [
         item for item in summaries if item.status != ReferenceSummary.STATUS_EXCLUDED
     ]
@@ -9093,6 +9283,10 @@ def reference_summary_board(request, project_id):
                 ),
             ),
             "needs_help_count": needs_help_count,
+            "reference_summary_board_presence_url": reverse(
+                "synopsis:reference_summary_board_presence",
+                args=[project.id],
+            ),
         },
     )
 
@@ -9115,6 +9309,7 @@ def reference_summary_detail(request, project_id, summary_id):
     )
     summary = next((item for item in synced_summaries if item.id == summary.id), summary)
     generated_summary = _structured_summary_paragraph(summary)
+    summary_editor_presence = _touch_summary_editor_presence(summary, request.user)
 
     active_action = request.POST.get("action") if request.method == "POST" else None
     summary_form = ReferenceSummaryUpdateForm(
@@ -9589,11 +9784,47 @@ def reference_summary_detail(request, project_id, summary_id):
             "all_summary_tabs_excluded": not summary.reference.summaries.exclude(
                 status=ReferenceSummary.STATUS_EXCLUDED
             ).exists(),
+            "summary_editor_presence": summary_editor_presence,
+            "summary_presence_url": reverse(
+                "synopsis:reference_summary_presence",
+                args=[project.id, summary.id],
+            ),
             "open_management_panel": (
                 request.GET.get("panel") == "management"
                 or bool(classification_form.errors)
             ),
         },
+    )
+
+
+@login_required
+def reference_summary_presence(request, project_id, summary_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        return JsonResponse({"detail": "Forbidden"}, status=403)
+
+    summary = get_object_or_404(ReferenceSummary, pk=summary_id, project=project)
+    return JsonResponse(_touch_summary_editor_presence(summary, request.user))
+
+
+@login_required
+def reference_summary_board_presence(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        return JsonResponse({"detail": "Forbidden"}, status=403)
+
+    summary_ids = list(
+        ReferenceSummary.objects.filter(project=project)
+        .values_list("id", flat=True)
+    )
+    names_by_summary = _summary_editor_names_by_summary(summary_ids)
+    return JsonResponse(
+        {
+            "summaries": {
+                str(summary_id): names
+                for summary_id, names in names_by_summary.items()
+            }
+        }
     )
 
 
@@ -12175,6 +12406,8 @@ def advisory_send_protocol_member(request, project_id, member_id):
         )
         if collaborative_url:
             text += f"Collaborative editor: {collaborative_url}\n"
+    privacy_text, privacy_html = _advisory_privacy_email_sections()
+    text += f"\n{privacy_text}\n"
 
     msg = EmailMultiAlternatives(
         subject,
@@ -12194,6 +12427,7 @@ def advisory_send_protocol_member(request, project_id, member_id):
             "<p><strong>Collaborative editor:</strong> "
             f"<a href='{collaborative_url}'>Open live editor</a></p>"
         )
+    html += privacy_html
     msg.attach_alternative(html, "text/html")
     msg.send()
 
@@ -12318,6 +12552,9 @@ def advisory_send_protocol_compose_all(request, project_id):
                             "<p><strong>Collaborative editor:</strong> "
                             f"<a href='{collaborative_url}'>Open live editor</a></p>"
                         )
+                privacy_text, privacy_html = _advisory_privacy_email_sections()
+                text += f"\n{privacy_text}\n"
+                html += privacy_html
 
                 msg = EmailMultiAlternatives(
                     subject,
@@ -12466,6 +12703,9 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
                         "<p><strong>Collaborative editor:</strong> "
                         f"<a href='{collaborative_url}'>Open live editor</a></p>"
                     )
+            privacy_text, privacy_html = _advisory_privacy_email_sections()
+            text += f"\n{privacy_text}\n"
+            html += privacy_html
 
             msg = EmailMultiAlternatives(
                 subject,
@@ -12621,6 +12861,9 @@ def advisory_send_action_list_compose_all(request, project_id):
                             "<p><strong>Collaborative editor:</strong> "
                             f"<a href='{collaborative_url}'>Open live editor</a></p>"
                         )
+                privacy_text, privacy_html = _advisory_privacy_email_sections()
+                text += f"\n{privacy_text}\n"
+                html += privacy_html
 
                 msg = EmailMultiAlternatives(
                     subject,
@@ -12775,6 +13018,9 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
                         "<p><strong>Collaborative editor:</strong> "
                         f"<a href='{collaborative_url}'>Open live editor</a></p>"
                     )
+            privacy_text, privacy_html = _advisory_privacy_email_sections()
+            text += f"\n{privacy_text}\n"
+            html += privacy_html
 
             msg = EmailMultiAlternatives(
                 subject,
@@ -12888,6 +13134,9 @@ def _send_synopsis_review_email(
     else:
         text += "\nPlease send your feedback to the synopsis author team.\n"
         html += "<p>Please send your feedback to the synopsis author team.</p>"
+    privacy_text, privacy_html = _advisory_privacy_email_sections()
+    text += f"\n{privacy_text}\n"
+    html += privacy_html
 
     msg = EmailMultiAlternatives(
         subject,
