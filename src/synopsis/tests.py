@@ -10123,6 +10123,25 @@ class ProjectPhaseUiTests(TestCase):
         self.assertIn("Draft protocol", change.details)
         self.assertIn("Invite advisory board", change.details)
 
+    def test_project_hub_shows_revision_history_timeline(self):
+        self.client.post(
+            reverse(
+                "synopsis:project_phase_confirm",
+                args=[self.project.id, "invite_advisory_board"],
+            )
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Revision history")
+        self.assertContains(response, "Phase confirmed: Invite advisory board")
+        self.assertContains(response, "Updated project phase")
+        self.assertContains(response, "Draft protocol")
+        self.assertContains(response, "phase-author")
+
     def test_manager_role_can_update_phase(self):
         manager = User.objects.create_user(username="phase-manager", password="pass123")
         UserRole.objects.create(user=manager, project=self.project, role="manager")
