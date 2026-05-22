@@ -91,6 +91,35 @@ def default_synopsis_review_message() -> str:
     return DEFAULT_SYNOPSIS_REVIEW_MESSAGE
 
 
+def advisory_privacy_settings() -> dict[str, str]:
+    privacy = getattr(settings, "ADVISORY_PRIVACY", {}) or {}
+    return {
+        "controller_name": (
+            (privacy.get("controller_name") or "").strip()
+            or "Conservation Evidence"
+        ),
+        "lawful_basis": (
+            (privacy.get("lawful_basis") or "").strip()
+            or "legitimate interests in running the advisory review workflow"
+        ),
+        "retention_summary": (
+            (privacy.get("retention_summary") or "").strip()
+            or (
+                "for the duration of the synopsis project and afterwards in line "
+                "with the organisation's records retention policy"
+            )
+        ),
+        "shared_with": (
+            (privacy.get("shared_with") or "").strip()
+            or "authorised project authors and managers"
+        ),
+        "ico_url": (
+            (privacy.get("ico_url") or "").strip()
+            or "https://ico.org.uk/make-a-complaint/"
+        ),
+    }
+
+
 def advisory_member_display_name(member) -> str:
     if not member:
         return "advisory board member"
