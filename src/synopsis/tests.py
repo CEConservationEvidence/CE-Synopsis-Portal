@@ -10142,6 +10142,45 @@ class ProjectPhaseUiTests(TestCase):
         self.assertContains(response, "Draft protocol")
         self.assertContains(response, "phase-author")
 
+    def test_project_hub_normalises_collaborative_history_entries(self):
+        ProjectChangeLog.objects.create(
+            project=self.project,
+            changed_by=self.author,
+            action="Protocol collaborative session closed",
+            details="Session 123e4567-e89b-12d3-a456-426614174000 closed (status 3).",
+        )
+        ProjectChangeLog.objects.create(
+            project=self.project,
+            changed_by=self.author,
+            action="Protocol updated via collaborative edit",
+            details=(
+                "Session: 123e4567-e89b-12d3-a456-426614174000 | "
+                "Status: 6 | File: protocol-v2.docx | Users: phase-author | "
+                "Size: 24.0 KB | Reason: Updated references section"
+            ),
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response, "Protocol collaborative session ended"
+        )
+        self.assertContains(
+            response, "Closed without additional document changes."
+        )
+        self.assertContains(
+            response, "Protocol revision saved from collaborative editing"
+        )
+        self.assertContains(response, "Saved file: protocol-v2.docx")
+        self.assertContains(response, "Revision note: Updated references section")
+        self.assertNotContains(
+            response, "123e4567-e89b-12d3-a456-426614174000"
+        )
+        self.assertNotContains(response, "status 3")
+
     def test_manager_role_can_update_phase(self):
         manager = User.objects.create_user(username="phase-manager", password="pass123")
         UserRole.objects.create(user=manager, project=self.project, role="manager")

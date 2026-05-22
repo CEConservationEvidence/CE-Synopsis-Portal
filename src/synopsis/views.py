@@ -2946,21 +2946,8 @@ def _project_revision_history_entries(project, *, limit=14):
         )
 
     for change in project.change_log.select_related("changed_by").all():
-        action = (change.action or "").strip() or "Project updated"
-        entries.append(
-            {
-                "kind": "change",
-                "kind_label": "Update",
-                "title": action,
-                "details": (change.details or "").strip(),
-                "timestamp": change.created_at,
-                "actor": change.changed_by,
-                "actor_name": (
-                    _user_display(change.changed_by) if change.changed_by else "system"
-                ),
-                "badge_class": "text-bg-light border text-dark",
-            }
-        )
+        entry = _project_revision_history_change_entry(change)
+        entries.append(entry)
 
     entries.sort(
         key=lambda entry: (
@@ -2970,6 +2957,135 @@ def _project_revision_history_entries(project, *, limit=14):
         reverse=True,
     )
     return entries[:limit]
+
+
+def _project_history_kind(action: str) -> tuple[str, str]:
+    action_lower = (action or "").lower()
+    if "phase" in action_lower:
+        return "Phase", "text-bg-primary"
+    if "protocol" in action_lower:
+        return "Protocol", "text-bg-info text-dark"
+    if "action list" in action_lower:
+        return "Action list", "text-bg-success"
+    if any(
+        keyword in action_lower
+        for keyword in ["advisory", "invite", "feedback", "reminder"]
+    ):
+        return "Advisory board", "text-bg-warning text-dark"
+    if "funder" in action_lower:
+        return "Funding", "text-bg-secondary"
+    if any(keyword in action_lower for keyword in ["reference", "library"]):
+        return "References", "text-bg-light border text-dark"
+    if "summary" in action_lower:
+        return "Summary", "text-bg-light border text-dark"
+    return "Project", "text-bg-light border text-dark"
+
+
+def _normalise_history_title(action: str) -> str:
+    action_lower = (action or "").lower()
+    if action_lower == "protocol updated via collaborative edit":
+        return "Protocol revision saved from collaborative editing"
+    if action_lower == "action list updated via collaborative edit":
+        return "Action list revision saved from collaborative editing"
+    if action_lower == "protocol collaborative session closed":
+        return "Protocol collaborative session ended"
+    if action_lower == "action list collaborative session closed":
+        return "Action list collaborative session ended"
+    mapping = {
+        "Updated project settings": "Synopsis settings updated",
+        "Updated project status": "Synopsis status updated",
+        "Deleted advisory member": "Advisory board member removed",
+    }
+    return mapping.get(action, action)
+
+
+def _history_detail_map(details: str) -> dict[str, str]:
+    parsed = {}
+    for segment in [part.strip() for part in (details or "").split(" | ") if part.strip()]:
+        if ": " not in segment:
+            continue
+        key, value = segment.split(": ", 1)
+        parsed[key.strip()] = value.strip()
+    return parsed
+
+
+def _is_generic_collaborative_reason(reason: str) -> bool:
+    text = (reason or "").strip().lower()
+    return text.startswith("collaborative save via onlyoffice") or text.startswith(
+        "collaborative force save via onlyoffice"
+    )
+
+
+def _friendly_collaborative_save_details(details: str) -> str:
+    parsed = _history_detail_map(details)
+    lines = []
+    users = parsed.get("Users")
+    file_name = parsed.get("File")
+    size = parsed.get("Size")
+    reason = parsed.get("Reason")
+
+    if users:
+        lines.append(f"Contributors: {users}")
+    if file_name:
+        lines.append(f"Saved file: {file_name}")
+    if size and size != "—":
+        lines.append(f"File size: {size}")
+    if reason and not _is_generic_collaborative_reason(reason):
+        lines.append(f"Revision note: {reason}")
+    if not lines:
+        lines.append("A collaborative edit created a new document revision.")
+    return "\n".join(lines)
+
+
+def _friendly_collaborative_close_details(details: str) -> str:
+    text = (details or "").strip()
+    lower = text.lower()
+    if not text:
+        return "Collaborative editing ended."
+    if "no unsaved changes" in lower:
+        match = re.search(r"\((.*?)\)\.?$", text)
+        reason = (match.group(1).strip() if match else "").strip()
+        lines = ["Closed with no unsaved document changes."]
+        if reason and reason.lower() != "session ended from portal":
+            lines.append(f"Closure note: {reason}")
+        return "\n".join(lines)
+    if "status 3" in lower:
+        return "Closed without additional document changes."
+    if "status 4" in lower:
+        return "Closed after the collaborative session timed out."
+    if "status 7" in lower:
+        return "Closed after the editor reported an error."
+    if "marked inactive" in lower:
+        return "Collaborative editing was ended from the portal."
+    return text.replace(" | ", "\n")
+
+
+def _normalise_history_details(action: str, details: str) -> str:
+    action_lower = (action or "").lower()
+    if "updated via collaborative edit" in action_lower:
+        return _friendly_collaborative_save_details(details)
+    if "collaborative session closed" in action_lower:
+        return _friendly_collaborative_close_details(details)
+    return (details or "").replace(" | ", "\n")
+
+
+def _project_revision_history_change_entry(change: ProjectChangeLog) -> dict:
+    action = (change.action or "").strip() or "Project updated"
+    title = _normalise_history_title(action)
+    details = _normalise_history_details(action, (change.details or "").strip())
+    kind_label, badge_class = _project_history_kind(action)
+    return {
+        "kind": "change",
+        "kind_label": kind_label,
+        "title": title,
+        "details": details,
+        "timestamp": change.created_at,
+        "actor": change.changed_by,
+        "actor_name": (
+            _user_display(change.changed_by) if change.changed_by else "system"
+        ),
+        "badge_class": badge_class,
+    }
 
 
 class ProjectCreateForm(forms.ModelForm):

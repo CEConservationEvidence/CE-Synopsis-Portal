@@ -46,11 +46,6 @@
                 {% else %}
                 <p class="text-muted small mb-1">No milestones confirmed yet.</p>
                 {% endif %}
-                {% with revision_history_entries|first as latest_change %}
-                {% if latest_change %}
-                <p class="text-muted small mb-0">Latest history entry: {{ latest_change.title }} ({{ latest_change.timestamp|date:"Y-m-d H:i" }})</p>
-                {% endif %}
-                {% endwith %}
             </div>
             <div class="col-lg-6">
                 <div class="d-flex flex-column gap-3">
