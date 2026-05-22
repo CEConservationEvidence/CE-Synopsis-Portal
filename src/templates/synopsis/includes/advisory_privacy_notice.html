@@ -1,0 +1,23 @@
+<div class="alert alert-light border small {% if extra_classes %}{{ extra_classes }}{% endif %}" role="note">
+    <div class="fw-semibold mb-2">{{ title|default:"How your information is used" }}</div>
+    {% if compact %}
+    <p class="mb-2">
+        We use advisory board contact details, invitation responses, comments, uploaded files, and review activity to run this synopsis review workflow.
+    </p>
+    <p class="mb-2">
+        This information may be visible to {{ advisory_privacy.shared_with }}, is kept {{ advisory_privacy.retention_summary }}, and is handled on the basis of {{ advisory_privacy.lawful_basis }}.
+    </p>
+    <p class="mb-0">
+        You can complain to the <a href="{{ advisory_privacy.ico_url }}" target="_blank" rel="noopener">ICO</a>.
+    </p>
+    {% else %}
+    <ul class="mb-0 ps-3">
+        <li>We store advisory board contact details, invitation responses, participation notes, comments, uploaded files, and review activity connected to this synopsis.</li>
+        <li>We use this information to contact you, manage deadlines and reminders, collect feedback, review comments, and keep an audit trail of the advisory process.</li>
+        <li>Your information may be visible to {{ advisory_privacy.shared_with }} working on this synopsis.</li>
+        <li>We keep this information {{ advisory_privacy.retention_summary }}.</li>
+        <li>Lawful basis used by {{ advisory_privacy.controller_name }}: {{ advisory_privacy.lawful_basis }}.</li>
+        <li>You can complain to the <a href="{{ advisory_privacy.ico_url }}" target="_blank" rel="noopener">ICO</a>.</li>
+    </ul>
+    {% endif %}
+</div>

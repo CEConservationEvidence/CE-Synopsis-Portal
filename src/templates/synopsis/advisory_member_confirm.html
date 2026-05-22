@@ -5,6 +5,7 @@
 <div class="card">
     <div class="card-body">
         <p class="text-muted">Review the details below before adding the member to the advisory board.</p>
+        {% include "synopsis/includes/advisory_privacy_notice.html" with title="Stored with this advisory board record" compact=1 extra_classes="mb-3" %}
         <dl class="row mb-0">
             <dt class="col-sm-3">Title</dt>
             <dd class="col-sm-9">{{ cleaned_data.title|default:"—" }}</dd>

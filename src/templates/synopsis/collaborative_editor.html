@@ -303,6 +303,7 @@
                     </ul>
                 </div>
             </details>
+            {% include "synopsis/includes/advisory_privacy_notice.html" with title="How your review information is used" compact=1 extra_classes="mt-3 mb-0" %}
             {% elif can_force_end and detail_url %}
             <div class="small text-muted mt-3">
                 To save and close the shared session for everyone, return to the {{ document_label|lower }} detail page.

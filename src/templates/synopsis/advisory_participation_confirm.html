@@ -17,6 +17,7 @@
                 <p class="text-muted small">
                     After you submit this form, you will see a separate thank-you page confirming that your response has been recorded.
                 </p>
+                {% include "synopsis/includes/advisory_privacy_notice.html" with extra_classes="mb-3" %}
                 <form method="post">
                     {% csrf_token %}
                     <div class="form-check mb-3">

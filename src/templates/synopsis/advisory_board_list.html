@@ -228,15 +228,6 @@
     >
         Custom columns
     </button>
-    <button
-        type="button"
-        class="btn btn-primary"
-        data-bs-toggle="modal"
-        data-bs-target="#addMemberModal"
-        title="Add a new advisory board member"
-    >
-        Add member
-    </button>
 </div>
 
 <div class="modal fade" id="addMemberModal" tabindex="-1" aria-labelledby="addMemberModalLabel" aria-hidden="true">
@@ -320,13 +311,21 @@
 <div class="card mb-4">
     <div class="card-body">
         <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start gap-3">
-            <div>
+            <div class="d-flex flex-wrap align-items-baseline gap-2">
                 <h4 class="mb-0">Advisory Board Members</h4>
+                <span class="badge text-bg-light text-dark-emphasis fs-6">{{ total_member_count }}</span>
                 <p class="text-muted mb-0">Invited, pending and declined members listed here.</p>
             </div>
-            <div class="text-lg-end">
-                <div class="small text-muted">Total Members</div>
-                <span class="badge text-bg-light text-dark-emphasis fs-6">{{ total_member_count }}</span>
+            <div class="d-flex flex-column align-items-lg-end gap-2 w-100 w-lg-auto">
+                <button
+                    type="button"
+                    class="btn btn-primary align-self-lg-end"
+                    data-bs-toggle="modal"
+                    data-bs-target="#addMemberModal"
+                    title="Add a new advisory board member"
+                >
+                    Add member
+                </button>
             </div>
         </div>
         {% if total_member_count %}

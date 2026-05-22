@@ -10,6 +10,7 @@
             Please submit any feedback before {{ deadline|date:"Y-m-d H:i" }}. After this point the link will close automatically.
         </div>
         {% endif %}
+        {% include "synopsis/includes/advisory_privacy_notice.html" with extra_classes="mb-3" %}
         <form method="post" enctype="multipart/form-data">
             {% csrf_token %}
             <div class="mb-3">
