@@ -1642,6 +1642,7 @@ class ReferenceSummary(models.Model):
     summary_text = models.TextField(blank=True)
     key_findings = models.TextField(blank=True)
     synopsis_draft = models.TextField(blank=True)
+    use_custom_synopsis_draft = models.BooleanField(default=False)
     exclusion_reason = models.TextField(blank=True)
     summary_author = models.CharField(max_length=255, blank=True)
     broad_category = models.CharField(max_length=255, blank=True)
