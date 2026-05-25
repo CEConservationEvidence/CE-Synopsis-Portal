@@ -475,8 +475,9 @@
             <div class="card-header">Summary details</div>
             <div class="card-body">
                 <div class="alert small summary-optional-note mb-3">
-                    <div class="fw-semibold mb-1">All fields below are optional.</div>
-                    <div>Use only the boxes that help you write or classify this summary. Editing the paragraph below does not update these boxes automatically.</div>
+                    <div class="fw-semibold mb-1">These fields do different jobs.</div>
+                    <div><strong>Usually expected</strong> fields help the team compile and organise summaries consistently. <strong>Classification</strong> fields support filtering and later synthesis. <strong>Writing aid</strong> fields are optional helpers. <strong>Internal</strong> fields are kept separately from the generated paragraph.</div>
+                    <div class="mt-1">The final compiled text always comes from the summary paragraph below. Editing that paragraph does not update these boxes automatically.</div>
                 </div>
                 {% if summary.use_custom_synopsis_draft %}
                 <div class="alert alert-warning small mb-3">
@@ -522,7 +523,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Study overview <span class="badge text-bg-light border">Optional</span></div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Study overview <span class="badge text-bg-light border">Usually expected</span></div>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Action</label>
@@ -556,7 +557,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Habitat & geography <span class="badge text-bg-light border">Optional</span></div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Habitat & geography <span class="badge text-bg-light border">Usually expected</span></div>
                         <div class="row g-3">
                             <div class="col-12">
                                 <label class="form-label">Habitat and number of sites</label>
@@ -573,7 +574,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Findings & methods <span class="badge text-bg-light border">Optional</span></div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Findings & methods <span class="badge text-bg-light border">Writing aid</span></div>
                         <div class="mb-3">
                             <label class="form-label">Main findings summary</label>
                             {{ summary_form.summary_of_results }}
@@ -606,14 +607,15 @@
                         </details>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Costs <span class="badge text-bg-light border">Optional</span></div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Costs <span class="badge text-bg-light border">Writing aid</span></div>
                         <div class="mb-0">
                             <label class="form-label">Costs</label>
                             {{ summary_form.cost_summary }}
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Tags <span class="badge text-bg-light border">Optional</span></div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Tags <span class="badge text-bg-light border">Classification</span></div>
+                        <div class="small text-muted mb-2">Use these tags to organise, filter and group summaries across the synopsis.</div>
                         <div class="row g-3">
                             <div class="col-12">
                                 <div class="tag-picker" data-tag-picker>
@@ -694,7 +696,8 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">CE metadata <span class="badge text-bg-light border">Optional</span></div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">CE metadata <span class="badge text-bg-light border">Classification</span></div>
+                        <div class="small text-muted mb-2">These fields support CE consistency, filtering and later synthesis work.</div>
                         <div class="row g-3">
                             <div class="col-12">
                                 <div class="tag-picker" data-tag-picker data-tag-max-selected="4">
@@ -743,7 +746,8 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Quality scores <span class="badge text-bg-light border">Optional</span></div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Quality scores <span class="badge text-bg-light border">Internal</span></div>
+                        <div class="small text-muted mb-2">Stored separately for internal use. These scores are not inserted into the generated summary paragraph.</div>
                         <div class="row g-3">
                             <div class="col-md-3">
                                 <label class="form-label">Benefits (0-100)</label>
