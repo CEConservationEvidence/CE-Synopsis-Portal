@@ -436,6 +436,12 @@
                     <div class="fw-semibold mb-1">All fields below are optional.</div>
                     <div>Use only the boxes that help you write or classify this summary. Editing the paragraph below does not update these boxes automatically.</div>
                 </div>
+                {% if summary.use_custom_synopsis_draft %}
+                <div class="alert alert-warning small mb-3">
+                    <div class="fw-semibold mb-1">Custom paragraph mode is active.</div>
+                    <div>The summary paragraph is currently the source of truth for compilation and export. You do not need to keep the helper boxes below aligned with it unless you switch back to auto-generated mode.</div>
+                </div>
+                {% endif %}
                 {% if summary_form.errors %}
                 <div class="alert alert-danger">
                     <div class="fw-semibold mb-1">Please fix the errors below.</div>
@@ -527,29 +533,35 @@
                     <div>
                         <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Findings & methods <span class="badge text-bg-light border">Optional</span></div>
                         <div class="mb-3">
-                            <label class="form-label">Summary of results (action + outcome)</label>
+                            <label class="form-label">Main findings summary</label>
                             {{ summary_form.summary_of_results }}
+                            <div class="form-text">Optional free-text findings summary. Use this if it is easier than filling out structured outcome notes below.</div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Outcome rows</label>
+                            <label class="form-label">Outcome notes</label>
                             {{ summary_form.outcomes_raw }}
-                            <div class="form-text">One outcome per line, fields separated by | (Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes).</div>
+                            <div class="form-text">Optional. Use either one free-text result sentence per line, or a structured line with | separators for numeric comparisons.</div>
                         </div>
                         <div class="row g-3">
                             <div class="col-12">
-                                <label class="form-label">Action methods and experimental design</label>
+                                <label class="form-label">Methods, design and context notes</label>
                                 {{ summary_form.methods_and_design }}
-                                <div class="form-text">Use one box for the intervention methods and any notes on how the comparison was set up.</div>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Key details of site context</label>
-                                {{ summary_form.site_context_details }}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Details of sampling methods</label>
-                                {{ summary_form.sampling_methods_details }}
+                                <div class="form-text">Optional. Use one flexible box for any methods, design, sampling or context details that help you write the summary.</div>
                             </div>
                         </div>
+                        <details class="mt-3">
+                            <summary class="small fw-semibold text-muted">More optional detail boxes</summary>
+                            <div class="row g-3 mt-1">
+                                <div class="col-md-6">
+                                    <label class="form-label">Key details of site context</label>
+                                    {{ summary_form.site_context_details }}
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Details of sampling methods</label>
+                                    {{ summary_form.sampling_methods_details }}
+                                </div>
+                            </div>
+                        </details>
                     </div>
                     <div>
                         <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Costs <span class="badge text-bg-light border">Optional</span></div>
