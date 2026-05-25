@@ -8880,6 +8880,10 @@ def _structured_summary_paragraph(
 
     outcome_lines = []
     for row in summary.outcome_rows or []:
+        sentence = _clean(row.get("sentence", ""))
+        if sentence:
+            outcome_lines.append(sentence if sentence.endswith(".") else f"{sentence}.")
+            continue
         outcome = _clean(row.get("outcome", ""))
         difference = _clean(row.get("difference", ""))
         treatment = _clean(row.get("treatment", ""))
