@@ -7958,6 +7958,37 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertEqual(len(cleaned), 1)
         self.assertEqual(cleaned[0]["outcome"], "Outcome")
 
+    def test_outcomes_raw_accepts_free_text_sentence_lines(self):
+        data = {
+            "status": ReferenceSummary.STATUS_TODO,
+            "outcomes_raw": "Species richness increased after scrub removal\nBreeding success stayed similar between treatments.",
+        }
+        form = ReferenceSummaryUpdateForm(data=data, project=self.project)
+        self.assertTrue(form.is_valid(), form.errors)
+        cleaned = form.cleaned_data["outcomes_raw"]
+        self.assertEqual(
+            cleaned,
+            [
+                {"sentence": "Species richness increased after scrub removal"},
+                {"sentence": "Breeding success stayed similar between treatments."},
+            ],
+        )
+
+    def test_structured_summary_paragraph_uses_free_text_outcome_notes(self):
+        summary = ReferenceSummary(
+            study_design="replicated study",
+            summary_of_results="brush cutting improved habitat condition.",
+            outcome_rows=[
+                {"sentence": "Species richness increased after scrub removal"},
+                {"sentence": "Breeding success stayed similar between treatments."},
+            ],
+        )
+
+        paragraph = _structured_summary_paragraph(summary)
+
+        self.assertIn("Species richness increased after scrub removal.", paragraph)
+        self.assertIn("Breeding success stayed similar between treatments.", paragraph)
+
     def test_quality_scores_accept_boundary_values(self):
         form = ReferenceSummaryUpdateForm(
             data={
@@ -8185,10 +8216,18 @@ class ReferenceSummaryDetailViewTests(TestCase):
             response,
             "Editing the paragraph below does not update these boxes automatically.",
         )
+        self.assertContains(response, "Custom paragraph mode is active.")
+        self.assertContains(
+            response,
+            "The summary paragraph is currently the source of truth for compilation and export.",
+        )
         self.assertContains(response, "Custom paragraph in use")
         self.assertContains(response, "Save custom paragraph")
         self.assertContains(response, "Switch back to auto-generated")
         self.assertContains(response, "Clear saved custom paragraph")
+        self.assertContains(response, "Outcome notes")
+        self.assertContains(response, "Main findings summary")
+        self.assertContains(response, "More optional detail boxes")
 
     def test_creating_summary_tab_invalidates_board_presence_summary_id_cache(self):
         self.client.login(username="author", password="pass123")
