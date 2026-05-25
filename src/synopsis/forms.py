@@ -2211,11 +2211,11 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             attrs={
                 "class": "form-control",
                 "rows": 5,
-                "placeholder": "Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes",
+                "placeholder": "Use one free-text result sentence per line, or a structured line like: Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes",
             }
         ),
-        label="Outcome rows",
-        help_text="One outcome per line, fields separated by |",
+        label="Outcome notes",
+        help_text="Optional. Use either one free-text result sentence per line, or a structured line with | separators for numeric comparisons.",
     )
     methods_and_design = forms.CharField(
         required=False,
@@ -2223,11 +2223,11 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             attrs={
                 "class": "form-control",
                 "rows": 5,
-                "placeholder": "Describe the action methods and any experimental design details together.",
+                "placeholder": "Describe any methods, design, sampling or context notes you want to keep together.",
             }
         ),
-        label="Action methods and experimental design",
-        help_text="Use one box for the intervention methods and any notes on how the comparison was set up.",
+        label="Methods, design and context notes",
+        help_text="Optional. Use one flexible box for any methods, design, sampling or context details that help you write the summary.",
     )
     research_design = forms.MultipleChoiceField(
         required=False,
@@ -2283,6 +2283,10 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         if instance and instance.pk and instance.outcome_rows:
             lines = []
             for row in instance.outcome_rows:
+                sentence = (row.get("sentence", "") or "").strip()
+                if sentence:
+                    lines.append(sentence)
+                    continue
                 parts = [
                     row.get("outcome", ""),
                     row.get("treatment_value", ""),
@@ -2491,6 +2495,9 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         lines = [line.strip() for line in raw.splitlines() if line.strip()]
         parsed = []
         for line in lines:
+            if "|" not in line:
+                parsed.append({"sentence": line})
+                continue
             parts = re.split(r"(?<!\\)\|", line)
             parts = [part.replace("\\|", "|").strip() for part in parts]
             # Pad to 10 fields
