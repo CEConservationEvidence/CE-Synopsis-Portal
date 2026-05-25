@@ -90,6 +90,28 @@
         gap: 0.35rem 0.6rem;
         line-height: 1.35;
     }
+    .summary-optional-note {
+        background: #f8fafc;
+        border: 1px solid #d7dee7;
+    }
+    .summary-section-heading {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .summary-draft-active {
+        border-color: #efc2c8;
+        background: #fff7f8;
+    }
+    .summary-draft-active .card-header {
+        background: #fdecef;
+        border-bottom-color: #efc2c8;
+    }
+    .summary-draft-note {
+        background: #fff1f3;
+        border: 1px solid #efc2c8;
+        color: #7a2432;
+    }
 </style>
 <h1 class="mb-3">Reference summary</h1>
 <div class="d-flex flex-column flex-xl-row justify-content-between align-items-xl-center gap-2 mb-4">
@@ -410,6 +432,10 @@
         <div class="card mb-3 shadow-sm" id="summary-card">
             <div class="card-header">Summary details</div>
             <div class="card-body">
+                <div class="alert small summary-optional-note mb-3">
+                    <div class="fw-semibold mb-1">All fields below are optional.</div>
+                    <div>Use only the boxes that help you write or classify this summary. Editing the paragraph below does not update these boxes automatically.</div>
+                </div>
                 {% if summary_form.errors %}
                 <div class="alert alert-danger">
                     <div class="fw-semibold mb-1">Please fix the errors below.</div>
@@ -448,7 +474,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Study overview</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Study overview <span class="badge text-bg-light border">Optional</span></div>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Action</label>
@@ -482,7 +508,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Habitat & geography</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Habitat & geography <span class="badge text-bg-light border">Optional</span></div>
                         <div class="row g-3">
                             <div class="col-12">
                                 <label class="form-label">Habitat and number of sites</label>
@@ -499,7 +525,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Findings & methods</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Findings & methods <span class="badge text-bg-light border">Optional</span></div>
                         <div class="mb-3">
                             <label class="form-label">Summary of results (action + outcome)</label>
                             {{ summary_form.summary_of_results }}
@@ -526,14 +552,14 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Costs</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Costs <span class="badge text-bg-light border">Optional</span></div>
                         <div class="mb-0">
                             <label class="form-label">Costs</label>
                             {{ summary_form.cost_summary }}
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Tags</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Tags <span class="badge text-bg-light border">Optional</span></div>
                         <div class="row g-3">
                             <div class="col-12">
                                 <div class="tag-picker" data-tag-picker>
@@ -614,7 +640,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">CE metadata</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">CE metadata <span class="badge text-bg-light border">Optional</span></div>
                         <div class="row g-3">
                             <div class="col-12">
                                 <div class="tag-picker" data-tag-picker data-tag-max-selected="4">
@@ -663,7 +689,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Quality scores</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Quality scores <span class="badge text-bg-light border">Optional</span></div>
                         <div class="row g-3">
                             <div class="col-md-3">
                                 <label class="form-label">Benefits (0-100)</label>
@@ -689,12 +715,14 @@
                 </form>
             </div>
         </div>
-        <div class="card mb-3 shadow-sm">
+        <div class="card mb-3 shadow-sm{% if summary.use_custom_synopsis_draft %} summary-draft-active{% endif %}">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <div class="d-flex flex-wrap align-items-center gap-2">
                     <span>Summary paragraph</span>
-                    {% if summary.synopsis_draft %}
-                    <span class="badge text-bg-success">Edited draft saved</span>
+                    {% if summary.use_custom_synopsis_draft %}
+                    <span class="badge text-bg-danger">Custom paragraph in use</span>
+                    {% else %}
+                    <span class="badge text-bg-light border">Auto-generated in use</span>
                     {% endif %}
                 </div>
                 {% if current_summary_paragraph %}
@@ -702,16 +730,20 @@
                 {% endif %}
             </div>
             <div class="card-body">
-                {% if generated_summary %}
-                    <p class="text-muted small mb-3">This field starts with the auto-generated paragraph from the structured fields above. If you change those structured fields later, the paragraph will refresh automatically unless you have already saved manual edits here.</p>
+                {% if summary.use_custom_synopsis_draft %}
+                    <div class="alert summary-draft-note small mb-3">
+                        A saved custom paragraph is currently being used for compilation and export. Changes to the optional fields above do not update this paragraph automatically. Switch back to the auto-generated paragraph below if you want it to follow those fields again.
+                    </div>
+                {% elif generated_summary %}
+                    <p class="text-muted small mb-3">This field starts with the auto-generated paragraph from the optional structured fields above. Saving those fields will keep refreshing this paragraph until you choose to use a saved custom paragraph instead.</p>
                 {% else %}
-                    <p class="text-muted small mb-3">Fill in the structured fields above to generate a paragraph automatically, or write a custom summary paragraph here.</p>
+                    <p class="text-muted small mb-3">Fill in any of the optional structured fields above to generate a paragraph automatically, or write a custom summary paragraph here.</p>
                 {% endif %}
                 <form method="post" class="d-flex flex-column gap-3" id="summary-draft-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-synopsis-draft">
                     <div>
-                        <label class="form-label" for="{{ draft_form.synopsis_draft.id_for_label }}">Editable summary paragraph</label>
+                        <label class="form-label" for="{{ draft_form.synopsis_draft.id_for_label }}">Summary paragraph</label>
                         {{ draft_form.synopsis_draft }}
                         <div class="form-text">{{ draft_form.synopsis_draft.help_text }}</div>
                         {% if draft_form.synopsis_draft.errors %}
@@ -719,12 +751,18 @@
                         {% endif %}
                     </div>
                     <div class="d-flex flex-wrap gap-2">
-                        <button class="btn btn-primary btn-sm" type="submit" name="draft_command" value="save">Save paragraph draft</button>
-                        {% if generated_summary and summary.synopsis_draft %}
-                        <button class="btn btn-outline-secondary btn-sm" type="submit" name="draft_command" value="use-generated">Reset to auto-generated</button>
+                        <button class="btn btn-primary btn-sm" type="submit" name="draft_command" value="save">
+                            {% if summary.use_custom_synopsis_draft %}
+                            Save custom paragraph
+                            {% else %}
+                            Use saved custom paragraph
+                            {% endif %}
+                        </button>
+                        {% if generated_summary and summary.use_custom_synopsis_draft %}
+                        <button class="btn btn-outline-secondary btn-sm" type="submit" name="draft_command" value="use-generated">Switch back to auto-generated</button>
                         {% endif %}
-                        {% if summary.synopsis_draft %}
-                        <button class="btn btn-outline-danger btn-sm" type="submit" name="draft_command" value="clear">Clear edited draft</button>
+                        {% if summary.use_custom_synopsis_draft %}
+                        <button class="btn btn-outline-danger btn-sm" type="submit" name="draft_command" value="clear">Clear saved custom paragraph</button>
                         {% endif %}
                     </div>
                 </form>
