@@ -828,6 +828,58 @@ def _history_reference_categories(reference):
     return _history_safe_text(", ".join(labels), max_length=220)
 
 
+def _history_chapter_title(chapter):
+    return _history_safe_text(
+        getattr(chapter, "title", ""),
+        fallback="Untitled chapter",
+        max_length=120,
+    )
+
+
+def _history_subheading_title(subheading):
+    return _history_safe_text(
+        getattr(subheading, "title", ""),
+        fallback="Untitled group",
+        max_length=120,
+    )
+
+
+def _history_intervention_title(intervention):
+    return _history_safe_text(
+        getattr(intervention, "title", ""),
+        fallback="Untitled intervention",
+        max_length=120,
+    )
+
+
+def _history_key_message_label(key_message):
+    outcome_label = _history_safe_text(
+        getattr(key_message, "outcome_label", ""),
+        fallback="",
+        max_length=120,
+    )
+    if outcome_label:
+        return outcome_label
+    return _history_safe_text(
+        getattr(key_message, "statement", ""),
+        fallback="Key message",
+        max_length=120,
+    )
+
+
+def _history_file_name(file_value):
+    file_name = ""
+    if hasattr(file_value, "name"):
+        file_name = file_value.name or ""
+    elif file_value:
+        file_name = str(file_value)
+    return _history_safe_text(
+        Path(file_name).name if file_name else "",
+        fallback="—",
+        max_length=160,
+    )
+
+
 def _log_summary_history(project, user, action: str, summary, extra_details=None):
     detail_parts = [
         f"Reference: {_history_reference_title(summary.reference)}",
@@ -851,6 +903,42 @@ def _log_reference_history(project, user, action: str, reference, extra_details=
     notes_text = _history_safe_text(reference.screening_notes, fallback="", max_length=220)
     if notes_text:
         detail_parts.append(f"Notes: {notes_text}")
+    for part in extra_details or []:
+        if part:
+            detail_parts.append(part)
+    _log_project_change(project, user, action, " | ".join(detail_parts))
+
+
+def _log_structure_history(
+    project,
+    user,
+    action: str,
+    *,
+    chapter=None,
+    subheading=None,
+    intervention=None,
+    key_message=None,
+    summary=None,
+    extra_details=None,
+):
+    detail_parts = []
+    if chapter is not None:
+        detail_parts.append(f"Chapter: {_history_chapter_title(chapter)}")
+    if subheading is not None:
+        detail_parts.append(
+            f"Intervention group: {_history_subheading_title(subheading)}"
+        )
+    if intervention is not None:
+        detail_parts.append(
+            f"Intervention: {_history_intervention_title(intervention)}"
+        )
+    if key_message is not None:
+        detail_parts.append(
+            f"Key message: {_history_key_message_label(key_message)}"
+        )
+    if summary is not None:
+        detail_parts.append(f"Reference: {_history_reference_title(summary.reference)}")
+        detail_parts.append(f"Summary ID: {_history_summary_id(summary)}")
     for part in extra_details or []:
         if part:
             detail_parts.append(part)
@@ -2993,7 +3081,7 @@ def dashboard(request):
     )
 
 
-def _project_revision_history_entries(project, *, limit=14):
+def _project_revision_history_entries(project, *, limit=None):
     phase_label_map = dict(Project.PHASE_CHOICES)
     entries = []
 
@@ -3025,7 +3113,9 @@ def _project_revision_history_entries(project, *, limit=14):
         ),
         reverse=True,
     )
-    return entries[:limit]
+    if limit is not None:
+        return entries[:limit]
+    return entries
 
 
 def _project_history_kind(action: str) -> tuple[str, str]:
@@ -3036,6 +3126,18 @@ def _project_history_kind(action: str) -> tuple[str, str]:
         return "Protocol", "text-bg-info text-dark"
     if "action list" in action_lower:
         return "Action list", "text-bg-success"
+    if any(
+        keyword in action_lower
+        for keyword in [
+            "chapter",
+            "intervention group",
+            "intervention",
+            "key message",
+            "outline",
+            "preset",
+        ]
+    ):
+        return "Synopsis structure", "text-bg-dark"
     if any(
         keyword in action_lower
         for keyword in ["advisory", "invite", "feedback", "reminder"]
@@ -9578,6 +9680,13 @@ def reference_summary_detail(request, project_id, summary_id):
         action = active_action
         if action == "create-summary-tab":
             new_summary = _clone_reference_summary(summary, request.user)
+            _log_summary_history(
+                project,
+                request.user,
+                "Summary tab created",
+                new_summary,
+                extra_details=[f"Source summary: {_history_summary_id(summary)}"],
+            )
             messages.success(
                 request,
                 "New summary tab created for this reference. Use it for a distinct intervention or study summary.",
@@ -9589,6 +9698,13 @@ def reference_summary_detail(request, project_id, summary_id):
             )
         if action == "duplicate-summary-tab":
             new_summary = _duplicate_reference_summary(summary, request.user)
+            _log_summary_history(
+                project,
+                request.user,
+                "Summary tab duplicated",
+                new_summary,
+                extra_details=[f"Copied from summary: {_history_summary_id(summary)}"],
+            )
             messages.success(
                 request,
                 "Summary tab duplicated. Review the copied text and adjust it for the new intervention or study summary.",
@@ -9618,6 +9734,7 @@ def reference_summary_detail(request, project_id, summary_id):
                 .values_list("intervention_id", flat=True)
                 .distinct()
             )
+            removed_assignment_count = len(affected_intervention_ids)
             with transaction.atomic():
                 summary.delete()
                 if affected_intervention_ids:
@@ -9627,6 +9744,20 @@ def reference_summary_detail(request, project_id, summary_id):
                         _resequence_assignment_positions(intervention)
             _invalidate_project_reference_summary_ids_cache(project.id)
             _sync_reference_summary_identifiers_for_reference(next_summary.reference, save=True)
+            _log_summary_history(
+                project,
+                request.user,
+                "Summary tab deleted",
+                summary,
+                extra_details=[
+                    f"Next active summary: {_history_summary_id(next_summary)}",
+                    (
+                        f"Removed from intervention assignments: {removed_assignment_count}"
+                        if removed_assignment_count
+                        else ""
+                    ),
+                ],
+            )
             messages.success(request, "Summary tab deleted.")
             return redirect(
                 "synopsis:reference_summary_detail",
@@ -9700,6 +9831,19 @@ def reference_summary_detail(request, project_id, summary_id):
                     ]
                 )
                 auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
+                _log_summary_history(
+                    project,
+                    request.user,
+                    "Auto-generated summary paragraph restored",
+                    summary,
+                    extra_details=[
+                        (
+                            "Workflow: Auto-moved from To summarise to In progress"
+                            if auto_promoted
+                            else ""
+                        ),
+                    ],
+                )
                 if auto_promoted:
                     messages.success(
                         request,
@@ -9725,6 +9869,12 @@ def reference_summary_detail(request, project_id, summary_id):
                         "updated_at",
                     ]
                 )
+                _log_summary_history(
+                    project,
+                    request.user,
+                    "Custom summary paragraph cleared",
+                    summary,
+                )
                 messages.success(
                     request,
                     "Saved custom paragraph cleared. Compilation will use the auto-generated paragraph when available.",
@@ -9746,6 +9896,23 @@ def reference_summary_detail(request, project_id, summary_id):
                     ]
                 )
                 auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
+                _log_summary_history(
+                    project,
+                    request.user,
+                    (
+                        "Custom summary paragraph saved"
+                        if summary.use_custom_synopsis_draft
+                        else "Custom summary paragraph cleared"
+                    ),
+                    summary,
+                    extra_details=[
+                        (
+                            "Workflow: Auto-moved from To summarise to In progress"
+                            if auto_promoted
+                            else ""
+                        ),
+                    ],
+                )
                 if summary.use_custom_synopsis_draft and auto_promoted:
                     messages.success(
                         request,
@@ -9883,6 +10050,20 @@ def reference_summary_detail(request, project_id, summary_id):
             summary.assigned_to = assignment_form.cleaned_data["assigned_to"]
             summary.needs_help = assignment_form.cleaned_data["needs_help"]
             summary.save(update_fields=["assigned_to", "needs_help", "updated_at"])
+            _log_summary_history(
+                project,
+                request.user,
+                "Summary ownership updated",
+                summary,
+                extra_details=[
+                    (
+                        f"Assigned to: {_user_display(summary.assigned_to)}"
+                        if summary.assigned_to
+                        else "Assigned to: Unassigned"
+                    ),
+                    f"Needs help: {'Yes' if summary.needs_help else 'No'}",
+                ],
+            )
             messages.success(request, "Assignment updated.")
             return redirect(
                 "synopsis:reference_summary_detail",
@@ -9905,6 +10086,25 @@ def reference_summary_detail(request, project_id, summary_id):
                     parent=parent,
                     attachment=comment_form.cleaned_data.get("attachment"),
                     notify_assignee=comment_form.cleaned_data.get("notify_assignee") or False,
+                )
+                _log_summary_history(
+                    project,
+                    request.user,
+                    "Summary comment added",
+                    summary,
+                    extra_details=[
+                        f"Comment: {_history_safe_text(comment_form.cleaned_data['body'], max_length=220)}",
+                        (
+                            f"Reply to: {_history_safe_text(parent.body, max_length=120)}"
+                            if parent
+                            else ""
+                        ),
+                        (
+                            f"Attachment: {_history_file_name(comment_form.cleaned_data.get('attachment'))}"
+                            if comment_form.cleaned_data.get("attachment")
+                            else ""
+                        ),
+                    ],
                 )
                 messages.success(request, "Comment added.")
                 return redirect(
@@ -10009,6 +10209,16 @@ def reference_summary_detail(request, project_id, summary_id):
                 summary.reference.reference_document = uploaded
                 summary.reference.reference_document_uploaded_at = timezone.now()
                 summary.reference.save(update_fields=["reference_document", "reference_document_uploaded_at"])
+                _log_reference_history(
+                    project,
+                    request.user,
+                    "Reference PDF uploaded",
+                    summary.reference,
+                    extra_details=[
+                        f"Summary ID: {_history_summary_id(summary)}",
+                        f"File: {_history_file_name(uploaded)}",
+                    ],
+                )
                 messages.success(request, "PDF uploaded.")
                 return redirect(
                     "synopsis:reference_summary_detail",
@@ -10027,6 +10237,16 @@ def reference_summary_detail(request, project_id, summary_id):
                 if request.user.is_authenticated:
                     action_entry.created_by = request.user
                 action_entry.save()
+                _log_summary_history(
+                    project,
+                    request.user,
+                    "Action summary added",
+                    summary,
+                    extra_details=[
+                        f"Action: {_history_safe_text(action_entry.action_name, fallback='—', max_length=120)}",
+                        f"Notes: {_history_safe_text(action_entry.summary_text, max_length=220)}",
+                    ],
+                )
                 messages.success(request, "Action summary added.")
                 return redirect(
                     "synopsis:reference_summary_detail",
@@ -10046,6 +10266,16 @@ def reference_summary_detail(request, project_id, summary_id):
             )
             if action_summary_form.is_valid():
                 action_summary_form.save()
+                _log_summary_history(
+                    project,
+                    request.user,
+                    "Action summary updated",
+                    summary,
+                    extra_details=[
+                        f"Action: {_history_safe_text(target.action_name, fallback='—', max_length=120)}",
+                        f"Notes: {_history_safe_text(target.summary_text, max_length=220)}",
+                    ],
+                )
                 messages.success(request, "Action summary updated.")
                 return redirect(
                     "synopsis:reference_summary_detail",
@@ -10060,8 +10290,20 @@ def reference_summary_detail(request, project_id, summary_id):
                 pk=request.POST.get("action_summary_id"),
                 reference_summary=summary,
             )
+            deleted_action_name = target.action_name
+            deleted_summary_text = target.summary_text
             target.delete()
             _resequence_action_summaries(summary)
+            _log_summary_history(
+                project,
+                request.user,
+                "Action summary removed",
+                summary,
+                extra_details=[
+                    f"Action: {_history_safe_text(deleted_action_name, fallback='—', max_length=120)}",
+                    f"Notes: {_history_safe_text(deleted_summary_text, max_length=220)}",
+                ],
+            )
             messages.success(request, "Action summary removed.")
             return redirect(
                 "synopsis:reference_summary_detail",
@@ -10290,19 +10532,58 @@ def _project_synopsis_workspace(
             if chapter_form.is_valid():
                 title = chapter_form.cleaned_data["title"] or "Untitled chapter"
                 chapter_type = chapter_form.cleaned_data["chapter_type"]
-                SynopsisChapter.objects.create(
+                chapter = SynopsisChapter.objects.create(
                     project=project,
                     title=title,
                     chapter_type=chapter_type,
                     position=_next_chapter_position(project),
+                )
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Chapter added",
+                    chapter=chapter,
+                    extra_details=[f"Type: {chapter.get_chapter_type_display()}"],
                 )
                 messages.success(request, f"Added chapter “{title}”.")
                 return redirect(redirect_url)
             messages.error(request, "Please fix the problems below.")
         elif action == "delete-chapter":
             chapter = _chapter_from_post()
+            removed_subheading_count = SynopsisSubheading.objects.filter(
+                chapter=chapter
+            ).count()
+            removed_intervention_count = SynopsisIntervention.objects.filter(
+                subheading__chapter=chapter
+            ).count()
+            removed_assignment_count = SynopsisAssignment.objects.filter(
+                intervention__subheading__chapter=chapter
+            ).count()
             chapter.delete()
             _resequence_chapter_positions(project)
+            _log_structure_history(
+                project,
+                request.user,
+                "Chapter removed",
+                chapter=chapter,
+                extra_details=[
+                    (
+                        f"Intervention groups removed: {removed_subheading_count}"
+                        if removed_subheading_count
+                        else ""
+                    ),
+                    (
+                        f"Interventions removed: {removed_intervention_count}"
+                        if removed_intervention_count
+                        else ""
+                    ),
+                    (
+                        f"Assigned summaries removed: {removed_assignment_count}"
+                        if removed_assignment_count
+                        else ""
+                    ),
+                ],
+            )
             messages.success(request, f"Removed chapter “{chapter.title}”.")
             return redirect(redirect_url)
         elif action == "update-chapter-background":
@@ -10314,12 +10595,23 @@ def _project_synopsis_workspace(
                     bg_form.cleaned_data.get("background_references", "") or ""
                 )
                 chapter.save(update_fields=["background_text", "background_references", "updated_at"])
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Chapter background saved",
+                    chapter=chapter,
+                    extra_details=[
+                        f"Background text: {'Yes' if chapter.background_text else 'No'}",
+                        f"Background references: {'Yes' if chapter.background_references else 'No'}",
+                    ],
+                )
                 messages.success(request, "Chapter background saved.")
             else:
                 messages.error(request, "Please check the background fields.")
             return redirect(redirect_url)
         elif action == "update-chapter-type":
             chapter = _chapter_from_post()
+            previous_chapter_type = chapter.chapter_type
             chapter_type = (request.POST.get("chapter_type") or "").strip()
             allowed_types = {choice[0] for choice in SynopsisChapter.TYPE_CHOICES}
             if chapter_type not in allowed_types:
@@ -10337,6 +10629,19 @@ def _project_synopsis_workspace(
                 return redirect(redirect_url)
             chapter.chapter_type = chapter_type
             chapter.save(update_fields=["chapter_type", "updated_at"])
+            _log_structure_history(
+                project,
+                request.user,
+                "Chapter type updated",
+                chapter=chapter,
+                extra_details=[
+                    (
+                        f"Type change: {dict(SynopsisChapter.TYPE_CHOICES).get(previous_chapter_type, previous_chapter_type)} → {chapter.get_chapter_type_display()}"
+                        if previous_chapter_type != chapter.chapter_type
+                        else f"Type: {chapter.get_chapter_type_display()}"
+                    )
+                ],
+            )
             messages.success(request, "Chapter type updated.")
             return redirect(redirect_url)
         elif action == "move-chapter":
@@ -10354,6 +10659,16 @@ def _project_synopsis_workspace(
                     chapter.position, swap.position = swap.position, chapter.position
                     chapter.save(update_fields=["position"])
                     swap.save(update_fields=["position"])
+                    _log_structure_history(
+                        project,
+                        request.user,
+                        "Chapter reordered",
+                        chapter=chapter,
+                        extra_details=[
+                            f"Direction: {'Up' if direction == 'up' else 'Down'}",
+                            f"New position: {chapter.position}",
+                        ],
+                    )
                     messages.success(request, "Chapter reordered.")
                 else:
                     messages.info(request, "Already at the edge.")
@@ -10368,10 +10683,17 @@ def _project_synopsis_workspace(
             subheading_form = SynopsisSubheadingForm(request.POST)
             if subheading_form.is_valid():
                 title = subheading_form.cleaned_data["title"] or "Untitled subheading"
-                SynopsisSubheading.objects.create(
+                subheading = SynopsisSubheading.objects.create(
                     chapter=chapter,
                     title=title,
                     position=_next_subheading_position(chapter),
+                )
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Intervention group added",
+                    chapter=chapter,
+                    subheading=subheading,
                 )
                 messages.success(request, "Subheading added.")
                 return redirect(redirect_url)
@@ -10390,6 +10712,17 @@ def _project_synopsis_workspace(
                 subheading.position, swap.position = swap.position, subheading.position
                 subheading.save(update_fields=["position"])
                 swap.save(update_fields=["position"])
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Intervention group reordered",
+                    chapter=subheading.chapter,
+                    subheading=subheading,
+                    extra_details=[
+                        f"Direction: {'Up' if direction == 'up' else 'Down'}",
+                        f"New position: {subheading.position}",
+                    ],
+                )
                 messages.success(request, "Subheading reordered.")
             else:
                 messages.info(request, "Already at the edge.")
@@ -10397,8 +10730,33 @@ def _project_synopsis_workspace(
         elif action == "delete-subheading":
             subheading = _subheading_from_post()
             chapter = subheading.chapter
+            removed_intervention_count = SynopsisIntervention.objects.filter(
+                subheading=subheading
+            ).count()
+            removed_assignment_count = SynopsisAssignment.objects.filter(
+                intervention__subheading=subheading
+            ).count()
             subheading.delete()
             _resequence_subheading_positions(chapter)
+            _log_structure_history(
+                project,
+                request.user,
+                "Intervention group removed",
+                chapter=chapter,
+                subheading=subheading,
+                extra_details=[
+                    (
+                        f"Interventions removed: {removed_intervention_count}"
+                        if removed_intervention_count
+                        else ""
+                    ),
+                    (
+                        f"Assigned summaries removed: {removed_assignment_count}"
+                        if removed_assignment_count
+                        else ""
+                    ),
+                ],
+            )
             messages.success(request, "Subheading removed.")
             return redirect(redirect_url)
         elif action == "create-intervention":
@@ -10426,7 +10784,7 @@ def _project_synopsis_workspace(
             )
             if intervention_form.is_valid():
                 title = intervention_form.cleaned_data["title"] or "Untitled intervention"
-                SynopsisIntervention.objects.create(
+                intervention = SynopsisIntervention.objects.create(
                     subheading=subheading,
                     title=title,
                     iucn_category=intervention_form.cleaned_data.get("iucn_category"),
@@ -10437,6 +10795,27 @@ def _project_synopsis_workspace(
                         "primary_intervention"
                     ),
                     position=_next_intervention_position(subheading),
+                )
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Intervention added",
+                    chapter=subheading.chapter,
+                    subheading=subheading,
+                    intervention=intervention,
+                    extra_details=[
+                        (
+                            f"IUCN action: {_history_safe_text(intervention.iucn_category.name, max_length=120)}"
+                            if intervention.iucn_category
+                            else ""
+                        ),
+                        (
+                            f"Cross-reference: {_history_intervention_title(intervention.primary_intervention)}"
+                            if intervention.is_cross_reference
+                            and intervention.primary_intervention
+                            else ""
+                        ),
+                    ],
                 )
                 messages.success(request, "Intervention added.")
                 return redirect(redirect_url)
@@ -10455,6 +10834,18 @@ def _project_synopsis_workspace(
                 intervention.position, swap.position = swap.position, intervention.position
                 intervention.save(update_fields=["position"])
                 swap.save(update_fields=["position"])
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Intervention reordered",
+                    chapter=intervention.subheading.chapter,
+                    subheading=intervention.subheading,
+                    intervention=intervention,
+                    extra_details=[
+                        f"Direction: {'Up' if direction == 'up' else 'Down'}",
+                        f"New position: {intervention.position}",
+                    ],
+                )
                 messages.success(request, "Intervention reordered.")
             else:
                 messages.info(request, "Already at the edge.")
@@ -10477,6 +10868,18 @@ def _project_synopsis_workspace(
             intervention.save(update_fields=["subheading", "position", "updated_at"])
             _resequence_intervention_positions(old_subheading)
             _resequence_intervention_positions(target_subheading)
+            _log_structure_history(
+                project,
+                request.user,
+                "Intervention moved to group",
+                chapter=target_subheading.chapter,
+                subheading=target_subheading,
+                intervention=intervention,
+                extra_details=[
+                    f"From group: {_history_subheading_title(old_subheading)}",
+                    f"To group: {_history_subheading_title(target_subheading)}",
+                ],
+            )
             messages.success(
                 request, f"Moved intervention to “{target_subheading.title}”."
             )
@@ -10484,8 +10887,34 @@ def _project_synopsis_workspace(
         elif action == "delete-intervention":
             intervention = _intervention_from_post()
             subheading = intervention.subheading
+            removed_assignment_count = SynopsisAssignment.objects.filter(
+                intervention=intervention
+            ).count()
+            removed_key_message_count = SynopsisInterventionKeyMessage.objects.filter(
+                intervention=intervention
+            ).count()
             intervention.delete()
             _resequence_intervention_positions(subheading)
+            _log_structure_history(
+                project,
+                request.user,
+                "Intervention removed",
+                chapter=subheading.chapter,
+                subheading=subheading,
+                intervention=intervention,
+                extra_details=[
+                    (
+                        f"Assigned summaries removed: {removed_assignment_count}"
+                        if removed_assignment_count
+                        else ""
+                    ),
+                    (
+                        f"Key messages removed: {removed_key_message_count}"
+                        if removed_key_message_count
+                        else ""
+                    ),
+                ],
+            )
             messages.success(request, "Intervention removed.")
             return redirect(redirect_url)
         elif action == "update-intervention-background":
@@ -10498,6 +10927,18 @@ def _project_synopsis_workspace(
                 )
                 intervention.save(
                     update_fields=["background_text", "background_references", "updated_at"]
+                )
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Intervention background saved",
+                    chapter=intervention.subheading.chapter,
+                    subheading=intervention.subheading,
+                    intervention=intervention,
+                    extra_details=[
+                        f"Background text: {'Yes' if intervention.background_text else 'No'}",
+                        f"Background references: {'Yes' if intervention.background_references else 'No'}",
+                    ],
                 )
                 messages.success(request, "Intervention background saved.")
             else:
@@ -10524,6 +10965,19 @@ def _project_synopsis_workspace(
                         "updated_at",
                     ]
                 )
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Intervention synthesis saved",
+                    chapter=intervention.subheading.chapter,
+                    subheading=intervention.subheading,
+                    intervention=intervention,
+                    extra_details=[
+                        f"Evidence status: {intervention.get_evidence_status_display()}",
+                        f"CE action link: {'Yes' if intervention.ce_action_url else 'No'}",
+                        f"Synthesis text: {'Yes' if intervention.synthesis_text else 'No'}",
+                    ],
+                )
                 messages.success(request, "Intervention synthesis saved.")
             else:
                 messages.error(request, "Please check the synthesis fields.")
@@ -10543,8 +10997,32 @@ def _project_synopsis_workspace(
                     study_count=key_message_form.cleaned_data.get("study_count"),
                     position=_next_key_message_position(intervention),
                 )
-                key_message.supporting_summaries.set(
-                    key_message_form.cleaned_data.get("supporting_summaries")
+                supporting_summaries = key_message_form.cleaned_data.get(
+                    "supporting_summaries"
+                )
+                key_message.supporting_summaries.set(supporting_summaries)
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Key message added",
+                    chapter=intervention.subheading.chapter,
+                    subheading=intervention.subheading,
+                    intervention=intervention,
+                    key_message=key_message,
+                    extra_details=[
+                        f"Response group: {key_message.get_response_group_display()}",
+                        (
+                            f"Study count: {key_message.study_count}"
+                            if key_message.study_count is not None
+                            else ""
+                        ),
+                        (
+                            f"Supporting summaries: {supporting_summaries.count()}"
+                            if supporting_summaries is not None
+                            and supporting_summaries.count()
+                            else ""
+                        ),
+                    ],
                 )
                 messages.success(request, "Key message added.")
             else:
@@ -10575,8 +11053,32 @@ def _project_synopsis_workspace(
                         "updated_at",
                     ]
                 )
-                key_message.supporting_summaries.set(
-                    key_message_form.cleaned_data.get("supporting_summaries")
+                supporting_summaries = key_message_form.cleaned_data.get(
+                    "supporting_summaries"
+                )
+                key_message.supporting_summaries.set(supporting_summaries)
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Key message updated",
+                    chapter=key_message.intervention.subheading.chapter,
+                    subheading=key_message.intervention.subheading,
+                    intervention=key_message.intervention,
+                    key_message=key_message,
+                    extra_details=[
+                        f"Response group: {key_message.get_response_group_display()}",
+                        (
+                            f"Study count: {key_message.study_count}"
+                            if key_message.study_count is not None
+                            else ""
+                        ),
+                        (
+                            f"Supporting summaries: {supporting_summaries.count()}"
+                            if supporting_summaries is not None
+                            and supporting_summaries.count()
+                            else ""
+                        ),
+                    ],
                 )
                 messages.success(request, "Key message updated.")
             else:
@@ -10605,6 +11107,19 @@ def _project_synopsis_workspace(
                 key_message.position, swap.position = swap.position, key_message.position
                 key_message.save(update_fields=["position"])
                 swap.save(update_fields=["position"])
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Key message reordered",
+                    chapter=intervention.subheading.chapter,
+                    subheading=intervention.subheading,
+                    intervention=intervention,
+                    key_message=key_message,
+                    extra_details=[
+                        f"Direction: {'Up' if direction == 'up' else 'Down'}",
+                        f"New position: {key_message.position}",
+                    ],
+                )
                 messages.success(request, "Key message reordered.")
             else:
                 messages.info(request, "Already at the edge.")
@@ -10612,8 +11127,25 @@ def _project_synopsis_workspace(
         elif action == "delete-key-message":
             key_message = _key_message_from_post()
             intervention = key_message.intervention
+            supporting_summary_count = key_message.supporting_summaries.count()
             key_message.delete()
             _resequence_key_message_positions(intervention)
+            _log_structure_history(
+                project,
+                request.user,
+                "Key message removed",
+                chapter=intervention.subheading.chapter,
+                subheading=intervention.subheading,
+                intervention=intervention,
+                key_message=key_message,
+                extra_details=[
+                    (
+                        f"Supporting summaries removed: {supporting_summary_count}"
+                        if supporting_summary_count
+                        else ""
+                    )
+                ],
+            )
             messages.success(request, "Key message removed.")
             return redirect(redirect_url)
         elif action == "update-intervention-metadata":
@@ -10668,6 +11200,27 @@ def _project_synopsis_workspace(
                     "updated_at",
                 ]
             )
+            _log_structure_history(
+                project,
+                request.user,
+                "Intervention metadata saved",
+                chapter=intervention.subheading.chapter,
+                subheading=intervention.subheading,
+                intervention=intervention,
+                extra_details=[
+                    (
+                        f"IUCN action: {_history_safe_text(category.name, max_length=120)}"
+                        if category
+                        else "IUCN action: None"
+                    ),
+                    f"Cross-reference: {'Yes' if intervention.is_cross_reference else 'No'}",
+                    (
+                        f"Primary intervention: {_history_intervention_title(primary)}"
+                        if primary
+                        else ""
+                    ),
+                ],
+            )
             messages.success(request, "Intervention metadata saved.")
             return redirect(redirect_url)
         elif action == "add-assignment":
@@ -10679,10 +11232,20 @@ def _project_synopsis_workspace(
                 if exists:
                     messages.info(request, "That summary is already assigned here.")
                 else:
-                    SynopsisAssignment.objects.create(
+                    assignment = SynopsisAssignment.objects.create(
                         intervention=intervention,
                         reference_summary=summary,
                         position=_next_assignment_position(intervention),
+                    )
+                    _log_structure_history(
+                        project,
+                        request.user,
+                        "Assigned study summary to intervention",
+                        chapter=intervention.subheading.chapter,
+                        subheading=intervention.subheading,
+                        intervention=intervention,
+                        summary=summary,
+                        extra_details=[f"Assignment position: {assignment.position}"],
                     )
                     messages.success(request, "Summary added to intervention.")
                 return redirect(redirect_url)
@@ -10695,10 +11258,29 @@ def _project_synopsis_workspace(
             )
             intervention = assignment.intervention
             removed_summary = assignment.reference_summary
+            affected_key_message_count = intervention.key_messages.filter(
+                supporting_summaries=removed_summary
+            ).distinct().count()
             assignment.delete()
             for key_message in intervention.key_messages.all():
                 key_message.supporting_summaries.remove(removed_summary)
             _resequence_assignment_positions(intervention)
+            _log_structure_history(
+                project,
+                request.user,
+                "Removed study summary from intervention",
+                chapter=intervention.subheading.chapter,
+                subheading=intervention.subheading,
+                intervention=intervention,
+                summary=removed_summary,
+                extra_details=[
+                    (
+                        f"Key messages updated: {affected_key_message_count}"
+                        if affected_key_message_count
+                        else ""
+                    )
+                ],
+            )
             messages.success(request, "Removed summary from intervention.")
             return redirect(redirect_url)
         elif action == "reorder-assignments" and request.content_type == "application/json":
@@ -10713,6 +11295,7 @@ def _project_synopsis_workspace(
             )
             assignments = list(intervention.assignments.filter(id__in=assignment_ids))
             id_map = {str(a.id): a for a in assignments}
+            changed = False
             for idx, aid in enumerate(assignment_ids, start=1):
                 assignment = id_map.get(str(aid))
                 if not assignment:
@@ -10720,6 +11303,17 @@ def _project_synopsis_workspace(
                 if assignment.position != idx:
                     assignment.position = idx
                     assignment.save(update_fields=["position", "updated_at"])
+                    changed = True
+            if changed:
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Intervention study summaries reordered",
+                    chapter=intervention.subheading.chapter,
+                    subheading=intervention.subheading,
+                    intervention=intervention,
+                    extra_details=[f"Assignments reordered: {len(assignment_ids)}"],
+                )
             return JsonResponse({"ok": True})
         elif action == "apply-preset":
             preset_key = request.POST.get("preset_key")
@@ -10733,6 +11327,9 @@ def _project_synopsis_workspace(
             allowed_chapter_types = {choice[0] for choice in SynopsisChapter.TYPE_CHOICES}
 
             chapter_pos = 1
+            created_chapter_count = 0
+            created_subheading_count = 0
+            created_intervention_count = 0
             for chapter_data in preset.chapters:
                 chapter_type = (
                     chapter_data.get("chapter_type") or SynopsisChapter.TYPE_EVIDENCE
@@ -10745,6 +11342,7 @@ def _project_synopsis_workspace(
                     chapter_type=chapter_type,
                     position=chapter_pos,
                 )
+                created_chapter_count += 1
                 chapter_pos += 1
                 sub_pos = 1
                 for sub_data in chapter_data.get("subheadings", []) or []:
@@ -10753,6 +11351,7 @@ def _project_synopsis_workspace(
                         title=sub_data.get("title") or "Untitled subheading",
                         position=sub_pos,
                     )
+                    created_subheading_count += 1
                     sub_pos += 1
                     int_pos = 1
                     for int_data in sub_data.get("interventions", []) or []:
@@ -10761,10 +11360,44 @@ def _project_synopsis_workspace(
                             title=int_data.get("title") or "Untitled intervention",
                             position=int_pos,
                         )
+                        created_intervention_count += 1
                         int_pos += 1
+            _log_project_change(
+                project,
+                request.user,
+                "Synopsis outline preset applied",
+                " | ".join(
+                    part
+                    for part in [
+                        f"Preset: {_history_safe_text(preset.label, max_length=120)}",
+                        f"Chapters created: {created_chapter_count}",
+                        (
+                            f"Intervention groups created: {created_subheading_count}"
+                            if created_subheading_count
+                            else ""
+                        ),
+                        (
+                            f"Interventions created: {created_intervention_count}"
+                            if created_intervention_count
+                            else ""
+                        ),
+                    ]
+                    if part
+                ),
+            )
             messages.success(request, f"Applied preset: {preset.label}.")
             return redirect(redirect_url)
         elif action == "reset-structure":
+            removed_assignment_count = SynopsisAssignment.objects.filter(
+                intervention__subheading__chapter__project=project
+            ).count()
+            removed_intervention_count = SynopsisIntervention.objects.filter(
+                subheading__chapter__project=project
+            ).count()
+            removed_subheading_count = SynopsisSubheading.objects.filter(
+                chapter__project=project
+            ).count()
+            removed_chapter_count = SynopsisChapter.objects.filter(project=project).count()
             SynopsisAssignment.objects.filter(
                 intervention__subheading__chapter__project=project
             ).delete()
@@ -10773,6 +11406,33 @@ def _project_synopsis_workspace(
             ).delete()
             SynopsisSubheading.objects.filter(chapter__project=project).delete()
             SynopsisChapter.objects.filter(project=project).delete()
+            _log_project_change(
+                project,
+                request.user,
+                "Synopsis outline reset",
+                " | ".join(
+                    part
+                    for part in [
+                        f"Chapters removed: {removed_chapter_count}",
+                        (
+                            f"Intervention groups removed: {removed_subheading_count}"
+                            if removed_subheading_count
+                            else ""
+                        ),
+                        (
+                            f"Interventions removed: {removed_intervention_count}"
+                            if removed_intervention_count
+                            else ""
+                        ),
+                        (
+                            f"Assigned summaries removed: {removed_assignment_count}"
+                            if removed_assignment_count
+                            else ""
+                        ),
+                    ]
+                    if part
+                ),
+            )
             messages.success(request, "Cleared the outline. You can apply a preset or start fresh.")
             return redirect(redirect_url)
 

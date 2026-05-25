@@ -774,6 +774,16 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(
             evidence_chapter.chapter_type, SynopsisChapter.TYPE_EVIDENCE
         )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Synopsis outline preset applied",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn(
+            "Preset: Standard CE synopsis (full ToC, chapters only)",
+            change.details,
+        )
+        self.assertIn("Chapters created:", change.details)
         count_after_first = SynopsisChapter.objects.filter(project=self.project).count()
         # Second apply should be blocked because outline is not empty
         response = self.client.post(
@@ -809,6 +819,13 @@ class SynopsisStructureTests(TestCase):
             SynopsisIntervention.objects.filter(subheading__chapter=chapter).values_list("title", flat=True)
         )
         self.assertIn("Intervention A", intervention_titles)
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Intervention added",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Chapter: Ch", change.details)
+        self.assertIn("Intervention: Intervention A", change.details)
 
     def test_move_intervention_to_another_subheading(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
@@ -1073,6 +1090,13 @@ class SynopsisStructureTests(TestCase):
             ),
             [self.summary.id],
         )
+        created_change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Key message added",
+        ).first()
+        self.assertIsNotNone(created_change)
+        self.assertIn("Key message: Abundance/Cover", created_change.details)
+        self.assertIn("Supporting summaries: 1", created_change.details)
 
         response = self.client.post(
             url,
@@ -1101,6 +1125,13 @@ class SynopsisStructureTests(TestCase):
             ),
             sorted([self.summary.id, second_summary.id]),
         )
+        updated_change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Key message updated",
+        ).first()
+        self.assertIsNotNone(updated_change)
+        self.assertIn("Key message: Richness/diversity", updated_change.details)
+        self.assertIn("Supporting summaries: 2", updated_change.details)
 
     def test_intervention_reference_numbering_uses_oldest_first_order(self):
         chapter = SynopsisChapter.objects.create(
@@ -1449,6 +1480,32 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(response.status_code, 302)
         key_message.refresh_from_db()
         self.assertFalse(key_message.supporting_summaries.exists())
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Removed study summary from intervention",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Key messages updated: 1", change.details)
+
+    def test_project_hub_shows_structure_audit_entries(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+
+        self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "Executive summary",
+                "chapter_type": SynopsisChapter.TYPE_TEXT,
+            },
+            follow=True,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Chapter added")
+        self.assertContains(response, "Chapter: Executive summary")
 
     def test_export_citation_and_reference_identifier_override(self):
         reference = Reference.objects.create(
@@ -8632,6 +8689,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
             "A revised summary paragraph written by the author.",
         )
         self.assertTrue(self.summary.use_custom_synopsis_draft)
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Custom summary paragraph saved",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference: Test reference", change.details)
+        self.assertIn("Summary ID:", change.details)
 
     def test_switching_back_to_auto_generated_clears_custom_paragraph_mode(self):
         self.summary.study_design = "replicated study"
@@ -8672,6 +8736,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
             response,
             "Auto-generated paragraph restored.",
         )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Auto-generated summary paragraph restored",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference: Test reference", change.details)
 
     def test_save_summary_paragraph_draft_auto_moves_todo_tab_to_in_progress(self):
         self.client.login(username="author", password="pass123")
@@ -8863,6 +8933,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(new_summary.summary_identifier, "manual-ref.a")
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.citation, "Author (2024)")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary tab created",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Source summary: manual-summary", change.details)
 
     def test_duplicate_summary_tab_copies_current_summary_content(self):
         self.summary.assigned_to = self.user
@@ -8933,6 +9009,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
         self.assertEqual(new_summary.research_design, "Replicated; Controlled*")
         self.assertEqual(new_summary.citation, "Author (2024)")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary tab duplicated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Copied from summary: manual-summary", change.details)
 
     def test_duplicate_summary_tab_does_not_copy_comments_assignments_or_exclusion_state(self):
         self.summary.status = ReferenceSummary.STATUS_EXCLUDED
@@ -9028,6 +9110,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.summary_identifier, "CR1000.a")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary tab deleted",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Next active summary: CR1000.a", change.details)
 
     def test_delete_summary_tab_resequences_intervention_assignments(self):
         extra_summary = ReferenceSummary.objects.create(
