@@ -2588,14 +2588,20 @@ class ReferenceSummaryDraftForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["synopsis_draft"].required = False
         self.fields["synopsis_draft"].help_text = (
-            "Saved draft text is used in compilation/export. Leave it blank to fall back to the auto-generated paragraph."
+            "Saving here tells the system to use this paragraph for compilation and export. Switch back to the auto-generated paragraph if you want changes in the structured fields above to flow through again."
         )
         if (
             not self.is_bound
-            and not (self.instance and (self.instance.synopsis_draft or "").strip())
-            and (generated_summary or "").strip()
+            and self.instance
         ):
-            self.initial["synopsis_draft"] = generated_summary.strip()
+            saved_draft = (self.instance.synopsis_draft or "").strip()
+            generated_summary = (generated_summary or "").strip()
+            if self.instance.use_custom_synopsis_draft and saved_draft:
+                self.initial["synopsis_draft"] = saved_draft
+            elif generated_summary:
+                self.initial["synopsis_draft"] = generated_summary
+            else:
+                self.initial["synopsis_draft"] = saved_draft
 
     class Meta:
         model = ReferenceSummary
