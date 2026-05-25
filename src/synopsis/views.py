@@ -8923,16 +8923,6 @@ def _structured_summary_paragraph(
             outcome_lines.append(sentence if sentence.endswith(".") else f"{sentence}.")
 
     methods_text = " ".join([part for part in methods_parts if part]).strip()
-    scores = []
-    if summary.benefits_score is not None:
-        scores.append(f"Benefits: {summary.benefits_score}")
-    if summary.harms_score is not None:
-        scores.append(f"Harms: {summary.harms_score}")
-    if summary.reliability_score is not None:
-        scores.append(f"Reliability: {summary.reliability_score}")
-    if summary.relevance_score is not None:
-        scores.append(f"Relevance: {summary.relevance_score}")
-
     segments = [intro_line]
     if results:
         segments.append(results)
@@ -8944,8 +8934,6 @@ def _structured_summary_paragraph(
     paragraph = " ".join([seg.strip() for seg in segments if seg.strip()]).strip()
     if paragraph and not paragraph.endswith("."):
         paragraph = f"{paragraph}."
-    if scores:
-        paragraph = f"{paragraph}\n\n" + " · ".join(scores)
     return paragraph
 
 
