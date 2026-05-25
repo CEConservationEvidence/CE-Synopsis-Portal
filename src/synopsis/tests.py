@@ -8228,10 +8228,14 @@ class ReferenceSummaryDetailViewTests(TestCase):
             )
         )
 
-        self.assertContains(response, "All fields below are optional.")
+        self.assertContains(response, "These fields do different jobs.")
+        self.assertContains(response, "Usually expected")
+        self.assertContains(response, "Classification")
+        self.assertContains(response, "Writing aid")
+        self.assertContains(response, "Internal")
         self.assertContains(
             response,
-            "Editing the paragraph below does not update these boxes automatically.",
+            "The final compiled text always comes from the summary paragraph below.",
         )
         self.assertContains(response, "Custom paragraph mode is active.")
         self.assertContains(
@@ -8242,6 +8246,8 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Save custom paragraph")
         self.assertContains(response, "Switch back to auto-generated")
         self.assertContains(response, "Clear saved custom paragraph")
+        self.assertContains(response, "Use these tags to organise, filter and group summaries across the synopsis.")
+        self.assertContains(response, "Stored separately for internal use. These scores are not inserted into the generated summary paragraph.")
         self.assertContains(response, "Outcome notes")
         self.assertContains(response, "Main findings summary")
         self.assertContains(response, "More optional detail boxes")
