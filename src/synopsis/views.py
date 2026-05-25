@@ -161,8 +161,13 @@ from .utils import (
     email_subject,
     is_external_author_user,
     minimum_allowed_deadline_date,
+    reference_export_default_citation,
+    reference_summary_custom_citation,
+    reference_summary_effective_citation,
+    reference_summary_seed_citation,
     reply_to_list,
     reference_hash,
+    split_inline_italic_markup,
 )
 
 
@@ -8099,21 +8104,7 @@ def library_reference_detail(request, reference_id):
 
 
 def _reference_summary_citation(reference):
-    parts = []
-    canonical = reference.canonical if hasattr(reference, "canonical") else reference
-    authors = (canonical.authors or "").strip()
-    if authors:
-        parts.append(authors)
-    year = canonical.publication_year
-    if year:
-        parts.append(f"({year})")
-    title = (canonical.title or "").strip()
-    if title:
-        parts.append(title)
-    citation = " ".join(parts).strip()
-    if len(citation) > 500:
-        citation = citation[:497].rstrip() + "..."
-    return citation
+    return reference_summary_seed_citation(reference)
 
 
 def _reference_sort_key(reference):
@@ -8125,69 +8116,18 @@ def _reference_sort_key(reference):
 
 
 def _reference_export_citation(reference):
-    canonical = reference.canonical if hasattr(reference, "canonical") else reference
+    return reference_export_default_citation(reference)
 
-    def _clean(value):
-        return (value or "").strip()
 
-    def _doi_url(raw):
-        value = _clean(raw)
-        if not value:
-            return ""
-        lowered = value.lower()
-        for prefix in ("https://doi.org/", "http://doi.org/", "doi.org/"):
-            if lowered.startswith(prefix):
-                value = value[len(prefix):]
-                break
-        if value.lower().startswith("doi:"):
-            value = value[4:]
-        value = value.strip()
-        return f"https://doi.org/{value}" if value else ""
-
-    parts = []
-    authors = _clean(canonical.authors)
-    year = canonical.publication_year
-    if authors and year:
-        parts.append(f"{authors} ({year})")
-    elif authors:
-        parts.append(authors)
-    elif year:
-        parts.append(f"({year})")
-
-    title = _clean(canonical.title)
-    if title:
-        parts.append(f"{title.rstrip('.')}.")
-
-    journal = _clean(canonical.journal)
-    volume = _clean(canonical.volume)
-    issue = _clean(canonical.issue)
-    pages = _clean(canonical.pages)
-    if journal or volume or issue or pages:
-        source_bits = []
-        if journal:
-            source_bits.append(journal)
-        vol_issue = ""
-        if volume and issue:
-            vol_issue = f"{volume}({issue})"
-        elif volume:
-            vol_issue = volume
-        elif issue:
-            vol_issue = f"({issue})"
-        if vol_issue:
-            source_bits.append(vol_issue)
-        if pages:
-            source_bits.append(pages)
-        if source_bits:
-            parts.append(", ".join(source_bits).rstrip(".") + ".")
-
-    doi_url = _doi_url(canonical.doi)
-    source_url = _clean(canonical.url)
-    if doi_url:
-        parts.append(doi_url)
-    elif source_url:
-        parts.append(source_url)
-
-    return " ".join([part for part in parts if part]).strip()
+def _add_docx_inline_markup_paragraph(doc, prefix: str, text: str):
+    paragraph = doc.add_paragraph()
+    if prefix:
+        paragraph.add_run(prefix)
+    for segment, italic in split_inline_italic_markup(text or ""):
+        run = paragraph.add_run(segment)
+        if italic:
+            run.italic = True
+    return paragraph
 
 
 def _intervention_reference_numbering(assignments):
@@ -8260,7 +8200,7 @@ def _ensure_reference_summaries(project, references):
                 ReferenceSummary.objects.create(
                     project=project,
                     reference=ref,
-                    citation=_reference_summary_citation(ref),
+                    citation="",
                 )
                 _sync_reference_summary_identifiers_for_reference(ref, save=True)
                 existing_ref_ids.add(ref.id)
@@ -8601,7 +8541,7 @@ def _clone_reference_summary(source_summary, user=None):
         project=source_summary.project,
         reference=source_summary.reference,
         assigned_to=source_summary.assigned_to,
-        citation=source_summary.citation or _reference_summary_citation(source_summary.reference),
+        citation=reference_summary_custom_citation(source_summary),
         summary_author=summary_author,
         source_url=source_summary.source_url,
     )
@@ -8663,7 +8603,7 @@ def _duplicate_reference_summary(source_summary, user=None):
         habitat_tags=copy.deepcopy(source_summary.habitat_tags or []),
         location_tags=copy.deepcopy(source_summary.location_tags or []),
         research_design=source_summary.research_design,
-        citation=source_summary.citation or _reference_summary_citation(source_summary.reference),
+        citation=reference_summary_custom_citation(source_summary),
     )
     synced = _sync_reference_summary_identifiers_for_reference(
         source_summary.reference, save=True
@@ -10014,6 +9954,9 @@ def reference_summary_detail(request, project_id, summary_id):
             "action_summaries": action_summaries,
             "generated_summary": generated_summary,
             "current_summary_paragraph": current_summary_paragraph,
+            "summary_citation_is_local_override": bool(
+                reference_summary_custom_citation(summary)
+            ),
             "status_choices": ReferenceSummary.STATUS_CHOICES,
             "all_summary_tabs_excluded": not summary.reference.summaries.exclude(
                 status=ReferenceSummary.STATUS_EXCLUDED
@@ -11054,15 +10997,30 @@ def _generate_synopsis_docx(project):
                         doc.add_paragraph(f"Costs: {summary.cost_summary}")
 
                 if ordered_references:
+                    citation_overrides = {}
+                    for assignment in ordered_assignments:
+                        reference_id = assignment.reference_summary.reference_id
+                        if reference_id in citation_overrides:
+                            continue
+                        custom_citation = reference_summary_custom_citation(
+                            assignment.reference_summary
+                        )
+                        if custom_citation:
+                            citation_overrides[reference_id] = custom_citation
                     doc.add_paragraph("References")
                     for numbers, ref in ordered_references:
                         citation = (
-                            _reference_export_citation(ref)
+                            citation_overrides.get(ref.id)
+                            or _reference_export_citation(ref)
                             or _reference_summary_citation(ref)
                             or (ref.canonical.title if hasattr(ref, "canonical") else ref.title)
                         )
                         number_label = _format_reference_number_ranges(numbers)
-                        doc.add_paragraph(f"({number_label}) {citation}")
+                        _add_docx_inline_markup_paragraph(
+                            doc,
+                            f"({number_label}) ",
+                            citation,
+                        )
 
     for chapter in chapters:
         _render_chapter(chapter)
