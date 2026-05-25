@@ -793,6 +793,70 @@ def _log_project_change(project, user, action: str, details: str = ""):
     )
 
 
+def _history_safe_text(value, *, fallback="—", max_length=180):
+    text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+    text = text.replace(" | ", " / ")
+    if not text:
+        return fallback
+    if len(text) > max_length:
+        text = text[: max_length - 1].rstrip() + "…"
+    return text
+
+
+def _history_reference_title(reference):
+    canonical = reference.canonical if hasattr(reference, "canonical") else reference
+    return _history_safe_text(
+        getattr(canonical, "title", "") or getattr(reference, "title", ""),
+        fallback="Untitled reference",
+        max_length=120,
+    )
+
+
+def _history_summary_id(summary):
+    summary_id = (summary.summary_identifier or "").strip()
+    if summary_id:
+        return summary_id
+    return _history_safe_text(f"Summary {summary.pk}", max_length=60)
+
+
+def _history_reference_categories(reference):
+    values = _reference_category_values(reference)
+    if not values:
+        return "—"
+    label_map = dict(Reference.FOLDER_CHOICES)
+    labels = [label_map.get(value, value) for value in values]
+    return _history_safe_text(", ".join(labels), max_length=220)
+
+
+def _log_summary_history(project, user, action: str, summary, extra_details=None):
+    detail_parts = [
+        f"Reference: {_history_reference_title(summary.reference)}",
+        f"Summary ID: {_history_summary_id(summary)}",
+        f"Status: {summary.get_status_display()}",
+    ]
+    for part in extra_details or []:
+        if part:
+            detail_parts.append(part)
+    _log_project_change(project, user, action, " | ".join(detail_parts))
+
+
+def _log_reference_history(project, user, action: str, reference, extra_details=None):
+    detail_parts = [
+        f"Reference: {_history_reference_title(reference)}",
+        f"Screening status: {reference.get_screening_status_display()}",
+    ]
+    category_text = _history_reference_categories(reference)
+    if category_text != "—":
+        detail_parts.append(f"Categories: {category_text}")
+    notes_text = _history_safe_text(reference.screening_notes, fallback="", max_length=220)
+    if notes_text:
+        detail_parts.append(f"Notes: {notes_text}")
+    for part in extra_details or []:
+        if part:
+            detail_parts.append(part)
+    _log_project_change(project, user, action, " | ".join(detail_parts))
+
+
 def _format_value(value):
     if value in (None, ""):
         return "—"
@@ -3000,6 +3064,8 @@ def _normalise_history_title(action: str) -> str:
         "Updated project settings": "Synopsis settings updated",
         "Updated project status": "Synopsis status updated",
         "Deleted advisory member": "Advisory board member removed",
+        "Summary updated": "Summary saved",
+        "Summary status updated": "Summary status changed",
     }
     return mapping.get(action, action)
 
@@ -9578,6 +9644,24 @@ def reference_summary_detail(request, project_id, summary_id):
             _sync_reference_summary_identifiers_for_reference(summary.reference, save=True)
             summary_form.save_m2m()
             auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
+            _log_summary_history(
+                project,
+                request.user,
+                "Summary updated",
+                summary,
+                extra_details=[
+                    (
+                        f"Status change: {dict(ReferenceSummary.STATUS_CHOICES).get(previous_status, previous_status)} → {summary.get_status_display()}"
+                        if previous_status != summary.status
+                        else ""
+                    ),
+                    (
+                        "Workflow: Auto-moved from To summarise to In progress"
+                        if auto_promoted
+                        else ""
+                    ),
+                ],
+            )
             if auto_promoted:
                 messages.success(
                     request,
@@ -9723,9 +9807,29 @@ def reference_summary_detail(request, project_id, summary_id):
                 source_project=project,
                 change_source="summary_reference_management",
             )
+            status_change_detail = (
+                f"Status change: {dict(Reference.SCREENING_STATUS_CHOICES).get(previous_status, previous_status)} → {reference.get_screening_status_display()}"
+                if previous_status != reference.screening_status
+                else ""
+            )
 
             if reference.screening_status == "excluded":
                 removed_assignments = _remove_reference_from_synopsis(reference)
+                _log_reference_history(
+                    project,
+                    request.user,
+                    "Reference excluded from synopsis",
+                    reference,
+                    extra_details=[
+                        f"Summary ID: {_history_summary_id(summary)}",
+                        status_change_detail,
+                        (
+                            f"Removed from intervention assignments: {removed_assignments}"
+                            if removed_assignments
+                            else ""
+                        ),
+                    ],
+                )
                 message = "Reference excluded from this synopsis."
                 if removed_assignments:
                     message += f" Removed it from {removed_assignments} intervention assignment(s)."
@@ -9739,6 +9843,16 @@ def reference_summary_detail(request, project_id, summary_id):
                 )
 
             if previous_status == "excluded":
+                _log_reference_history(
+                    project,
+                    request.user,
+                    "Reference re-included in synopsis",
+                    reference,
+                    extra_details=[
+                        f"Summary ID: {_history_summary_id(summary)}",
+                        status_change_detail,
+                    ],
+                )
                 message = "Reference re-included in this synopsis. You can now continue summarising it."
                 if shared_folder_changed:
                     message += (
@@ -9746,6 +9860,16 @@ def reference_summary_detail(request, project_id, summary_id):
                     )
                 messages.success(request, message)
             else:
+                _log_reference_history(
+                    project,
+                    request.user,
+                    "Reference classification updated",
+                    reference,
+                    extra_details=[
+                        f"Summary ID: {_history_summary_id(summary)}",
+                        status_change_detail,
+                    ],
+                )
                 message = "Reference classification updated."
                 if shared_folder_changed:
                     message += (
@@ -9829,6 +9953,25 @@ def reference_summary_detail(request, project_id, summary_id):
                 ]
             )
             if summary.status == ReferenceSummary.STATUS_EXCLUDED:
+                _log_summary_history(
+                    project,
+                    request.user,
+                    "Summary excluded after full-text review",
+                    summary,
+                    extra_details=[
+                        f"Status change: {dict(ReferenceSummary.STATUS_CHOICES).get(previous_status, previous_status)} → {summary.get_status_display()}",
+                        (
+                            f"Exclusion reason: {_history_safe_text(summary.exclusion_reason, fallback='—', max_length=220)}"
+                            if summary.exclusion_reason
+                            else ""
+                        ),
+                        (
+                            f"Removed from intervention assignments: {removed_assignments}"
+                            if removed_assignments
+                            else ""
+                        ),
+                    ],
+                )
                 messages.success(
                     request,
                     "Summary excluded after full-text review."
@@ -9839,6 +9982,20 @@ def reference_summary_detail(request, project_id, summary_id):
                     ),
                 )
             else:
+                _log_summary_history(
+                    project,
+                    request.user,
+                    "Summary status updated",
+                    summary,
+                    extra_details=[
+                        (
+                            f"Status change: {dict(ReferenceSummary.STATUS_CHOICES).get(previous_status, previous_status)} → {summary.get_status_display()}"
+                            if previous_status != summary.status
+                            else ""
+                        ),
+                        f"Needs help: {'Yes' if summary.needs_help else 'No'}",
+                    ],
+                )
                 messages.success(request, "Status updated.")
             return redirect(
                 "synopsis:reference_summary_detail",
@@ -11234,6 +11391,25 @@ def reference_batch_detail(request, project_id, batch_id):
                     message += (
                         f" Updated the shared library categories for {shared_updated} linked reference(s)."
                     )
+                _log_project_change(
+                    project,
+                    request.user,
+                    "Bulk reference categories updated",
+                    " | ".join(
+                        part
+                        for part in [
+                            f"Batch: {_history_safe_text(batch.label, max_length=120)}",
+                            f"References: {updated}",
+                            f"Categories: {_history_safe_text(', '.join(dict(Reference.FOLDER_CHOICES).get(value, value) for value in categories), fallback='—', max_length=220)}",
+                            (
+                                f"Shared library records updated: {shared_updated}"
+                                if shared_updated
+                                else ""
+                            ),
+                        ]
+                        if part
+                    ),
+                )
                 messages.success(request, message)
                 redirect_url = reverse(
                     "synopsis:reference_batch_detail",
@@ -11297,6 +11473,30 @@ def reference_batch_detail(request, project_id, batch_id):
 
             if updated:
                 status_label = status_choices.get(new_status, new_status.title())
+                _log_project_change(
+                    project,
+                    request.user,
+                    "Bulk reference screening updated",
+                    " | ".join(
+                        part
+                        for part in [
+                            f"Batch: {_history_safe_text(batch.label, max_length=120)}",
+                            f"References: {updated}",
+                            f"Screening status: {status_label}",
+                            (
+                                f"Categories applied: {_history_safe_text(', '.join(dict(Reference.FOLDER_CHOICES).get(value, value) for value in bulk_folder), fallback='—', max_length=220)}"
+                                if apply_bulk_folder
+                                else ""
+                            ),
+                            (
+                                f"Shared library records updated: {shared_updated}"
+                                if shared_updated
+                                else ""
+                            ),
+                        ]
+                        if part
+                    ),
+                )
                 message = f"Marked {updated} reference(s) as {status_label}."
                 if apply_bulk_folder:
                     message += " Applied the selected categories at the same time."
@@ -11335,6 +11535,7 @@ def reference_batch_detail(request, project_id, batch_id):
                 batch=batch,
                 project=project,
             )
+            ref_status_before = ref.screening_status
             status = form.cleaned_data["screening_status"]
             folder = normalize_reference_folder_values(
                 form.cleaned_data.get("reference_folder") or []
@@ -11367,6 +11568,26 @@ def reference_batch_detail(request, project_id, batch_id):
                     message += (
                         " Shared CE subject categories were updated for all linked synopsis copies."
                     )
+            status_change_detail = (
+                f"Status change: {dict(Reference.SCREENING_STATUS_CHOICES).get(ref_status_before, ref_status_before)} → {ref.get_screening_status_display()}"
+                if ref_status_before != ref.screening_status
+                else ""
+            )
+            if ref.screening_status == "excluded" and ref_status_before != "excluded":
+                action_label = "Reference excluded from synopsis"
+            elif ref_status_before == "excluded" and ref.screening_status != "excluded":
+                action_label = "Reference re-included in synopsis"
+            elif "reference_folder" in request.POST or "screening_notes" in request.POST:
+                action_label = "Reference classification updated"
+            else:
+                action_label = "Reference screening updated"
+            _log_reference_history(
+                project,
+                request.user,
+                action_label,
+                ref,
+                extra_details=[status_change_detail],
+            )
             messages.success(request, message)
             redirect_params = []
             if status_filter:

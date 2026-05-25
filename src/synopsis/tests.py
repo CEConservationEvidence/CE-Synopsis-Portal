@@ -6729,6 +6729,13 @@ class ReferenceBatchUploadParsingTests(TestCase):
             self.assertEqual(ref.screening_status, "included")
             self.assertEqual(ref.screened_by, self.user)
             self.assertIsNotNone(ref.screening_decision_at)
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Bulk reference screening updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("References: 2", change.details)
+        self.assertIn("Screening status: Include", change.details)
 
     def test_bulk_include_can_apply_selected_folders_at_same_time(self):
         upload = SimpleUploadedFile(
@@ -7071,6 +7078,12 @@ class ReferenceBatchUploadParsingTests(TestCase):
             self.assertEqual(ref.category_values, ["3a", "15"])
             self.assertEqual(ref.screened_by, self.user)
             self.assertIsNotNone(ref.screening_decision_at)
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Bulk reference categories updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("References: 2", change.details)
 
     def test_single_screening_update_filters_blank_reference_folder_values(self):
         upload = SimpleUploadedFile(
@@ -7112,6 +7125,13 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertEqual(ref.unlinked_reference_folder, [])
         self.assertEqual(ref.category_values, ["3a"])
         self.assertEqual(ref.library_reference.reference_folder, ["3a"])
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Reference classification updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference:", change.details)
+        self.assertIn("Notes: Relevant to the topic.", change.details)
 
     def test_save_folders_preserves_existing_screening_notes(self):
         upload = SimpleUploadedFile(
@@ -8454,6 +8474,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.summary.habitat_and_sites, "New habitat info")
         messages = list(get_messages(resp.wsgi_request))
         self.assertTrue(any("Summary updated" in str(m) for m in messages))
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference: Test reference", change.details)
+        self.assertIn("Status: In progress", change.details)
 
     def test_save_summary_auto_moves_todo_tab_to_in_progress_when_content_saved(self):
         self.client.login(username="author", password="pass123")
@@ -8476,6 +8503,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
             response,
             "Status moved to In progress automatically.",
         )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Workflow: Auto-moved from To summarise to In progress", change.details)
 
     def test_save_summary_can_store_selected_project_action(self):
         chapter = SynopsisChapter.objects.create(
@@ -8752,6 +8785,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertTrue(
             any("excluded after full-text review" in str(m).lower() for m in messages)
         )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary excluded after full-text review",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Exclusion reason: Full text shows this is not an intervention study.", change.details)
+        self.assertIn("Removed from intervention assignments: 1", change.details)
 
     def test_saved_summary_paragraph_draft_is_used_for_compilation(self):
         self.summary.reference_identifier = "CR1000"
@@ -9341,6 +9381,14 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.reference.category_values, ["3a"])
         self.assertEqual(self.reference.screening_notes, "Freshwater fish evidence.")
         self.assertContains(response, "Reference classification updated.")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Reference classification updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference: Test reference", change.details)
+        self.assertIn("Summary ID:", change.details)
+        self.assertIn("Notes: Freshwater fish evidence.", change.details)
 
     def test_summary_detail_folder_update_updates_shared_library_reference(self):
         canonical = LibraryReference.objects.create(
@@ -9561,6 +9609,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
             f"{reverse('synopsis:reference_summary_detail', args=[self.project.id, self.summary.id])}?panel=management",
             fetch_redirect_response=False,
         )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Reference excluded from synopsis",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Removed from intervention assignments: 1", change.details)
 
     def test_summary_detail_reference_management_panel_reopens_after_classification_update(self):
         self.reference.screening_status = "included"
@@ -9585,6 +9639,28 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Re-include this reference")
         self.assertTrue(response.context["open_management_panel"])
         self.assertContains(response, "Reference excluded from this synopsis.")
+
+    def test_project_hub_shows_summary_audit_entries(self):
+        self.client.login(username="author", password="pass123")
+        self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "save-summary",
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "habitat_and_sites": "New habitat info",
+            },
+            follow=True,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Summary saved")
+        self.assertContains(response, "Reference: Test reference")
 
     def test_reference_management_explains_difference_between_summary_and_reference_exclusion(self):
         self.reference.screening_status = "included"
