@@ -690,8 +690,19 @@
                                 {{ summary_form.location_tags }}
                             </div>
                             <div class="col-md-12">
-                                <label class="form-label">Citation</label>
+                                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+                                    <label class="form-label mb-0">Citation for synopsis export</label>
+                                    {% if summary_citation_is_local_override %}
+                                    <span class="badge text-bg-warning border">Local synopsis override in use</span>
+                                    {% else %}
+                                    <span class="badge text-bg-light border">Shared reference citation in use</span>
+                                    {% endif %}
+                                </div>
                                 {{ summary_form.citation }}
+                                <div class="form-text">{{ summary_form.citation.help_text }}</div>
+                                {% if summary_form.citation.errors %}
+                                <div class="text-danger small mt-1">{{ summary_form.citation.errors|join:", " }}</div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>

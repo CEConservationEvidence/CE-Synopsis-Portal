@@ -19,6 +19,8 @@ from .utils import (
     default_protocol_review_message,
     default_synopsis_review_message,
     minimum_allowed_deadline_date,
+    normalize_reference_summary_citation,
+    reference_summary_effective_citation,
 )
 
 MAX_LOCATION_LINE_LENGTH = 200
@@ -2318,6 +2320,12 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             self.fields["methods_and_design"].initial = "\n\n".join(
                 [part for part in methods_parts if part]
             )
+            self.initial["citation"] = reference_summary_effective_citation(instance)
+        self.fields["citation"].help_text = (
+            "This starts from the shared reference database citation. "
+            "Editing it here changes only this summary/synopsis export and does not update the shared reference database. "
+            "Use <i>...</i> or <em>...</em> for italics."
+        )
         for field_name, (min_value, max_value, step) in self.QUALITY_SCORE_RANGES.items():
             field = self.fields.get(field_name)
             if not field:
@@ -2392,7 +2400,13 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "harms_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
             "reliability_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
             "relevance_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
-            "citation": forms.TextInput(attrs={"class": "form-control"}),
+            "citation": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 3,
+                    "placeholder": "Leave this matching the shared reference citation, or enter a synopsis-only override. Use <i>...</i> for italics.",
+                }
+            ),
         }
 
     def _split_tags(self, field_name):
@@ -2563,6 +2577,10 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             cleaned["study_design"] = self._build_study_design_from_research_design(
                 cleaned.get("research_design")
             )
+        cleaned["citation"] = normalize_reference_summary_citation(
+            cleaned.get("citation"),
+            self.instance.reference if self.instance and self.instance.reference_id else None,
+        )
         return cleaned
 
     def save(self, commit=True):
@@ -2584,6 +2602,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         ]:
             instance_value = self.cleaned_data.get(field, [])
             instance.__setattr__(field, instance_value if instance_value is not None else [])
+        instance.citation = self.cleaned_data.get("citation", "")
         if commit:
             instance.save()
             self.save_m2m()
