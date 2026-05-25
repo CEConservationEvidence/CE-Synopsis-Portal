@@ -8192,6 +8192,22 @@ class ReferenceSummaryFormTests(TestCase):
             ],
         )
 
+    def test_outcomes_raw_treats_escaped_pipes_as_free_text(self):
+        data = {
+            "status": ReferenceSummary.STATUS_TODO,
+            "outcomes_raw": r"Species richness increased in Site A \| Site B comparison.",
+        }
+        form = ReferenceSummaryUpdateForm(data=data, project=self.project)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.cleaned_data["outcomes_raw"],
+            [
+                {
+                    "sentence": "Species richness increased in Site A | Site B comparison."
+                }
+            ],
+        )
+
     def test_structured_summary_paragraph_uses_free_text_outcome_notes(self):
         summary = ReferenceSummary(
             study_design="replicated study",

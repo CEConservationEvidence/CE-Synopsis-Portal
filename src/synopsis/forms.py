@@ -2509,8 +2509,8 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         lines = [line.strip() for line in raw.splitlines() if line.strip()]
         parsed = []
         for line in lines:
-            if "|" not in line:
-                parsed.append({"sentence": line})
+            if not re.search(r"(?<!\\)\|", line):
+                parsed.append({"sentence": line.replace("\\|", "|")})
                 continue
             parts = re.split(r"(?<!\\)\|", line)
             parts = [part.replace("\\|", "|").strip() for part in parts]
