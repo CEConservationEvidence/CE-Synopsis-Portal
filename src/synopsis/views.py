@@ -8651,6 +8651,7 @@ def _duplicate_reference_summary(source_summary, user=None):
         summary_text=source_summary.summary_text,
         key_findings=source_summary.key_findings,
         synopsis_draft=source_summary.synopsis_draft,
+        use_custom_synopsis_draft=source_summary.use_custom_synopsis_draft,
         summary_author=summary_author,
         broad_category=source_summary.broad_category,
         keywords=copy.deepcopy(source_summary.keywords or []),
@@ -8948,7 +8949,7 @@ def _reference_summary_paragraph(
     summary: ReferenceSummary, reference_identifier_override: str | None = None
 ) -> str:
     draft = (summary.synopsis_draft or "").strip()
-    if draft:
+    if summary.use_custom_synopsis_draft and draft:
         override = (str(reference_identifier_override).strip() if reference_identifier_override else "")
         if override:
             known_identifiers = {
@@ -9636,8 +9637,6 @@ def reference_summary_detail(request, project_id, summary_id):
             )
         if action == "save-summary" and summary_form.is_valid():
             previous_status = summary.status
-            previous_generated_summary = generated_summary.strip()
-            previous_saved_draft = (summary.synopsis_draft or "").strip()
             summary = summary_form.save(commit=False)
             if not summary.summary_author:
                 summary.summary_author = (
@@ -9646,24 +9645,8 @@ def reference_summary_detail(request, project_id, summary_id):
             summary.save()
             _sync_reference_summary_identifiers_for_reference(summary.reference, save=True)
             summary_form.save_m2m()
-            refreshed_saved_draft = False
-            if previous_saved_draft and previous_saved_draft == previous_generated_summary:
-                updated_generated_summary = _structured_summary_paragraph(summary).strip()
-                summary.synopsis_draft = updated_generated_summary
-                summary.save(update_fields=["synopsis_draft", "updated_at"])
-                refreshed_saved_draft = True
             auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
-            if refreshed_saved_draft and auto_promoted:
-                messages.success(
-                    request,
-                    "Summary updated. Status moved to In progress automatically. The saved paragraph draft was refreshed automatically.",
-                )
-            elif refreshed_saved_draft:
-                messages.success(
-                    request,
-                    "Summary updated. The saved paragraph draft was refreshed automatically.",
-                )
-            elif auto_promoted:
+            if auto_promoted:
                 messages.success(
                     request,
                     "Summary updated. Status moved to In progress automatically.",
@@ -9691,18 +9674,25 @@ def reference_summary_detail(request, project_id, summary_id):
             previous_status = summary.status
             draft_command = request.POST.get("draft_command") or "save"
             if draft_command == "use-generated":
-                summary.synopsis_draft = generated_summary
-                summary.save(update_fields=["synopsis_draft", "updated_at"])
+                summary.synopsis_draft = ""
+                summary.use_custom_synopsis_draft = False
+                summary.save(
+                    update_fields=[
+                        "synopsis_draft",
+                        "use_custom_synopsis_draft",
+                        "updated_at",
+                    ]
+                )
                 auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
                 if auto_promoted:
                     messages.success(
                         request,
-                        "Generated paragraph copied into the editable draft. Status moved to In progress automatically.",
+                        "Auto-generated paragraph restored. Status moved to In progress automatically. Changes in the structured fields above will flow through again.",
                     )
                 else:
                     messages.success(
                         request,
-                        "Generated paragraph copied into the editable draft.",
+                        "Auto-generated paragraph restored. Changes in the structured fields above will flow through again.",
                     )
                 return redirect(
                     "synopsis:reference_summary_detail",
@@ -9711,10 +9701,17 @@ def reference_summary_detail(request, project_id, summary_id):
                 )
             if draft_command == "clear":
                 summary.synopsis_draft = ""
-                summary.save(update_fields=["synopsis_draft", "updated_at"])
+                summary.use_custom_synopsis_draft = False
+                summary.save(
+                    update_fields=[
+                        "synopsis_draft",
+                        "use_custom_synopsis_draft",
+                        "updated_at",
+                    ]
+                )
                 messages.success(
                     request,
-                    "Saved paragraph draft cleared. Compilation will use the auto-generated paragraph again.",
+                    "Saved custom paragraph cleared. Compilation will use the auto-generated paragraph when available.",
                 )
                 return redirect(
                     "synopsis:reference_summary_detail",
@@ -9723,15 +9720,36 @@ def reference_summary_detail(request, project_id, summary_id):
                 )
             if draft_form.is_valid():
                 summary = draft_form.save(commit=False)
-                summary.save(update_fields=["synopsis_draft", "updated_at"])
+                summary.synopsis_draft = (summary.synopsis_draft or "").strip()
+                summary.use_custom_synopsis_draft = bool(summary.synopsis_draft)
+                summary.save(
+                    update_fields=[
+                        "synopsis_draft",
+                        "use_custom_synopsis_draft",
+                        "updated_at",
+                    ]
+                )
                 auto_promoted = _auto_promote_summary_from_todo(summary, previous_status)
-                if auto_promoted:
+                if summary.use_custom_synopsis_draft and auto_promoted:
                     messages.success(
                         request,
-                        "Summary paragraph draft saved. Status moved to In progress automatically.",
+                        "Custom paragraph saved and set as the version used for compilation. Status moved to In progress automatically.",
+                    )
+                elif summary.use_custom_synopsis_draft:
+                    messages.success(
+                        request,
+                        "Custom paragraph saved and set as the version used for compilation.",
+                    )
+                elif auto_promoted:
+                    messages.success(
+                        request,
+                        "Custom paragraph cleared. Status moved to In progress automatically. Compilation will use the auto-generated paragraph when available.",
                     )
                 else:
-                    messages.success(request, "Summary paragraph draft saved.")
+                    messages.success(
+                        request,
+                        "Custom paragraph cleared. Compilation will use the auto-generated paragraph when available.",
+                    )
                 return redirect(
                     "synopsis:reference_summary_detail",
                     project_id=project.id,
