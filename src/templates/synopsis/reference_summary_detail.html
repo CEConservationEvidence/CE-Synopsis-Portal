@@ -3,10 +3,15 @@
 {# TODO: #83 Move quality assessment into its own later-step section so the core summary form stays focused on summary writing. #}
 {% extends "synopsis/base.html" %}
 {% block title %}Reference summary – {{ project.title }}{% endblock %}
+{% block page_container_class %}container-fluid px-3 px-xl-4 px-xxl-5{% endblock %}
 {% block content %}
 {{ summary_form.media }}
 <div id="reference-summary-page">
 <style>
+    #reference-summary-page {
+        max-width: 90%;
+        margin: 0 auto;
+    }
     .generated-readonly {
         background-color: #f3f4f6;
         border-color: #d5d9de;
@@ -72,8 +77,26 @@
         display: none;
     }
     @media (max-width: 575.98px) {
+        #reference-summary-page {
+            max-width: 100%;
+        }
         .tag-picker-toolbar {
             grid-template-columns: minmax(0, 1fr);
+        }
+    }
+    @media (min-width: 576px) and (max-width: 991.98px) {
+        #reference-summary-page {
+            max-width: 96%;
+        }
+    }
+    @media (min-width: 1200px) {
+        .reference-summary-pdf-col {
+            flex: 0 0 46%;
+            max-width: 46%;
+        }
+        .reference-summary-form-col {
+            flex: 0 0 54%;
+            max-width: 54%;
         }
     }
     .summary-editor-presence {
@@ -111,6 +134,25 @@
         background: #fff1f3;
         border: 1px solid #efc2c8;
         color: #7a2432;
+    }
+    .summary-form-compact {
+        gap: 1rem !important;
+    }
+    .summary-form-compact .row {
+        --bs-gutter-x: 1rem;
+        --bs-gutter-y: 0.65rem;
+    }
+    .summary-form-compact .form-label {
+        margin-bottom: 0.3rem;
+    }
+    .summary-form-compact .form-text {
+        margin-top: 0.2rem;
+    }
+    .summary-form-compact .tag-picker {
+        padding: 0.65rem;
+    }
+    .summary-form-compact details {
+        margin-top: 0.75rem !important;
     }
 </style>
 <h1 class="mb-3">Reference summary</h1>
@@ -376,8 +418,8 @@
         </div>
     </div>
 </div>
-<div class="row g-3">
-    <div class="col-xl-6 col-12 d-flex flex-column">
+<div class="row g-2 g-xxl-3">
+    <div class="col-xl-5 col-12 d-flex flex-column reference-summary-pdf-col">
         <div class="card flex-grow-1 shadow-sm" id="pdf-card" style="position: sticky; top: 1rem;">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Reference PDF</span>
@@ -428,7 +470,7 @@
             </div>
         </div>
     </div>
-    <div class="col-xl-6 col-12">
+    <div class="col-xl-7 col-12 reference-summary-form-col">
         <div class="card mb-3 shadow-sm" id="summary-card">
             <div class="card-header">Summary details</div>
             <div class="card-body">
@@ -459,7 +501,7 @@
                     </ul>
                 </div>
                 {% endif %}
-                <form method="post" class="d-flex flex-column gap-4" id="summary-save-form">
+                <form method="post" class="d-flex flex-column gap-3 summary-form-compact" id="summary-save-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-summary">
                     <div>
