@@ -9945,8 +9945,10 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Excluded after full text")
-        self.assertContains(response, "Jump to excluded after full text")
-        self.assertContains(response, 'id="summary-column-excluded"', html=False)
+        self.assertContains(response, 'class="summary-board-scroll pb-4"', html=False)
+        self.assertContains(response, 'class="summary-board-row"', html=False)
+        self.assertContains(response, 'class="summary-board-column"', html=False)
+        self.assertNotContains(response, "Jump to excluded after full text")
         self.assertContains(
             response,
             "Full text did not test a conservation intervention.",
