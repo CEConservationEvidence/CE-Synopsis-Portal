@@ -91,8 +91,10 @@ from .utils import (
     default_synopsis_review_message,
     email_subject,
     ensure_global_groups,
+    reference_summary_effective_citation,
     reference_hash,
     reply_to_list,
+    split_inline_italic_markup,
 )
 from .views import (
     _advisory_board_context,
@@ -1558,6 +1560,65 @@ class SynopsisStructureTests(TestCase):
                 for paragraph in paragraphs
             )
         )
+
+    def test_generate_docx_uses_summary_citation_override_with_italics(self):
+        from docx import Document
+
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Shared study paper",
+            authors="Gamma G.",
+            publication_year=2009,
+            journal="Journal of Marine Trials",
+            volume="12",
+            pages="34-40",
+            hash_key="hash-docx-citation-override",
+            screening_status="included",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            study_design="replicated study",
+            year_range="2009",
+            summary_of_results="kelp cover improved.",
+            citation="Gamma G. (2009) <i>Glipa</i> restoration note.",
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=summary,
+            position=1,
+        )
+
+        payload = _generate_synopsis_docx(self.project)
+        document = Document(io.BytesIO(payload))
+        reference_paragraph = next(
+            paragraph
+            for paragraph in document.paragraphs
+            if paragraph.text.startswith("(1) Gamma G. (2009) Glipa restoration note.")
+        )
+
+        self.assertEqual(
+            reference_paragraph.text,
+            "(1) Gamma G. (2009) Glipa restoration note.",
+        )
+        self.assertTrue(any(run.text == "Glipa" and run.italic for run in reference_paragraph.runs))
 
     def test_workspace_routes_load(self):
         narrative_url = reverse(
@@ -5887,6 +5948,20 @@ class ViewHelperTests(TestCase):
         )
         self.assertEqual(_format_deadline(None), "—")
 
+    def test_split_inline_italic_markup_supports_simple_i_tags(self):
+        segments = split_inline_italic_markup(
+            "Gamma G. (2009) <i>Glipa</i> restoration note."
+        )
+
+        self.assertEqual(
+            segments,
+            [
+                ("Gamma G. (2009) ", False),
+                ("Glipa", True),
+                (" restoration note.", False),
+            ],
+        )
+
     def test_user_can_confirm_phase(self):
         staff = User.objects.create_user(username="staff", is_staff=True)
         self.assertTrue(_user_can_confirm_phase(staff, self.project))
@@ -7925,6 +8000,72 @@ class ReferenceSummaryFormTests(TestCase):
 
         self.assertEqual(form["synopsis_draft"].value(), "Author edited paragraph.")
 
+    def test_citation_field_prefills_with_shared_reference_citation_when_no_local_override_exists(self):
+        batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Citation batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=batch,
+            hash_key="c" * 40,
+            title="Corallivorous snail removal",
+            authors="Miller M.",
+            publication_year=2001,
+            journal="Coral Reefs",
+            volume="19",
+            pages="293-295",
+            doi="10.1007/PL00006963",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            citation="Miller M. (2001) Corallivorous snail removal",
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
+
+        self.assertEqual(
+            form["citation"].value(),
+            reference_summary_effective_citation(summary),
+        )
+        self.assertIn("Coral Reefs, 19, 293-295.", form["citation"].value())
+
+    def test_citation_matching_shared_reference_is_not_saved_as_local_override(self):
+        batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Citation save batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=batch,
+            hash_key="d" * 40,
+            title="Corallivorous snail removal",
+            authors="Miller M.",
+            publication_year=2001,
+            journal="Coral Reefs",
+            volume="19",
+            pages="293-295",
+            doi="10.1007/PL00006963",
+        )
+        summary = ReferenceSummary.objects.create(project=self.project, reference=reference)
+        shared_citation = reference_summary_effective_citation(summary)
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "citation": shared_citation,
+            },
+            instance=summary,
+            project=self.project,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(saved.citation, "")
+
     def test_location_tags_accepts_place_and_coords(self):
         form = ReferenceSummaryUpdateForm(
             data={
@@ -8102,6 +8243,28 @@ class ReferenceSummaryDetailViewTests(TestCase):
                 reference=self.reference,
             ).count(),
             1,
+        )
+
+    def test_detail_page_explains_local_citation_override_behaviour(self):
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "Citation for synopsis export")
+        self.assertContains(response, "Shared reference citation in use")
+        self.assertContains(
+            response,
+            "does not update the shared reference database",
+        )
+        self.assertContains(
+            response,
+            "&lt;i&gt;...&lt;/i&gt; or &lt;em&gt;...&lt;/em&gt; for italics.",
+            html=False,
         )
 
     def test_detail_page_shows_project_action_dropdown_options(self):
