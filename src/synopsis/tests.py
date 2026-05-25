@@ -7989,6 +7989,23 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertIn("Species richness increased after scrub removal.", paragraph)
         self.assertIn("Breeding success stayed similar between treatments.", paragraph)
 
+    def test_structured_summary_paragraph_excludes_quality_scores_from_text(self):
+        summary = ReferenceSummary(
+            study_design="replicated study",
+            summary_of_results="brush cutting improved habitat condition.",
+            benefits_score=80,
+            harms_score=5,
+            reliability_score=0.7,
+            relevance_score=0.9,
+        )
+
+        paragraph = _structured_summary_paragraph(summary)
+
+        self.assertNotIn("Benefits:", paragraph)
+        self.assertNotIn("Harms:", paragraph)
+        self.assertNotIn("Reliability:", paragraph)
+        self.assertNotIn("Relevance:", paragraph)
+
     def test_quality_scores_accept_boundary_values(self):
         form = ReferenceSummaryUpdateForm(
             data={
