@@ -869,7 +869,8 @@ class SynopsisStructureTests(TestCase):
         self.summary.synopsis_draft = (
             "A replicated study found that mowing more frequently increased arable plant richness."
         )
-        self.summary.save(update_fields=["synopsis_draft"])
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(update_fields=["synopsis_draft", "use_custom_synopsis_draft"])
         SynopsisAssignment.objects.create(
             intervention=SynopsisIntervention.objects.get(title="Mow more frequently"),
             reference_summary=self.summary,
@@ -7897,6 +7898,33 @@ class ReferenceSummaryFormTests(TestCase):
 
         self.assertEqual(form["synopsis_draft"].value(), "Auto-generated paragraph.")
 
+    def test_draft_form_prefills_saved_custom_paragraph_when_custom_mode_is_active(self):
+        project = Project.objects.create(title="Saved custom paragraph")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="f" * 40,
+            title="Custom paragraph reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            synopsis_draft="Author edited paragraph.",
+            use_custom_synopsis_draft=True,
+        )
+
+        form = ReferenceSummaryDraftForm(
+            instance=summary,
+            generated_summary="Auto-generated paragraph.",
+        )
+
+        self.assertEqual(form["synopsis_draft"].value(), "Author edited paragraph.")
+
     def test_location_tags_accepts_place_and_coords(self):
         form = ReferenceSummaryUpdateForm(
             data={
@@ -8137,6 +8165,31 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_detail_page_explains_optional_fields_and_custom_paragraph_mode(self):
+        self.summary.synopsis_draft = "Manual paragraph text."
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(
+            update_fields=["synopsis_draft", "use_custom_synopsis_draft", "updated_at"]
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "All fields below are optional.")
+        self.assertContains(
+            response,
+            "Editing the paragraph below does not update these boxes automatically.",
+        )
+        self.assertContains(response, "Custom paragraph in use")
+        self.assertContains(response, "Save custom paragraph")
+        self.assertContains(response, "Switch back to auto-generated")
+        self.assertContains(response, "Clear saved custom paragraph")
+
     def test_creating_summary_tab_invalidates_board_presence_summary_id_cache(self):
         self.client.login(username="author", password="pass123")
         initial_ids = _project_reference_summary_ids(self.project.id)
@@ -8243,7 +8296,10 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
     def test_save_summary_does_not_clear_saved_paragraph_draft(self):
         self.summary.synopsis_draft = "Edited summary paragraph."
-        self.summary.save(update_fields=["synopsis_draft", "updated_at"])
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(
+            update_fields=["synopsis_draft", "use_custom_synopsis_draft", "updated_at"]
+        )
 
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
@@ -8259,15 +8315,14 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.synopsis_draft, "Edited summary paragraph.")
+        self.assertTrue(self.summary.use_custom_synopsis_draft)
 
-    def test_save_summary_refreshes_saved_generated_paragraph_after_field_changes(self):
+    def test_save_summary_keeps_auto_generated_mode_and_current_paragraph_updates(self):
         self.summary.study_design = "replicated, controlled study"
         self.summary.year_range = "2018-2020"
         self.summary.summary_of_results = "installing nest boxes increased occupancy."
         self.summary.habitat_and_sites = "woodland sites"
         self.summary.country = "UK"
-        generated_before = _structured_summary_paragraph(self.summary)
-        self.summary.synopsis_draft = generated_before
         self.summary.save(
             update_fields=[
                 "study_design",
@@ -8275,14 +8330,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
                 "summary_of_results",
                 "habitat_and_sites",
                 "country",
-                "synopsis_draft",
                 "updated_at",
             ]
         )
 
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
-        response = self.client.post(
+        self.client.post(
             url,
             {
                 "action": "save-summary",
@@ -8298,19 +8352,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.summary.refresh_from_db()
         generated_after = _structured_summary_paragraph(self.summary)
-        self.assertEqual(self.summary.synopsis_draft, generated_after)
-        messages = [str(message) for message in get_messages(response.wsgi_request)]
-        self.assertTrue(
-            any(
-                "saved paragraph draft was refreshed automatically" in message.lower()
-                for message in messages
-            )
-        )
+        self.assertFalse(self.summary.use_custom_synopsis_draft)
+        self.assertEqual(_reference_summary_paragraph(self.summary), generated_after)
 
     def test_save_summary_paragraph_draft_persists_changes(self):
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
-        response = self.client.post(
+        self.client.post(
             url,
             {
                 "action": "save-synopsis-draft",
@@ -8324,6 +8372,47 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(
             self.summary.synopsis_draft,
             "A revised summary paragraph written by the author.",
+        )
+        self.assertTrue(self.summary.use_custom_synopsis_draft)
+
+    def test_switching_back_to_auto_generated_clears_custom_paragraph_mode(self):
+        self.summary.study_design = "replicated study"
+        self.summary.summary_of_results = "occupancy increased."
+        self.summary.synopsis_draft = "Custom paragraph text."
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(
+            update_fields=[
+                "study_design",
+                "summary_of_results",
+                "synopsis_draft",
+                "use_custom_synopsis_draft",
+                "updated_at",
+            ]
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "save-synopsis-draft",
+                "draft_command": "use-generated",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertFalse(self.summary.use_custom_synopsis_draft)
+        self.assertEqual(self.summary.synopsis_draft, "")
+        self.assertEqual(
+            _reference_summary_paragraph(self.summary),
+            _structured_summary_paragraph(self.summary),
+        )
+        self.assertContains(
+            response,
+            "Auto-generated paragraph restored.",
         )
 
     def test_save_summary_paragraph_draft_auto_moves_todo_tab_to_in_progress(self):
@@ -8345,7 +8434,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.summary.status, ReferenceSummary.STATUS_DRAFT)
         self.assertContains(
             response,
-            "Summary paragraph draft saved. Status moved to In progress automatically.",
+            "Custom paragraph saved and set as the version used for compilation. Status moved to In progress automatically.",
         )
 
     def test_detail_status_update_requires_reason_for_summary_phase_exclusion(self):
@@ -8442,8 +8531,14 @@ class ReferenceSummaryDetailViewTests(TestCase):
     def test_saved_summary_paragraph_draft_is_used_for_compilation(self):
         self.summary.reference_identifier = "CR1000"
         self.summary.synopsis_draft = "A revised paragraph (CR1000) with edited wording."
+        self.summary.use_custom_synopsis_draft = True
         self.summary.save(
-            update_fields=["reference_identifier", "synopsis_draft", "updated_at"]
+            update_fields=[
+                "reference_identifier",
+                "synopsis_draft",
+                "use_custom_synopsis_draft",
+                "updated_at",
+            ]
         )
 
         compiled = _reference_summary_paragraph(
@@ -8516,6 +8611,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.summary.action_methods = "Installed wooden boxes."
         self.summary.outcome_rows = [{"outcome": "Occupancy", "notes": "Higher"}]
         self.summary.synopsis_draft = "Draft paragraph copied from the first tab."
+        self.summary.use_custom_synopsis_draft = True
         self.summary.summary_author = "Existing Author"
         self.summary.keywords = ["boxes", "occupancy"]
         self.summary.action_tags = ["Land/water protection-Area protection"]
@@ -8563,6 +8659,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             new_summary.synopsis_draft,
             "Draft paragraph copied from the first tab.",
         )
+        self.assertTrue(new_summary.use_custom_synopsis_draft)
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.keywords, ["boxes", "occupancy"])
         self.assertEqual(
