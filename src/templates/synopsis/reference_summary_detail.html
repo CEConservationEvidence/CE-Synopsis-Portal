@@ -3,10 +3,15 @@
 {# TODO: #83 Move quality assessment into its own later-step section so the core summary form stays focused on summary writing. #}
 {% extends "synopsis/base.html" %}
 {% block title %}Reference summary – {{ project.title }}{% endblock %}
+{% block page_container_class %}container-fluid px-3 px-xl-4 px-xxl-5{% endblock %}
 {% block content %}
 {{ summary_form.media }}
 <div id="reference-summary-page">
 <style>
+    #reference-summary-page {
+        max-width: 90%;
+        margin: 0 auto;
+    }
     .generated-readonly {
         background-color: #f3f4f6;
         border-color: #d5d9de;
@@ -72,8 +77,26 @@
         display: none;
     }
     @media (max-width: 575.98px) {
+        #reference-summary-page {
+            max-width: 100%;
+        }
         .tag-picker-toolbar {
             grid-template-columns: minmax(0, 1fr);
+        }
+    }
+    @media (min-width: 576px) and (max-width: 991.98px) {
+        #reference-summary-page {
+            max-width: 96%;
+        }
+    }
+    @media (min-width: 1200px) {
+        .reference-summary-pdf-col {
+            flex: 0 0 46%;
+            max-width: 46%;
+        }
+        .reference-summary-form-col {
+            flex: 0 0 54%;
+            max-width: 54%;
         }
     }
     .summary-editor-presence {
@@ -89,6 +112,47 @@
         align-items: center;
         gap: 0.35rem 0.6rem;
         line-height: 1.35;
+    }
+    .summary-optional-note {
+        background: #f8fafc;
+        border: 1px solid #d7dee7;
+    }
+    .summary-section-heading {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .summary-draft-active {
+        border-color: #efc2c8;
+        background: #fff7f8;
+    }
+    .summary-draft-active .card-header {
+        background: #fdecef;
+        border-bottom-color: #efc2c8;
+    }
+    .summary-draft-note {
+        background: #fff1f3;
+        border: 1px solid #efc2c8;
+        color: #7a2432;
+    }
+    .summary-form-compact {
+        gap: 1rem !important;
+    }
+    .summary-form-compact .row {
+        --bs-gutter-x: 1rem;
+        --bs-gutter-y: 0.65rem;
+    }
+    .summary-form-compact .form-label {
+        margin-bottom: 0.3rem;
+    }
+    .summary-form-compact .form-text {
+        margin-top: 0.2rem;
+    }
+    .summary-form-compact .tag-picker {
+        padding: 0.65rem;
+    }
+    .summary-form-compact details {
+        margin-top: 0.75rem !important;
     }
 </style>
 <h1 class="mb-3">Reference summary</h1>
@@ -354,8 +418,8 @@
         </div>
     </div>
 </div>
-<div class="row g-3">
-    <div class="col-xl-6 col-12 d-flex flex-column">
+<div class="row g-2 g-xxl-3">
+    <div class="col-xl-5 col-12 d-flex flex-column reference-summary-pdf-col">
         <div class="card flex-grow-1 shadow-sm" id="pdf-card" style="position: sticky; top: 1rem;">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>Reference PDF</span>
@@ -406,10 +470,21 @@
             </div>
         </div>
     </div>
-    <div class="col-xl-6 col-12">
+    <div class="col-xl-7 col-12 reference-summary-form-col">
         <div class="card mb-3 shadow-sm" id="summary-card">
             <div class="card-header">Summary details</div>
             <div class="card-body">
+                <div class="alert small summary-optional-note mb-3">
+                    <div class="fw-semibold mb-1">These fields do different jobs.</div>
+                    <div><strong>Usually expected</strong> fields help the team compile and organise summaries consistently. <strong>Classification</strong> fields support filtering and later synthesis. <strong>Writing aid</strong> fields are optional helpers. <strong>Internal</strong> fields are kept separately from the generated paragraph.</div>
+                    <div class="mt-1">The final compiled text always comes from the summary paragraph below. Editing that paragraph does not update these boxes automatically.</div>
+                </div>
+                {% if summary.use_custom_synopsis_draft %}
+                <div class="alert alert-warning small mb-3">
+                    <div class="fw-semibold mb-1">Custom paragraph mode is active.</div>
+                    <div>The summary paragraph is currently the source of truth for compilation and export. You do not need to keep the helper boxes below aligned with it unless you switch back to auto-generated mode.</div>
+                </div>
+                {% endif %}
                 {% if summary_form.errors %}
                 <div class="alert alert-danger">
                     <div class="fw-semibold mb-1">Please fix the errors below.</div>
@@ -427,7 +502,7 @@
                     </ul>
                 </div>
                 {% endif %}
-                <form method="post" class="d-flex flex-column gap-4" id="summary-save-form">
+                <form method="post" class="d-flex flex-column gap-3 summary-form-compact" id="summary-save-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-summary">
                     <div>
@@ -448,7 +523,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Study overview</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Study overview <span class="badge text-bg-light border">Usually expected</span></div>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <label class="form-label">Action</label>
@@ -482,7 +557,7 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Habitat & geography</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Habitat & geography <span class="badge text-bg-light border">Usually expected</span></div>
                         <div class="row g-3">
                             <div class="col-12">
                                 <label class="form-label">Habitat and number of sites</label>
@@ -499,41 +574,48 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Findings & methods</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Findings & methods <span class="badge text-bg-light border">Writing aid</span></div>
                         <div class="mb-3">
-                            <label class="form-label">Summary of results (action + outcome)</label>
+                            <label class="form-label">Main findings summary</label>
                             {{ summary_form.summary_of_results }}
+                            <div class="form-text">Optional free-text findings summary. Use this if it is easier than filling out structured outcome notes below.</div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Outcome rows</label>
+                            <label class="form-label">Outcome notes</label>
                             {{ summary_form.outcomes_raw }}
-                            <div class="form-text">One outcome per line, fields separated by | (Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes).</div>
+                            <div class="form-text">Optional. Use either one free-text result sentence per line, or a structured line with | separators for numeric comparisons.</div>
                         </div>
                         <div class="row g-3">
                             <div class="col-12">
-                                <label class="form-label">Action methods and experimental design</label>
+                                <label class="form-label">Methods, design and context notes</label>
                                 {{ summary_form.methods_and_design }}
-                                <div class="form-text">Use one box for the intervention methods and any notes on how the comparison was set up.</div>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Key details of site context</label>
-                                {{ summary_form.site_context_details }}
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label">Details of sampling methods</label>
-                                {{ summary_form.sampling_methods_details }}
+                                <div class="form-text">Optional. Use one flexible box for any methods, design, sampling or context details that help you write the summary.</div>
                             </div>
                         </div>
+                        <details class="mt-3">
+                            <summary class="small fw-semibold text-muted">More optional detail boxes</summary>
+                            <div class="row g-3 mt-1">
+                                <div class="col-md-6">
+                                    <label class="form-label">Key details of site context</label>
+                                    {{ summary_form.site_context_details }}
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Details of sampling methods</label>
+                                    {{ summary_form.sampling_methods_details }}
+                                </div>
+                            </div>
+                        </details>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Costs</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Costs <span class="badge text-bg-light border">Writing aid</span></div>
                         <div class="mb-0">
                             <label class="form-label">Costs</label>
                             {{ summary_form.cost_summary }}
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Tags</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Tags <span class="badge text-bg-light border">Classification</span></div>
+                        <div class="small text-muted mb-2">Use these tags to organise, filter and group summaries across the synopsis.</div>
                         <div class="row g-3">
                             <div class="col-12">
                                 <div class="tag-picker" data-tag-picker>
@@ -608,13 +690,25 @@
                                 {{ summary_form.location_tags }}
                             </div>
                             <div class="col-md-12">
-                                <label class="form-label">Citation</label>
+                                <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-1">
+                                    <label class="form-label mb-0">Citation for synopsis export</label>
+                                    {% if summary_citation_is_local_override %}
+                                    <span class="badge text-bg-warning border">Local synopsis override in use</span>
+                                    {% else %}
+                                    <span class="badge text-bg-light border">Shared reference citation in use</span>
+                                    {% endif %}
+                                </div>
                                 {{ summary_form.citation }}
+                                <div class="form-text">{{ summary_form.citation.help_text }}</div>
+                                {% if summary_form.citation.errors %}
+                                <div class="text-danger small mt-1">{{ summary_form.citation.errors|join:", " }}</div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">CE metadata</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">CE metadata <span class="badge text-bg-light border">Classification</span></div>
+                        <div class="small text-muted mb-2">These fields support CE consistency, filtering and later synthesis work.</div>
                         <div class="row g-3">
                             <div class="col-12">
                                 <div class="tag-picker" data-tag-picker data-tag-max-selected="4">
@@ -663,7 +757,8 @@
                         </div>
                     </div>
                     <div>
-                        <div class="text-uppercase text-muted small fw-semibold mb-2">Quality scores</div>
+                        <div class="text-uppercase text-muted small fw-semibold mb-2 summary-section-heading">Quality scores <span class="badge text-bg-light border">Internal</span></div>
+                        <div class="small text-muted mb-2">Stored separately for internal use. These scores are not inserted into the generated summary paragraph.</div>
                         <div class="row g-3">
                             <div class="col-md-3">
                                 <label class="form-label">Benefits (0-100)</label>
@@ -689,12 +784,14 @@
                 </form>
             </div>
         </div>
-        <div class="card mb-3 shadow-sm">
+        <div class="card mb-3 shadow-sm{% if summary.use_custom_synopsis_draft %} summary-draft-active{% endif %}">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <div class="d-flex flex-wrap align-items-center gap-2">
                     <span>Summary paragraph</span>
-                    {% if summary.synopsis_draft %}
-                    <span class="badge text-bg-success">Edited draft saved</span>
+                    {% if summary.use_custom_synopsis_draft %}
+                    <span class="badge text-bg-danger">Custom paragraph in use</span>
+                    {% else %}
+                    <span class="badge text-bg-light border">Auto-generated in use</span>
                     {% endif %}
                 </div>
                 {% if current_summary_paragraph %}
@@ -702,16 +799,20 @@
                 {% endif %}
             </div>
             <div class="card-body">
-                {% if generated_summary %}
-                    <p class="text-muted small mb-3">This field starts with the auto-generated paragraph from the structured fields above. If you change those structured fields later, the paragraph will refresh automatically unless you have already saved manual edits here.</p>
+                {% if summary.use_custom_synopsis_draft %}
+                    <div class="alert summary-draft-note small mb-3">
+                        A saved custom paragraph is currently being used for compilation and export. Changes to the optional fields above do not update this paragraph automatically. Switch back to the auto-generated paragraph below if you want it to follow those fields again.
+                    </div>
+                {% elif generated_summary %}
+                    <p class="text-muted small mb-3">This field starts with the auto-generated paragraph from the optional structured fields above. Saving those fields will keep refreshing this paragraph until you choose to use a saved custom paragraph instead.</p>
                 {% else %}
-                    <p class="text-muted small mb-3">Fill in the structured fields above to generate a paragraph automatically, or write a custom summary paragraph here.</p>
+                    <p class="text-muted small mb-3">Fill in any of the optional structured fields above to generate a paragraph automatically, or write a custom summary paragraph here.</p>
                 {% endif %}
                 <form method="post" class="d-flex flex-column gap-3" id="summary-draft-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-synopsis-draft">
                     <div>
-                        <label class="form-label" for="{{ draft_form.synopsis_draft.id_for_label }}">Editable summary paragraph</label>
+                        <label class="form-label" for="{{ draft_form.synopsis_draft.id_for_label }}">Summary paragraph</label>
                         {{ draft_form.synopsis_draft }}
                         <div class="form-text">{{ draft_form.synopsis_draft.help_text }}</div>
                         {% if draft_form.synopsis_draft.errors %}
@@ -719,12 +820,18 @@
                         {% endif %}
                     </div>
                     <div class="d-flex flex-wrap gap-2">
-                        <button class="btn btn-primary btn-sm" type="submit" name="draft_command" value="save">Save paragraph draft</button>
-                        {% if generated_summary and summary.synopsis_draft %}
-                        <button class="btn btn-outline-secondary btn-sm" type="submit" name="draft_command" value="use-generated">Reset to auto-generated</button>
+                        <button class="btn btn-primary btn-sm" type="submit" name="draft_command" value="save">
+                            {% if summary.use_custom_synopsis_draft %}
+                            Save custom paragraph
+                            {% else %}
+                            Use saved custom paragraph
+                            {% endif %}
+                        </button>
+                        {% if generated_summary and summary.use_custom_synopsis_draft %}
+                        <button class="btn btn-outline-secondary btn-sm" type="submit" name="draft_command" value="use-generated">Switch back to auto-generated</button>
                         {% endif %}
-                        {% if summary.synopsis_draft %}
-                        <button class="btn btn-outline-danger btn-sm" type="submit" name="draft_command" value="clear">Clear edited draft</button>
+                        {% if summary.use_custom_synopsis_draft %}
+                        <button class="btn btn-outline-danger btn-sm" type="submit" name="draft_command" value="clear">Clear saved custom paragraph</button>
                         {% endif %}
                     </div>
                 </form>

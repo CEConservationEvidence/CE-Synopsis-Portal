@@ -2,13 +2,36 @@
 {% block title %}Reference summaries – {{ project.title }}{% endblock %}
 {% block content %}
 {% include "synopsis/includes/project_reference_workflow_modal.html" with modal_id="project-reference-workflow-modal" %}
+<style>
+    .summary-board-scroll {
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding-bottom: 0.5rem;
+    }
+    .summary-board-row {
+        display: flex;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        gap: 1rem;
+        min-width: min-content;
+    }
+    .summary-board-column {
+        flex: 0 0 20rem;
+        width: 20rem;
+        max-width: 20rem;
+    }
+    @media (max-width: 991.98px) {
+        .summary-board-column {
+            flex-basis: 18rem;
+            width: 18rem;
+            max-width: 18rem;
+        }
+    }
+</style>
 <h1 class="mb-3">Reference summaries – {{ project.title }}</h1>
 <div class="d-flex flex-wrap gap-2 mb-4">
     <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#project-reference-workflow-modal">How this works</button>
     <a class="btn btn-outline-success" href="{% url 'synopsis:project_synopsis_evidence' project.id %}">Manage evidence structure</a>
-    {% if excluded_after_full_text_count %}
-    <a class="btn btn-outline-danger" href="#summary-column-excluded">Jump to excluded after full text</a>
-    {% endif %}
     <div class="ms-auto">
         <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#distribution-modal">Distribution view</button>
     </div>
@@ -45,9 +68,10 @@
         </div>
     </div>
 </div>
-<div id="summary-board" class="row row-cols-1 row-cols-lg-4 g-3 pb-4">
+<div class="summary-board-scroll pb-4">
+<div id="summary-board" class="summary-board-row">
     {% for column in columns %}
-    <div class="col"{% if column.code == 'excluded' %} id="summary-column-excluded"{% endif %}>
+    <div class="summary-board-column">
         <div class="card h-100 position-relative">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <span>{{ column.label }}</span>
@@ -161,6 +185,7 @@
         </div>
     </div>
     {% endfor %}
+</div>
 </div>
 <script>
 document.addEventListener("DOMContentLoaded", function () {

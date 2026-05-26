@@ -1,4 +1,6 @@
 import hashlib
+import html
+import re
 from datetime import timedelta
 
 from django.contrib.auth.models import Group
@@ -156,3 +158,144 @@ def reference_hash(*parts: str) -> str:
 
     normalised = "|".join((part or "").strip().lower() for part in parts)
     return hashlib.sha1(normalised.encode("utf-8", errors="ignore")).hexdigest()
+
+
+def _reference_canonical(reference):
+    return reference.canonical if hasattr(reference, "canonical") else reference
+
+
+def reference_summary_seed_citation(reference) -> str:
+    canonical = _reference_canonical(reference)
+    parts = []
+    authors = (canonical.authors or "").strip()
+    if authors:
+        parts.append(authors)
+    year = canonical.publication_year
+    if year:
+        parts.append(f"({year})")
+    title = (canonical.title or "").strip()
+    if title:
+        parts.append(title)
+    citation = " ".join(parts).strip()
+    if len(citation) > 500:
+        citation = citation[:497].rstrip() + "..."
+    return citation
+
+
+def reference_export_default_citation(reference) -> str:
+    canonical = _reference_canonical(reference)
+
+    def _clean(value):
+        return (value or "").strip()
+
+    def _doi_url(raw):
+        value = _clean(raw)
+        if not value:
+            return ""
+        lowered = value.lower()
+        for prefix in ("https://doi.org/", "http://doi.org/", "doi.org/"):
+            if lowered.startswith(prefix):
+                value = value[len(prefix):]
+                break
+        if value.lower().startswith("doi:"):
+            value = value[4:]
+        value = value.strip()
+        return f"https://doi.org/{value}" if value else ""
+
+    parts = []
+    authors = _clean(canonical.authors)
+    year = canonical.publication_year
+    if authors and year:
+        parts.append(f"{authors} ({year})")
+    elif authors:
+        parts.append(authors)
+    elif year:
+        parts.append(f"({year})")
+
+    title = _clean(canonical.title)
+    if title:
+        parts.append(f"{title.rstrip('.')}.")
+
+    journal = _clean(canonical.journal)
+    volume = _clean(canonical.volume)
+    issue = _clean(canonical.issue)
+    pages = _clean(canonical.pages)
+    if journal or volume or issue or pages:
+        source_bits = []
+        if journal:
+            source_bits.append(journal)
+        vol_issue = ""
+        if volume and issue:
+            vol_issue = f"{volume}({issue})"
+        elif volume:
+            vol_issue = volume
+        elif issue:
+            vol_issue = f"({issue})"
+        if vol_issue:
+            source_bits.append(vol_issue)
+        if pages:
+            source_bits.append(pages)
+        if source_bits:
+            parts.append(", ".join(source_bits).rstrip(".") + ".")
+
+    doi_url = _doi_url(canonical.doi)
+    source_url = _clean(canonical.url)
+    if doi_url:
+        parts.append(doi_url)
+    elif source_url:
+        parts.append(source_url)
+
+    return " ".join([part for part in parts if part]).strip()
+
+
+def normalize_reference_summary_citation(value, reference) -> str:
+    text = (value or "").strip()
+    if not text:
+        return ""
+    if reference is None:
+        return text
+    inherited_values = {
+        reference_summary_seed_citation(reference),
+        reference_export_default_citation(reference),
+    }
+    return "" if text in inherited_values else text
+
+
+def reference_summary_custom_citation(summary) -> str:
+    if not summary or not getattr(summary, "reference", None):
+        return (getattr(summary, "citation", "") or "").strip()
+    return normalize_reference_summary_citation(summary.citation, summary.reference)
+
+
+def reference_summary_effective_citation(summary) -> str:
+    custom = reference_summary_custom_citation(summary)
+    if custom:
+        return custom
+    if summary and getattr(summary, "reference", None):
+        return reference_export_default_citation(
+            summary.reference
+        ) or reference_summary_seed_citation(summary.reference)
+    return (getattr(summary, "citation", "") or "").strip()
+
+
+_ITALIC_TAG_RE = re.compile(r"(?i)(</?(?:i|em)>)")
+
+
+def split_inline_italic_markup(text: str) -> list[tuple[str, bool]]:
+    """Split a text fragment into plain/italic segments using simple <i>/<em> tags."""
+
+    raw_text = html.unescape(text or "")
+    italic = False
+    segments = []
+    for part in _ITALIC_TAG_RE.split(raw_text):
+        if not part:
+            continue
+        lowered = part.lower()
+        if lowered in {"<i>", "<em>"}:
+            italic = True
+            continue
+        if lowered in {"</i>", "</em>"}:
+            italic = False
+            continue
+        segments.append((part, italic))
+    return segments

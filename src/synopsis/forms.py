@@ -19,6 +19,8 @@ from .utils import (
     default_protocol_review_message,
     default_synopsis_review_message,
     minimum_allowed_deadline_date,
+    normalize_reference_summary_citation,
+    reference_summary_effective_citation,
 )
 
 MAX_LOCATION_LINE_LENGTH = 200
@@ -2211,11 +2213,11 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             attrs={
                 "class": "form-control",
                 "rows": 5,
-                "placeholder": "Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes",
+                "placeholder": "Use one free-text result sentence per line, or a structured line like: Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes",
             }
         ),
-        label="Outcome rows",
-        help_text="One outcome per line, fields separated by |",
+        label="Outcome notes",
+        help_text="Optional. Use either one free-text result sentence per line, or a structured line with | separators for numeric comparisons.",
     )
     methods_and_design = forms.CharField(
         required=False,
@@ -2223,11 +2225,11 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             attrs={
                 "class": "form-control",
                 "rows": 5,
-                "placeholder": "Describe the action methods and any experimental design details together.",
+                "placeholder": "Describe any methods, design, sampling or context notes you want to keep together.",
             }
         ),
-        label="Action methods and experimental design",
-        help_text="Use one box for the intervention methods and any notes on how the comparison was set up.",
+        label="Methods, design and context notes",
+        help_text="Optional. Use one flexible box for any methods, design, sampling or context details that help you write the summary.",
     )
     research_design = forms.MultipleChoiceField(
         required=False,
@@ -2283,6 +2285,10 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         if instance and instance.pk and instance.outcome_rows:
             lines = []
             for row in instance.outcome_rows:
+                sentence = (row.get("sentence", "") or "").strip()
+                if sentence:
+                    lines.append(sentence)
+                    continue
                 parts = [
                     row.get("outcome", ""),
                     row.get("treatment_value", ""),
@@ -2314,6 +2320,12 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             self.fields["methods_and_design"].initial = "\n\n".join(
                 [part for part in methods_parts if part]
             )
+            self.initial["citation"] = reference_summary_effective_citation(instance)
+        self.fields["citation"].help_text = (
+            "This starts from the shared reference database citation. "
+            "Editing it here changes only this summary/synopsis export and does not update the shared reference database. "
+            "Use <i>...</i> or <em>...</em> for italics."
+        )
         for field_name, (min_value, max_value, step) in self.QUALITY_SCORE_RANGES.items():
             field = self.fields.get(field_name)
             if not field:
@@ -2388,7 +2400,13 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             "harms_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
             "reliability_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
             "relevance_score": forms.NumberInput(attrs={"class": "form-control", "step": "any"}),
-            "citation": forms.TextInput(attrs={"class": "form-control"}),
+            "citation": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 3,
+                    "placeholder": "Leave this matching the shared reference citation, or enter a synopsis-only override. Use <i>...</i> for italics.",
+                }
+            ),
         }
 
     def _split_tags(self, field_name):
@@ -2491,6 +2509,9 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         lines = [line.strip() for line in raw.splitlines() if line.strip()]
         parsed = []
         for line in lines:
+            if not re.search(r"(?<!\\)\|", line):
+                parsed.append({"sentence": line.replace("\\|", "|")})
+                continue
             parts = re.split(r"(?<!\\)\|", line)
             parts = [part.replace("\\|", "|").strip() for part in parts]
             # Pad to 10 fields
@@ -2556,6 +2577,10 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             cleaned["study_design"] = self._build_study_design_from_research_design(
                 cleaned.get("research_design")
             )
+        cleaned["citation"] = normalize_reference_summary_citation(
+            cleaned.get("citation"),
+            self.instance.reference if self.instance and self.instance.reference_id else None,
+        )
         return cleaned
 
     def save(self, commit=True):
@@ -2577,6 +2602,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         ]:
             instance_value = self.cleaned_data.get(field, [])
             instance.__setattr__(field, instance_value if instance_value is not None else [])
+        instance.citation = self.cleaned_data.get("citation", "")
         if commit:
             instance.save()
             self.save_m2m()
@@ -2588,14 +2614,20 @@ class ReferenceSummaryDraftForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["synopsis_draft"].required = False
         self.fields["synopsis_draft"].help_text = (
-            "Saved draft text is used in compilation/export. Leave it blank to fall back to the auto-generated paragraph."
+            "Saving here tells the system to use this paragraph for compilation and export. Switch back to the auto-generated paragraph if you want changes in the structured fields above to flow through again."
         )
         if (
             not self.is_bound
-            and not (self.instance and (self.instance.synopsis_draft or "").strip())
-            and (generated_summary or "").strip()
+            and self.instance
         ):
-            self.initial["synopsis_draft"] = generated_summary.strip()
+            saved_draft = (self.instance.synopsis_draft or "").strip()
+            generated_summary = (generated_summary or "").strip()
+            if self.instance.use_custom_synopsis_draft and saved_draft:
+                self.initial["synopsis_draft"] = saved_draft
+            elif generated_summary:
+                self.initial["synopsis_draft"] = generated_summary
+            else:
+                self.initial["synopsis_draft"] = saved_draft
 
     class Meta:
         model = ReferenceSummary

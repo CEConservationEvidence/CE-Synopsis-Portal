@@ -91,8 +91,10 @@ from .utils import (
     default_synopsis_review_message,
     email_subject,
     ensure_global_groups,
+    reference_summary_effective_citation,
     reference_hash,
     reply_to_list,
+    split_inline_italic_markup,
 )
 from .views import (
     _advisory_board_context,
@@ -772,6 +774,16 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(
             evidence_chapter.chapter_type, SynopsisChapter.TYPE_EVIDENCE
         )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Synopsis outline preset applied",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn(
+            "Preset: Standard CE synopsis (full ToC, chapters only)",
+            change.details,
+        )
+        self.assertIn("Chapters created:", change.details)
         count_after_first = SynopsisChapter.objects.filter(project=self.project).count()
         # Second apply should be blocked because outline is not empty
         response = self.client.post(
@@ -807,6 +819,13 @@ class SynopsisStructureTests(TestCase):
             SynopsisIntervention.objects.filter(subheading__chapter=chapter).values_list("title", flat=True)
         )
         self.assertIn("Intervention A", intervention_titles)
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Intervention added",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Chapter: Ch", change.details)
+        self.assertIn("Intervention: Intervention A", change.details)
 
     def test_move_intervention_to_another_subheading(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
@@ -869,7 +888,8 @@ class SynopsisStructureTests(TestCase):
         self.summary.synopsis_draft = (
             "A replicated study found that mowing more frequently increased arable plant richness."
         )
-        self.summary.save(update_fields=["synopsis_draft"])
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(update_fields=["synopsis_draft", "use_custom_synopsis_draft"])
         SynopsisAssignment.objects.create(
             intervention=SynopsisIntervention.objects.get(title="Mow more frequently"),
             reference_summary=self.summary,
@@ -1070,6 +1090,13 @@ class SynopsisStructureTests(TestCase):
             ),
             [self.summary.id],
         )
+        created_change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Key message added",
+        ).first()
+        self.assertIsNotNone(created_change)
+        self.assertIn("Key message: Abundance/Cover", created_change.details)
+        self.assertIn("Supporting summaries: 1", created_change.details)
 
         response = self.client.post(
             url,
@@ -1098,6 +1125,13 @@ class SynopsisStructureTests(TestCase):
             ),
             sorted([self.summary.id, second_summary.id]),
         )
+        updated_change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Key message updated",
+        ).first()
+        self.assertIsNotNone(updated_change)
+        self.assertIn("Key message: Richness/diversity", updated_change.details)
+        self.assertIn("Supporting summaries: 2", updated_change.details)
 
     def test_intervention_reference_numbering_uses_oldest_first_order(self):
         chapter = SynopsisChapter.objects.create(
@@ -1446,6 +1480,32 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(response.status_code, 302)
         key_message.refresh_from_db()
         self.assertFalse(key_message.supporting_summaries.exists())
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Removed study summary from intervention",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Key messages updated: 1", change.details)
+
+    def test_project_hub_shows_structure_audit_entries(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+
+        self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "Executive summary",
+                "chapter_type": SynopsisChapter.TYPE_TEXT,
+            },
+            follow=True,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Chapter added")
+        self.assertContains(response, "Chapter: Executive summary")
 
     def test_export_citation_and_reference_identifier_override(self):
         reference = Reference.objects.create(
@@ -1557,6 +1617,65 @@ class SynopsisStructureTests(TestCase):
                 for paragraph in paragraphs
             )
         )
+
+    def test_generate_docx_uses_summary_citation_override_with_italics(self):
+        from docx import Document
+
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Shared study paper",
+            authors="Gamma G.",
+            publication_year=2009,
+            journal="Journal of Marine Trials",
+            volume="12",
+            pages="34-40",
+            hash_key="hash-docx-citation-override",
+            screening_status="included",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            study_design="replicated study",
+            year_range="2009",
+            summary_of_results="kelp cover improved.",
+            citation="Gamma G. (2009) <i>Glipa</i> restoration note.",
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=summary,
+            position=1,
+        )
+
+        payload = _generate_synopsis_docx(self.project)
+        document = Document(io.BytesIO(payload))
+        reference_paragraph = next(
+            paragraph
+            for paragraph in document.paragraphs
+            if paragraph.text.startswith("(1) Gamma G. (2009) Glipa restoration note.")
+        )
+
+        self.assertEqual(
+            reference_paragraph.text,
+            "(1) Gamma G. (2009) Glipa restoration note.",
+        )
+        self.assertTrue(any(run.text == "Glipa" and run.italic for run in reference_paragraph.runs))
 
     def test_workspace_routes_load(self):
         narrative_url = reverse(
@@ -5886,6 +6005,20 @@ class ViewHelperTests(TestCase):
         )
         self.assertEqual(_format_deadline(None), "—")
 
+    def test_split_inline_italic_markup_supports_simple_i_tags(self):
+        segments = split_inline_italic_markup(
+            "Gamma G. (2009) <i>Glipa</i> restoration note."
+        )
+
+        self.assertEqual(
+            segments,
+            [
+                ("Gamma G. (2009) ", False),
+                ("Glipa", True),
+                (" restoration note.", False),
+            ],
+        )
+
     def test_user_can_confirm_phase(self):
         staff = User.objects.create_user(username="staff", is_staff=True)
         self.assertTrue(_user_can_confirm_phase(staff, self.project))
@@ -6653,6 +6786,13 @@ class ReferenceBatchUploadParsingTests(TestCase):
             self.assertEqual(ref.screening_status, "included")
             self.assertEqual(ref.screened_by, self.user)
             self.assertIsNotNone(ref.screening_decision_at)
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Bulk reference screening updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("References: 2", change.details)
+        self.assertIn("Screening status: Include", change.details)
 
     def test_bulk_include_can_apply_selected_folders_at_same_time(self):
         upload = SimpleUploadedFile(
@@ -6995,6 +7135,12 @@ class ReferenceBatchUploadParsingTests(TestCase):
             self.assertEqual(ref.category_values, ["3a", "15"])
             self.assertEqual(ref.screened_by, self.user)
             self.assertIsNotNone(ref.screening_decision_at)
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Bulk reference categories updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("References: 2", change.details)
 
     def test_single_screening_update_filters_blank_reference_folder_values(self):
         upload = SimpleUploadedFile(
@@ -7036,6 +7182,13 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertEqual(ref.unlinked_reference_folder, [])
         self.assertEqual(ref.category_values, ["3a"])
         self.assertEqual(ref.library_reference.reference_folder, ["3a"])
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Reference classification updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference:", change.details)
+        self.assertIn("Notes: Relevant to the topic.", change.details)
 
     def test_save_folders_preserves_existing_screening_notes(self):
         upload = SimpleUploadedFile(
@@ -7897,6 +8050,99 @@ class ReferenceSummaryFormTests(TestCase):
 
         self.assertEqual(form["synopsis_draft"].value(), "Auto-generated paragraph.")
 
+    def test_draft_form_prefills_saved_custom_paragraph_when_custom_mode_is_active(self):
+        project = Project.objects.create(title="Saved custom paragraph")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="f" * 40,
+            title="Custom paragraph reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+            synopsis_draft="Author edited paragraph.",
+            use_custom_synopsis_draft=True,
+        )
+
+        form = ReferenceSummaryDraftForm(
+            instance=summary,
+            generated_summary="Auto-generated paragraph.",
+        )
+
+        self.assertEqual(form["synopsis_draft"].value(), "Author edited paragraph.")
+
+    def test_citation_field_prefills_with_shared_reference_citation_when_no_local_override_exists(self):
+        batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Citation batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=batch,
+            hash_key="c" * 40,
+            title="Corallivorous snail removal",
+            authors="Miller M.",
+            publication_year=2001,
+            journal="Coral Reefs",
+            volume="19",
+            pages="293-295",
+            doi="10.1007/PL00006963",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            citation="Miller M. (2001) Corallivorous snail removal",
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
+
+        self.assertEqual(
+            form["citation"].value(),
+            reference_summary_effective_citation(summary),
+        )
+        self.assertIn("Coral Reefs, 19, 293-295.", form["citation"].value())
+
+    def test_citation_matching_shared_reference_is_not_saved_as_local_override(self):
+        batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Citation save batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=batch,
+            hash_key="d" * 40,
+            title="Corallivorous snail removal",
+            authors="Miller M.",
+            publication_year=2001,
+            journal="Coral Reefs",
+            volume="19",
+            pages="293-295",
+            doi="10.1007/PL00006963",
+        )
+        summary = ReferenceSummary.objects.create(project=self.project, reference=reference)
+        shared_citation = reference_summary_effective_citation(summary)
+
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "citation": shared_citation,
+            },
+            instance=summary,
+            project=self.project,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        saved = form.save()
+        self.assertEqual(saved.citation, "")
+
     def test_location_tags_accepts_place_and_coords(self):
         form = ReferenceSummaryUpdateForm(
             data={
@@ -7929,6 +8175,70 @@ class ReferenceSummaryFormTests(TestCase):
         cleaned = form.cleaned_data["outcomes_raw"]
         self.assertEqual(len(cleaned), 1)
         self.assertEqual(cleaned[0]["outcome"], "Outcome")
+
+    def test_outcomes_raw_accepts_free_text_sentence_lines(self):
+        data = {
+            "status": ReferenceSummary.STATUS_TODO,
+            "outcomes_raw": "Species richness increased after scrub removal\nBreeding success stayed similar between treatments.",
+        }
+        form = ReferenceSummaryUpdateForm(data=data, project=self.project)
+        self.assertTrue(form.is_valid(), form.errors)
+        cleaned = form.cleaned_data["outcomes_raw"]
+        self.assertEqual(
+            cleaned,
+            [
+                {"sentence": "Species richness increased after scrub removal"},
+                {"sentence": "Breeding success stayed similar between treatments."},
+            ],
+        )
+
+    def test_outcomes_raw_treats_escaped_pipes_as_free_text(self):
+        data = {
+            "status": ReferenceSummary.STATUS_TODO,
+            "outcomes_raw": r"Species richness increased in Site A \| Site B comparison.",
+        }
+        form = ReferenceSummaryUpdateForm(data=data, project=self.project)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.cleaned_data["outcomes_raw"],
+            [
+                {
+                    "sentence": "Species richness increased in Site A | Site B comparison."
+                }
+            ],
+        )
+
+    def test_structured_summary_paragraph_uses_free_text_outcome_notes(self):
+        summary = ReferenceSummary(
+            study_design="replicated study",
+            summary_of_results="brush cutting improved habitat condition.",
+            outcome_rows=[
+                {"sentence": "Species richness increased after scrub removal"},
+                {"sentence": "Breeding success stayed similar between treatments."},
+            ],
+        )
+
+        paragraph = _structured_summary_paragraph(summary)
+
+        self.assertIn("Species richness increased after scrub removal.", paragraph)
+        self.assertIn("Breeding success stayed similar between treatments.", paragraph)
+
+    def test_structured_summary_paragraph_excludes_quality_scores_from_text(self):
+        summary = ReferenceSummary(
+            study_design="replicated study",
+            summary_of_results="brush cutting improved habitat condition.",
+            benefits_score=80,
+            harms_score=5,
+            reliability_score=0.7,
+            relevance_score=0.9,
+        )
+
+        paragraph = _structured_summary_paragraph(summary)
+
+        self.assertNotIn("Benefits:", paragraph)
+        self.assertNotIn("Harms:", paragraph)
+        self.assertNotIn("Reliability:", paragraph)
+        self.assertNotIn("Relevance:", paragraph)
 
     def test_quality_scores_accept_boundary_values(self):
         form = ReferenceSummaryUpdateForm(
@@ -8026,6 +8336,28 @@ class ReferenceSummaryDetailViewTests(TestCase):
                 reference=self.reference,
             ).count(),
             1,
+        )
+
+    def test_detail_page_explains_local_citation_override_behaviour(self):
+        self.client.login(username="author", password="pass123")
+
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "Citation for synopsis export")
+        self.assertContains(response, "Shared reference citation in use")
+        self.assertContains(
+            response,
+            "does not update the shared reference database",
+        )
+        self.assertContains(
+            response,
+            "&lt;i&gt;...&lt;/i&gt; or &lt;em&gt;...&lt;/em&gt; for italics.",
+            html=False,
         )
 
     def test_detail_page_shows_project_action_dropdown_options(self):
@@ -8137,6 +8469,45 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_detail_page_explains_optional_fields_and_custom_paragraph_mode(self):
+        self.summary.synopsis_draft = "Manual paragraph text."
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(
+            update_fields=["synopsis_draft", "use_custom_synopsis_draft", "updated_at"]
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "These fields do different jobs.")
+        self.assertContains(response, "Usually expected")
+        self.assertContains(response, "Classification")
+        self.assertContains(response, "Writing aid")
+        self.assertContains(response, "Internal")
+        self.assertContains(
+            response,
+            "The final compiled text always comes from the summary paragraph below.",
+        )
+        self.assertContains(response, "Custom paragraph mode is active.")
+        self.assertContains(
+            response,
+            "The summary paragraph is currently the source of truth for compilation and export.",
+        )
+        self.assertContains(response, "Custom paragraph in use")
+        self.assertContains(response, "Save custom paragraph")
+        self.assertContains(response, "Switch back to auto-generated")
+        self.assertContains(response, "Clear saved custom paragraph")
+        self.assertContains(response, "Use these tags to organise, filter and group summaries across the synopsis.")
+        self.assertContains(response, "Stored separately for internal use. These scores are not inserted into the generated summary paragraph.")
+        self.assertContains(response, "Outcome notes")
+        self.assertContains(response, "Main findings summary")
+        self.assertContains(response, "More optional detail boxes")
+
     def test_creating_summary_tab_invalidates_board_presence_summary_id_cache(self):
         self.client.login(username="author", password="pass123")
         initial_ids = _project_reference_summary_ids(self.project.id)
@@ -8176,6 +8547,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.summary.habitat_and_sites, "New habitat info")
         messages = list(get_messages(resp.wsgi_request))
         self.assertTrue(any("Summary updated" in str(m) for m in messages))
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference: Test reference", change.details)
+        self.assertIn("Status: In progress", change.details)
 
     def test_save_summary_auto_moves_todo_tab_to_in_progress_when_content_saved(self):
         self.client.login(username="author", password="pass123")
@@ -8198,6 +8576,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
             response,
             "Status moved to In progress automatically.",
         )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Workflow: Auto-moved from To summarise to In progress", change.details)
 
     def test_save_summary_can_store_selected_project_action(self):
         chapter = SynopsisChapter.objects.create(
@@ -8243,7 +8627,10 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
     def test_save_summary_does_not_clear_saved_paragraph_draft(self):
         self.summary.synopsis_draft = "Edited summary paragraph."
-        self.summary.save(update_fields=["synopsis_draft", "updated_at"])
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(
+            update_fields=["synopsis_draft", "use_custom_synopsis_draft", "updated_at"]
+        )
 
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
@@ -8259,15 +8646,14 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.synopsis_draft, "Edited summary paragraph.")
+        self.assertTrue(self.summary.use_custom_synopsis_draft)
 
-    def test_save_summary_refreshes_saved_generated_paragraph_after_field_changes(self):
+    def test_save_summary_keeps_auto_generated_mode_and_current_paragraph_updates(self):
         self.summary.study_design = "replicated, controlled study"
         self.summary.year_range = "2018-2020"
         self.summary.summary_of_results = "installing nest boxes increased occupancy."
         self.summary.habitat_and_sites = "woodland sites"
         self.summary.country = "UK"
-        generated_before = _structured_summary_paragraph(self.summary)
-        self.summary.synopsis_draft = generated_before
         self.summary.save(
             update_fields=[
                 "study_design",
@@ -8275,14 +8661,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
                 "summary_of_results",
                 "habitat_and_sites",
                 "country",
-                "synopsis_draft",
                 "updated_at",
             ]
         )
 
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
-        response = self.client.post(
+        self.client.post(
             url,
             {
                 "action": "save-summary",
@@ -8298,19 +8683,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.summary.refresh_from_db()
         generated_after = _structured_summary_paragraph(self.summary)
-        self.assertEqual(self.summary.synopsis_draft, generated_after)
-        messages = [str(message) for message in get_messages(response.wsgi_request)]
-        self.assertTrue(
-            any(
-                "saved paragraph draft was refreshed automatically" in message.lower()
-                for message in messages
-            )
-        )
+        self.assertFalse(self.summary.use_custom_synopsis_draft)
+        self.assertEqual(_reference_summary_paragraph(self.summary), generated_after)
 
     def test_save_summary_paragraph_draft_persists_changes(self):
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
-        response = self.client.post(
+        self.client.post(
             url,
             {
                 "action": "save-synopsis-draft",
@@ -8325,6 +8704,60 @@ class ReferenceSummaryDetailViewTests(TestCase):
             self.summary.synopsis_draft,
             "A revised summary paragraph written by the author.",
         )
+        self.assertTrue(self.summary.use_custom_synopsis_draft)
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Custom summary paragraph saved",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference: Test reference", change.details)
+        self.assertIn("Summary ID:", change.details)
+
+    def test_switching_back_to_auto_generated_clears_custom_paragraph_mode(self):
+        self.summary.study_design = "replicated study"
+        self.summary.summary_of_results = "occupancy increased."
+        self.summary.synopsis_draft = "Custom paragraph text."
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(
+            update_fields=[
+                "study_design",
+                "summary_of_results",
+                "synopsis_draft",
+                "use_custom_synopsis_draft",
+                "updated_at",
+            ]
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "save-synopsis-draft",
+                "draft_command": "use-generated",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertFalse(self.summary.use_custom_synopsis_draft)
+        self.assertEqual(self.summary.synopsis_draft, "")
+        self.assertEqual(
+            _reference_summary_paragraph(self.summary),
+            _structured_summary_paragraph(self.summary),
+        )
+        self.assertContains(
+            response,
+            "Auto-generated paragraph restored.",
+        )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Auto-generated summary paragraph restored",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference: Test reference", change.details)
 
     def test_save_summary_paragraph_draft_auto_moves_todo_tab_to_in_progress(self):
         self.client.login(username="author", password="pass123")
@@ -8345,7 +8778,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.summary.status, ReferenceSummary.STATUS_DRAFT)
         self.assertContains(
             response,
-            "Summary paragraph draft saved. Status moved to In progress automatically.",
+            "Custom paragraph saved and set as the version used for compilation. Status moved to In progress automatically.",
         )
 
     def test_detail_status_update_requires_reason_for_summary_phase_exclusion(self):
@@ -8438,12 +8871,25 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertTrue(
             any("excluded after full-text review" in str(m).lower() for m in messages)
         )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary excluded after full-text review",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Exclusion reason: Full text shows this is not an intervention study.", change.details)
+        self.assertIn("Removed from intervention assignments: 1", change.details)
 
     def test_saved_summary_paragraph_draft_is_used_for_compilation(self):
         self.summary.reference_identifier = "CR1000"
         self.summary.synopsis_draft = "A revised paragraph (CR1000) with edited wording."
+        self.summary.use_custom_synopsis_draft = True
         self.summary.save(
-            update_fields=["reference_identifier", "synopsis_draft", "updated_at"]
+            update_fields=[
+                "reference_identifier",
+                "synopsis_draft",
+                "use_custom_synopsis_draft",
+                "updated_at",
+            ]
         )
 
         compiled = _reference_summary_paragraph(
@@ -8503,6 +8949,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(new_summary.summary_identifier, "manual-ref.a")
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.citation, "Author (2024)")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary tab created",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Source summary: manual-summary", change.details)
 
     def test_duplicate_summary_tab_copies_current_summary_content(self):
         self.summary.assigned_to = self.user
@@ -8516,6 +8968,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.summary.action_methods = "Installed wooden boxes."
         self.summary.outcome_rows = [{"outcome": "Occupancy", "notes": "Higher"}]
         self.summary.synopsis_draft = "Draft paragraph copied from the first tab."
+        self.summary.use_custom_synopsis_draft = True
         self.summary.summary_author = "Existing Author"
         self.summary.keywords = ["boxes", "occupancy"]
         self.summary.action_tags = ["Land/water protection-Area protection"]
@@ -8563,6 +9016,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             new_summary.synopsis_draft,
             "Draft paragraph copied from the first tab.",
         )
+        self.assertTrue(new_summary.use_custom_synopsis_draft)
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.keywords, ["boxes", "occupancy"])
         self.assertEqual(
@@ -8571,6 +9025,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
         self.assertEqual(new_summary.research_design, "Replicated; Controlled*")
         self.assertEqual(new_summary.citation, "Author (2024)")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary tab duplicated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Copied from summary: manual-summary", change.details)
 
     def test_duplicate_summary_tab_does_not_copy_comments_assignments_or_exclusion_state(self):
         self.summary.status = ReferenceSummary.STATUS_EXCLUDED
@@ -8666,6 +9126,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.summary_identifier, "CR1000.a")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary tab deleted",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Next active summary: CR1000.a", change.details)
 
     def test_delete_summary_tab_resequences_intervention_assignments(self):
         extra_summary = ReferenceSummary.objects.create(
@@ -9019,6 +9485,14 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(self.reference.category_values, ["3a"])
         self.assertEqual(self.reference.screening_notes, "Freshwater fish evidence.")
         self.assertContains(response, "Reference classification updated.")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Reference classification updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference: Test reference", change.details)
+        self.assertIn("Summary ID:", change.details)
+        self.assertIn("Notes: Freshwater fish evidence.", change.details)
 
     def test_summary_detail_folder_update_updates_shared_library_reference(self):
         canonical = LibraryReference.objects.create(
@@ -9239,6 +9713,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
             f"{reverse('synopsis:reference_summary_detail', args=[self.project.id, self.summary.id])}?panel=management",
             fetch_redirect_response=False,
         )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Reference excluded from synopsis",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Removed from intervention assignments: 1", change.details)
 
     def test_summary_detail_reference_management_panel_reopens_after_classification_update(self):
         self.reference.screening_status = "included"
@@ -9263,6 +9743,28 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Re-include this reference")
         self.assertTrue(response.context["open_management_panel"])
         self.assertContains(response, "Reference excluded from this synopsis.")
+
+    def test_project_hub_shows_summary_audit_entries(self):
+        self.client.login(username="author", password="pass123")
+        self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "save-summary",
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "habitat_and_sites": "New habitat info",
+            },
+            follow=True,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_hub", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Summary saved")
+        self.assertContains(response, "Reference: Test reference")
 
     def test_reference_management_explains_difference_between_summary_and_reference_exclusion(self):
         self.reference.screening_status = "included"
@@ -9459,8 +9961,10 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Excluded after full text")
-        self.assertContains(response, "Jump to excluded after full text")
-        self.assertContains(response, 'id="summary-column-excluded"', html=False)
+        self.assertContains(response, 'class="summary-board-scroll pb-4"', html=False)
+        self.assertContains(response, 'class="summary-board-row"', html=False)
+        self.assertContains(response, 'class="summary-board-column"', html=False)
+        self.assertNotContains(response, "Jump to excluded after full text")
         self.assertContains(
             response,
             "Full text did not test a conservation intervention.",
