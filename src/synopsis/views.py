@@ -97,6 +97,7 @@ from .forms import (
     AdvisoryMemberCustomDataForm,
     ReferenceSummaryAssignmentForm,
     ReferenceSummaryDraftForm,
+    ReferenceSummaryParagraphNotesForm,
     ReferenceSummaryUpdateForm,
     ReferenceSummaryCommentForm,
     ReferenceCommentForm,
@@ -8760,6 +8761,7 @@ def _duplicate_reference_summary(source_summary, user=None):
         key_findings=source_summary.key_findings,
         synopsis_draft=source_summary.synopsis_draft,
         use_custom_synopsis_draft=source_summary.use_custom_synopsis_draft,
+        paragraph_notes=source_summary.paragraph_notes,
         summary_author=summary_author,
         broad_category=source_summary.broad_category,
         keywords=copy.deepcopy(source_summary.keywords or []),
@@ -9672,6 +9674,10 @@ def reference_summary_detail(request, project_id, summary_id):
         instance=summary,
         generated_summary=generated_summary,
     )
+    paragraph_notes_form = ReferenceSummaryParagraphNotesForm(
+        request.POST if active_action == "save-paragraph-notes" else None,
+        instance=summary,
+    )
     comment_form = ReferenceSummaryCommentForm()
     document_form = ReferenceDocumentForm()
     action_summary_form = ReferenceActionSummaryForm()
@@ -9939,6 +9945,51 @@ def reference_summary_detail(request, project_id, summary_id):
                     summary_id=summary.id,
                 )
             messages.error(request, "Could not save the summary paragraph draft.")
+        if action == "save-paragraph-notes":
+            if paragraph_notes_form.is_valid():
+                previous_notes = (summary.paragraph_notes or "").strip()
+                updated_summary = paragraph_notes_form.save(commit=False)
+                updated_summary.paragraph_notes = (
+                    updated_summary.paragraph_notes or ""
+                ).strip()
+                updated_summary.save(update_fields=["paragraph_notes", "updated_at"])
+                current_notes = updated_summary.paragraph_notes
+                _log_summary_history(
+                    project,
+                    request.user,
+                    (
+                        "Summary paragraph notes saved"
+                        if current_notes
+                        else "Summary paragraph notes cleared"
+                    ),
+                    updated_summary,
+                    extra_details=[
+                        (
+                            f"Notes: {_history_safe_text(current_notes, max_length=220)}"
+                            if current_notes
+                            else ""
+                        ),
+                        (
+                            f"Previous notes: {_history_safe_text(previous_notes, max_length=160)}"
+                            if previous_notes and not current_notes
+                            else ""
+                        ),
+                    ],
+                )
+                messages.success(
+                    request,
+                    (
+                        "Internal paragraph notes saved."
+                        if current_notes
+                        else "Internal paragraph notes cleared."
+                    ),
+                )
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            messages.error(request, "Could not save the internal paragraph notes.")
         if action == "update-classification" and classification_form.is_valid():
             reference = summary.reference
             previous_status = reference.screening_status
@@ -10342,6 +10393,7 @@ def reference_summary_detail(request, project_id, summary_id):
             "summary_tabs": summary_tabs,
             "summary_form": summary_form,
             "draft_form": draft_form,
+            "paragraph_notes_form": paragraph_notes_form,
             "assignment_form": assignment_form,
             "classification_form": classification_form,
             "comment_form": comment_form,
