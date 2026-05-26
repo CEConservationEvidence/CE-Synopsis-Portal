@@ -10,6 +10,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="referencesummary",
             name="paragraph_notes",
-            field=models.TextField(blank=True),
+            field=models.TextField(blank=True, default=""),
+            preserve_default=False,
         ),
     ]
