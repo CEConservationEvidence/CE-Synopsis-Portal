@@ -2649,6 +2649,22 @@ class ReferenceSummaryParagraphNotesForm(forms.ModelForm):
         self.fields["paragraph_notes"].required = False
         self.fields["paragraph_notes"].help_text = (
             "Internal notes for this paragraph only. Use this to explain wording, numbers, study design calls, or anything future authors should remember. These notes stay in the portal and are not exported in the synopsis."
+        )
+
+    class Meta:
+        model = ReferenceSummary
+        fields = ["paragraph_notes"]
+        widgets = {
+            "paragraph_notes": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 4,
+                    "placeholder": "Example: Yes, this is 10 species not 11; see Fig. 4. Or: not replicated because only one treatment site was sampled.",
+                }
+            )
+        }
+
+
 class ReferenceActionSummaryForm(forms.ModelForm):
     class Meta:
         model = ReferenceActionSummary
