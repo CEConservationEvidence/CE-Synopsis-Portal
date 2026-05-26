@@ -8502,6 +8502,8 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Save custom paragraph")
         self.assertContains(response, "Switch back to auto-generated")
         self.assertContains(response, "Clear saved custom paragraph")
+        self.assertContains(response, "Internal notes on this paragraph")
+        self.assertContains(response, "Save paragraph notes")
         self.assertContains(response, "Use these tags to organise, filter and group summaries across the synopsis.")
         self.assertContains(response, "Stored separately for internal use. These scores are not inserted into the generated summary paragraph.")
         self.assertContains(response, "Outcome notes")
@@ -8781,6 +8783,34 @@ class ReferenceSummaryDetailViewTests(TestCase):
             "Custom paragraph saved and set as the version used for compilation. Status moved to In progress automatically.",
         )
 
+    def test_save_internal_paragraph_notes_persists_and_logs_history(self):
+        self.client.login(username="author", password="pass123")
+        response = self.client.post(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            ),
+            {
+                "action": "save-paragraph-notes",
+                "paragraph_notes": "Yes, this is 10 species not 11; see Fig. 4.",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(
+            self.summary.paragraph_notes,
+            "Yes, this is 10 species not 11; see Fig. 4.",
+        )
+        self.assertContains(response, "Internal paragraph notes saved.")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary paragraph notes saved",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference: Test reference", change.details)
+        self.assertIn("Notes: Yes, this is 10 species not 11; see Fig. 4.", change.details)
+
     def test_detail_status_update_requires_reason_for_summary_phase_exclusion(self):
         self.reference.screening_status = "included"
         self.reference.save(update_fields=["screening_status", "updated_at"])
@@ -8969,6 +8999,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.summary.outcome_rows = [{"outcome": "Occupancy", "notes": "Higher"}]
         self.summary.synopsis_draft = "Draft paragraph copied from the first tab."
         self.summary.use_custom_synopsis_draft = True
+        self.summary.paragraph_notes = "Check whether this was really replicated."
         self.summary.summary_author = "Existing Author"
         self.summary.keywords = ["boxes", "occupancy"]
         self.summary.action_tags = ["Land/water protection-Area protection"]
@@ -9017,6 +9048,10 @@ class ReferenceSummaryDetailViewTests(TestCase):
             "Draft paragraph copied from the first tab.",
         )
         self.assertTrue(new_summary.use_custom_synopsis_draft)
+        self.assertEqual(
+            new_summary.paragraph_notes,
+            "Check whether this was really replicated.",
+        )
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.keywords, ["boxes", "occupancy"])
         self.assertEqual(
