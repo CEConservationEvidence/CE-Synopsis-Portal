@@ -164,7 +164,6 @@ from .utils import (
     minimum_allowed_deadline_date,
     reference_export_default_citation,
     reference_summary_custom_citation,
-    reference_summary_effective_citation,
     reference_summary_seed_citation,
     reply_to_list,
     reference_hash,
