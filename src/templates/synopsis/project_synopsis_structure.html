@@ -483,7 +483,7 @@
                                         <div class="fw-semibold mb-1">Intervention evidence details</div>
                                         <form method="post" class="d-flex flex-column gap-2">
                                             {% csrf_token %}
-                                            <input type="hidden" name="action" value="update-intervention-synthesis">
+                                            <input type="hidden" name="action" value="update-intervention-details">
                                             <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
                                             <div class="small text-muted">The compiled synopsis uses the intervention background, any key messages, and then the assigned study summary paragraphs. These fields are kept only as intervention metadata and do not add extra narrative text to the compiled synopsis.</div>
                                             <div class="row g-2">
@@ -494,7 +494,7 @@
                                                 <div class="col-12 col-lg-3">
                                                     <label class="form-label small text-muted mb-1">Evidence status</label>
                                                     <select name="evidence_status" class="form-select form-select-sm">
-                                                        {% for code, label in intervention_synthesis_form.evidence_status.field.choices %}
+                                                        {% for code, label in intervention_details_form.evidence_status.field.choices %}
                                                             {% if intervention.evidence_status == code %}
                                                                 <option value="{{ code }}" selected>{{ label }}</option>
                                                             {% else %}

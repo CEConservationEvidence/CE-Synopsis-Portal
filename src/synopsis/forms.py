@@ -987,7 +987,7 @@ class SynopsisBackgroundForm(forms.Form):
     )
 
 
-class SynopsisInterventionSynthesisForm(forms.Form):
+class SynopsisInterventionDetailsForm(forms.Form):
     ce_action_url = forms.URLField(
         required=False,
         widget=forms.URLInput(

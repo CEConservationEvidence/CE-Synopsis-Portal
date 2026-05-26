@@ -1015,7 +1015,7 @@ class SynopsisStructureTests(TestCase):
             SynopsisIntervention.objects.filter(subheading__chapter=text_chapter).exists()
         )
 
-    def test_update_intervention_evidence_fields(self):
+    def test_update_intervention_details_fields(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
         chapter = SynopsisChapter.objects.create(
             project=self.project,
@@ -1037,7 +1037,7 @@ class SynopsisStructureTests(TestCase):
         response = self.client.post(
             url,
             {
-                "action": "update-intervention-synthesis",
+                "action": "update-intervention-details",
                 "intervention_id": intervention.id,
                 "ce_action_url": "https://www.conservationevidence.com/actions/4018",
                 "evidence_status": SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES,

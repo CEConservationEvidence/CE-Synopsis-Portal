@@ -106,7 +106,7 @@ from .forms import (
     SynopsisSubheadingForm,
     SynopsisInterventionForm,
     SynopsisBackgroundForm,
-    SynopsisInterventionSynthesisForm,
+    SynopsisInterventionDetailsForm,
     SynopsisKeyMessageForm,
     SynopsisAssignmentForm,
     ReferenceActionSummaryForm,
@@ -10496,7 +10496,7 @@ def _project_synopsis_workspace(
         chapter_form.fields["chapter_type"].initial = SynopsisChapter.TYPE_EVIDENCE
     subheading_form = SynopsisSubheadingForm()
     intervention_form = SynopsisInterventionForm(project=project)
-    intervention_synthesis_form = SynopsisInterventionSynthesisForm()
+    intervention_details_form = SynopsisInterventionDetailsForm()
     key_message_form = SynopsisKeyMessageForm()
     assignment_form = SynopsisAssignmentForm(project=project)
     redirect_url = reverse(
@@ -10996,14 +10996,14 @@ def _project_synopsis_workspace(
             else:
                 messages.error(request, "Please check the background fields.")
             return redirect(redirect_url)
-        elif action == "update-intervention-synthesis":
+        elif action == "update-intervention-details":
             intervention = _intervention_from_post()
-            synthesis_form = SynopsisInterventionSynthesisForm(request.POST)
-            if synthesis_form.is_valid():
+            details_form = SynopsisInterventionDetailsForm(request.POST)
+            if details_form.is_valid():
                 intervention.ce_action_url = (
-                    synthesis_form.cleaned_data.get("ce_action_url", "") or ""
+                    details_form.cleaned_data.get("ce_action_url", "") or ""
                 )
-                intervention.evidence_status = synthesis_form.cleaned_data[
+                intervention.evidence_status = details_form.cleaned_data[
                     "evidence_status"
                 ]
                 intervention.save(
@@ -11671,7 +11671,7 @@ def _project_synopsis_workspace(
             "chapter_form": chapter_form,
             "subheading_form": subheading_form,
             "intervention_form": intervention_form,
-            "intervention_synthesis_form": intervention_synthesis_form,
+            "intervention_details_form": intervention_details_form,
             "key_message_form": key_message_form,
             "assignment_form": assignment_form,
             "reference_summaries": reference_summaries,
