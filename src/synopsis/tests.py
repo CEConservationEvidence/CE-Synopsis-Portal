@@ -906,8 +906,8 @@ class SynopsisStructureTests(TestCase):
         self.assertContains(response, "Background")
         self.assertContains(response, "Key messages")
         self.assertContains(response, "Assigned summaries")
-        self.assertContains(response, "Additional intervention text")
-        self.assertContains(response, "Most content should be added as background, key messages or assigned summaries.")
+        self.assertContains(response, "Intervention evidence details")
+        self.assertContains(response, "These fields are kept only as intervention metadata and do not add extra narrative text to the compiled synopsis.")
         self.assertContains(response, "Assigned study summaries to review")
         self.assertContains(response, "review the assigned summaries here first")
         self.assertContains(response, "mowing more frequently increased arable plant richness")
@@ -1015,7 +1015,7 @@ class SynopsisStructureTests(TestCase):
             SynopsisIntervention.objects.filter(subheading__chapter=text_chapter).exists()
         )
 
-    def test_update_intervention_synthesis_fields(self):
+    def test_update_intervention_evidence_fields(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
         chapter = SynopsisChapter.objects.create(
             project=self.project,
@@ -1041,7 +1041,6 @@ class SynopsisStructureTests(TestCase):
                 "intervention_id": intervention.id,
                 "ce_action_url": "https://www.conservationevidence.com/actions/4018",
                 "evidence_status": SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES,
-                "synthesis_text": "No direct studies were identified in the searched evidence base.",
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -1054,7 +1053,6 @@ class SynopsisStructureTests(TestCase):
             intervention.evidence_status,
             SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES,
         )
-        self.assertIn("No direct studies", intervention.synthesis_text)
 
     def test_add_and_update_key_message(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])

@@ -480,12 +480,12 @@
                                         </form>
 
                                         <hr>
-                                        <div class="fw-semibold mb-1">Optional intervention text</div>
+                                        <div class="fw-semibold mb-1">Intervention evidence details</div>
                                         <form method="post" class="d-flex flex-column gap-2">
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="update-intervention-synthesis">
                                             <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
-                                            <div class="small text-muted">Use this only if you need extra text for the whole intervention. It appears after key messages and before the study paragraphs in the compiled synopsis. Most content should be added as background, key messages or assigned summaries.</div>
+                                            <div class="small text-muted">The compiled synopsis uses the intervention background, any key messages, and then the assigned study summary paragraphs. These fields are kept only as intervention metadata and do not add extra narrative text to the compiled synopsis.</div>
                                             <div class="row g-2">
                                                 <div class="col-12 col-lg-6">
                                                     <label class="form-label small text-muted mb-1">Conservation Evidence action URL</label>
@@ -504,10 +504,8 @@
                                                     </select>
                                                 </div>
                                             </div>
-                                            <label class="form-label small text-muted mb-1">Additional intervention text</label>
-                                            <textarea name="synthesis_text" class="form-control form-control-sm" rows="4" placeholder="Optional text that should appear after key messages and before study paragraphs.">{{ intervention.synthesis_text }}</textarea>
                                             <div class="d-flex justify-content-end">
-                                                <button class="btn btn-outline-primary btn-sm">Save intervention text</button>
+                                                <button class="btn btn-outline-primary btn-sm">Save intervention details</button>
                                             </div>
                                         </form>
 

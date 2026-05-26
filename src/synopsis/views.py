@@ -11006,33 +11006,28 @@ def _project_synopsis_workspace(
                 intervention.evidence_status = synthesis_form.cleaned_data[
                     "evidence_status"
                 ]
-                intervention.synthesis_text = (
-                    synthesis_form.cleaned_data.get("synthesis_text", "") or ""
-                )
                 intervention.save(
                     update_fields=[
                         "ce_action_url",
                         "evidence_status",
-                        "synthesis_text",
                         "updated_at",
                     ]
                 )
                 _log_structure_history(
                     project,
                     request.user,
-                    "Intervention synthesis saved",
+                    "Intervention details saved",
                     chapter=intervention.subheading.chapter,
                     subheading=intervention.subheading,
                     intervention=intervention,
                     extra_details=[
                         f"Evidence status: {intervention.get_evidence_status_display()}",
                         f"CE action link: {'Yes' if intervention.ce_action_url else 'No'}",
-                        f"Synthesis text: {'Yes' if intervention.synthesis_text else 'No'}",
                     ],
                 )
-                messages.success(request, "Intervention synthesis saved.")
+                messages.success(request, "Intervention details saved.")
             else:
-                messages.error(request, "Please check the synthesis fields.")
+                messages.error(request, "Please check the intervention details.")
             return redirect(redirect_url)
         elif action == "add-key-message":
             intervention = _intervention_from_post()
@@ -11840,9 +11835,6 @@ def _generate_synopsis_docx(project):
                     doc.add_paragraph(
                         "We found no studies that evaluated the effects of this intervention."
                     )
-
-                if intervention.synthesis_text:
-                    doc.add_paragraph(intervention.synthesis_text)
 
                 for assignment in ordered_assignments:
                     summary = assignment.reference_summary

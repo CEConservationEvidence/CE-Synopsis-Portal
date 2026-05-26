@@ -1003,17 +1003,6 @@ class SynopsisInterventionSynthesisForm(forms.Form):
         widget=forms.Select(attrs={"class": "form-select"}),
         label="Evidence status",
     )
-    synthesis_text = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "class": "form-control",
-                "rows": 5,
-                "placeholder": "Optional text that should appear after key messages and before study paragraphs.",
-            }
-        ),
-        label="Additional intervention text",
-    )
 
 
 class SynopsisKeyMessageForm(forms.Form):

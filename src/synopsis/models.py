@@ -1869,7 +1869,6 @@ class SynopsisIntervention(models.Model):
         choices=EVIDENCE_STATUS_CHOICES,
         default=EVIDENCE_STATUS_HAS_EVIDENCE,
     )
-    synthesis_text = models.TextField(blank=True)
     position = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
