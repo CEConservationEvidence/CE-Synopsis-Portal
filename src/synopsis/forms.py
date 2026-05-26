@@ -979,10 +979,11 @@ class SynopsisBackgroundForm(forms.Form):
             attrs={
                 "class": "form-control",
                 "rows": 3,
-                "placeholder": "Background references (one per line, published before search end date).",
+                "placeholder": "Background references (one per line, optional contextual sources; not limited by the search end date).",
             }
         ),
         label="Background references",
+        help_text="Optional. Use any relevant contextual references here. They do not need to be published before the search end date.",
     )
 
 

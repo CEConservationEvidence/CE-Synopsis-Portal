@@ -259,7 +259,8 @@
                         </div>
                         {% if chapter.supports_evidence_structure %}
                             <div class="mb-2">
-                                <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, published before search end date).">{{ chapter.background_references }}</textarea>
+                                <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, optional contextual sources; not limited by the search end date).">{{ chapter.background_references }}</textarea>
+                                <div class="form-text">Optional contextual references. These do not need to be published before the search end date.</div>
                             </div>
                             <button class="btn btn-outline-primary btn-sm">Save background</button>
                         {% else %}
@@ -471,7 +472,8 @@
                                             <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
                                             <div class="small text-muted">Appears before key messages/studies in the intervention section.</div>
                                             <textarea name="background_text" class="form-control form-control-sm" rows="3" placeholder="Background (<200 words): describe the intervention, context, related literature/harms.">{{ intervention.background_text }}</textarea>
-                                            <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, published before search end date).">{{ intervention.background_references }}</textarea>
+                                            <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, optional contextual sources; not limited by the search end date).">{{ intervention.background_references }}</textarea>
+                                            <div class="form-text">Optional contextual references. These do not need to be published before the search end date.</div>
                                             <div class="d-flex justify-content-end">
                                                 <button class="btn btn-outline-primary btn-sm">Save background</button>
                                             </div>

@@ -912,6 +912,33 @@ class SynopsisStructureTests(TestCase):
         self.assertContains(response, "review the assigned summaries here first")
         self.assertContains(response, "mowing more frequently increased arable plant richness")
 
+    def test_structure_page_background_reference_guidance_is_not_limited_by_search_end_date(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+
+        response = self.client.get(url)
+
+        self.assertContains(
+            response,
+            "Optional contextual references. These do not need to be published before the search end date.",
+        )
+        self.assertNotContains(response, "published before search end date")
+
     def test_structure_page_renders_restore_state_hooks(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
         chapter = SynopsisChapter.objects.create(
