@@ -10,6 +10,7 @@ import re
 import random
 import uuid
 from decimal import Decimal
+from pathlib import Path
 from urllib.parse import urljoin, urlparse, urlencode, urlunparse
 
 import jwt
