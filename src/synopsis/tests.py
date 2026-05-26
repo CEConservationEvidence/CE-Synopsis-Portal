@@ -8810,11 +8810,12 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
     def test_save_internal_paragraph_notes_persists_and_logs_history(self):
         self.client.login(username="author", password="pass123")
+        url = reverse(
+            "synopsis:reference_summary_detail",
+            args=[self.project.id, self.summary.id],
+        )
         response = self.client.post(
-            reverse(
-                "synopsis:reference_summary_detail",
-                args=[self.project.id, self.summary.id],
-            ),
+            url,
             {
                 "action": "save-paragraph-notes",
                 "paragraph_notes": "Yes, this is 10 species not 11; see Fig. 4.",
@@ -8835,6 +8836,28 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertIsNotNone(change)
         self.assertIn("Reference: Test reference", change.details)
         self.assertIn("Notes: Yes, this is 10 species not 11; see Fig. 4.", change.details)
+
+        response = self.client.post(
+            url,
+            {
+                "action": "save-paragraph-notes",
+                "paragraph_notes": "",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.paragraph_notes, "")
+        self.assertContains(response, "Internal paragraph notes cleared.")
+        cleared_change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary paragraph notes cleared",
+        ).first()
+        self.assertIsNotNone(cleared_change)
+        self.assertIn(
+            "Previous notes: Yes, this is 10 species not 11; see Fig. 4.",
+            cleared_change.details,
+        )
 
     def test_detail_status_update_requires_reason_for_summary_phase_exclusion(self):
         self.reference.screening_status = "included"

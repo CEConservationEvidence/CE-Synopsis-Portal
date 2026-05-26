@@ -9946,8 +9946,8 @@ def reference_summary_detail(request, project_id, summary_id):
                 )
             messages.error(request, "Could not save the summary paragraph draft.")
         if action == "save-paragraph-notes":
+            previous_notes = (summary.paragraph_notes or "").strip()
             if paragraph_notes_form.is_valid():
-                previous_notes = (summary.paragraph_notes or "").strip()
                 updated_summary = paragraph_notes_form.save(commit=False)
                 updated_summary.paragraph_notes = (
                     updated_summary.paragraph_notes or ""
