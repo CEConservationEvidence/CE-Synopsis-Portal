@@ -906,11 +906,38 @@ class SynopsisStructureTests(TestCase):
         self.assertContains(response, "Background")
         self.assertContains(response, "Key messages")
         self.assertContains(response, "Assigned summaries")
-        self.assertContains(response, "Additional intervention text")
-        self.assertContains(response, "Most content should be added as background, key messages or assigned summaries.")
+        self.assertContains(response, "Intervention evidence details")
+        self.assertContains(response, "These fields are kept only as intervention metadata and do not add extra narrative text to the compiled synopsis.")
         self.assertContains(response, "Assigned study summaries to review")
         self.assertContains(response, "review the assigned summaries here first")
         self.assertContains(response, "mowing more frequently increased arable plant richness")
+
+    def test_structure_page_background_reference_guidance_is_not_limited_by_search_end_date(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+
+        response = self.client.get(url)
+
+        self.assertContains(
+            response,
+            "Optional contextual references. These do not need to be published before the search end date.",
+        )
+        self.assertNotContains(response, "published before search end date")
 
     def test_structure_page_renders_restore_state_hooks(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
@@ -988,7 +1015,7 @@ class SynopsisStructureTests(TestCase):
             SynopsisIntervention.objects.filter(subheading__chapter=text_chapter).exists()
         )
 
-    def test_update_intervention_synthesis_fields(self):
+    def test_update_intervention_details_fields(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
         chapter = SynopsisChapter.objects.create(
             project=self.project,
@@ -1010,11 +1037,10 @@ class SynopsisStructureTests(TestCase):
         response = self.client.post(
             url,
             {
-                "action": "update-intervention-synthesis",
+                "action": "update-intervention-details",
                 "intervention_id": intervention.id,
                 "ce_action_url": "https://www.conservationevidence.com/actions/4018",
                 "evidence_status": SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES,
-                "synthesis_text": "No direct studies were identified in the searched evidence base.",
             },
         )
         self.assertEqual(response.status_code, 302)
@@ -1027,7 +1053,6 @@ class SynopsisStructureTests(TestCase):
             intervention.evidence_status,
             SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES,
         )
-        self.assertIn("No direct studies", intervention.synthesis_text)
 
     def test_add_and_update_key_message(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
@@ -8502,6 +8527,8 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Save custom paragraph")
         self.assertContains(response, "Switch back to auto-generated")
         self.assertContains(response, "Clear saved custom paragraph")
+        self.assertContains(response, "Internal notes on this paragraph")
+        self.assertContains(response, "Save paragraph notes")
         self.assertContains(response, "Use these tags to organise, filter and group summaries across the synopsis.")
         self.assertContains(response, "Stored separately for internal use. These scores are not inserted into the generated summary paragraph.")
         self.assertContains(response, "Outcome notes")
@@ -8781,6 +8808,57 @@ class ReferenceSummaryDetailViewTests(TestCase):
             "Custom paragraph saved and set as the version used for compilation. Status moved to In progress automatically.",
         )
 
+    def test_save_internal_paragraph_notes_persists_and_logs_history(self):
+        self.client.login(username="author", password="pass123")
+        url = reverse(
+            "synopsis:reference_summary_detail",
+            args=[self.project.id, self.summary.id],
+        )
+        response = self.client.post(
+            url,
+            {
+                "action": "save-paragraph-notes",
+                "paragraph_notes": "Yes, this is 10 species not 11; see Fig. 4.",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(
+            self.summary.paragraph_notes,
+            "Yes, this is 10 species not 11; see Fig. 4.",
+        )
+        self.assertContains(response, "Internal paragraph notes saved.")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary paragraph notes saved",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Reference: Test reference", change.details)
+        self.assertIn("Notes: Yes, this is 10 species not 11; see Fig. 4.", change.details)
+
+        response = self.client.post(
+            url,
+            {
+                "action": "save-paragraph-notes",
+                "paragraph_notes": "",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.paragraph_notes, "")
+        self.assertContains(response, "Internal paragraph notes cleared.")
+        cleared_change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Summary paragraph notes cleared",
+        ).first()
+        self.assertIsNotNone(cleared_change)
+        self.assertIn(
+            "Previous notes: Yes, this is 10 species not 11; see Fig. 4.",
+            cleared_change.details,
+        )
+
     def test_detail_status_update_requires_reason_for_summary_phase_exclusion(self):
         self.reference.screening_status = "included"
         self.reference.save(update_fields=["screening_status", "updated_at"])
@@ -8969,6 +9047,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.summary.outcome_rows = [{"outcome": "Occupancy", "notes": "Higher"}]
         self.summary.synopsis_draft = "Draft paragraph copied from the first tab."
         self.summary.use_custom_synopsis_draft = True
+        self.summary.paragraph_notes = "Check whether this was really replicated."
         self.summary.summary_author = "Existing Author"
         self.summary.keywords = ["boxes", "occupancy"]
         self.summary.action_tags = ["Land/water protection-Area protection"]
@@ -9017,6 +9096,10 @@ class ReferenceSummaryDetailViewTests(TestCase):
             "Draft paragraph copied from the first tab.",
         )
         self.assertTrue(new_summary.use_custom_synopsis_draft)
+        self.assertEqual(
+            new_summary.paragraph_notes,
+            "Check whether this was really replicated.",
+        )
         self.assertEqual(new_summary.summary_author, "Existing Author")
         self.assertEqual(new_summary.keywords, ["boxes", "occupancy"])
         self.assertEqual(

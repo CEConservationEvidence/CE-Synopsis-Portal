@@ -259,7 +259,8 @@
                         </div>
                         {% if chapter.supports_evidence_structure %}
                             <div class="mb-2">
-                                <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, published before search end date).">{{ chapter.background_references }}</textarea>
+                                <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, optional contextual sources; not limited by the search end date).">{{ chapter.background_references }}</textarea>
+                                <div class="form-text">Optional contextual references. These do not need to be published before the search end date.</div>
                             </div>
                             <button class="btn btn-outline-primary btn-sm">Save background</button>
                         {% else %}
@@ -471,19 +472,20 @@
                                             <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
                                             <div class="small text-muted">Appears before key messages/studies in the intervention section.</div>
                                             <textarea name="background_text" class="form-control form-control-sm" rows="3" placeholder="Background (<200 words): describe the intervention, context, related literature/harms.">{{ intervention.background_text }}</textarea>
-                                            <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, published before search end date).">{{ intervention.background_references }}</textarea>
+                                            <textarea name="background_references" class="form-control form-control-sm" rows="2" placeholder="Background references (one per line, optional contextual sources; not limited by the search end date).">{{ intervention.background_references }}</textarea>
+                                            <div class="form-text">Optional contextual references. These do not need to be published before the search end date.</div>
                                             <div class="d-flex justify-content-end">
                                                 <button class="btn btn-outline-primary btn-sm">Save background</button>
                                             </div>
                                         </form>
 
                                         <hr>
-                                        <div class="fw-semibold mb-1">Optional intervention text</div>
+                                        <div class="fw-semibold mb-1">Intervention evidence details</div>
                                         <form method="post" class="d-flex flex-column gap-2">
                                             {% csrf_token %}
-                                            <input type="hidden" name="action" value="update-intervention-synthesis">
+                                            <input type="hidden" name="action" value="update-intervention-details">
                                             <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
-                                            <div class="small text-muted">Use this only if you need extra text for the whole intervention. It appears after key messages and before the study paragraphs in the compiled synopsis. Most content should be added as background, key messages or assigned summaries.</div>
+                                            <div class="small text-muted">The compiled synopsis uses the intervention background, any key messages, and then the assigned study summary paragraphs. These fields are kept only as intervention metadata and do not add extra narrative text to the compiled synopsis.</div>
                                             <div class="row g-2">
                                                 <div class="col-12 col-lg-6">
                                                     <label class="form-label small text-muted mb-1">Conservation Evidence action URL</label>
@@ -492,7 +494,7 @@
                                                 <div class="col-12 col-lg-3">
                                                     <label class="form-label small text-muted mb-1">Evidence status</label>
                                                     <select name="evidence_status" class="form-select form-select-sm">
-                                                        {% for code, label in intervention_synthesis_form.evidence_status.field.choices %}
+                                                        {% for code, label in intervention_details_form.evidence_status.field.choices %}
                                                             {% if intervention.evidence_status == code %}
                                                                 <option value="{{ code }}" selected>{{ label }}</option>
                                                             {% else %}
@@ -502,10 +504,8 @@
                                                     </select>
                                                 </div>
                                             </div>
-                                            <label class="form-label small text-muted mb-1">Additional intervention text</label>
-                                            <textarea name="synthesis_text" class="form-control form-control-sm" rows="4" placeholder="Optional text that should appear after key messages and before study paragraphs.">{{ intervention.synthesis_text }}</textarea>
                                             <div class="d-flex justify-content-end">
-                                                <button class="btn btn-outline-primary btn-sm">Save intervention text</button>
+                                                <button class="btn btn-outline-primary btn-sm">Save intervention details</button>
                                             </div>
                                         </form>
 

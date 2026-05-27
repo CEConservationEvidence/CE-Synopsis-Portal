@@ -835,6 +835,25 @@
                         {% endif %}
                     </div>
                 </form>
+                <hr class="my-4">
+                <form method="post" class="d-flex flex-column gap-3" id="paragraph-notes-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="save-paragraph-notes">
+                    <div>
+                        <label class="form-label" for="{{ paragraph_notes_form.paragraph_notes.id_for_label }}">Internal notes on this paragraph</label>
+                        {{ paragraph_notes_form.paragraph_notes }}
+                        <div class="form-text">{{ paragraph_notes_form.paragraph_notes.help_text }}</div>
+                        {% if paragraph_notes_form.paragraph_notes.errors %}
+                        <div class="text-danger small">{{ paragraph_notes_form.paragraph_notes.errors|join:", " }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                        <button class="btn btn-outline-primary btn-sm" type="submit">Save paragraph notes</button>
+                        {% if summary.paragraph_notes %}
+                        <span class="small text-muted">Saved only in the portal. Not included in synopsis exports.</span>
+                        {% endif %}
+                    </div>
+                </form>
             </div>
         </div>
     </div>

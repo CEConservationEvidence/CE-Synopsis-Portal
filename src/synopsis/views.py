@@ -97,6 +97,7 @@ from .forms import (
     AdvisoryMemberCustomDataForm,
     ReferenceSummaryAssignmentForm,
     ReferenceSummaryDraftForm,
+    ReferenceSummaryParagraphNotesForm,
     ReferenceSummaryUpdateForm,
     ReferenceSummaryCommentForm,
     ReferenceCommentForm,
@@ -105,7 +106,7 @@ from .forms import (
     SynopsisSubheadingForm,
     SynopsisInterventionForm,
     SynopsisBackgroundForm,
-    SynopsisInterventionSynthesisForm,
+    SynopsisInterventionDetailsForm,
     SynopsisKeyMessageForm,
     SynopsisAssignmentForm,
     ReferenceActionSummaryForm,
@@ -8760,6 +8761,7 @@ def _duplicate_reference_summary(source_summary, user=None):
         key_findings=source_summary.key_findings,
         synopsis_draft=source_summary.synopsis_draft,
         use_custom_synopsis_draft=source_summary.use_custom_synopsis_draft,
+        paragraph_notes=source_summary.paragraph_notes,
         summary_author=summary_author,
         broad_category=source_summary.broad_category,
         keywords=copy.deepcopy(source_summary.keywords or []),
@@ -9672,6 +9674,10 @@ def reference_summary_detail(request, project_id, summary_id):
         instance=summary,
         generated_summary=generated_summary,
     )
+    paragraph_notes_form = ReferenceSummaryParagraphNotesForm(
+        request.POST if active_action == "save-paragraph-notes" else None,
+        instance=summary,
+    )
     comment_form = ReferenceSummaryCommentForm()
     document_form = ReferenceDocumentForm()
     action_summary_form = ReferenceActionSummaryForm()
@@ -9939,6 +9945,51 @@ def reference_summary_detail(request, project_id, summary_id):
                     summary_id=summary.id,
                 )
             messages.error(request, "Could not save the summary paragraph draft.")
+        if action == "save-paragraph-notes":
+            previous_notes = (summary.paragraph_notes or "").strip()
+            if paragraph_notes_form.is_valid():
+                updated_summary = paragraph_notes_form.save(commit=False)
+                updated_summary.paragraph_notes = (
+                    updated_summary.paragraph_notes or ""
+                ).strip()
+                updated_summary.save(update_fields=["paragraph_notes", "updated_at"])
+                current_notes = updated_summary.paragraph_notes
+                _log_summary_history(
+                    project,
+                    request.user,
+                    (
+                        "Summary paragraph notes saved"
+                        if current_notes
+                        else "Summary paragraph notes cleared"
+                    ),
+                    updated_summary,
+                    extra_details=[
+                        (
+                            f"Notes: {_history_safe_text(current_notes, max_length=220)}"
+                            if current_notes
+                            else ""
+                        ),
+                        (
+                            f"Previous notes: {_history_safe_text(previous_notes, max_length=160)}"
+                            if previous_notes and not current_notes
+                            else ""
+                        ),
+                    ],
+                )
+                messages.success(
+                    request,
+                    (
+                        "Internal paragraph notes saved."
+                        if current_notes
+                        else "Internal paragraph notes cleared."
+                    ),
+                )
+                return redirect(
+                    "synopsis:reference_summary_detail",
+                    project_id=project.id,
+                    summary_id=summary.id,
+                )
+            messages.error(request, "Could not save the internal paragraph notes.")
         if action == "update-classification" and classification_form.is_valid():
             reference = summary.reference
             previous_status = reference.screening_status
@@ -10342,6 +10393,7 @@ def reference_summary_detail(request, project_id, summary_id):
             "summary_tabs": summary_tabs,
             "summary_form": summary_form,
             "draft_form": draft_form,
+            "paragraph_notes_form": paragraph_notes_form,
             "assignment_form": assignment_form,
             "classification_form": classification_form,
             "comment_form": comment_form,
@@ -10444,7 +10496,7 @@ def _project_synopsis_workspace(
         chapter_form.fields["chapter_type"].initial = SynopsisChapter.TYPE_EVIDENCE
     subheading_form = SynopsisSubheadingForm()
     intervention_form = SynopsisInterventionForm(project=project)
-    intervention_synthesis_form = SynopsisInterventionSynthesisForm()
+    intervention_details_form = SynopsisInterventionDetailsForm()
     key_message_form = SynopsisKeyMessageForm()
     assignment_form = SynopsisAssignmentForm(project=project)
     redirect_url = reverse(
@@ -10944,43 +10996,38 @@ def _project_synopsis_workspace(
             else:
                 messages.error(request, "Please check the background fields.")
             return redirect(redirect_url)
-        elif action == "update-intervention-synthesis":
+        elif action == "update-intervention-details":
             intervention = _intervention_from_post()
-            synthesis_form = SynopsisInterventionSynthesisForm(request.POST)
-            if synthesis_form.is_valid():
+            details_form = SynopsisInterventionDetailsForm(request.POST)
+            if details_form.is_valid():
                 intervention.ce_action_url = (
-                    synthesis_form.cleaned_data.get("ce_action_url", "") or ""
+                    details_form.cleaned_data.get("ce_action_url", "") or ""
                 )
-                intervention.evidence_status = synthesis_form.cleaned_data[
+                intervention.evidence_status = details_form.cleaned_data[
                     "evidence_status"
                 ]
-                intervention.synthesis_text = (
-                    synthesis_form.cleaned_data.get("synthesis_text", "") or ""
-                )
                 intervention.save(
                     update_fields=[
                         "ce_action_url",
                         "evidence_status",
-                        "synthesis_text",
                         "updated_at",
                     ]
                 )
                 _log_structure_history(
                     project,
                     request.user,
-                    "Intervention synthesis saved",
+                    "Intervention details saved",
                     chapter=intervention.subheading.chapter,
                     subheading=intervention.subheading,
                     intervention=intervention,
                     extra_details=[
                         f"Evidence status: {intervention.get_evidence_status_display()}",
                         f"CE action link: {'Yes' if intervention.ce_action_url else 'No'}",
-                        f"Synthesis text: {'Yes' if intervention.synthesis_text else 'No'}",
                     ],
                 )
-                messages.success(request, "Intervention synthesis saved.")
+                messages.success(request, "Intervention details saved.")
             else:
-                messages.error(request, "Please check the synthesis fields.")
+                messages.error(request, "Please check the intervention details.")
             return redirect(redirect_url)
         elif action == "add-key-message":
             intervention = _intervention_from_post()
@@ -11624,7 +11671,7 @@ def _project_synopsis_workspace(
             "chapter_form": chapter_form,
             "subheading_form": subheading_form,
             "intervention_form": intervention_form,
-            "intervention_synthesis_form": intervention_synthesis_form,
+            "intervention_details_form": intervention_details_form,
             "key_message_form": key_message_form,
             "assignment_form": assignment_form,
             "reference_summaries": reference_summaries,
@@ -11788,9 +11835,6 @@ def _generate_synopsis_docx(project):
                     doc.add_paragraph(
                         "We found no studies that evaluated the effects of this intervention."
                     )
-
-                if intervention.synthesis_text:
-                    doc.add_paragraph(intervention.synthesis_text)
 
                 for assignment in ordered_assignments:
                     summary = assignment.reference_summary

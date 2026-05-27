@@ -979,14 +979,15 @@ class SynopsisBackgroundForm(forms.Form):
             attrs={
                 "class": "form-control",
                 "rows": 3,
-                "placeholder": "Background references (one per line, published before search end date).",
+                "placeholder": "Background references (one per line, optional contextual sources; not limited by the search end date).",
             }
         ),
         label="Background references",
+        help_text="Optional. Use any relevant contextual references here. They do not need to be published before the search end date.",
     )
 
 
-class SynopsisInterventionSynthesisForm(forms.Form):
+class SynopsisInterventionDetailsForm(forms.Form):
     ce_action_url = forms.URLField(
         required=False,
         widget=forms.URLInput(
@@ -1001,17 +1002,6 @@ class SynopsisInterventionSynthesisForm(forms.Form):
         choices=SynopsisIntervention.EVIDENCE_STATUS_CHOICES,
         widget=forms.Select(attrs={"class": "form-select"}),
         label="Evidence status",
-    )
-    synthesis_text = forms.CharField(
-        required=False,
-        widget=forms.Textarea(
-            attrs={
-                "class": "form-control",
-                "rows": 5,
-                "placeholder": "Optional text that should appear after key messages and before study paragraphs.",
-            }
-        ),
-        label="Additional intervention text",
     )
 
 
@@ -2638,6 +2628,28 @@ class ReferenceSummaryDraftForm(forms.ModelForm):
                     "class": "form-control",
                     "rows": 8,
                     "placeholder": "Edit the generated paragraph here, or leave blank to fall back to the auto-generated text.",
+                }
+            )
+        }
+
+
+class ReferenceSummaryParagraphNotesForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["paragraph_notes"].required = False
+        self.fields["paragraph_notes"].help_text = (
+            "Internal notes for this paragraph only. Use this to explain wording, numbers, study design calls, or anything future authors should remember. These notes stay in the portal and are not exported in the synopsis."
+        )
+
+    class Meta:
+        model = ReferenceSummary
+        fields = ["paragraph_notes"]
+        widgets = {
+            "paragraph_notes": forms.Textarea(
+                attrs={
+                    "class": "form-control",
+                    "rows": 4,
+                    "placeholder": "Example: Yes, this is 10 species not 11; see Fig. 4. Or: not replicated because only one treatment site was sampled.",
                 }
             )
         }
