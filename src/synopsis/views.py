@@ -853,6 +853,17 @@ def _history_intervention_title(intervention):
     )
 
 
+def _history_iucn_action_names(categories):
+    names = [
+        getattr(category, "name", "").strip()
+        for category in categories or []
+        if getattr(category, "name", "").strip()
+    ]
+    if not names:
+        return "None"
+    return _history_safe_text(", ".join(names), max_length=220)
+
+
 def _history_key_message_label(key_message):
     outcome_label = _history_safe_text(
         getattr(key_message, "outcome_label", ""),
