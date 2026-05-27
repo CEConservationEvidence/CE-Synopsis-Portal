@@ -911,6 +911,10 @@ class SynopsisStructureTests(TestCase):
         self.assertContains(response, "Assigned study summaries to review")
         self.assertContains(response, "review the assigned summaries here first")
         self.assertContains(response, "mowing more frequently increased arable plant richness")
+        self.assertContains(response, "Vegetation Community")
+        self.assertContains(response, "Vegetation Abundance")
+        self.assertContains(response, "Vegetation Structure")
+        self.assertContains(response, "Other")
 
     def test_structure_page_background_reference_guidance_is_not_limited_by_search_end_date(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])

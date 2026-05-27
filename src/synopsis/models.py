@@ -1885,11 +1885,19 @@ class SynopsisInterventionKeyMessage(models.Model):
     GROUP_POPULATION = "population"
     GROUP_BEHAVIOUR = "behaviour"
     GROUP_RESPONSE = "response"
+    GROUP_VEGETATION_COMMUNITY = "vegetation_community"
+    GROUP_VEGETATION_ABUNDANCE = "vegetation_abundance"
+    GROUP_VEGETATION_STRUCTURE = "vegetation_structure"
+    GROUP_OTHER = "other"
     GROUP_CHOICES = [
         (GROUP_COMMUNITY, "Community response"),
         (GROUP_POPULATION, "Population response"),
         (GROUP_BEHAVIOUR, "Behaviour"),
         (GROUP_RESPONSE, "General response"),
+        (GROUP_VEGETATION_COMMUNITY, "Vegetation Community"),
+        (GROUP_VEGETATION_ABUNDANCE, "Vegetation Abundance"),
+        (GROUP_VEGETATION_STRUCTURE, "Vegetation Structure"),
+        (GROUP_OTHER, "Other"),
     ]
 
     intervention = models.ForeignKey(
