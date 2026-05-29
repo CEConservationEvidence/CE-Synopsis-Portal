@@ -12110,7 +12110,11 @@ def reference_batch_detail(request, project_id, batch_id):
                             categories,
                             changed_by=request.user,
                             source_project=project,
-                            change_source="screening_bulk_save_folders",
+                            change_source=(
+                                "screening_bulk_clear_folders"
+                                if clear_categories
+                                else "screening_bulk_save_folders"
+                            ),
                         )
                     )
                     if changed:

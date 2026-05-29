@@ -7307,6 +7307,12 @@ class ReferenceBatchUploadParsingTests(TestCase):
         ).first()
         self.assertIsNotNone(change)
         self.assertIn("References: 2", change.details)
+        self.assertTrue(
+            LibraryReferenceFolderHistory.objects.filter(
+                library_reference__in=[ref.library_reference for ref in references[:2]],
+                change_source="screening_bulk_clear_folders",
+            ).exists()
+        )
 
     def test_single_screening_update_filters_blank_reference_folder_values(self):
         upload = SimpleUploadedFile(
