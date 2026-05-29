@@ -1423,7 +1423,7 @@ class SynopsisStructureTests(TestCase):
         )
 
         form_categories = list(
-            response.context["intervention_form"].fields["iucn_category"].queryset
+            response.context["intervention_form"].fields["iucn_actions"].queryset
         )
         self.assertTrue(form_categories)
         self.assertTrue(
@@ -1460,13 +1460,88 @@ class SynopsisStructureTests(TestCase):
             {
                 "action": "update-intervention-metadata",
                 "intervention_id": intervention.id,
-                "iucn_category": str(threat_category.id),
+                "iucn_actions": [str(threat_category.id)],
             },
         )
 
         self.assertEqual(response.status_code, 302)
         intervention.refresh_from_db()
-        self.assertIsNone(intervention.iucn_category)
+        self.assertFalse(intervention.iucn_actions.exists())
+
+    def test_create_intervention_allows_multiple_iucn_actions(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(project=self.project, title="Ch", position=1)
+        action_categories = list(
+            IUCNCategory.objects.filter(
+                kind=IUCNCategory.KIND_ACTION,
+                is_active=True,
+            ).order_by("position", "name")[:2]
+        )
+
+        self.assertEqual(len(action_categories), 2)
+
+        response = self.client.post(
+            url,
+            {
+                "action": "create-intervention",
+                "chapter_id": chapter.id,
+                "title": "Intervention with multiple actions",
+                "iucn_actions": [str(category.id) for category in action_categories],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        intervention = SynopsisIntervention.objects.get(
+            subheading__chapter=chapter,
+            title="Intervention with multiple actions",
+        )
+        self.assertEqual(
+            list(intervention.iucn_actions.order_by("position", "name").values_list("id", flat=True)),
+            [category.id for category in action_categories],
+        )
+
+    def test_update_intervention_metadata_allows_multiple_iucn_actions(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        action_categories = list(
+            IUCNCategory.objects.filter(
+                kind=IUCNCategory.KIND_ACTION,
+                is_active=True,
+            ).order_by("position", "name")[:2]
+        )
+
+        self.assertEqual(len(action_categories), 2)
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-intervention-metadata",
+                "intervention_id": intervention.id,
+                "iucn_actions": [str(category.id) for category in action_categories],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        intervention.refresh_from_db()
+        self.assertEqual(
+            list(intervention.iucn_actions.order_by("position", "name").values_list("id", flat=True)),
+            [category.id for category in action_categories],
+        )
 
     def test_delete_assignment_removes_supporting_links_from_key_messages(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])

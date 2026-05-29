@@ -908,11 +908,11 @@ class SynopsisInterventionForm(forms.Form):
         widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Intervention"}),
         label="Intervention",
     )
-    iucn_category = forms.ModelChoiceField(
+    iucn_actions = forms.ModelMultipleChoiceField(
         queryset=IUCNCategory.objects.none(),
         required=False,
-        widget=forms.Select(attrs={"class": "form-select"}),
-        label="IUCN category",
+        widget=forms.SelectMultiple(attrs={"class": "form-select", "size": 5}),
+        label="IUCN actions",
     )
     is_cross_reference = forms.BooleanField(
         required=False,
@@ -928,11 +928,11 @@ class SynopsisInterventionForm(forms.Form):
 
     def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["iucn_category"].queryset = IUCNCategory.objects.filter(
+        self.fields["iucn_actions"].queryset = IUCNCategory.objects.filter(
             kind=IUCNCategory.KIND_ACTION,
             is_active=True,
         ).order_by("position", "name")
-        self.fields["iucn_category"].label_from_instance = lambda obj: obj.name
+        self.fields["iucn_actions"].label_from_instance = lambda obj: obj.name
         interventions = SynopsisIntervention.objects.none()
         if project:
             interventions = (

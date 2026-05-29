@@ -853,6 +853,17 @@ def _history_intervention_title(intervention):
     )
 
 
+def _history_iucn_action_names(categories):
+    names = [
+        getattr(category, "name", "").strip()
+        for category in categories or []
+        if getattr(category, "name", "").strip()
+    ]
+    if not names:
+        return "None"
+    return _history_safe_text(", ".join(names), max_length=220)
+
+
 def _history_key_message_label(key_message):
     outcome_label = _history_safe_text(
         getattr(key_message, "outcome_label", ""),
@@ -10505,11 +10516,10 @@ def _project_synopsis_workspace(
 
     interventions_prefetch = Prefetch(
         "interventions",
-        queryset=SynopsisIntervention.objects.select_related(
-            "iucn_category", "primary_intervention"
-        )
+        queryset=SynopsisIntervention.objects.select_related("primary_intervention")
         .order_by("position", "id")
         .prefetch_related(
+            "iucn_actions",
             Prefetch(
                 "key_messages",
                 queryset=SynopsisInterventionKeyMessage.objects.order_by(
@@ -10570,6 +10580,23 @@ def _project_synopsis_workspace(
                 subheading__chapter__project=project,
             )
             return intervention
+
+        def _action_categories_from_post(field_name="iucn_actions"):
+            action_ids = {
+                value.strip()
+                for value in request.POST.getlist(field_name)
+                if value and value.strip()
+            }
+            categories = list(
+                IUCNCategory.objects.filter(
+                    pk__in=action_ids,
+                    kind=IUCNCategory.KIND_ACTION,
+                    is_active=True,
+                ).order_by("position", "name")
+            )
+            if len(categories) != len(action_ids):
+                return None
+            return categories
 
         def _key_message_from_post():
             key_message = get_object_or_404(
@@ -10839,7 +10866,6 @@ def _project_synopsis_workspace(
                 intervention = SynopsisIntervention.objects.create(
                     subheading=subheading,
                     title=title,
-                    iucn_category=intervention_form.cleaned_data.get("iucn_category"),
                     is_cross_reference=intervention_form.cleaned_data.get(
                         "is_cross_reference", False
                     ),
@@ -10848,6 +10874,11 @@ def _project_synopsis_workspace(
                     ),
                     position=_next_intervention_position(subheading),
                 )
+                action_categories = list(
+                    intervention_form.cleaned_data.get("iucn_actions") or []
+                )
+                if action_categories:
+                    intervention.iucn_actions.set(action_categories)
                 _log_structure_history(
                     project,
                     request.user,
@@ -10857,8 +10888,8 @@ def _project_synopsis_workspace(
                     intervention=intervention,
                     extra_details=[
                         (
-                            f"IUCN action: {_history_safe_text(intervention.iucn_category.name, max_length=120)}"
-                            if intervention.iucn_category
+                            f"IUCN actions: {_history_iucn_action_names(action_categories)}"
+                            if action_categories
                             else ""
                         ),
                         (
@@ -11197,17 +11228,10 @@ def _project_synopsis_workspace(
             return redirect(redirect_url)
         elif action == "update-intervention-metadata":
             intervention = _intervention_from_post()
-            category = None
-            category_id = (request.POST.get("iucn_category") or "").strip()
-            if category_id:
-                category = IUCNCategory.objects.filter(
-                    pk=category_id,
-                    kind=IUCNCategory.KIND_ACTION,
-                    is_active=True,
-                ).first()
-                if not category:
-                    messages.error(request, "Invalid IUCN category selected.")
-                    return redirect(redirect_url)
+            categories = _action_categories_from_post()
+            if categories is None:
+                messages.error(request, "Invalid IUCN action selected.")
+                return redirect(redirect_url)
 
             primary = None
             primary_id = (request.POST.get("primary_intervention") or "").strip()
@@ -11236,17 +11260,16 @@ def _project_synopsis_workspace(
                 )
                 return redirect(redirect_url)
 
-            intervention.iucn_category = category
             intervention.is_cross_reference = is_cross_reference
             intervention.primary_intervention = primary
             intervention.save(
                 update_fields=[
-                    "iucn_category",
                     "is_cross_reference",
                     "primary_intervention",
                     "updated_at",
                 ]
             )
+            intervention.iucn_actions.set(categories)
             _log_structure_history(
                 project,
                 request.user,
@@ -11255,11 +11278,7 @@ def _project_synopsis_workspace(
                 subheading=intervention.subheading,
                 intervention=intervention,
                 extra_details=[
-                    (
-                        f"IUCN action: {_history_safe_text(category.name, max_length=120)}"
-                        if category
-                        else "IUCN action: None"
-                    ),
+                    f"IUCN actions: {_history_iucn_action_names(categories)}",
                     f"Cross-reference: {'Yes' if intervention.is_cross_reference else 'No'}",
                     (
                         f"Primary intervention: {_history_intervention_title(primary)}"
@@ -11510,6 +11529,9 @@ def _project_synopsis_workspace(
             subheading.intervention_total = len(interventions)
             chapter.intervention_total += subheading.intervention_total
             for intervention in interventions:
+                intervention.iucn_action_ids = {
+                    category.id for category in intervention.iucn_actions.all()
+                }
                 assignments = list(intervention.assignments.all())
                 (
                     _,

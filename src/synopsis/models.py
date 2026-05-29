@@ -1842,12 +1842,10 @@ class SynopsisIntervention(models.Model):
         SynopsisSubheading, on_delete=models.CASCADE, related_name="interventions"
     )
     title = models.CharField(max_length=255)
-    iucn_category = models.ForeignKey(
+    iucn_actions = models.ManyToManyField(
         IUCNCategory,
-        on_delete=models.SET_NULL,
-        null=True,
         blank=True,
-        related_name="interventions",
+        related_name="synopsis_interventions",
     )
     is_cross_reference = models.BooleanField(
         default=False,

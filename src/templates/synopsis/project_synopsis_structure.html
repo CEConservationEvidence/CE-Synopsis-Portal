@@ -329,11 +329,11 @@
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="create-intervention">
                                 <input type="hidden" name="subheading_id" value="{{ subheading.id }}">
-                                <div class="col-12 col-xl-7">
+                                <div class="col-12 col-xl-5">
                                     {{ intervention_form.title }}
                                 </div>
-                                <div class="col-12 col-xl-3">
-                                    {{ intervention_form.iucn_category }}
+                                <div class="col-12 col-xl-5">
+                                    {{ intervention_form.iucn_actions }}
                                 </div>
                                 <div class="col-12 col-xl-2">
                                     <button class="btn btn-outline-primary btn-sm w-100">Add</button>
@@ -348,8 +348,11 @@
                                 <div>
                                     <div class="fw-semibold">{{ intervention.title }}</div>
                                     <div class="small text-muted d-flex flex-wrap gap-2 mt-1">
-                                        {% if intervention.iucn_category %}
-                                        <span class="badge text-bg-light">{{ intervention.iucn_category.name }}</span>
+                                        {% for category in intervention.iucn_actions.all %}
+                                        <span class="badge text-bg-light">{{ category.name }}</span>
+                                        {% endfor %}
+                                        {% if not intervention.iucn_action_ids %}
+                                        <span class="badge text-bg-light">No IUCN action linked</span>
                                         {% endif %}
                                         {% if intervention.is_cross_reference %}
                                         <span class="badge text-bg-warning text-dark">Cross-reference{% if intervention.primary_intervention %}: {{ intervention.primary_intervention.title }}{% endif %}</span>
@@ -422,12 +425,11 @@
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="update-intervention-metadata">
                                             <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
-                                            <div class="col-12 col-lg-4">
-                                                <label class="form-label small text-muted mb-1">IUCN category</label>
-                                                <select name="iucn_category" class="form-select form-select-sm">
-                                                    <option value="">Choose...</option>
+                                            <div class="col-12 col-lg-5">
+                                                <label class="form-label small text-muted mb-1">IUCN actions</label>
+                                                <select name="iucn_actions" class="form-select form-select-sm" multiple size="5">
                                                     {% for category in iucn_categories %}
-                                                        {% if intervention.iucn_category_id == category.id %}
+                                                        {% if category.id in intervention.iucn_action_ids %}
                                                             <option value="{{ category.id }}" selected>{{ category.name }}</option>
                                                         {% else %}
                                                             <option value="{{ category.id }}">{{ category.name }}</option>
@@ -435,7 +437,7 @@
                                                     {% endfor %}
                                                 </select>
                                             </div>
-                                            <div class="col-12 col-lg-4">
+                                            <div class="col-12 col-lg-3">
                                                 <label class="form-label small text-muted mb-1">Primary intervention</label>
                                                 <select name="primary_intervention" class="form-select form-select-sm">
                                                     <option value="">None</option>
