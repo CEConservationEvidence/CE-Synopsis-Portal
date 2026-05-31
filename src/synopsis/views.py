@@ -892,6 +892,70 @@ def _history_file_name(file_value):
     )
 
 
+def _document_history_entry(log):
+    segments = [segment.strip() for segment in log.details.split("|") if segment.strip()]
+    reason = ""
+    changes = []
+    display_action = log.action
+    action_lower = (log.action or "").lower()
+
+    if "updated via collaborative edit" in action_lower:
+        display_action = "Collaborative revision saved"
+        for segment in segments:
+            lower = segment.lower()
+            if lower.startswith("session:") or lower.startswith("status:"):
+                continue
+            if lower.startswith("users:"):
+                changes.append(f"Edited by {segment.split(':', 1)[1].strip()}")
+                continue
+            if lower.startswith("file:"):
+                changes.append(f"Saved file: {segment.split(':', 1)[1].strip()}")
+                continue
+            if lower.startswith("reason:"):
+                reason = segment.split(":", 1)[1].strip()
+                continue
+            changes.append(segment)
+    elif "collaborative editing started" in action_lower:
+        display_action = "Collaborative session started"
+        for segment in segments:
+            if segment.lower().startswith("session "):
+                continue
+            changes.append(segment)
+    elif "collaborative session closed" in action_lower:
+        display_action = "Collaborative session closed"
+        detail_text = " ".join(segments)
+        if "no unsaved changes" in detail_text.lower():
+            changes.append("No unsaved changes were waiting in OnlyOffice.")
+        elif "marked inactive" in detail_text.lower():
+            changes.append("The shared editor was closed from the portal.")
+        elif "status 3" in detail_text.lower():
+            changes.append("OnlyOffice reported the shared session closed without new saved changes.")
+        elif "status 4" in detail_text.lower():
+            changes.append("OnlyOffice reported the shared session closed after a timeout.")
+        elif "status 7" in detail_text.lower():
+            changes.append("OnlyOffice reported the shared session closed with an error.")
+        else:
+            changes.extend(segments)
+        for segment in segments:
+            if segment.lower().startswith("reason:"):
+                reason = segment.split(":", 1)[1].strip()
+                break
+    else:
+        for segment in segments:
+            if segment.lower().startswith("reason:"):
+                reason = segment.split(":", 1)[1].strip()
+            else:
+                changes.append(segment)
+
+    return {
+        "log": log,
+        "display_action": display_action,
+        "changes": changes,
+        "reason": reason,
+        "actor": _user_display(log.changed_by) if log.changed_by else "System",
+    }
+
+
 def _log_summary_history(project, user, action: str, summary, extra_details=None):
     detail_parts = [
         f"Reference: {_history_reference_title(summary.reference)}",
@@ -1103,6 +1167,45 @@ def _resolve_document_feedback_deadline(override_due_date=None, current_deadline
     if override_due_date:
         return _end_of_day_datetime(override_due_date)
     return current_deadline or _default_document_feedback_deadline()
+
+
+def _document_feedback_deadline_state(members, deadline_field, *, member_count=None):
+    deadlines = [
+        deadline
+        for deadline in members.filter(**{f"{deadline_field}__isnull": False})
+        .order_by(deadline_field)
+        .values_list(deadline_field, flat=True)
+    ]
+    if member_count is None:
+        member_count = members.count()
+    now = timezone.now()
+    past_deadline_count = 0
+    future_deadline_count = 0
+    for deadline in deadlines:
+        if deadline and deadline > now:
+            future_deadline_count += 1
+        else:
+            past_deadline_count += 1
+    deadline_count = len(deadlines)
+    without_deadline_count = max(member_count - deadline_count, 0)
+    open_member_count = future_deadline_count + without_deadline_count
+    earliest_deadline = deadlines[0] if deadlines else None
+    latest_deadline = deadlines[-1] if deadlines else None
+    distinct_deadline_count = len(set(deadlines)) if deadlines else 0
+    return {
+        "deadlines": deadlines,
+        "deadline_count": deadline_count,
+        "earliest_deadline": earliest_deadline,
+        "latest_deadline": latest_deadline,
+        "distinct_deadline_count": distinct_deadline_count,
+        "has_multiple_deadlines": distinct_deadline_count > 1,
+        "past_deadline_count": past_deadline_count,
+        "future_deadline_count": future_deadline_count,
+        "without_deadline_count": without_deadline_count,
+        "open_member_count": open_member_count,
+        "all_current_deadlines_passed": deadline_count > 0 and open_member_count == 0,
+        "some_deadlines_passed": past_deadline_count > 0 and open_member_count > 0,
+    }
 
 
 def _normalise_advisory_message(value):
@@ -3990,26 +4093,9 @@ def protocol_detail(request, project_id):
         .select_related("changed_by")
         .order_by("-created_at", "-id")
     )
-    protocol_history_entries = []
-    for log in protocol_history_queryset:
-        segments = [
-            segment.strip() for segment in log.details.split("|") if segment.strip()
-        ]
-        reason = ""
-        changes = []
-        for segment in segments:
-            if segment.lower().startswith("reason:"):
-                reason = segment.split(":", 1)[1].strip()
-            else:
-                changes.append(segment)
-        protocol_history_entries.append(
-            {
-                "log": log,
-                "changes": changes,
-                "reason": reason,
-                "actor": _user_display(log.changed_by) if log.changed_by else "System",
-            }
-        )
+    protocol_history_entries = [
+        _document_history_entry(log) for log in protocol_history_queryset
+    ]
 
     revision_entries = []
     if protocol:
@@ -4311,12 +4397,13 @@ def protocol_detail(request, project_id):
         sent_protocol_at__isnull=False,
         response="Y",
     )
-    protocol_pending_dates = [
-        d
-        for d in protocol_members.filter(feedback_on_protocol_deadline__isnull=False)
-        .order_by("feedback_on_protocol_deadline")
-        .values_list("feedback_on_protocol_deadline", flat=True)
-    ]
+    protocol_pending_count = protocol_members.count()
+    protocol_deadline_state = _document_feedback_deadline_state(
+        protocol_members,
+        "feedback_on_protocol_deadline",
+        member_count=protocol_pending_count,
+    )
+    protocol_pending_dates = protocol_deadline_state["deadlines"]
     protocol_reminder_initial = {}
     if protocol_pending_dates:
         first_deadline = protocol_pending_dates[0]
@@ -4342,7 +4429,18 @@ def protocol_detail(request, project_id):
         "is_closed": bool(getattr(protocol, "feedback_closed_at", None)),
         "closed_at": getattr(protocol, "feedback_closed_at", None),
         "closure_message": getattr(protocol, "feedback_closure_message", ""),
-        "deadline": protocol_pending_dates[0] if protocol_pending_dates else None,
+        "deadline": protocol_deadline_state["earliest_deadline"],
+        "latest_deadline": protocol_deadline_state["latest_deadline"],
+        "deadline_count": protocol_deadline_state["deadline_count"],
+        "has_multiple_deadlines": protocol_deadline_state["has_multiple_deadlines"],
+        "past_deadline_count": protocol_deadline_state["past_deadline_count"],
+        "future_deadline_count": protocol_deadline_state["future_deadline_count"],
+        "without_deadline_count": protocol_deadline_state["without_deadline_count"],
+        "open_member_count": protocol_deadline_state["open_member_count"],
+        "all_current_deadlines_passed": protocol_deadline_state[
+            "all_current_deadlines_passed"
+        ],
+        "some_deadlines_passed": protocol_deadline_state["some_deadlines_passed"],
         "document_ready": protocol_document_ready,
     }
 
@@ -4373,7 +4471,7 @@ def protocol_detail(request, project_id):
             "collaborative_document_ready": protocol_document_ready,
             "collaborative_can_override": collaborative_can_override,
             "protocol_reminder_form": protocol_reminder_form,
-            "protocol_pending_count": protocol_members.count(),
+            "protocol_pending_count": protocol_pending_count,
             "protocol_pending_dates": protocol_pending_dates,
             "initial_protocol_reminder_log": project.change_log.filter(
                 action="Scheduled protocol reminders"
@@ -4403,26 +4501,7 @@ def action_list_detail(request, project_id):
         .select_related("changed_by")
         .order_by("-created_at", "-id")
     )
-    history_entries = []
-    for log in history_queryset:
-        segments = [
-            segment.strip() for segment in log.details.split("|") if segment.strip()
-        ]
-        reason = ""
-        changes = []
-        for segment in segments:
-            if segment.lower().startswith("reason:"):
-                reason = segment.split(":", 1)[1].strip()
-            else:
-                changes.append(segment)
-        history_entries.append(
-            {
-                "log": log,
-                "changes": changes,
-                "reason": reason,
-                "actor": _user_display(log.changed_by) if log.changed_by else "System",
-            }
-        )
+    history_entries = [_document_history_entry(log) for log in history_queryset]
 
     revision_entries = []
     if action_list:
@@ -4728,14 +4807,13 @@ def action_list_detail(request, project_id):
         sent_action_list_at__isnull=False,
         response="Y",
     )
-    action_list_pending_dates = [
-        d
-        for d in action_list_members.filter(
-            feedback_on_action_list_deadline__isnull=False
-        )
-        .order_by("feedback_on_action_list_deadline")
-        .values_list("feedback_on_action_list_deadline", flat=True)
-    ]
+    action_list_pending_count = action_list_members.count()
+    action_list_deadline_state = _document_feedback_deadline_state(
+        action_list_members,
+        "feedback_on_action_list_deadline",
+        member_count=action_list_pending_count,
+    )
+    action_list_pending_dates = action_list_deadline_state["deadlines"]
     action_list_reminder_initial = {}
     if action_list_pending_dates:
         first_deadline = action_list_pending_dates[0]
@@ -4765,7 +4843,24 @@ def action_list_detail(request, project_id):
         "is_closed": bool(getattr(action_list, "feedback_closed_at", None)),
         "closed_at": getattr(action_list, "feedback_closed_at", None),
         "closure_message": getattr(action_list, "feedback_closure_message", ""),
-        "deadline": action_list_pending_dates[0] if action_list_pending_dates else None,
+        "deadline": action_list_deadline_state["earliest_deadline"],
+        "latest_deadline": action_list_deadline_state["latest_deadline"],
+        "deadline_count": action_list_deadline_state["deadline_count"],
+        "has_multiple_deadlines": action_list_deadline_state[
+            "has_multiple_deadlines"
+        ],
+        "past_deadline_count": action_list_deadline_state["past_deadline_count"],
+        "future_deadline_count": action_list_deadline_state["future_deadline_count"],
+        "without_deadline_count": action_list_deadline_state[
+            "without_deadline_count"
+        ],
+        "open_member_count": action_list_deadline_state["open_member_count"],
+        "all_current_deadlines_passed": action_list_deadline_state[
+            "all_current_deadlines_passed"
+        ],
+        "some_deadlines_passed": action_list_deadline_state[
+            "some_deadlines_passed"
+        ],
         "document_ready": action_document_ready,
     }
 
@@ -4795,7 +4890,7 @@ def action_list_detail(request, project_id):
             "collaborative_can_override": collaborative_can_override,
             "collaborative_document_ready": action_document_ready,
             "action_list_reminder_form": action_list_reminder_form,
-            "action_list_pending_count": action_list_members.count(),
+            "action_list_pending_count": action_list_pending_count,
             "action_list_pending_dates": action_list_pending_dates,
             "initial_action_list_reminder_log": project.change_log.filter(
                 action="Scheduled action list reminders"
@@ -5083,9 +5178,9 @@ def collaborative_start(request, project_id, document_slug):
     # TODO: #17 Make collaborative session creation atomic so concurrent POSTs cannot spawn two active sessions.
     active_session = _get_active_collaborative_session(project, document_type)
     if active_session:
-        messages.warning(
+        messages.info(
             request,
-            "A collaborative session is already running. Opening the existing editor instead.",
+            "A collaborative session is already live. Opening the shared editor now.",
         )
         return redirect(
             "synopsis:collaborative_edit",
@@ -5563,10 +5658,11 @@ def collaborative_force_end(request, project_id, document_slug, token):
             project,
             request.user,
             f"{document_label} collaborative session closed",
-            f"Session {session.token} closed with no unsaved changes ({reason}).",
+            f"No unsaved changes were waiting in OnlyOffice. | Reason: {reason}",
         )
         messages.success(
-            request, f"{document_label} had no unsaved changes and the session was closed."
+            request,
+            f"{document_label} had no unsaved changes. The shared editor was closed for everyone.",
         )
         return redirect(_document_detail_url(project.id, document_type))
 
@@ -5577,7 +5673,8 @@ def collaborative_force_end(request, project_id, document_slug, token):
             timeout_seconds=ONLYOFFICE_SETTINGS.get("callback_timeout", 10),
         ):
             messages.success(
-                request, f"{document_label} saved and collaborative session closed."
+                request,
+                f"{document_label} current version was saved and the shared editor was closed for everyone.",
             )
             return redirect(_document_detail_url(project.id, document_type))
         messages.warning(
@@ -7071,7 +7168,9 @@ def advisory_schedule_protocol_reminders(request, project_id):
 
     messages.success(
         request,
-        f"Protocol reminder scheduled for {updated} member(s). Reminder now set as required.",
+        "Protocol deadline updated for "
+        f"{updated} sent member(s). No email was sent automatically; future reminders "
+        "and review links now use the new date.",
     )
     return redirect("synopsis:protocol_detail", project_id=project.id)
 
@@ -7152,7 +7251,9 @@ def advisory_schedule_action_list_reminders(request, project_id):
 
     messages.success(
         request,
-        f"Action list reminder scheduled for {updated} member(s). Reminder now set as required.",
+        "Action list deadline updated for "
+        f"{updated} sent member(s). No email was sent automatically; future reminders "
+        "and review links now use the new date.",
     )
     return redirect("synopsis:action_list_detail", project_id=project.id)
 
@@ -7328,9 +7429,11 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
         _log_project_change(project, request.user, "Updated invite reminder", detail)
         messages.success(
             request,
-            "Response deadline updated."
-            if not clearing
-            else "Response deadline cleared.",
+            (
+                "Response deadline updated. No email was sent automatically; future reminders now use the new date."
+                if not clearing
+                else "Response deadline cleared. No email was sent automatically."
+            ),
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
@@ -7364,9 +7467,11 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
         )
         messages.success(
             request,
-            "Protocol deadline updated."
-            if not clearing
-            else "Protocol deadline cleared.",
+            (
+                "Protocol deadline updated. No email was sent automatically; future reminders and review links now use the new date."
+                if not clearing
+                else "Protocol deadline cleared. No email was sent automatically."
+            ),
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
@@ -7400,9 +7505,11 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
         )
         messages.success(
             request,
-            "Synopsis deadline updated."
-            if not clearing
-            else "Synopsis deadline cleared.",
+            (
+                "Synopsis deadline updated. No email was sent automatically; future reminders and review links now use the new date."
+                if not clearing
+                else "Synopsis deadline cleared. No email was sent automatically."
+            ),
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
@@ -7436,9 +7543,11 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
     )
     messages.success(
         request,
-        "Action list deadline updated."
-        if not clearing
-        else "Action list deadline cleared.",
+        (
+            "Action list deadline updated. No email was sent automatically; future reminders and review links now use the new date."
+            if not clearing
+            else "Action list deadline cleared. No email was sent automatically."
+        ),
     )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
@@ -9362,6 +9471,58 @@ def _summary_editor_names_by_summary(
     return editor_names_by_summary
 
 
+def _summary_revision_token(summary: ReferenceSummary) -> str:
+    updated_at = getattr(summary, "updated_at", None)
+    if not updated_at:
+        return ""
+    try:
+        updated_at = timezone.localtime(updated_at)
+    except (ValueError, TypeError):
+        # Fall back to the original value when timezone localization is not possible.
+        logging.debug(
+            "Unable to localtime summary.updated_at for revision token; using original value.",
+            exc_info=True,
+        )
+    return updated_at.strftime("%Y-%m-%dT%H:%M:%S.%f%z")
+
+
+def _summary_edit_is_stale(request, summary: ReferenceSummary) -> bool:
+    submitted_token = (request.POST.get("summary_revision_token") or "").strip()
+    if not submitted_token:
+        return False
+    return submitted_token != _summary_revision_token(summary)
+
+
+def _summary_stale_edit_message(
+    summary: ReferenceSummary,
+    current_user: User | None,
+    summary_editor_presence: dict | None = None,
+) -> str:
+    updated_at = getattr(summary, "updated_at", None)
+    updated_text = _format_deadline(updated_at) if updated_at else "just now"
+    parts = [
+        "This summary changed after you opened the page.",
+        f"It was last saved at {updated_text}.",
+        "Reload the page before saving so you do not overwrite newer work.",
+    ]
+    assigned_to = getattr(summary, "assigned_to", None)
+    if (
+        assigned_to
+        and getattr(current_user, "id", None) != getattr(assigned_to, "id", None)
+    ):
+        parts.append(
+            f"It is currently assigned to {_user_display(assigned_to)}."
+        )
+    other_participants = list(
+        (summary_editor_presence or {}).get("other_participants") or []
+    )
+    if other_participants:
+        parts.append(
+            f"Active author right now: {', '.join(other_participants)}."
+        )
+    return " ".join(parts)
+
+
 @login_required
 def reference_summary_board(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -9647,6 +9808,8 @@ def reference_summary_detail(request, project_id, summary_id):
     summary = next((item for item in synced_summaries if item.id == summary.id), summary)
     generated_summary = _structured_summary_paragraph(summary)
     summary_editor_presence = _touch_summary_editor_presence(summary, request.user)
+    summary_revision_token = _summary_revision_token(summary)
+    render_summary_revision_token = summary_revision_token
 
     active_action = request.POST.get("action") if request.method == "POST" else None
     summary_form = ReferenceSummaryUpdateForm(
@@ -9695,6 +9858,28 @@ def reference_summary_detail(request, project_id, summary_id):
 
     if request.method == "POST":
         action = active_action
+        guarded_summary_actions = {
+            "save-summary",
+            "save-synopsis-draft",
+            "save-paragraph-notes",
+            "assign",
+            "update-status",
+        }
+        summary_edit_stale = action in guarded_summary_actions and _summary_edit_is_stale(
+            request, summary
+        )
+        if summary_edit_stale:
+            render_summary_revision_token = (
+                request.POST.get("summary_revision_token") or ""
+            ).strip() or summary_revision_token
+            messages.error(
+                request,
+                _summary_stale_edit_message(
+                    summary,
+                    request.user,
+                    summary_editor_presence=summary_editor_presence,
+                ),
+            )
         if action == "create-summary-tab":
             new_summary = _clone_reference_summary(summary, request.user)
             _log_summary_history(
@@ -9781,7 +9966,11 @@ def reference_summary_detail(request, project_id, summary_id):
                 project_id=project.id,
                 summary_id=next_summary.id,
             )
-        if action == "save-summary" and summary_form.is_valid():
+        if (
+            action == "save-summary"
+            and not summary_edit_stale
+            and summary_form.is_valid()
+        ):
             previous_status = summary.status
             summary = summary_form.save(commit=False)
             if not summary.summary_author:
@@ -9822,7 +10011,7 @@ def reference_summary_detail(request, project_id, summary_id):
                 project_id=project.id,
                 summary_id=summary.id,
             )
-        elif action == "save-summary":
+        elif action == "save-summary" and not summary_edit_stale:
             # Surface validation errors to help users understand why the save failed.
             error_list = []
             for err in summary_form.non_field_errors():
@@ -9834,7 +10023,7 @@ def reference_summary_detail(request, project_id, summary_id):
             if not error_list:
                 error_list.append("Unable to save summary. Please review your inputs.")
             messages.error(request, " ".join(error_list))
-        if action == "save-synopsis-draft":
+        if action == "save-synopsis-draft" and not summary_edit_stale:
             previous_status = summary.status
             draft_command = request.POST.get("draft_command") or "save"
             if draft_command == "use-generated":
@@ -9956,7 +10145,7 @@ def reference_summary_detail(request, project_id, summary_id):
                     summary_id=summary.id,
                 )
             messages.error(request, "Could not save the summary paragraph draft.")
-        if action == "save-paragraph-notes":
+        if action == "save-paragraph-notes" and not summary_edit_stale:
             previous_notes = (summary.paragraph_notes or "").strip()
             if paragraph_notes_form.is_valid():
                 updated_summary = paragraph_notes_form.save(commit=False)
@@ -10108,7 +10297,11 @@ def reference_summary_detail(request, project_id, summary_id):
             return redirect(
                 f"{reverse('synopsis:reference_summary_detail', args=[project.id, summary.id])}?panel=management"
             )
-        if action == "assign" and assignment_form.is_valid():
+        if (
+            action == "assign"
+            and not summary_edit_stale
+            and assignment_form.is_valid()
+        ):
             summary.assigned_to = assignment_form.cleaned_data["assigned_to"]
             summary.needs_help = assignment_form.cleaned_data["needs_help"]
             summary.save(update_fields=["assigned_to", "needs_help", "updated_at"])
@@ -10176,7 +10369,7 @@ def reference_summary_detail(request, project_id, summary_id):
                 )
             else:
                 messages.error(request, "Could not add comment.")
-        if action == "update-status":
+        if action == "update-status" and not summary_edit_stale:
             previous_status = summary.status
             if request.POST.get("quick_done") == "1":
                 summary.status = ReferenceSummary.STATUS_DONE
@@ -10424,6 +10617,7 @@ def reference_summary_detail(request, project_id, summary_id):
                 status=ReferenceSummary.STATUS_EXCLUDED
             ).exists(),
             "summary_editor_presence": summary_editor_presence,
+            "summary_revision_token": render_summary_revision_token,
             "summary_presence_url": reverse(
                 "synopsis:reference_summary_presence",
                 args=[project.id, summary.id],
@@ -12981,6 +13175,17 @@ def advisory_invite_create(request, project_id, member_id=None):
                 member.invite_sent = True
                 member.invite_sent_at = timezone.now()
                 update_fields = {"invite_sent", "invite_sent_at"}
+                if attachment_lines:
+                    member.sent_action_list_at = timezone.now()
+                    member.action_list_reminder_sent = False
+                    member.action_list_reminder_sent_at = None
+                    update_fields.update(
+                        {
+                            "sent_action_list_at",
+                            "action_list_reminder_sent",
+                            "action_list_reminder_sent_at",
+                        }
+                    )
                 if member.response_date != due_date:
                     member.response_date = due_date
                     member.reminder_sent = False
@@ -13381,6 +13586,17 @@ def advisory_send_invites_bulk(request, project_id):
             member.invite_sent = True
             member.invite_sent_at = timezone.now()
             update_fields = {"invite_sent", "invite_sent_at"}
+            if attachment_lines:
+                member.sent_action_list_at = timezone.now()
+                member.action_list_reminder_sent = False
+                member.action_list_reminder_sent_at = None
+                update_fields.update(
+                    {
+                        "sent_action_list_at",
+                        "action_list_reminder_sent",
+                        "action_list_reminder_sent_at",
+                    }
+                )
             if member.response_date != due_date:
                 member.response_date = due_date
                 member.reminder_sent = False

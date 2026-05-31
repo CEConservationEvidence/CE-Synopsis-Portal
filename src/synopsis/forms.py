@@ -1716,7 +1716,8 @@ class ProtocolReminderScheduleForm(forms.Form):
         _set_min_datetime_attr(self.fields["deadline"])
         self.fields["deadline"].help_text = (
             "Set or update the protocol feedback deadline (date and time) for "
-            "members with the protocol. Defaults to "
+            "already-sent accepted members. Updating it changes the saved deadline "
+            "for all of them at once, but does not send a new email immediately. Defaults to "
             f"{_advisory_document_feedback_window_days()} days from today."
         )
 
@@ -1741,7 +1742,8 @@ class ActionListReminderScheduleForm(forms.Form):
         _set_min_datetime_attr(self.fields["deadline"])
         self.fields["deadline"].help_text = (
             "Set or update the action list feedback deadline (date and time) for "
-            "members. Defaults to "
+            "already-sent accepted members. Updating it changes the saved deadline "
+            "for all of them at once, but does not send a new email immediately. Defaults to "
             f"{_advisory_document_feedback_window_days()} days from today."
         )
 
@@ -1856,15 +1858,18 @@ class SynopsisFeedbackForm(forms.Form):
 class ProtocolFeedbackCloseForm(forms.Form):
     message = forms.CharField(
         required=False,
-        label="Message to advisory board",
+        label="Closure note for advisory board",
         widget=forms.Textarea(
             attrs={
                 "class": "form-control",
                 "rows": 3,
-                "placeholder": "Optional note shared with advisory members when feedback closes.",
+                "placeholder": "Optional note shown after the protocol feedback window has been closed.",
             }
         ),
-        help_text="Shown to advisory board members when they open an existing feedback link.",
+        help_text=(
+            "Shown only when advisory board members open an existing protocol feedback link after closure. "
+            "This is not sent as a reminder or deadline-change email."
+        ),
     )
 
 
@@ -2061,15 +2066,18 @@ class LibraryReferenceUpdateForm(forms.ModelForm):
 class ActionListFeedbackCloseForm(forms.Form):
     message = forms.CharField(
         required=False,
-        label="Message to advisory board",
+        label="Closure note for advisory board",
         widget=forms.Textarea(
             attrs={
                 "class": "form-control",
                 "rows": 4,
-                "placeholder": "Share closing notes about the action list (optional)",
+                "placeholder": "Optional note shown after the action list feedback window has been closed.",
             }
         ),
-        help_text="Optional message to send when action list feedback is closed.",
+        help_text=(
+            "Shown only when advisory board members open an existing action list feedback link after closure. "
+            "This is not sent as a reminder or deadline-change email."
+        ),
     )
 
 

@@ -158,7 +158,7 @@
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
                         <div>
-                            <div class="fw-semibold">{{ item.log.action }}</div>
+                            <div class="fw-semibold">{{ item.display_action|default:item.log.action }}</div>
                             <div class="small text-muted mt-1">
                                 {{ item.log.created_at|date:"Y-m-d H:i" }} · {{ item.actor }}
                             </div>
@@ -339,7 +339,7 @@
                 <div class="d-flex flex-column flex-xl-row justify-content-between gap-4">
                     <div class="flex-grow-1">
                         {% if action_list_pending_count %}
-                        <p class="text-muted small mb-2">Set or update the feedback deadline here for advisory board members who have already been sent the action list. Reminder emails go automatically two business days before that deadline.</p>
+                        <p class="text-muted small mb-2">Set or update the feedback deadline here for advisory board members who have already been sent and accepted the action list. Saving a date here replaces the saved deadline for all of those members at once. Reminder emails still go automatically two business days before each member's saved deadline.</p>
                         {% else %}
                         <p class="text-muted small mb-2">Send the action list from the Advisory Board page first. You can set the first deadline while sending; after at least one member has the action list, you can update the feedback deadline here.</p>
                         {% endif %}
@@ -348,12 +348,25 @@
                             <strong>{{ action_list_pending_count }}</strong>
                         </div>
                         <p class="mb-2 text-muted">
-                            {% if action_list_feedback_state.deadline %}
-                                Deadline: {{ action_list_feedback_state.deadline|date:"Y-m-d H:i" }}
+                            {% if action_list_feedback_state.deadline and action_list_feedback_state.has_multiple_deadlines %}
+                                Saved member deadlines: {{ action_list_feedback_state.deadline|date:"Y-m-d H:i" }} to {{ action_list_feedback_state.latest_deadline|date:"Y-m-d H:i" }}
+                            {% elif action_list_feedback_state.deadline %}
+                                Saved member deadline: {{ action_list_feedback_state.deadline|date:"Y-m-d H:i" }}
                             {% else %}
-                                No deadline scheduled yet.
+                                No saved member deadlines yet.
                             {% endif %}
                         </p>
+                        {% if action_list_feedback_state.has_multiple_deadlines %}
+                        <p class="text-muted small mb-2">Different advisory board members currently have different action list deadlines.</p>
+                        {% endif %}
+                        {% if action_list_feedback_state.without_deadline_count %}
+                        <p class="text-muted small mb-2">{{ action_list_feedback_state.without_deadline_count }} member{{ action_list_feedback_state.without_deadline_count|pluralize }} currently {{ action_list_feedback_state.without_deadline_count|pluralize:"has,have" }} no saved action list deadline.</p>
+                        {% endif %}
+                        {% if action_list_feedback_state.some_deadlines_passed %}
+                        <p class="text-muted small mb-2">Some earlier member deadlines have already passed, but other members can still submit because their own saved deadline has not passed or because no action list deadline is saved for them.</p>
+                        {% elif action_list_feedback_state.all_current_deadlines_passed %}
+                        <p class="text-muted small mb-2">All currently saved member deadlines have passed. Set a new deadline here if already-sent members should be able to submit again.</p>
+                        {% endif %}
                         {% if initial_action_list_reminder_log %}
                         <p class="small text-muted mb-2">
                             First scheduled {{ initial_action_list_reminder_log.created_at|date:"Y-m-d H:i" }}
@@ -362,13 +375,20 @@
                         {% if action_list_feedback_state.action_list %}
                             {% if action_list_feedback_state.is_closed %}
                         <span class="badge text-bg-danger">Closed {{ action_list_feedback_state.closed_at|date:"Y-m-d H:i" }}</span>
+                            {% elif action_list_feedback_state.all_current_deadlines_passed and action_list_pending_count %}
+                        <span class="badge text-bg-warning text-dark">No current member can submit</span>
+                            {% elif action_list_feedback_state.some_deadlines_passed or action_list_feedback_state.has_multiple_deadlines or action_list_feedback_state.without_deadline_count %}
+                        <span class="badge text-bg-info text-dark">Open for some members</span>
                             {% else %}
                         <span class="badge text-bg-success">Open for submissions</span>
                             {% endif %}
-                        <p class="text-muted small mt-2 mb-0">Links stay open until this deadline or until you close them manually.</p>
+                        <p class="text-muted small mt-2 mb-0">Feedback links stay open until each member's own saved deadline, or until you close the whole feedback window manually.</p>
+                        {% if action_list_feedback_state.without_deadline_count %}
+                        <p class="text-muted small mt-2 mb-0">Members without a saved deadline can keep using their action list link until you close the whole feedback window manually.</p>
+                        {% endif %}
                         {% if action_list_feedback_state.closure_message %}
                         <p class="mt-2 mb-0">
-                            <strong>Message shown to members:</strong>
+                            <strong>Closure note shown after closure:</strong>
                             {{ action_list_feedback_state.closure_message }}
                         </p>
                         {% endif %}
@@ -386,9 +406,9 @@
                                 {{ action_list_reminder_form.deadline.label_tag }}
                                 {{ action_list_reminder_form.deadline }}
                                 {{ action_list_reminder_form.deadline.errors }}
-                                <div class="form-text">Must be at least tomorrow.</div>
+                                <div class="form-text">Must be at least tomorrow. Saving here updates all already-sent accepted members and does not send a new email immediately.</div>
                             </div>
-                            <button class="btn btn-outline-primary btn-sm">Set action list deadline</button>
+                            <button class="btn btn-outline-primary btn-sm">Save deadline for sent members</button>
                         </form>
                         {% else %}
                         <div class="alert alert-info py-2 small">
@@ -411,7 +431,13 @@
                                 Reopen feedback
                             </button>
                             {% if action_list_feedback_state.deadline %}
-                            <small class="text-muted">The deadline still blocks submissions after {{ action_list_feedback_state.deadline|date:"Y-m-d H:i" }}.</small>
+                            <small class="text-muted">
+                                {% if action_list_feedback_state.has_multiple_deadlines %}
+                                Reopening will still respect each member's saved action list deadline (currently {{ action_list_feedback_state.deadline|date:"Y-m-d H:i" }} to {{ action_list_feedback_state.latest_deadline|date:"Y-m-d H:i" }}).
+                                {% else %}
+                                Reopening will still respect the saved action list deadline of {{ action_list_feedback_state.deadline|date:"Y-m-d H:i" }}.
+                                {% endif %}
+                            </small>
                             {% endif %}
                         </form>
                             {% else %}
@@ -422,7 +448,7 @@
                                 {{ action_list_feedback_close_form.message.label_tag }}
                                 {{ action_list_feedback_close_form.message }}
                                 {{ action_list_feedback_close_form.message.errors }}
-                                <div class="form-text">Members will see this note when they open their feedback link after closure.</div>
+                                <div class="form-text">Members see this note only after the action list feedback window has been closed. It is not used for reminder or deadline-change emails.</div>
                             </div>
                             <button
                                 class="btn btn-outline-danger align-self-start"

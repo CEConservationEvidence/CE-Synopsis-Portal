@@ -306,7 +306,10 @@
             {% include "synopsis/includes/advisory_privacy_notice.html" with title="How your review information is used" compact=1 extra_classes="mt-3 mb-0" %}
             {% elif can_force_end and detail_url %}
             <div class="small text-muted mt-3">
-                To save and close the shared session for everyone, return to the {{ document_label|lower }} detail page.
+                Back to the {{ document_label|lower }} page only leaves your own browser tab. To finish this shared editing round, return to the {{ document_label|lower }} detail page and use <strong>Save current version and close shared editor</strong>.
+            </div>
+            <div class="small text-muted mt-1">
+                That closes the current shared editor for everyone after requesting a final save. Authors can open a fresh collaborative session later if more edits are needed.
             </div>
             {% endif %}
         </div>

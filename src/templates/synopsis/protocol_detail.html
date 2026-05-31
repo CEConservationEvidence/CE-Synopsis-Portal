@@ -109,7 +109,7 @@
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
                         <div>
-                            <div class="fw-semibold">{{ item.log.action }}</div>
+                            <div class="fw-semibold">{{ item.display_action|default:item.log.action }}</div>
                             <div class="small text-muted mt-1">
                                 {{ item.log.created_at|date:"Y-m-d H:i" }} · {{ item.actor }}
                             </div>
@@ -317,7 +317,7 @@
                 <div class="d-flex flex-column flex-xl-row justify-content-between gap-4">
                     <div class="flex-grow-1">
                         {% if protocol_pending_count %}
-                        <p class="text-muted small mb-2">Set or update the feedback deadline here for advisory board members who have already been sent the protocol. Reminder emails go automatically two business days before that deadline.</p>
+                        <p class="text-muted small mb-2">Set or update the feedback deadline here for advisory board members who have already been sent and accepted the protocol. Saving a date here replaces the saved deadline for all of those members at once. Reminder emails still go automatically two business days before each member's saved deadline.</p>
                         {% else %}
                         <p class="text-muted small mb-2">Send the protocol from the Advisory Board page first. You can set the first deadline while sending; after at least one member has the protocol, you can update the feedback deadline here.</p>
                         {% endif %}
@@ -326,12 +326,25 @@
                             <strong>{{ protocol_pending_count }}</strong>
                         </div>
                         <p class="mb-2 text-muted">
-                            {% if protocol_feedback_state.deadline %}
-                                Deadline: {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}
+                            {% if protocol_feedback_state.deadline and protocol_feedback_state.has_multiple_deadlines %}
+                                Saved member deadlines: {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }} to {{ protocol_feedback_state.latest_deadline|date:"Y-m-d H:i" }}
+                            {% elif protocol_feedback_state.deadline %}
+                                Saved member deadline: {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}
                             {% else %}
-                                No deadline scheduled yet.
+                                No saved member deadlines yet.
                             {% endif %}
                         </p>
+                        {% if protocol_feedback_state.has_multiple_deadlines %}
+                        <p class="text-muted small mb-2">Different advisory board members currently have different protocol deadlines.</p>
+                        {% endif %}
+                        {% if protocol_feedback_state.without_deadline_count %}
+                        <p class="text-muted small mb-2">{{ protocol_feedback_state.without_deadline_count }} member{{ protocol_feedback_state.without_deadline_count|pluralize }} currently {{ protocol_feedback_state.without_deadline_count|pluralize:"has,have" }} no saved protocol deadline.</p>
+                        {% endif %}
+                        {% if protocol_feedback_state.some_deadlines_passed %}
+                        <p class="text-muted small mb-2">Some earlier member deadlines have already passed, but other members can still submit because their own saved deadline has not passed or because no protocol deadline is saved for them.</p>
+                        {% elif protocol_feedback_state.all_current_deadlines_passed %}
+                        <p class="text-muted small mb-2">All currently saved member deadlines have passed. Set a new deadline here if already-sent members should be able to submit again.</p>
+                        {% endif %}
                         {% if initial_protocol_reminder_log %}
                         <p class="small text-muted mb-2">
                             First scheduled {{ initial_protocol_reminder_log.created_at|date:"Y-m-d H:i" }}
@@ -340,13 +353,20 @@
                         {% if protocol_feedback_state.protocol %}
                             {% if protocol_feedback_state.is_closed %}
                         <span class="badge text-bg-danger">Closed {{ protocol_feedback_state.closed_at|date:"Y-m-d H:i" }}</span>
+                            {% elif protocol_feedback_state.all_current_deadlines_passed and protocol_pending_count %}
+                        <span class="badge text-bg-warning text-dark">No current member can submit</span>
+                            {% elif protocol_feedback_state.some_deadlines_passed or protocol_feedback_state.has_multiple_deadlines or protocol_feedback_state.without_deadline_count %}
+                        <span class="badge text-bg-info text-dark">Open for some members</span>
                             {% else %}
                         <span class="badge text-bg-success">Open for submissions</span>
                             {% endif %}
-                        <p class="text-muted small mt-2 mb-0">Links stay open until this deadline or until you close them manually.</p>
+                        <p class="text-muted small mt-2 mb-0">Feedback links stay open until each member's own saved deadline, or until you close the whole feedback window manually.</p>
+                        {% if protocol_feedback_state.without_deadline_count %}
+                        <p class="text-muted small mt-2 mb-0">Members without a saved deadline can keep using their protocol link until you close the whole feedback window manually.</p>
+                        {% endif %}
                         {% if protocol_feedback_state.closure_message %}
                         <p class="mt-2 mb-0">
-                            <strong>Message shown to members:</strong>
+                            <strong>Closure note shown after closure:</strong>
                             {{ protocol_feedback_state.closure_message }}
                         </p>
                         {% endif %}
@@ -364,9 +384,9 @@
                                 {{ protocol_reminder_form.deadline.label_tag }}
                                 {{ protocol_reminder_form.deadline }}
                                 {{ protocol_reminder_form.deadline.errors }}
-                                <div class="form-text">Must be at least tomorrow.</div>
+                                <div class="form-text">Must be at least tomorrow. Saving here updates all already-sent accepted members and does not send a new email immediately.</div>
                             </div>
-                            <button class="btn btn-outline-primary btn-sm">Set protocol deadline</button>
+                            <button class="btn btn-outline-primary btn-sm">Save deadline for sent members</button>
                         </form>
                         {% else %}
                         <div class="alert alert-info py-2 small">
@@ -389,7 +409,13 @@
                                 Reopen feedback
                             </button>
                             {% if protocol_feedback_state.deadline %}
-                            <small class="text-muted">The deadline still blocks submissions after {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}.</small>
+                            <small class="text-muted">
+                                {% if protocol_feedback_state.has_multiple_deadlines %}
+                                Reopening will still respect each member's saved protocol deadline (currently {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }} to {{ protocol_feedback_state.latest_deadline|date:"Y-m-d H:i" }}).
+                                {% else %}
+                                Reopening will still respect the saved protocol deadline of {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}.
+                                {% endif %}
+                            </small>
                             {% endif %}
                         </form>
                             {% else %}
@@ -400,7 +426,7 @@
                                 {{ protocol_feedback_close_form.message.label_tag }}
                                 {{ protocol_feedback_close_form.message }}
                                 {{ protocol_feedback_close_form.message.errors }}
-                                <div class="form-text">Members will see this note when they open their feedback link after closure.</div>
+                                <div class="form-text">Members see this note only after the protocol feedback window has been closed. It is not used for reminder or deadline-change emails.</div>
                             </div>
                             <button
                                 class="btn btn-outline-danger align-self-start"

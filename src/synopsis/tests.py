@@ -2105,6 +2105,28 @@ class MemberReminderUpdateTests(TestCase):
             ).exists()
         )
 
+    def test_update_response_deadline_explains_no_email_is_sent(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Randy",
+            email="randy@example.com",
+        )
+        target_date = timezone.localdate() + timedelta(days=7)
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "invite"],
+            ),
+            {"reminder_date": target_date.strftime("%Y-%m-%d")},
+            follow=True,
+        )
+
+        self.assertRedirects(response, self.board_url)
+        self.assertContains(
+            response,
+            "Response deadline updated. No email was sent automatically; future reminders now use the new date.",
+        )
+
     def test_board_page_sets_minimum_response_deadline_on_inline_input(self):
         AdvisoryBoardMember.objects.create(
             project=self.project,
@@ -2745,6 +2767,33 @@ class MemberReminderUpdateTests(TestCase):
             ProjectChangeLog.objects.filter(
                 project=self.project, action="Updated protocol reminder"
             ).exists()
+        )
+
+    def test_update_protocol_deadline_explains_no_email_is_sent(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Paula",
+            email="paula@example.com",
+            response="Y",
+            sent_protocol_at=timezone.now(),
+        )
+        ProtocolFeedback.objects.create(project=self.project, member=member)
+        deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=4)
+        local_deadline = timezone.localtime(deadline)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "protocol"],
+            ),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+            follow=True,
+        )
+
+        self.assertRedirects(response, self.board_url)
+        self.assertContains(
+            response,
+            "Protocol deadline updated. No email was sent automatically; future reminders and review links now use the new date.",
         )
 
     def test_same_day_protocol_deadline_is_rejected(self):
@@ -3390,6 +3439,38 @@ class AdvisoryInviteFlowTests(TestCase):
         self.assertContains(response, "Invitation preview")
         self.assertContains(response, default_advisory_invitation_message())
 
+    @patch("synopsis.views._onlyoffice_enabled", return_value=True)
+    def test_single_invite_form_explains_optional_action_list_resources(
+        self, mock_onlyoffice
+    ):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
+        )
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:advisory_invite_create_for_member",
+                args=[self.project.id, member.id],
+            )
+        )
+
+        self.assertContains(response, "Optional action list resources")
+        self.assertContains(
+            response,
+            "Choose the action list document, the action list collaborative editor link, or both.",
+        )
+        self.assertContains(
+            response,
+            "this member will be marked as having received the action list on the Advisory Board page",
+        )
+        self.assertContains(response, "Include action list collaborative editor link")
+
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_single_invite_missing_standard_message_field_keeps_saved_project_message(
         self, mock_email
@@ -3427,6 +3508,44 @@ class AdvisoryInviteFlowTests(TestCase):
         html_body = email_instance.attach_alternative.call_args[0][0]
         self.assertIn("Saved standard message", html_body)
 
+    @patch("synopsis.views._ensure_collaborative_invite_link", return_value="http://example.com/collab")
+    @patch("synopsis.views._onlyoffice_enabled", return_value=True)
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_single_invite_with_action_list_resources_marks_member_as_action_list_sent(
+        self, mock_email, mock_onlyoffice, mock_collab
+    ):
+        mock_email.return_value = MagicMock()
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
+        )
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+        due = timezone.localdate() + timedelta(days=14)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_invite_create_for_member",
+                args=[self.project.id, member.id],
+            ),
+            {
+                "email": member.email,
+                "due_date": due.strftime("%Y-%m-%d"),
+                "message": "Welcome aboard",
+                "include_action_list": "on",
+                "include_collaborative_link": "on",
+            },
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNotNone(member.sent_action_list_at)
+        self.assertFalse(member.action_list_reminder_sent)
+        self.assertIsNone(member.action_list_reminder_sent_at)
+
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_bulk_invite_skips_members_with_existing_invites(self, mock_email):
         mock_email.return_value = MagicMock()
@@ -3463,6 +3582,37 @@ class AdvisoryInviteFlowTests(TestCase):
         self.assertEqual(mock_email.call_count, 1)
         args, kwargs = mock_email.call_args
         self.assertEqual(kwargs["to"], [new_member.email])
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_bulk_invite_with_action_list_resource_marks_members_as_action_list_sent(
+        self, mock_email
+    ):
+        mock_email.return_value = MagicMock()
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Liam",
+            email="liam@example.com",
+        )
+        due = timezone.localdate() + timedelta(days=21)
+
+        response = self.client.post(
+            reverse("synopsis:advisory_send_invites_bulk", args=[self.project.id]),
+            {
+                "due_date": due.strftime("%Y-%m-%d"),
+                "message": "Bulk kickoff",
+                "include_action_list": "on",
+            },
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNotNone(member.sent_action_list_at)
+        self.assertFalse(member.action_list_reminder_sent)
+        self.assertIsNone(member.action_list_reminder_sent_at)
 
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_bulk_invite_saves_custom_standard_message_and_keeps_optional_message(
@@ -4930,8 +5080,9 @@ class ProtocolUploadFlowTests(TestCase):
         self.assertRedirects(response, detail_url)
 
         response = self.client.get(detail_url)
-        self.assertContains(response, "Start collaborative edit")
-        self.assertNotContains(response, "Open editor")
+        self.assertContains(response, "Open collaborative editor")
+        self.assertNotContains(response, "Start collaborative edit")
+        self.assertNotContains(response, '>Open editor<', html=False)
 
     def test_action_list_delete_closes_stale_collaborative_session_before_reupload(self):
         detail_url = reverse("synopsis:action_list_detail", args=[self.project.id])
@@ -4973,8 +5124,9 @@ class ProtocolUploadFlowTests(TestCase):
         self.assertRedirects(response, detail_url)
 
         response = self.client.get(detail_url)
-        self.assertContains(response, "Start collaborative edit")
-        self.assertNotContains(response, "Open editor")
+        self.assertContains(response, "Open collaborative editor")
+        self.assertNotContains(response, "Start collaborative edit")
+        self.assertNotContains(response, '>Open editor<', html=False)
 
 
 class OnlyOfficeConfigTests(TestCase):
@@ -5274,7 +5426,11 @@ class OnlyOfficeExternalAccessTests(TestCase):
         self.assertContains(response, "Back to protocol page")
         self.assertContains(
             response,
-            "To save and close the shared session for everyone, return to the protocol detail page.",
+            "Back to the protocol page only leaves your own browser tab.",
+        )
+        self.assertContains(
+            response,
+            "Save current version and close shared editor",
         )
         self.assertContains(response, "Active in this document:")
         self.assertContains(response, "visibilitychange")
@@ -5412,7 +5568,7 @@ class CollaborativeForceSaveCloseTests(TestCase):
         )
         messages_list = [message.message for message in get_messages(response.wsgi_request)]
         self.assertIn(
-            "Protocol saved and collaborative session closed.",
+            "Protocol current version was saved and the shared editor was closed for everyone.",
             messages_list,
         )
         mock_request.assert_called_once()
@@ -5439,8 +5595,16 @@ class CollaborativeForceSaveCloseTests(TestCase):
         self.assertEqual(self.session.change_summary, "Close from portal")
         messages_list = [message.message for message in get_messages(response.wsgi_request)]
         self.assertIn(
-            "Protocol had no unsaved changes and the session was closed.",
+            "Protocol had no unsaved changes. The shared editor was closed for everyone.",
             messages_list,
+        )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Protocol collaborative session closed",
+        ).latest("id")
+        self.assertEqual(
+            change.details,
+            "No unsaved changes were waiting in OnlyOffice. | Reason: Close from portal",
         )
         mock_request.assert_called_once()
         mock_wait.assert_not_called()
@@ -5496,8 +5660,9 @@ class CollaborativePanelViewTests(TestCase):
             "Use this guide for the live OnlyOffice session itself.",
         )
         self.assertContains(
-            response, "Upload the protocol before starting a collaborative session."
+            response, "Upload the protocol before opening the collaborative editor."
         )
+        self.assertContains(response, "Open collaborative editor")
         self.assertIn('aria-disabled="true"', response.content.decode())
 
     def test_protocol_panel_enabled_with_document(self):
@@ -5509,7 +5674,18 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:protocol_detail", args=[self.project.id])
         )
         self.assertNotContains(
-            response, "Upload the protocol before starting a collaborative session."
+            response, "Upload the protocol before opening the collaborative editor."
+        )
+        self.assertContains(response, "Open collaborative editor")
+        self.assertContains(
+            response,
+            'target="_blank"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'rel="noopener"',
+            html=False,
         )
 
     def test_action_list_panel_disabled_without_document(self):
@@ -5540,8 +5716,9 @@ class CollaborativePanelViewTests(TestCase):
             "Use this guide for the live OnlyOffice session itself.",
         )
         self.assertContains(
-            response, "Upload the action list before starting a collaborative session."
+            response, "Upload the action list before opening the collaborative editor."
         )
+        self.assertContains(response, "Open collaborative editor")
         self.assertIn('aria-disabled="true"', response.content.decode())
 
     def test_action_list_panel_enabled_with_document(self):
@@ -5553,7 +5730,18 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:action_list_detail", args=[self.project.id])
         )
         self.assertNotContains(
-            response, "Upload the action list before starting a collaborative session."
+            response, "Upload the action list before opening the collaborative editor."
+        )
+        self.assertContains(response, "Open collaborative editor")
+        self.assertContains(
+            response,
+            'target="_blank"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'rel="noopener"',
+            html=False,
         )
 
     def test_protocol_panel_active_session_explains_global_close_scope(self):
@@ -5588,18 +5776,67 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:protocol_detail", args=[self.project.id])
         )
 
-        self.assertContains(response, "Save and close session for everyone")
+        self.assertContains(response, "Collaborative editor is live")
+        self.assertContains(response, "Open collaborative editor")
+        self.assertNotContains(response, "Start collaborative edit")
+        self.assertNotContains(response, '>Open editor<', html=False)
+        self.assertContains(response, "Save current version and close shared editor")
         self.assertContains(
             response,
-            "Participants can leave the editor without using this button. Use this only when everyone is finished.",
+            "Going back to the protocol page only leaves your own browser tab.",
         )
+        self.assertContains(
+            response,
+            "Advisory review deadlines do not close author editing automatically.",
+        )
+
+    def test_protocol_change_log_formats_collaborative_entries_for_authors(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        ProjectChangeLog.objects.create(
+            project=self.project,
+            changed_by=self.user,
+            action="Protocol updated via collaborative edit",
+            details=(
+                "Session: 123e4567-e89b-12d3-a456-426614174000 | "
+                "Status: 6 | File: protocol-v2.docx | Users: collab-author | "
+                "Size: 24.0 KB | Reason: Updated citations"
+            ),
+        )
+        ProjectChangeLog.objects.create(
+            project=self.project,
+            changed_by=self.user,
+            action="Protocol collaborative session closed",
+            details="Session 123e4567-e89b-12d3-a456-426614174000 closed (status 3).",
+        )
+
+        response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Collaborative revision saved")
+        self.assertContains(response, "Edited by collab-author")
+        self.assertContains(response, "Saved file: protocol-v2.docx")
+        self.assertContains(
+            response,
+            "OnlyOffice reported the shared session closed without new saved changes.",
+        )
+        self.assertNotContains(response, "123e4567-e89b-12d3-a456-426614174000")
 
     def test_advisory_board_shows_custom_columns_button_and_not_document_feedback_windows(self):
         response = self.client.get(
             reverse("synopsis:advisory_board_list", args=[self.project.id])
         )
         self.assertContains(response, "Custom columns")
-        self.assertContains(response, "Deadlines &amp; reminders")
+        self.assertContains(response, "Invitation &amp; synopsis deadlines")
+        self.assertContains(
+            response,
+            "Use this modal for invitation response deadlines and synopsis feedback deadlines only.",
+        )
+        self.assertContains(response, "Protocol")
+        self.assertContains(response, "Action list")
         self.assertNotContains(response, "Protocol feedback window")
         self.assertNotContains(response, "Action list feedback window")
 
@@ -5631,7 +5868,19 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:protocol_detail", args=[self.project.id])
         )
         self.assertContains(protocol_response, "Protocol feedback window")
-        self.assertContains(protocol_response, "Set protocol deadline")
+        self.assertContains(protocol_response, "Save deadline for sent members")
+        self.assertContains(
+            protocol_response,
+            "Feedback links stay open until each member's own saved deadline, or until you close the whole feedback window manually.",
+        )
+        self.assertContains(
+            protocol_response,
+            "Saving here updates all already-sent accepted members and does not send a new email immediately.",
+        )
+        self.assertContains(
+            protocol_response,
+            "Members see this note only after the protocol feedback window has been closed. It is not used for reminder or deadline-change emails.",
+        )
         self.assertContains(protocol_response, 'data-bs-target="#protocolFeedbackWindowCollapse"')
         self.assertContains(protocol_response, "data-collapse-toggle-label")
         self.assertContains(protocol_response, 'data-label-open="Hide"')
@@ -5644,7 +5893,19 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:action_list_detail", args=[self.project.id])
         )
         self.assertContains(action_list_response, "Action list feedback window")
-        self.assertContains(action_list_response, "Set action list deadline")
+        self.assertContains(action_list_response, "Save deadline for sent members")
+        self.assertContains(
+            action_list_response,
+            "Feedback links stay open until each member's own saved deadline, or until you close the whole feedback window manually.",
+        )
+        self.assertContains(
+            action_list_response,
+            "Saving here updates all already-sent accepted members and does not send a new email immediately.",
+        )
+        self.assertContains(
+            action_list_response,
+            "Members see this note only after the action list feedback window has been closed. It is not used for reminder or deadline-change emails.",
+        )
         self.assertContains(action_list_response, 'data-bs-target="#actionListFeedbackWindowCollapse"')
         self.assertContains(action_list_response, "data-collapse-toggle-label")
         self.assertContains(action_list_response, 'data-label-open="Hide"')
@@ -5652,6 +5913,51 @@ class CollaborativePanelViewTests(TestCase):
             action_list_response,
             "Closing this feedback window will stop advisory members from submitting action list feedback and will end collaborative editing for this action list. Are you sure?",
         )
+
+    def test_protocol_feedback_window_explains_member_specific_deadlines(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        now = timezone.now().replace(second=0, microsecond=0)
+        early_deadline = now - timedelta(days=2)
+        late_deadline = now + timedelta(days=5)
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Pia",
+            email="pia@example.com",
+            response="Y",
+            sent_protocol_at=now - timedelta(days=10),
+            feedback_on_protocol_deadline=early_deadline,
+        )
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Will",
+            email="will@example.com",
+            response="Y",
+            sent_protocol_at=now - timedelta(days=2),
+            feedback_on_protocol_deadline=late_deadline,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+
+        self.assertContains(
+            response,
+            "Saved member deadlines: "
+            f"{timezone.localtime(early_deadline).strftime('%Y-%m-%d %H:%M')} to "
+            f"{timezone.localtime(late_deadline).strftime('%Y-%m-%d %H:%M')}",
+        )
+        self.assertContains(
+            response,
+            "Different advisory board members currently have different protocol deadlines.",
+        )
+        self.assertContains(
+            response,
+            "Some earlier member deadlines have already passed, but other members can still submit because their own saved deadline has not passed or because no protocol deadline is saved for them.",
+        )
+        self.assertContains(response, "Open for some members")
 
     def test_document_pages_explain_deadlines_require_sent_documents(self):
         Protocol.objects.create(
@@ -8591,11 +8897,45 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Co Author")
         self.assertContains(
             response,
+            "This summary page is not a live shared document.",
+        )
+        self.assertContains(
+            response,
+            "Another active author right now: Co Author.",
+        )
+        self.assertContains(response, 'name="summary_revision_token"', html=False)
+        self.assertContains(
+            response,
             reverse(
                 "synopsis:reference_summary_presence",
                 args=[self.project.id, self.summary.id],
             ),
             html=False,
+        )
+
+    def test_detail_page_warns_when_summary_is_assigned_to_another_author(self):
+        other_author = User.objects.create_user(
+            username="assigned-author",
+            password="pass123",
+            first_name="Assigned",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+        self.summary.assigned_to = other_author
+        self.summary.save(update_fields=["assigned_to", "updated_at"])
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "This summary page is not a live shared document.")
+        self.assertContains(
+            response,
+            "This summary is currently assigned to Assigned Author.",
         )
 
     def test_summary_presence_endpoint_returns_active_participants(self):
@@ -8707,10 +9047,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
     def test_save_summary_persists_changes(self):
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        response = self.client.get(url)
+        revision_token = response.context["summary_revision_token"]
         resp = self.client.post(
             url,
             {
                 "action": "save-summary",
+                "summary_revision_token": revision_token,
                 "status": ReferenceSummary.STATUS_DRAFT,
                 "habitat_and_sites": "New habitat info",
             },
@@ -8734,10 +9077,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
         url = reverse(
             "synopsis:reference_summary_detail", args=[self.project.id, self.summary.id]
         )
+        response = self.client.get(url)
+        revision_token = response.context["summary_revision_token"]
         response = self.client.post(
             url,
             {
                 "action": "save-summary",
+                "summary_revision_token": revision_token,
                 "status": ReferenceSummary.STATUS_TODO,
                 "habitat_and_sites": "New habitat info",
             },
@@ -8777,10 +9123,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        response = self.client.get(url)
+        revision_token = response.context["summary_revision_token"]
         self.client.post(
             url,
             {
                 "action": "save-summary",
+                "summary_revision_token": revision_token,
                 "status": ReferenceSummary.STATUS_DRAFT,
                 "action_choice": "Install nest boxes",
                 "action_custom": "",
@@ -8790,6 +9139,70 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.action_description, "Install nest boxes")
+
+    def test_save_summary_rejects_stale_page_after_another_author_saves(self):
+        other_author = User.objects.create_user(
+            username="coauthor",
+            password="pass123",
+            first_name="Co",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+
+        self.client.login(username="author", password="pass123")
+        url = reverse(
+            "synopsis:reference_summary_detail",
+            args=[self.project.id, self.summary.id],
+        )
+        initial_response = self.client.get(url)
+        revision_token = initial_response.context["summary_revision_token"]
+
+        self.summary.habitat_and_sites = "Other author's newer text"
+        self.summary.assigned_to = other_author
+        self.summary.save(update_fields=["habitat_and_sites", "assigned_to", "updated_at"])
+
+        response = self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "summary_revision_token": revision_token,
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "habitat_and_sites": "My conflicting text",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.habitat_and_sites, "Other author's newer text")
+        self.assertEqual(response.context["summary_revision_token"], revision_token)
+        self.assertContains(response, "This summary changed after you opened the page.")
+        self.assertContains(
+            response,
+            "Reload the page before saving so you do not overwrite newer work.",
+        )
+        self.assertContains(response, "It is currently assigned to Co Author.")
+        self.assertContains(response, "My conflicting text")
+
+        second_response = self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "summary_revision_token": response.context["summary_revision_token"],
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "habitat_and_sites": "Second conflicting text",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.habitat_and_sites, "Other author's newer text")
+        self.assertEqual(second_response.context["summary_revision_token"], revision_token)
+        self.assertContains(
+            second_response,
+            "Reload the page before saving so you do not overwrite newer work.",
+        )
+        self.assertContains(second_response, "Second conflicting text")
 
     def test_summary_status_choices_include_excluded_after_full_text(self):
         labels = dict(ReferenceSummary.STATUS_CHOICES)
