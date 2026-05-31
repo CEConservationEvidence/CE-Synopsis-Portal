@@ -2105,6 +2105,28 @@ class MemberReminderUpdateTests(TestCase):
             ).exists()
         )
 
+    def test_update_response_deadline_explains_no_email_is_sent(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Randy",
+            email="randy@example.com",
+        )
+        target_date = timezone.localdate() + timedelta(days=7)
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "invite"],
+            ),
+            {"reminder_date": target_date.strftime("%Y-%m-%d")},
+            follow=True,
+        )
+
+        self.assertRedirects(response, self.board_url)
+        self.assertContains(
+            response,
+            "Response deadline updated. No email was sent automatically; future reminders now use the new date.",
+        )
+
     def test_board_page_sets_minimum_response_deadline_on_inline_input(self):
         AdvisoryBoardMember.objects.create(
             project=self.project,
@@ -2745,6 +2767,33 @@ class MemberReminderUpdateTests(TestCase):
             ProjectChangeLog.objects.filter(
                 project=self.project, action="Updated protocol reminder"
             ).exists()
+        )
+
+    def test_update_protocol_deadline_explains_no_email_is_sent(self):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Paula",
+            email="paula@example.com",
+            response="Y",
+            sent_protocol_at=timezone.now(),
+        )
+        ProtocolFeedback.objects.create(project=self.project, member=member)
+        deadline = timezone.now().replace(second=0, microsecond=0) + timedelta(days=4)
+        local_deadline = timezone.localtime(deadline)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_member_set_deadline",
+                args=[self.project.id, member.id, "protocol"],
+            ),
+            {"deadline": local_deadline.strftime("%Y-%m-%dT%H:%M")},
+            follow=True,
+        )
+
+        self.assertRedirects(response, self.board_url)
+        self.assertContains(
+            response,
+            "Protocol deadline updated. No email was sent automatically; future reminders and review links now use the new date.",
         )
 
     def test_same_day_protocol_deadline_is_rejected(self):
@@ -5753,7 +5802,13 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:advisory_board_list", args=[self.project.id])
         )
         self.assertContains(response, "Custom columns")
-        self.assertContains(response, "Deadlines &amp; reminders")
+        self.assertContains(response, "Invitation &amp; synopsis deadlines")
+        self.assertContains(
+            response,
+            "Use this modal for invitation response deadlines and synopsis feedback deadlines only.",
+        )
+        self.assertContains(response, "Protocol")
+        self.assertContains(response, "Action list")
         self.assertNotContains(response, "Protocol feedback window")
         self.assertNotContains(response, "Action list feedback window")
 

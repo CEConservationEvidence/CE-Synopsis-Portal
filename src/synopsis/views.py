@@ -7358,9 +7358,11 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
         _log_project_change(project, request.user, "Updated invite reminder", detail)
         messages.success(
             request,
-            "Response deadline updated."
-            if not clearing
-            else "Response deadline cleared.",
+            (
+                "Response deadline updated. No email was sent automatically; future reminders now use the new date."
+                if not clearing
+                else "Response deadline cleared. No email was sent automatically."
+            ),
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
@@ -7394,9 +7396,11 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
         )
         messages.success(
             request,
-            "Protocol deadline updated."
-            if not clearing
-            else "Protocol deadline cleared.",
+            (
+                "Protocol deadline updated. No email was sent automatically; future reminders and review links now use the new date."
+                if not clearing
+                else "Protocol deadline cleared. No email was sent automatically."
+            ),
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
@@ -7430,9 +7434,11 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
         )
         messages.success(
             request,
-            "Synopsis deadline updated."
-            if not clearing
-            else "Synopsis deadline cleared.",
+            (
+                "Synopsis deadline updated. No email was sent automatically; future reminders and review links now use the new date."
+                if not clearing
+                else "Synopsis deadline cleared. No email was sent automatically."
+            ),
         )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
@@ -7466,9 +7472,11 @@ def advisory_member_set_deadline(request, project_id, member_id, kind):
     )
     messages.success(
         request,
-        "Action list deadline updated."
-        if not clearing
-        else "Action list deadline cleared.",
+        (
+            "Action list deadline updated. No email was sent automatically; future reminders and review links now use the new date."
+            if not clearing
+            else "Action list deadline cleared. No email was sent automatically."
+        ),
     )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 

@@ -215,9 +215,9 @@
         class="btn btn-outline-primary"
         data-bs-toggle="modal"
         data-bs-target="#manageRemindersModal"
-        title="View and update deadlines and reminder schedules"
+        title="View and update invitation response deadlines, synopsis deadlines, and reminder schedules"
     >
-        Deadlines &amp; reminders
+        Invitation &amp; synopsis deadlines
     </button>
     <button
         type="button"
@@ -1465,14 +1465,24 @@
     <div class="modal-dialog modal-xl modal-dialog-scrollable">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="manageRemindersModalLabel">Deadlines &amp; reminders</h5>
+                <h5 class="modal-title" id="manageRemindersModalLabel">Invitation &amp; synopsis deadlines</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="alert alert-light border mb-4">
                     <div class="fw-semibold mb-1">How this works</div>
                     <div class="small text-muted">
-                        Set invitation response deadlines here. Synopsis feedback deadlines can also be set here after the synopsis has been sent.
+                        Use this modal for invitation response deadlines and synopsis feedback deadlines only.
+                    </div>
+                    <div class="small text-muted mt-2">
+                        Protocol and action list feedback deadlines are managed from the
+                        <a href="{% url 'synopsis:protocol_detail' project.id %}">Protocol</a>
+                        and
+                        <a href="{% url 'synopsis:action_list_detail' project.id %}">Action list</a>
+                        pages once those documents have been sent. The member table on this page shows the currently saved document feedback deadlines.
+                    </div>
+                    <div class="small text-muted mt-2">
+                        Changing a deadline updates portal tracking and future reminders. It does not send the member a new email immediately.
                     </div>
                 </div>
                 <div class="card border-warning-subtle">
