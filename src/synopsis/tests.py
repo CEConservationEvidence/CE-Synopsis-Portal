@@ -5677,6 +5677,16 @@ class CollaborativePanelViewTests(TestCase):
             response, "Upload the protocol before opening the collaborative editor."
         )
         self.assertContains(response, "Open collaborative editor")
+        self.assertContains(
+            response,
+            'target="_blank"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'rel="noopener"',
+            html=False,
+        )
 
     def test_action_list_panel_disabled_without_document(self):
         response = self.client.get(
@@ -5723,6 +5733,16 @@ class CollaborativePanelViewTests(TestCase):
             response, "Upload the action list before opening the collaborative editor."
         )
         self.assertContains(response, "Open collaborative editor")
+        self.assertContains(
+            response,
+            'target="_blank"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'rel="noopener"',
+            html=False,
+        )
 
     def test_protocol_panel_active_session_explains_global_close_scope(self):
         from . import views

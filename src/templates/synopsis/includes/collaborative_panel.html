@@ -36,9 +36,15 @@
                 How collaborative editing works
             </button>
             {% if can_edit_documents %}
-            <form method="post" action="{{ collaborative_start_url }}" class="d-inline">
+            <form
+                method="post"
+                action="{{ collaborative_start_url }}"
+                class="d-inline"
+                target="_blank"
+                rel="noopener"
+            >
                 {% csrf_token %}
-                <button type="submit" class="btn btn-primary btn-sm" formtarget="_blank">
+                <button type="submit" class="btn btn-primary btn-sm">
                     Open collaborative editor
                 </button>
             </form>
@@ -82,12 +88,17 @@
                 How collaborative editing works
             </button>
             {% if can_edit_documents %}
-            <form method="post" action="{{ collaborative_start_url }}" class="d-inline">
+            <form
+                method="post"
+                action="{{ collaborative_start_url }}"
+                class="d-inline"
+                target="_blank"
+                rel="noopener"
+            >
                 {% csrf_token %}
                 <button
                     type="submit"
                     class="btn btn-outline-primary btn-sm{% if not doc_ready %} disabled{% endif %}"
-                    formtarget="_blank"
                     {% if not doc_ready %}disabled tabindex="-1" aria-disabled="true"{% endif %}
                 >
                     Open collaborative editor
