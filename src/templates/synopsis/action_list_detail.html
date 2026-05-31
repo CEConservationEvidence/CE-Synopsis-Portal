@@ -363,7 +363,7 @@
                         <p class="text-muted small mb-2">{{ action_list_feedback_state.without_deadline_count }} member{{ action_list_feedback_state.without_deadline_count|pluralize }} currently {{ action_list_feedback_state.without_deadline_count|pluralize:"has,have" }} no saved action list deadline.</p>
                         {% endif %}
                         {% if action_list_feedback_state.some_deadlines_passed %}
-                        <p class="text-muted small mb-2">Some earlier member deadlines have already passed, but other members can still submit until their own saved deadline.</p>
+                        <p class="text-muted small mb-2">Some earlier member deadlines have already passed, but other members can still submit because their own saved deadline has not passed or because no action list deadline is saved for them.</p>
                         {% elif action_list_feedback_state.all_current_deadlines_passed %}
                         <p class="text-muted small mb-2">All currently saved member deadlines have passed. Set a new deadline here if already-sent members should be able to submit again.</p>
                         {% endif %}

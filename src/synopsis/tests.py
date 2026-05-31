@@ -5955,7 +5955,7 @@ class CollaborativePanelViewTests(TestCase):
         )
         self.assertContains(
             response,
-            "Some earlier member deadlines have already passed, but other members can still submit until their own saved deadline.",
+            "Some earlier member deadlines have already passed, but other members can still submit because their own saved deadline has not passed or because no protocol deadline is saved for them.",
         )
         self.assertContains(response, "Open for some members")
 
