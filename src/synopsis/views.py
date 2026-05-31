@@ -12079,9 +12079,14 @@ def reference_batch_detail(request, project_id, batch_id):
                     redirect_url = f"{redirect_url}?status={status_filter}"
                 return redirect(redirect_url)
 
-            if bulk_action == "save-folders":
-                categories = normalize_reference_folder_values(
-                    request.POST.getlist("reference_folder")
+            if bulk_action in {"save-folders", "clear-folders"}:
+                clear_categories = bulk_action == "clear-folders"
+                categories = (
+                    []
+                    if clear_categories
+                    else normalize_reference_folder_values(
+                        request.POST.getlist("reference_folder")
+                    )
                 )
                 updated = 0
                 shared_updated = 0
@@ -12105,14 +12110,21 @@ def reference_batch_detail(request, project_id, batch_id):
                             categories,
                             changed_by=request.user,
                             source_project=project,
-                            change_source="screening_bulk_save_folders",
+                            change_source=(
+                                "screening_bulk_clear_folders"
+                                if clear_categories
+                                else "screening_bulk_save_folders"
+                            ),
                         )
                     )
                     if changed:
                         shared_updated += 1
                     updated += 1
 
-                message = f"Updated categories for {updated} reference(s)."
+                if clear_categories:
+                    message = f"Cleared shared categories for {updated} reference(s)."
+                else:
+                    message = f"Updated shared categories for {updated} reference(s)."
                 if shared_updated:
                     message += (
                         f" Updated the shared library categories for {shared_updated} linked reference(s)."
@@ -12120,7 +12132,11 @@ def reference_batch_detail(request, project_id, batch_id):
                 _log_project_change(
                     project,
                     request.user,
-                    "Bulk reference categories updated",
+                    (
+                        "Bulk reference categories cleared"
+                        if clear_categories
+                        else "Bulk reference categories updated"
+                    ),
                     " | ".join(
                         part
                         for part in [

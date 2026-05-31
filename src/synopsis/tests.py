@@ -6977,10 +6977,13 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertContains(response, "folder-select-shell")
         self.assertContains(response, "folder-select")
         self.assertContains(response, "screening-bulk-sticky")
-        self.assertContains(response, "Apply categories")
+        self.assertContains(response, "Save shared categories")
+        self.assertContains(response, "Clear shared categories")
         self.assertContains(response, "Include in synopsis")
         self.assertContains(response, "Exclude from synopsis")
         self.assertContains(response, "Multiple categories are allowed.")
+        self.assertContains(response, "data-collapse-toggle-label")
+        self.assertContains(response, "screeningBulkPanelBody")
         self.assertContains(response, 'id="reference-batch-page"', html=False)
         self.assertContains(response, "cePreservePageState({", html=False)
         self.assertContains(
@@ -6999,6 +7002,18 @@ class ReferenceBatchUploadParsingTests(TestCase):
         self.assertContains(
             response,
             "changing categories here updates the shared reference library record and is reflected in linked synopsis copies in other projects",
+        )
+        self.assertContains(
+            response,
+            "Save shared categories",
+        )
+        self.assertContains(
+            response,
+            "Clear shared categories",
+        )
+        self.assertContains(
+            response,
+            "remove all shared categories from those checked references.",
         )
 
     def test_screening_page_uses_shared_categories_when_local_fallback_exists(self):
@@ -7245,6 +7260,59 @@ class ReferenceBatchUploadParsingTests(TestCase):
         ).first()
         self.assertIsNotNone(change)
         self.assertIn("References: 2", change.details)
+
+    def test_bulk_clear_folders_from_selected_references(self):
+        upload = SimpleUploadedFile(
+            "references.txt",
+            self._plaintext_payload().encode("utf-8"),
+            content_type="text/plain",
+        )
+        self.client.post(
+            self.url,
+            {
+                "label": "Bulk clear folder batch",
+                "source_type": "journal_search",
+                "ris_file": upload,
+            },
+        )
+        batch = ReferenceSourceBatch.objects.get(project=self.project)
+        references = list(batch.references.select_related("library_reference").order_by("id"))
+        selected_ids = [str(ref.id) for ref in references[:2]]
+        for ref in references[:2]:
+            ref.library_reference.reference_folder = ["3a", "15"]
+            ref.library_reference.save(update_fields=["reference_folder", "updated_at"])
+
+        detail_url = reverse(
+            "synopsis:reference_batch_detail",
+            args=[self.project.id, batch.id],
+        )
+        response = self.client.post(
+            detail_url,
+            {
+                "bulk_action": "clear-folders",
+                "selected_references": selected_ids,
+                "reference_folder": ["3a"],
+            },
+            follow=True,
+        )
+
+        self.assertContains(response, "Cleared shared categories for 2 reference(s).")
+        for ref in Reference.objects.filter(pk__in=selected_ids).select_related("library_reference"):
+            self.assertEqual(ref.unlinked_reference_folder, [])
+            self.assertEqual(ref.category_values, [])
+            self.assertEqual(ref.library_reference.reference_folder, [])
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Bulk reference categories cleared",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("References: 2", change.details)
+        self.assertTrue(
+            LibraryReferenceFolderHistory.objects.filter(
+                library_reference__in=[ref.library_reference for ref in references[:2]],
+                change_source="screening_bulk_clear_folders",
+            ).exists()
+        )
 
     def test_single_screening_update_filters_blank_reference_folder_values(self):
         upload = SimpleUploadedFile(

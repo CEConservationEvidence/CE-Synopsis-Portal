@@ -200,9 +200,25 @@ details.abstract-details[open] .abstract-full {
 </div>
 {% if not focus_mode %}
 <div class="card mb-3 screening-bulk-sticky">
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <h5 class="mb-0">Screening &amp; bulk actions</h5>
+        <button
+            class="btn btn-outline-secondary btn-sm"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#screeningBulkPanelBody"
+            aria-expanded="true"
+            aria-controls="screeningBulkPanelBody"
+            data-collapse-toggle-label
+            data-label-open="Hide panel"
+            data-label-closed="Show panel"
+        >
+            Hide panel
+        </button>
+    </div>
+    <div class="collapse show" id="screeningBulkPanelBody">
     <div class="card-body">
         <div class="d-flex flex-wrap align-items-center gap-3 mb-2">
-            <h5 class="mb-0">Screening &amp; bulk actions</h5>
             <div class="d-flex flex-wrap gap-2 small">
                 <a class="btn btn-sm {% if not status_filter %}btn-primary{% else %}btn-outline-primary{% endif %}" href="{% url 'synopsis:reference_batch_detail' project.id batch.id %}">All</a>
                 {% for item in status_summary %}
@@ -222,7 +238,8 @@ details.abstract-details[open] .abstract-full {
                 <button class="btn btn-success btn-sm bulk-action-btn" type="submit" name="bulk_action" value="include" disabled>Include in synopsis</button>
                 <button class="btn btn-outline-danger btn-sm bulk-action-btn" type="submit" name="bulk_action" value="exclude" disabled>Exclude from synopsis</button>
                 <button class="btn btn-outline-secondary btn-sm bulk-action-btn" type="submit" name="bulk_action" value="pending" disabled>Reset to Pending</button>
-                <button class="btn btn-outline-secondary btn-sm bulk-action-btn" type="submit" name="bulk_action" value="save-folders" disabled>Apply categories</button>
+                <button class="btn btn-outline-secondary btn-sm bulk-action-btn" type="submit" name="bulk_action" value="save-folders" disabled>Save shared categories</button>
+                <button class="btn btn-outline-secondary btn-sm bulk-action-btn" type="submit" name="bulk_action" value="clear-folders" disabled>Clear shared categories</button>
             </form>
         </div>
         <div class="row g-2 align-items-end mt-2">
@@ -237,6 +254,9 @@ details.abstract-details[open] .abstract-full {
                 <div class="small text-muted mb-1">
                     <span class="badge text-bg-light border me-1">Shared library data</span>
                     Assign one or more shared CE subject categories to the selected references. This is the main category-classification step while screening. For library-linked references, changing categories here updates the shared reference library record and is reflected in linked synopsis copies in other projects. You can still use categories on excluded references to flag papers relevant to other taxa or habitats. If categories are selected here, bulk include/exclude will apply them at the same time.
+                </div>
+                <div class="small text-muted mb-1">
+                    Use <strong>Save shared categories</strong> to apply the selected categories to all checked references. Use <strong>Clear shared categories</strong> to remove all shared categories from those checked references.
                 </div>
                 <div class="folder-multi-group">
                     <div class="folder-select-tools">
@@ -256,6 +276,7 @@ details.abstract-details[open] .abstract-full {
                 </div>
             </div>
         </div>
+    </div>
     </div>
 </div>
 {% endif %}
@@ -329,7 +350,7 @@ details.abstract-details[open] .abstract-full {
                                         <button type="button" class="btn btn-outline-secondary" data-folder-select-action="all">Select all</button>
                                         <button type="button" class="btn btn-outline-secondary" data-folder-select-action="clear">Clear</button>
                                     </div>
-                                    <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ focused_reference.screening_status }}">Save categories</button>
+                                    <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ focused_reference.screening_status }}">Save shared categories</button>
                                 </div>
                             </form>
                         </div>
@@ -520,7 +541,7 @@ details.abstract-details[open] .abstract-full {
                                         </select>
                                     </div>
                                 </div>
-                                <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ ref.screening_status }}">Save categories</button>
+                                <button class="btn btn-outline-secondary btn-sm" type="submit" name="screening_status" value="{{ ref.screening_status }}">Save shared categories</button>
                             </form>
                         </td>
                         <td class="text-center">
@@ -1001,12 +1022,32 @@ document.addEventListener("DOMContentLoaded", function () {
     })();
 
     (() => {
+        const bulkPanelBody = document.getElementById("screeningBulkPanelBody");
         window.cePreservePageState({
             key: "screening-batch-state-{{ project.id }}-{{ batch.id }}",
             formSelector: "#reference-batch-page form",
             shouldRestore: () => {
                 const params = new URLSearchParams(window.location.search);
                 return !window.location.hash && !params.has("focus");
+            },
+            capture: () => ({
+                bulkPanelOpen: !bulkPanelBody || bulkPanelBody.classList.contains("show"),
+            }),
+            restore: (state) => {
+                if (typeof state.scrollY === "number") {
+                    window.scrollTo(0, state.scrollY);
+                }
+                if (!bulkPanelBody || !window.bootstrap || !bootstrap.Collapse) {
+                    return;
+                }
+                const collapse = bootstrap.Collapse.getOrCreateInstance(bulkPanelBody, {
+                    toggle: false,
+                });
+                if (state.bulkPanelOpen === false) {
+                    collapse.hide();
+                } else {
+                    collapse.show();
+                }
             },
         });
     })();
