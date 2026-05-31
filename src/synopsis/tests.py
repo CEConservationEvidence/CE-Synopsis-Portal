@@ -4930,8 +4930,9 @@ class ProtocolUploadFlowTests(TestCase):
         self.assertRedirects(response, detail_url)
 
         response = self.client.get(detail_url)
-        self.assertContains(response, "Start collaborative edit")
-        self.assertNotContains(response, "Open editor")
+        self.assertContains(response, "Open collaborative editor")
+        self.assertNotContains(response, "Start collaborative edit")
+        self.assertNotContains(response, '>Open editor<', html=False)
 
     def test_action_list_delete_closes_stale_collaborative_session_before_reupload(self):
         detail_url = reverse("synopsis:action_list_detail", args=[self.project.id])
@@ -4973,8 +4974,9 @@ class ProtocolUploadFlowTests(TestCase):
         self.assertRedirects(response, detail_url)
 
         response = self.client.get(detail_url)
-        self.assertContains(response, "Start collaborative edit")
-        self.assertNotContains(response, "Open editor")
+        self.assertContains(response, "Open collaborative editor")
+        self.assertNotContains(response, "Start collaborative edit")
+        self.assertNotContains(response, '>Open editor<', html=False)
 
 
 class OnlyOfficeConfigTests(TestCase):
@@ -5274,7 +5276,11 @@ class OnlyOfficeExternalAccessTests(TestCase):
         self.assertContains(response, "Back to protocol page")
         self.assertContains(
             response,
-            "To save and close the shared session for everyone, return to the protocol detail page.",
+            "Back to the protocol page only leaves your own browser tab.",
+        )
+        self.assertContains(
+            response,
+            "Save current version and close shared editor",
         )
         self.assertContains(response, "Active in this document:")
         self.assertContains(response, "visibilitychange")
@@ -5412,7 +5418,7 @@ class CollaborativeForceSaveCloseTests(TestCase):
         )
         messages_list = [message.message for message in get_messages(response.wsgi_request)]
         self.assertIn(
-            "Protocol saved and collaborative session closed.",
+            "Protocol current version was saved and the shared editor was closed for everyone.",
             messages_list,
         )
         mock_request.assert_called_once()
@@ -5439,7 +5445,7 @@ class CollaborativeForceSaveCloseTests(TestCase):
         self.assertEqual(self.session.change_summary, "Close from portal")
         messages_list = [message.message for message in get_messages(response.wsgi_request)]
         self.assertIn(
-            "Protocol had no unsaved changes and the session was closed.",
+            "Protocol had no unsaved changes. The shared editor was closed for everyone.",
             messages_list,
         )
         mock_request.assert_called_once()
@@ -5496,8 +5502,9 @@ class CollaborativePanelViewTests(TestCase):
             "Use this guide for the live OnlyOffice session itself.",
         )
         self.assertContains(
-            response, "Upload the protocol before starting a collaborative session."
+            response, "Upload the protocol before opening the collaborative editor."
         )
+        self.assertContains(response, "Open collaborative editor")
         self.assertIn('aria-disabled="true"', response.content.decode())
 
     def test_protocol_panel_enabled_with_document(self):
@@ -5509,8 +5516,9 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:protocol_detail", args=[self.project.id])
         )
         self.assertNotContains(
-            response, "Upload the protocol before starting a collaborative session."
+            response, "Upload the protocol before opening the collaborative editor."
         )
+        self.assertContains(response, "Open collaborative editor")
 
     def test_action_list_panel_disabled_without_document(self):
         response = self.client.get(
@@ -5540,8 +5548,9 @@ class CollaborativePanelViewTests(TestCase):
             "Use this guide for the live OnlyOffice session itself.",
         )
         self.assertContains(
-            response, "Upload the action list before starting a collaborative session."
+            response, "Upload the action list before opening the collaborative editor."
         )
+        self.assertContains(response, "Open collaborative editor")
         self.assertIn('aria-disabled="true"', response.content.decode())
 
     def test_action_list_panel_enabled_with_document(self):
@@ -5553,8 +5562,9 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:action_list_detail", args=[self.project.id])
         )
         self.assertNotContains(
-            response, "Upload the action list before starting a collaborative session."
+            response, "Upload the action list before opening the collaborative editor."
         )
+        self.assertContains(response, "Open collaborative editor")
 
     def test_protocol_panel_active_session_explains_global_close_scope(self):
         from . import views
@@ -5588,11 +5598,54 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:protocol_detail", args=[self.project.id])
         )
 
-        self.assertContains(response, "Save and close session for everyone")
+        self.assertContains(response, "Collaborative editor is live")
+        self.assertContains(response, "Open collaborative editor")
+        self.assertNotContains(response, "Start collaborative edit")
+        self.assertNotContains(response, '>Open editor<', html=False)
+        self.assertContains(response, "Save current version and close shared editor")
         self.assertContains(
             response,
-            "Participants can leave the editor without using this button. Use this only when everyone is finished.",
+            "Going back to the protocol page only leaves your own browser tab.",
         )
+        self.assertContains(
+            response,
+            "Advisory review deadlines do not close author editing automatically.",
+        )
+
+    def test_protocol_change_log_formats_collaborative_entries_for_authors(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        ProjectChangeLog.objects.create(
+            project=self.project,
+            changed_by=self.user,
+            action="Protocol updated via collaborative edit",
+            details=(
+                "Session: 123e4567-e89b-12d3-a456-426614174000 | "
+                "Status: 6 | File: protocol-v2.docx | Users: collab-author | "
+                "Size: 24.0 KB | Reason: Updated citations"
+            ),
+        )
+        ProjectChangeLog.objects.create(
+            project=self.project,
+            changed_by=self.user,
+            action="Protocol collaborative session closed",
+            details="Session 123e4567-e89b-12d3-a456-426614174000 closed (status 3).",
+        )
+
+        response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Collaborative revision saved")
+        self.assertContains(response, "Edited by collab-author")
+        self.assertContains(response, "Saved file: protocol-v2.docx")
+        self.assertContains(
+            response,
+            "OnlyOffice reported the shared session closed without new saved changes.",
+        )
+        self.assertNotContains(response, "123e4567-e89b-12d3-a456-426614174000")
 
     def test_advisory_board_shows_custom_columns_button_and_not_document_feedback_windows(self):
         response = self.client.get(
