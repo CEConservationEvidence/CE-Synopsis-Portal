@@ -19,12 +19,14 @@
                     Use this guide for the live OnlyOffice session itself.
                 </p>
                 <ol class="mb-3 ps-3">
-                    <li>Choose <strong>Start collaborative edit</strong> to open one shared OnlyOffice session for the current {{ document_label|lower }} revision.</li>
-                    <li>Authors with edit access reopen the same live session from the portal while it is active, so everyone works in the same document.</li>
+                    <li>Choose <strong>Open collaborative editor</strong>. If no shared session exists yet, the portal starts one. If a session is already live, the same button opens that current shared editor.</li>
+                    <li>Authors with edit access always use the same button from the portal, so everyone joins the same live {{ document_label|lower }} document.</li>
                     <li>Use the editor normally while the session is open. The portal keeps that session attached to the current revision on this page.</li>
-                    <li>When one participant is finished, use <strong>Leave editor</strong>. That exits only that participant and does not close the shared session for anyone else.</li>
-                    <li>When all edits are complete, an author or manager can use <strong>Save and close session for everyone</strong> from the {{ document_label|lower }} detail page. That requests a final save and closes the shared session.</li>
-                    <li>After the session closes, return to the detail page to download the saved file, keep it in draft, or mark the current revision as final.</li>
+                    <li>Using <strong>Back to {{ document_label|lower }} page</strong> only leaves that participant's browser tab. It does not close the shared session for anyone else.</li>
+                    <li>When all edits are complete, an author or manager can use <strong>Save current version and close shared editor</strong> from the {{ document_label|lower }} detail page. That requests a final save, creates a saved portal revision if needed, and closes the current shared session for everyone.</li>
+                    <li>Closing the shared session is not a permanent lock. Authors can open a fresh collaborative session later if more edits are needed.</li>
+                    <li>The advisory review deadline does not automatically close author editing. Collaborative editing stops when the feedback window is closed on the {{ document_label|lower }} detail page.</li>
+                    <li>After the session closes, return to the detail page to review the saved version, keep it in draft, or mark the current revision as final.</li>
                 </ol>
                 <div class="small text-muted">
                     Collaborative editing is optional. If you prefer, you can still update the {{ document_label|lower }} by downloading the current revision, editing offline, and uploading a new revision manually.

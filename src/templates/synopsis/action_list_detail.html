@@ -158,7 +158,7 @@
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
                         <div>
-                            <div class="fw-semibold">{{ item.log.action }}</div>
+                            <div class="fw-semibold">{{ item.display_action|default:item.log.action }}</div>
                             <div class="small text-muted mt-1">
                                 {{ item.log.created_at|date:"Y-m-d H:i" }} · {{ item.actor }}
                             </div>
