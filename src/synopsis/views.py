@@ -9478,7 +9478,11 @@ def _summary_revision_token(summary: ReferenceSummary) -> str:
     try:
         updated_at = timezone.localtime(updated_at)
     except (ValueError, TypeError):
-        pass
+        # Fall back to the original value when timezone localization is not possible.
+        logging.debug(
+            "Unable to localtime summary.updated_at for revision token; using original value.",
+            exc_info=True,
+        )
     return updated_at.strftime("%Y-%m-%dT%H:%M:%S.%f%z")
 
 
