@@ -13011,6 +13011,17 @@ def advisory_invite_create(request, project_id, member_id=None):
                 member.invite_sent = True
                 member.invite_sent_at = timezone.now()
                 update_fields = {"invite_sent", "invite_sent_at"}
+                if attachment_lines:
+                    member.sent_action_list_at = timezone.now()
+                    member.action_list_reminder_sent = False
+                    member.action_list_reminder_sent_at = None
+                    update_fields.update(
+                        {
+                            "sent_action_list_at",
+                            "action_list_reminder_sent",
+                            "action_list_reminder_sent_at",
+                        }
+                    )
                 if member.response_date != due_date:
                     member.response_date = due_date
                     member.reminder_sent = False
@@ -13411,6 +13422,17 @@ def advisory_send_invites_bulk(request, project_id):
             member.invite_sent = True
             member.invite_sent_at = timezone.now()
             update_fields = {"invite_sent", "invite_sent_at"}
+            if attachment_lines:
+                member.sent_action_list_at = timezone.now()
+                member.action_list_reminder_sent = False
+                member.action_list_reminder_sent_at = None
+                update_fields.update(
+                    {
+                        "sent_action_list_at",
+                        "action_list_reminder_sent",
+                        "action_list_reminder_sent_at",
+                    }
+                )
             if member.response_date != due_date:
                 member.response_date = due_date
                 member.reminder_sent = False
