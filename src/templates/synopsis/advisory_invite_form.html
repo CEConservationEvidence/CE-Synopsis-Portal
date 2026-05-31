@@ -52,9 +52,12 @@
         <div class="col-lg-5">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">Attachments &amp; links</h5>
+                    <h5 class="card-title">Optional action list resources</h5>
                     <p class="text-muted small">
-                        These are optional for invitations. You can send the invite without selecting either option. Disabled items become available once the underlying document or editor is ready.
+                        These options are both for the action list. Choose the action list document, the action list collaborative editor link, or both. You can also send the invitation without either option.
+                    </p>
+                    <p class="text-muted small mb-3">
+                        If you include either option, this member will be marked as having received the action list on the Advisory Board page. Disabled items become available once the document or editor is ready.
                     </p>
                     <div class="form-check mb-3">
                         {{ form.include_action_list }}
@@ -63,7 +66,7 @@
                     </div>
                     <div class="form-check">
                         {{ form.include_collaborative_link }}
-                        <label class="form-check-label{% if form.include_collaborative_link.field.disabled %} text-muted{% endif %}" for="{{ form.include_collaborative_link.id_for_label }}">Include collaborative editor link</label>
+                        <label class="form-check-label{% if form.include_collaborative_link.field.disabled %} text-muted{% endif %}" for="{{ form.include_collaborative_link.id_for_label }}">Include action list collaborative editor link</label>
                         <div class="form-text">{{ form.include_collaborative_link.help_text }}</div>
                     </div>
                 </div>

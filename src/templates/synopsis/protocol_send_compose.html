@@ -66,7 +66,7 @@
                     </div>
                     <div class="form-check">
                         {{ form.include_collaborative_link }}
-                        <label class="form-check-label{% if form.include_collaborative_link.field.disabled %} text-muted{% endif %}" for="{{ form.include_collaborative_link.id_for_label }}">Include collaborative editor link</label>
+                        <label class="form-check-label{% if form.include_collaborative_link.field.disabled %} text-muted{% endif %}" for="{{ form.include_collaborative_link.id_for_label }}">Include protocol collaborative editor link</label>
                         <div class="form-text">{{ form.include_collaborative_link.help_text }}</div>
                         {% if form.include_collaborative_link.errors %}
                         <div class="invalid-feedback d-block">{{ form.include_collaborative_link.errors|join:", " }}</div>
