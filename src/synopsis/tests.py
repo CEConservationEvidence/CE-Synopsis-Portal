@@ -8869,11 +8869,45 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Co Author")
         self.assertContains(
             response,
+            "This summary page is not a live shared document.",
+        )
+        self.assertContains(
+            response,
+            "Another active author right now: Co Author.",
+        )
+        self.assertContains(response, 'name="summary_revision_token"', html=False)
+        self.assertContains(
+            response,
             reverse(
                 "synopsis:reference_summary_presence",
                 args=[self.project.id, self.summary.id],
             ),
             html=False,
+        )
+
+    def test_detail_page_warns_when_summary_is_assigned_to_another_author(self):
+        other_author = User.objects.create_user(
+            username="assigned-author",
+            password="pass123",
+            first_name="Assigned",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+        self.summary.assigned_to = other_author
+        self.summary.save(update_fields=["assigned_to", "updated_at"])
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "This summary page is not a live shared document.")
+        self.assertContains(
+            response,
+            "This summary is currently assigned to Assigned Author.",
         )
 
     def test_summary_presence_endpoint_returns_active_participants(self):
@@ -8985,10 +9019,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
     def test_save_summary_persists_changes(self):
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        response = self.client.get(url)
+        revision_token = response.context["summary_revision_token"]
         resp = self.client.post(
             url,
             {
                 "action": "save-summary",
+                "summary_revision_token": revision_token,
                 "status": ReferenceSummary.STATUS_DRAFT,
                 "habitat_and_sites": "New habitat info",
             },
@@ -9012,10 +9049,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
         url = reverse(
             "synopsis:reference_summary_detail", args=[self.project.id, self.summary.id]
         )
+        response = self.client.get(url)
+        revision_token = response.context["summary_revision_token"]
         response = self.client.post(
             url,
             {
                 "action": "save-summary",
+                "summary_revision_token": revision_token,
                 "status": ReferenceSummary.STATUS_TODO,
                 "habitat_and_sites": "New habitat info",
             },
@@ -9055,10 +9095,13 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.client.login(username="author", password="pass123")
         url = reverse("synopsis:reference_summary_detail", args=[self.project.id, self.summary.id])
+        response = self.client.get(url)
+        revision_token = response.context["summary_revision_token"]
         self.client.post(
             url,
             {
                 "action": "save-summary",
+                "summary_revision_token": revision_token,
                 "status": ReferenceSummary.STATUS_DRAFT,
                 "action_choice": "Install nest boxes",
                 "action_custom": "",
@@ -9068,6 +9111,49 @@ class ReferenceSummaryDetailViewTests(TestCase):
 
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.action_description, "Install nest boxes")
+
+    def test_save_summary_rejects_stale_page_after_another_author_saves(self):
+        other_author = User.objects.create_user(
+            username="coauthor",
+            password="pass123",
+            first_name="Co",
+            last_name="Author",
+        )
+        UserRole.objects.create(user=other_author, project=self.project, role="author")
+
+        self.client.login(username="author", password="pass123")
+        url = reverse(
+            "synopsis:reference_summary_detail",
+            args=[self.project.id, self.summary.id],
+        )
+        initial_response = self.client.get(url)
+        revision_token = initial_response.context["summary_revision_token"]
+
+        self.summary.habitat_and_sites = "Other author's newer text"
+        self.summary.assigned_to = other_author
+        self.summary.save(update_fields=["habitat_and_sites", "assigned_to", "updated_at"])
+
+        response = self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "summary_revision_token": revision_token,
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "habitat_and_sites": "My conflicting text",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.habitat_and_sites, "Other author's newer text")
+        self.assertContains(response, "This summary changed after you opened the page.")
+        self.assertContains(
+            response,
+            "Reload the page before saving so you do not overwrite newer work.",
+        )
+        self.assertContains(response, "It is currently assigned to Co Author.")
+        self.assertContains(response, "My conflicting text")
 
     def test_summary_status_choices_include_excluded_after_full_text(self):
         labels = dict(ReferenceSummary.STATUS_CHOICES)

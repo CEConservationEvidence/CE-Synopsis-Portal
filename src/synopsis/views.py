@@ -9471,6 +9471,54 @@ def _summary_editor_names_by_summary(
     return editor_names_by_summary
 
 
+def _summary_revision_token(summary: ReferenceSummary) -> str:
+    updated_at = getattr(summary, "updated_at", None)
+    if not updated_at:
+        return ""
+    try:
+        updated_at = timezone.localtime(updated_at)
+    except (ValueError, TypeError):
+        pass
+    return updated_at.strftime("%Y-%m-%dT%H:%M:%S.%f%z")
+
+
+def _summary_edit_is_stale(request, summary: ReferenceSummary) -> bool:
+    submitted_token = (request.POST.get("summary_revision_token") or "").strip()
+    if not submitted_token:
+        return False
+    return submitted_token != _summary_revision_token(summary)
+
+
+def _summary_stale_edit_message(
+    summary: ReferenceSummary,
+    current_user: User | None,
+    summary_editor_presence: dict | None = None,
+) -> str:
+    updated_at = getattr(summary, "updated_at", None)
+    updated_text = _format_deadline(updated_at) if updated_at else "just now"
+    parts = [
+        "This summary changed after you opened the page.",
+        f"It was last saved at {updated_text}.",
+        "Reload the page before saving so you do not overwrite newer work.",
+    ]
+    assigned_to = getattr(summary, "assigned_to", None)
+    if (
+        assigned_to
+        and getattr(current_user, "id", None) != getattr(assigned_to, "id", None)
+    ):
+        parts.append(
+            f"It is currently assigned to {_user_display(assigned_to)}."
+        )
+    other_participants = list(
+        (summary_editor_presence or {}).get("other_participants") or []
+    )
+    if other_participants:
+        parts.append(
+            f"Active author right now: {', '.join(other_participants)}."
+        )
+    return " ".join(parts)
+
+
 @login_required
 def reference_summary_board(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
@@ -9756,6 +9804,7 @@ def reference_summary_detail(request, project_id, summary_id):
     summary = next((item for item in synced_summaries if item.id == summary.id), summary)
     generated_summary = _structured_summary_paragraph(summary)
     summary_editor_presence = _touch_summary_editor_presence(summary, request.user)
+    summary_revision_token = _summary_revision_token(summary)
 
     active_action = request.POST.get("action") if request.method == "POST" else None
     summary_form = ReferenceSummaryUpdateForm(
@@ -9804,6 +9853,25 @@ def reference_summary_detail(request, project_id, summary_id):
 
     if request.method == "POST":
         action = active_action
+        guarded_summary_actions = {
+            "save-summary",
+            "save-synopsis-draft",
+            "save-paragraph-notes",
+            "assign",
+            "update-status",
+        }
+        summary_edit_stale = action in guarded_summary_actions and _summary_edit_is_stale(
+            request, summary
+        )
+        if summary_edit_stale:
+            messages.error(
+                request,
+                _summary_stale_edit_message(
+                    summary,
+                    request.user,
+                    summary_editor_presence=summary_editor_presence,
+                ),
+            )
         if action == "create-summary-tab":
             new_summary = _clone_reference_summary(summary, request.user)
             _log_summary_history(
@@ -9890,7 +9958,11 @@ def reference_summary_detail(request, project_id, summary_id):
                 project_id=project.id,
                 summary_id=next_summary.id,
             )
-        if action == "save-summary" and summary_form.is_valid():
+        if (
+            action == "save-summary"
+            and not summary_edit_stale
+            and summary_form.is_valid()
+        ):
             previous_status = summary.status
             summary = summary_form.save(commit=False)
             if not summary.summary_author:
@@ -9931,7 +10003,7 @@ def reference_summary_detail(request, project_id, summary_id):
                 project_id=project.id,
                 summary_id=summary.id,
             )
-        elif action == "save-summary":
+        elif action == "save-summary" and not summary_edit_stale:
             # Surface validation errors to help users understand why the save failed.
             error_list = []
             for err in summary_form.non_field_errors():
@@ -9943,7 +10015,7 @@ def reference_summary_detail(request, project_id, summary_id):
             if not error_list:
                 error_list.append("Unable to save summary. Please review your inputs.")
             messages.error(request, " ".join(error_list))
-        if action == "save-synopsis-draft":
+        if action == "save-synopsis-draft" and not summary_edit_stale:
             previous_status = summary.status
             draft_command = request.POST.get("draft_command") or "save"
             if draft_command == "use-generated":
@@ -10065,7 +10137,7 @@ def reference_summary_detail(request, project_id, summary_id):
                     summary_id=summary.id,
                 )
             messages.error(request, "Could not save the summary paragraph draft.")
-        if action == "save-paragraph-notes":
+        if action == "save-paragraph-notes" and not summary_edit_stale:
             previous_notes = (summary.paragraph_notes or "").strip()
             if paragraph_notes_form.is_valid():
                 updated_summary = paragraph_notes_form.save(commit=False)
@@ -10217,7 +10289,11 @@ def reference_summary_detail(request, project_id, summary_id):
             return redirect(
                 f"{reverse('synopsis:reference_summary_detail', args=[project.id, summary.id])}?panel=management"
             )
-        if action == "assign" and assignment_form.is_valid():
+        if (
+            action == "assign"
+            and not summary_edit_stale
+            and assignment_form.is_valid()
+        ):
             summary.assigned_to = assignment_form.cleaned_data["assigned_to"]
             summary.needs_help = assignment_form.cleaned_data["needs_help"]
             summary.save(update_fields=["assigned_to", "needs_help", "updated_at"])
@@ -10285,7 +10361,7 @@ def reference_summary_detail(request, project_id, summary_id):
                 )
             else:
                 messages.error(request, "Could not add comment.")
-        if action == "update-status":
+        if action == "update-status" and not summary_edit_stale:
             previous_status = summary.status
             if request.POST.get("quick_done") == "1":
                 summary.status = ReferenceSummary.STATUS_DONE
@@ -10533,6 +10609,7 @@ def reference_summary_detail(request, project_id, summary_id):
                 status=ReferenceSummary.STATUS_EXCLUDED
             ).exists(),
             "summary_editor_presence": summary_editor_presence,
+            "summary_revision_token": summary_revision_token,
             "summary_presence_url": reverse(
                 "synopsis:reference_summary_presence",
                 args=[project.id, summary.id],

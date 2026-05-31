@@ -194,6 +194,16 @@
         </div>
     </div>
 </div>
+<div class="alert {% if summary_editor_presence.has_other_participants or summary.assigned_to and summary.assigned_to_id != request.user.id %}alert-warning{% else %}alert-info{% endif %} small mb-4">
+    <div class="fw-semibold mb-1">This summary page is not a live shared document.</div>
+    <div>If another author saves this summary before you do, your page becomes out of date and you will need to reload it before your own save can be accepted.</div>
+    {% if summary_editor_presence.has_other_participants %}
+    <div class="mt-1">Another active author right now: {{ summary_editor_presence.other_participants|join:", " }}.</div>
+    {% endif %}
+    {% if summary.assigned_to and summary.assigned_to_id != request.user.id %}
+    <div class="mt-1">This summary is currently assigned to {{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}.</div>
+    {% endif %}
+</div>
 <div class="card mb-4">
     <div class="card-body">
         <h4 class="mb-1">{{ reference.canonical.title }}</h4>
@@ -307,9 +317,10 @@
             {% endif %}
         </div>
         {% endif %}
-        <form method="post" class="d-flex flex-column gap-3">
+        <form method="post" class="d-flex flex-column gap-3" id="summary-status-form">
             {% csrf_token %}
             <input type="hidden" name="action" value="update-status">
+            <input type="hidden" name="summary_revision_token" value="{{ summary_revision_token }}">
             <div>
                 <div class="fw-semibold mb-1">Summary status</div>
                 <div class="small text-muted">Update the work status for this summary tab.</div>
@@ -505,6 +516,7 @@
                 <form method="post" class="d-flex flex-column gap-3 summary-form-compact" id="summary-save-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-summary">
+                    <input type="hidden" name="summary_revision_token" value="{{ summary_revision_token }}">
                     <div>
                         <div class="text-uppercase text-muted small fw-semibold mb-2">Identifiers</div>
                         <div class="row g-3">
@@ -811,6 +823,7 @@
                 <form method="post" class="d-flex flex-column gap-3" id="summary-draft-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-synopsis-draft">
+                    <input type="hidden" name="summary_revision_token" value="{{ summary_revision_token }}">
                     <div>
                         <label class="form-label" for="{{ draft_form.synopsis_draft.id_for_label }}">Summary paragraph</label>
                         {{ draft_form.synopsis_draft }}
@@ -839,6 +852,7 @@
                 <form method="post" class="d-flex flex-column gap-3" id="paragraph-notes-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-paragraph-notes">
+                    <input type="hidden" name="summary_revision_token" value="{{ summary_revision_token }}">
                     <div>
                         <label class="form-label" for="{{ paragraph_notes_form.paragraph_notes.id_for_label }}">Internal notes on this paragraph</label>
                         {{ paragraph_notes_form.paragraph_notes }}
@@ -1154,6 +1168,8 @@
         const summarySaveForms = [
             document.getElementById("summary-save-form"),
             document.getElementById("summary-draft-form"),
+            document.getElementById("paragraph-notes-form"),
+            document.getElementById("summary-status-form"),
         ].filter(Boolean);
         let latestPresence = {
             participants: [],
@@ -1205,7 +1221,7 @@
                 }
                 presenceAlert.setAttribute(
                     "title",
-                    "Saving can overwrite another author's latest changes."
+                    "Another author is active in this summary. This page is not live shared editing."
                 );
                 return;
             }
@@ -1276,7 +1292,7 @@
                 }
                 const names = formatNames(latestPresence.other_participants);
                 const confirmed = window.confirm(
-                    `Another author is active in this summary right now (${names}). Saving now can overwrite their latest changes. Continue anyway?`
+                    `Another author is active in this summary right now (${names}). This page is not a live shared document. Continue with your save?`
                 );
                 if (!confirmed) {
                     event.preventDefault();
