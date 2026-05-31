@@ -1169,6 +1169,45 @@ def _resolve_document_feedback_deadline(override_due_date=None, current_deadline
     return current_deadline or _default_document_feedback_deadline()
 
 
+def _document_feedback_deadline_state(members, deadline_field, *, member_count=None):
+    deadlines = [
+        deadline
+        for deadline in members.filter(**{f"{deadline_field}__isnull": False})
+        .order_by(deadline_field)
+        .values_list(deadline_field, flat=True)
+    ]
+    if member_count is None:
+        member_count = members.count()
+    now = timezone.now()
+    past_deadline_count = 0
+    future_deadline_count = 0
+    for deadline in deadlines:
+        if deadline and deadline > now:
+            future_deadline_count += 1
+        else:
+            past_deadline_count += 1
+    deadline_count = len(deadlines)
+    without_deadline_count = max(member_count - deadline_count, 0)
+    open_member_count = future_deadline_count + without_deadline_count
+    earliest_deadline = deadlines[0] if deadlines else None
+    latest_deadline = deadlines[-1] if deadlines else None
+    distinct_deadline_count = len(set(deadlines)) if deadlines else 0
+    return {
+        "deadlines": deadlines,
+        "deadline_count": deadline_count,
+        "earliest_deadline": earliest_deadline,
+        "latest_deadline": latest_deadline,
+        "distinct_deadline_count": distinct_deadline_count,
+        "has_multiple_deadlines": distinct_deadline_count > 1,
+        "past_deadline_count": past_deadline_count,
+        "future_deadline_count": future_deadline_count,
+        "without_deadline_count": without_deadline_count,
+        "open_member_count": open_member_count,
+        "all_current_deadlines_passed": deadline_count > 0 and open_member_count == 0,
+        "some_deadlines_passed": past_deadline_count > 0 and open_member_count > 0,
+    }
+
+
 def _normalise_advisory_message(value):
     return (value or "").strip()
 
@@ -4358,12 +4397,13 @@ def protocol_detail(request, project_id):
         sent_protocol_at__isnull=False,
         response="Y",
     )
-    protocol_pending_dates = [
-        d
-        for d in protocol_members.filter(feedback_on_protocol_deadline__isnull=False)
-        .order_by("feedback_on_protocol_deadline")
-        .values_list("feedback_on_protocol_deadline", flat=True)
-    ]
+    protocol_pending_count = protocol_members.count()
+    protocol_deadline_state = _document_feedback_deadline_state(
+        protocol_members,
+        "feedback_on_protocol_deadline",
+        member_count=protocol_pending_count,
+    )
+    protocol_pending_dates = protocol_deadline_state["deadlines"]
     protocol_reminder_initial = {}
     if protocol_pending_dates:
         first_deadline = protocol_pending_dates[0]
@@ -4389,7 +4429,18 @@ def protocol_detail(request, project_id):
         "is_closed": bool(getattr(protocol, "feedback_closed_at", None)),
         "closed_at": getattr(protocol, "feedback_closed_at", None),
         "closure_message": getattr(protocol, "feedback_closure_message", ""),
-        "deadline": protocol_pending_dates[0] if protocol_pending_dates else None,
+        "deadline": protocol_deadline_state["earliest_deadline"],
+        "latest_deadline": protocol_deadline_state["latest_deadline"],
+        "deadline_count": protocol_deadline_state["deadline_count"],
+        "has_multiple_deadlines": protocol_deadline_state["has_multiple_deadlines"],
+        "past_deadline_count": protocol_deadline_state["past_deadline_count"],
+        "future_deadline_count": protocol_deadline_state["future_deadline_count"],
+        "without_deadline_count": protocol_deadline_state["without_deadline_count"],
+        "open_member_count": protocol_deadline_state["open_member_count"],
+        "all_current_deadlines_passed": protocol_deadline_state[
+            "all_current_deadlines_passed"
+        ],
+        "some_deadlines_passed": protocol_deadline_state["some_deadlines_passed"],
         "document_ready": protocol_document_ready,
     }
 
@@ -4420,7 +4471,7 @@ def protocol_detail(request, project_id):
             "collaborative_document_ready": protocol_document_ready,
             "collaborative_can_override": collaborative_can_override,
             "protocol_reminder_form": protocol_reminder_form,
-            "protocol_pending_count": protocol_members.count(),
+            "protocol_pending_count": protocol_pending_count,
             "protocol_pending_dates": protocol_pending_dates,
             "initial_protocol_reminder_log": project.change_log.filter(
                 action="Scheduled protocol reminders"
@@ -4756,14 +4807,13 @@ def action_list_detail(request, project_id):
         sent_action_list_at__isnull=False,
         response="Y",
     )
-    action_list_pending_dates = [
-        d
-        for d in action_list_members.filter(
-            feedback_on_action_list_deadline__isnull=False
-        )
-        .order_by("feedback_on_action_list_deadline")
-        .values_list("feedback_on_action_list_deadline", flat=True)
-    ]
+    action_list_pending_count = action_list_members.count()
+    action_list_deadline_state = _document_feedback_deadline_state(
+        action_list_members,
+        "feedback_on_action_list_deadline",
+        member_count=action_list_pending_count,
+    )
+    action_list_pending_dates = action_list_deadline_state["deadlines"]
     action_list_reminder_initial = {}
     if action_list_pending_dates:
         first_deadline = action_list_pending_dates[0]
@@ -4793,7 +4843,24 @@ def action_list_detail(request, project_id):
         "is_closed": bool(getattr(action_list, "feedback_closed_at", None)),
         "closed_at": getattr(action_list, "feedback_closed_at", None),
         "closure_message": getattr(action_list, "feedback_closure_message", ""),
-        "deadline": action_list_pending_dates[0] if action_list_pending_dates else None,
+        "deadline": action_list_deadline_state["earliest_deadline"],
+        "latest_deadline": action_list_deadline_state["latest_deadline"],
+        "deadline_count": action_list_deadline_state["deadline_count"],
+        "has_multiple_deadlines": action_list_deadline_state[
+            "has_multiple_deadlines"
+        ],
+        "past_deadline_count": action_list_deadline_state["past_deadline_count"],
+        "future_deadline_count": action_list_deadline_state["future_deadline_count"],
+        "without_deadline_count": action_list_deadline_state[
+            "without_deadline_count"
+        ],
+        "open_member_count": action_list_deadline_state["open_member_count"],
+        "all_current_deadlines_passed": action_list_deadline_state[
+            "all_current_deadlines_passed"
+        ],
+        "some_deadlines_passed": action_list_deadline_state[
+            "some_deadlines_passed"
+        ],
         "document_ready": action_document_ready,
     }
 
@@ -4823,7 +4890,7 @@ def action_list_detail(request, project_id):
             "collaborative_can_override": collaborative_can_override,
             "collaborative_document_ready": action_document_ready,
             "action_list_reminder_form": action_list_reminder_form,
-            "action_list_pending_count": action_list_members.count(),
+            "action_list_pending_count": action_list_pending_count,
             "action_list_pending_dates": action_list_pending_dates,
             "initial_action_list_reminder_log": project.change_log.filter(
                 action="Scheduled action list reminders"
@@ -7101,7 +7168,9 @@ def advisory_schedule_protocol_reminders(request, project_id):
 
     messages.success(
         request,
-        f"Protocol reminder scheduled for {updated} member(s). Reminder now set as required.",
+        "Protocol deadline updated for "
+        f"{updated} sent member(s). No email was sent automatically; future reminders "
+        "and review links now use the new date.",
     )
     return redirect("synopsis:protocol_detail", project_id=project.id)
 
@@ -7182,7 +7251,9 @@ def advisory_schedule_action_list_reminders(request, project_id):
 
     messages.success(
         request,
-        f"Action list reminder scheduled for {updated} member(s). Reminder now set as required.",
+        "Action list deadline updated for "
+        f"{updated} sent member(s). No email was sent automatically; future reminders "
+        "and review links now use the new date.",
     )
     return redirect("synopsis:action_list_detail", project_id=project.id)
 

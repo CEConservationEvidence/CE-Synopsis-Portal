@@ -5840,7 +5840,19 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:protocol_detail", args=[self.project.id])
         )
         self.assertContains(protocol_response, "Protocol feedback window")
-        self.assertContains(protocol_response, "Set protocol deadline")
+        self.assertContains(protocol_response, "Save deadline for sent members")
+        self.assertContains(
+            protocol_response,
+            "Feedback links stay open until each member's own saved deadline, or until you close the whole feedback window manually.",
+        )
+        self.assertContains(
+            protocol_response,
+            "Saving here updates all already-sent accepted members and does not send a new email immediately.",
+        )
+        self.assertContains(
+            protocol_response,
+            "Members see this note only after the protocol feedback window has been closed. It is not used for reminder or deadline-change emails.",
+        )
         self.assertContains(protocol_response, 'data-bs-target="#protocolFeedbackWindowCollapse"')
         self.assertContains(protocol_response, "data-collapse-toggle-label")
         self.assertContains(protocol_response, 'data-label-open="Hide"')
@@ -5853,7 +5865,19 @@ class CollaborativePanelViewTests(TestCase):
             reverse("synopsis:action_list_detail", args=[self.project.id])
         )
         self.assertContains(action_list_response, "Action list feedback window")
-        self.assertContains(action_list_response, "Set action list deadline")
+        self.assertContains(action_list_response, "Save deadline for sent members")
+        self.assertContains(
+            action_list_response,
+            "Feedback links stay open until each member's own saved deadline, or until you close the whole feedback window manually.",
+        )
+        self.assertContains(
+            action_list_response,
+            "Saving here updates all already-sent accepted members and does not send a new email immediately.",
+        )
+        self.assertContains(
+            action_list_response,
+            "Members see this note only after the action list feedback window has been closed. It is not used for reminder or deadline-change emails.",
+        )
         self.assertContains(action_list_response, 'data-bs-target="#actionListFeedbackWindowCollapse"')
         self.assertContains(action_list_response, "data-collapse-toggle-label")
         self.assertContains(action_list_response, 'data-label-open="Hide"')
@@ -5861,6 +5885,51 @@ class CollaborativePanelViewTests(TestCase):
             action_list_response,
             "Closing this feedback window will stop advisory members from submitting action list feedback and will end collaborative editing for this action list. Are you sure?",
         )
+
+    def test_protocol_feedback_window_explains_member_specific_deadlines(self):
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        now = timezone.now().replace(second=0, microsecond=0)
+        early_deadline = now - timedelta(days=2)
+        late_deadline = now + timedelta(days=5)
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Pia",
+            email="pia@example.com",
+            response="Y",
+            sent_protocol_at=now - timedelta(days=10),
+            feedback_on_protocol_deadline=early_deadline,
+        )
+        AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Will",
+            email="will@example.com",
+            response="Y",
+            sent_protocol_at=now - timedelta(days=2),
+            feedback_on_protocol_deadline=late_deadline,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:protocol_detail", args=[self.project.id])
+        )
+
+        self.assertContains(
+            response,
+            "Saved member deadlines: "
+            f"{timezone.localtime(early_deadline).strftime('%Y-%m-%d %H:%M')} to "
+            f"{timezone.localtime(late_deadline).strftime('%Y-%m-%d %H:%M')}",
+        )
+        self.assertContains(
+            response,
+            "Different advisory board members currently have different protocol deadlines.",
+        )
+        self.assertContains(
+            response,
+            "Some earlier member deadlines have already passed, but other members can still submit until their own saved deadline.",
+        )
+        self.assertContains(response, "Open for some members")
 
     def test_document_pages_explain_deadlines_require_sent_documents(self):
         Protocol.objects.create(
