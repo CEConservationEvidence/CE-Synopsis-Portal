@@ -9809,6 +9809,7 @@ def reference_summary_detail(request, project_id, summary_id):
     generated_summary = _structured_summary_paragraph(summary)
     summary_editor_presence = _touch_summary_editor_presence(summary, request.user)
     summary_revision_token = _summary_revision_token(summary)
+    render_summary_revision_token = summary_revision_token
 
     active_action = request.POST.get("action") if request.method == "POST" else None
     summary_form = ReferenceSummaryUpdateForm(
@@ -9868,6 +9869,9 @@ def reference_summary_detail(request, project_id, summary_id):
             request, summary
         )
         if summary_edit_stale:
+            render_summary_revision_token = (
+                request.POST.get("summary_revision_token") or ""
+            ).strip() or summary_revision_token
             messages.error(
                 request,
                 _summary_stale_edit_message(
@@ -10613,7 +10617,7 @@ def reference_summary_detail(request, project_id, summary_id):
                 status=ReferenceSummary.STATUS_EXCLUDED
             ).exists(),
             "summary_editor_presence": summary_editor_presence,
-            "summary_revision_token": summary_revision_token,
+            "summary_revision_token": render_summary_revision_token,
             "summary_presence_url": reverse(
                 "synopsis:reference_summary_presence",
                 args=[project.id, summary.id],

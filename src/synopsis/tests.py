@@ -9147,6 +9147,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.summary.refresh_from_db()
         self.assertEqual(self.summary.habitat_and_sites, "Other author's newer text")
+        self.assertEqual(response.context["summary_revision_token"], revision_token)
         self.assertContains(response, "This summary changed after you opened the page.")
         self.assertContains(
             response,
@@ -9154,6 +9155,26 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
         self.assertContains(response, "It is currently assigned to Co Author.")
         self.assertContains(response, "My conflicting text")
+
+        second_response = self.client.post(
+            url,
+            {
+                "action": "save-summary",
+                "summary_revision_token": response.context["summary_revision_token"],
+                "status": ReferenceSummary.STATUS_DRAFT,
+                "habitat_and_sites": "Second conflicting text",
+            },
+            follow=True,
+        )
+
+        self.summary.refresh_from_db()
+        self.assertEqual(self.summary.habitat_and_sites, "Other author's newer text")
+        self.assertEqual(second_response.context["summary_revision_token"], revision_token)
+        self.assertContains(
+            second_response,
+            "Reload the page before saving so you do not overwrite newer work.",
+        )
+        self.assertContains(second_response, "Second conflicting text")
 
     def test_summary_status_choices_include_excluded_after_full_text(self):
         labels = dict(ReferenceSummary.STATUS_CHOICES)
