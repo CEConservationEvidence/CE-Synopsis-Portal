@@ -3390,6 +3390,38 @@ class AdvisoryInviteFlowTests(TestCase):
         self.assertContains(response, "Invitation preview")
         self.assertContains(response, default_advisory_invitation_message())
 
+    @patch("synopsis.views._onlyoffice_enabled", return_value=True)
+    def test_single_invite_form_explains_optional_action_list_resources(
+        self, mock_onlyoffice
+    ):
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
+        )
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:advisory_invite_create_for_member",
+                args=[self.project.id, member.id],
+            )
+        )
+
+        self.assertContains(response, "Optional action list resources")
+        self.assertContains(
+            response,
+            "Choose the action list document, the action list collaborative editor link, or both.",
+        )
+        self.assertContains(
+            response,
+            "this member will be marked as having received the action list on the Advisory Board page",
+        )
+        self.assertContains(response, "Include action list collaborative editor link")
+
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_single_invite_missing_standard_message_field_keeps_saved_project_message(
         self, mock_email
@@ -3427,6 +3459,44 @@ class AdvisoryInviteFlowTests(TestCase):
         html_body = email_instance.attach_alternative.call_args[0][0]
         self.assertIn("Saved standard message", html_body)
 
+    @patch("synopsis.views._ensure_collaborative_invite_link", return_value="http://example.com/collab")
+    @patch("synopsis.views._onlyoffice_enabled", return_value=True)
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_single_invite_with_action_list_resources_marks_member_as_action_list_sent(
+        self, mock_email, mock_onlyoffice, mock_collab
+    ):
+        mock_email.return_value = MagicMock()
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
+        )
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+        due = timezone.localdate() + timedelta(days=14)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_invite_create_for_member",
+                args=[self.project.id, member.id],
+            ),
+            {
+                "email": member.email,
+                "due_date": due.strftime("%Y-%m-%d"),
+                "message": "Welcome aboard",
+                "include_action_list": "on",
+                "include_collaborative_link": "on",
+            },
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNotNone(member.sent_action_list_at)
+        self.assertFalse(member.action_list_reminder_sent)
+        self.assertIsNone(member.action_list_reminder_sent_at)
+
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_bulk_invite_skips_members_with_existing_invites(self, mock_email):
         mock_email.return_value = MagicMock()
@@ -3463,6 +3533,37 @@ class AdvisoryInviteFlowTests(TestCase):
         self.assertEqual(mock_email.call_count, 1)
         args, kwargs = mock_email.call_args
         self.assertEqual(kwargs["to"], [new_member.email])
+
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_bulk_invite_with_action_list_resource_marks_members_as_action_list_sent(
+        self, mock_email
+    ):
+        mock_email.return_value = MagicMock()
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Liam",
+            email="liam@example.com",
+        )
+        due = timezone.localdate() + timedelta(days=21)
+
+        response = self.client.post(
+            reverse("synopsis:advisory_send_invites_bulk", args=[self.project.id]),
+            {
+                "due_date": due.strftime("%Y-%m-%d"),
+                "message": "Bulk kickoff",
+                "include_action_list": "on",
+            },
+        )
+
+        self.assertRedirects(response, self.board_url)
+        member.refresh_from_db()
+        self.assertIsNotNone(member.sent_action_list_at)
+        self.assertFalse(member.action_list_reminder_sent)
+        self.assertIsNone(member.action_list_reminder_sent_at)
 
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_bulk_invite_saves_custom_standard_message_and_keeps_optional_message(
