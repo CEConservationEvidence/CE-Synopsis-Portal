@@ -892,6 +892,70 @@ def _history_file_name(file_value):
     )
 
 
+def _document_history_entry(log):
+    segments = [segment.strip() for segment in log.details.split("|") if segment.strip()]
+    reason = ""
+    changes = []
+    display_action = log.action
+    action_lower = (log.action or "").lower()
+
+    if "updated via collaborative edit" in action_lower:
+        display_action = "Collaborative revision saved"
+        for segment in segments:
+            lower = segment.lower()
+            if lower.startswith("session:") or lower.startswith("status:"):
+                continue
+            if lower.startswith("users:"):
+                changes.append(f"Edited by {segment.split(':', 1)[1].strip()}")
+                continue
+            if lower.startswith("file:"):
+                changes.append(f"Saved file: {segment.split(':', 1)[1].strip()}")
+                continue
+            if lower.startswith("reason:"):
+                reason = segment.split(":", 1)[1].strip()
+                continue
+            changes.append(segment)
+    elif "collaborative editing started" in action_lower:
+        display_action = "Collaborative session started"
+        for segment in segments:
+            if segment.lower().startswith("session "):
+                continue
+            changes.append(segment)
+    elif "collaborative session closed" in action_lower:
+        display_action = "Collaborative session closed"
+        detail_text = " ".join(segments)
+        if "no unsaved changes" in detail_text.lower():
+            changes.append("No unsaved changes were waiting in OnlyOffice.")
+        elif "marked inactive" in detail_text.lower():
+            changes.append("The shared editor was closed from the portal.")
+        elif "status 3" in detail_text.lower():
+            changes.append("OnlyOffice reported the shared session closed without new saved changes.")
+        elif "status 4" in detail_text.lower():
+            changes.append("OnlyOffice reported the shared session closed after a timeout.")
+        elif "status 7" in detail_text.lower():
+            changes.append("OnlyOffice reported the shared session closed with an error.")
+        else:
+            changes.extend(segments)
+        for segment in segments:
+            if segment.lower().startswith("reason:"):
+                reason = segment.split(":", 1)[1].strip()
+                break
+    else:
+        for segment in segments:
+            if segment.lower().startswith("reason:"):
+                reason = segment.split(":", 1)[1].strip()
+            else:
+                changes.append(segment)
+
+    return {
+        "log": log,
+        "display_action": display_action,
+        "changes": changes,
+        "reason": reason,
+        "actor": _user_display(log.changed_by) if log.changed_by else "System",
+    }
+
+
 def _log_summary_history(project, user, action: str, summary, extra_details=None):
     detail_parts = [
         f"Reference: {_history_reference_title(summary.reference)}",
@@ -3990,26 +4054,9 @@ def protocol_detail(request, project_id):
         .select_related("changed_by")
         .order_by("-created_at", "-id")
     )
-    protocol_history_entries = []
-    for log in protocol_history_queryset:
-        segments = [
-            segment.strip() for segment in log.details.split("|") if segment.strip()
-        ]
-        reason = ""
-        changes = []
-        for segment in segments:
-            if segment.lower().startswith("reason:"):
-                reason = segment.split(":", 1)[1].strip()
-            else:
-                changes.append(segment)
-        protocol_history_entries.append(
-            {
-                "log": log,
-                "changes": changes,
-                "reason": reason,
-                "actor": _user_display(log.changed_by) if log.changed_by else "System",
-            }
-        )
+    protocol_history_entries = [
+        _document_history_entry(log) for log in protocol_history_queryset
+    ]
 
     revision_entries = []
     if protocol:
@@ -4403,26 +4450,7 @@ def action_list_detail(request, project_id):
         .select_related("changed_by")
         .order_by("-created_at", "-id")
     )
-    history_entries = []
-    for log in history_queryset:
-        segments = [
-            segment.strip() for segment in log.details.split("|") if segment.strip()
-        ]
-        reason = ""
-        changes = []
-        for segment in segments:
-            if segment.lower().startswith("reason:"):
-                reason = segment.split(":", 1)[1].strip()
-            else:
-                changes.append(segment)
-        history_entries.append(
-            {
-                "log": log,
-                "changes": changes,
-                "reason": reason,
-                "actor": _user_display(log.changed_by) if log.changed_by else "System",
-            }
-        )
+    history_entries = [_document_history_entry(log) for log in history_queryset]
 
     revision_entries = []
     if action_list:
@@ -5083,9 +5111,9 @@ def collaborative_start(request, project_id, document_slug):
     # TODO: #17 Make collaborative session creation atomic so concurrent POSTs cannot spawn two active sessions.
     active_session = _get_active_collaborative_session(project, document_type)
     if active_session:
-        messages.warning(
+        messages.info(
             request,
-            "A collaborative session is already running. Opening the existing editor instead.",
+            "A collaborative session is already live. Opening the shared editor now.",
         )
         return redirect(
             "synopsis:collaborative_edit",
@@ -5563,10 +5591,11 @@ def collaborative_force_end(request, project_id, document_slug, token):
             project,
             request.user,
             f"{document_label} collaborative session closed",
-            f"Session {session.token} closed with no unsaved changes ({reason}).",
+            f"No unsaved changes were waiting in OnlyOffice. Reason: {reason}",
         )
         messages.success(
-            request, f"{document_label} had no unsaved changes and the session was closed."
+            request,
+            f"{document_label} had no unsaved changes. The shared editor was closed for everyone.",
         )
         return redirect(_document_detail_url(project.id, document_type))
 
@@ -5577,7 +5606,8 @@ def collaborative_force_end(request, project_id, document_slug, token):
             timeout_seconds=ONLYOFFICE_SETTINGS.get("callback_timeout", 10),
         ):
             messages.success(
-                request, f"{document_label} saved and collaborative session closed."
+                request,
+                f"{document_label} current version was saved and the shared editor was closed for everyone.",
             )
             return redirect(_document_detail_url(project.id, document_type))
         messages.warning(
