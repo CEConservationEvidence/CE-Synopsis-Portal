@@ -5598,6 +5598,14 @@ class CollaborativeForceSaveCloseTests(TestCase):
             "Protocol had no unsaved changes. The shared editor was closed for everyone.",
             messages_list,
         )
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Protocol collaborative session closed",
+        ).latest("id")
+        self.assertEqual(
+            change.details,
+            "No unsaved changes were waiting in OnlyOffice. | Reason: Close from portal",
+        )
         mock_request.assert_called_once()
         mock_wait.assert_not_called()
 

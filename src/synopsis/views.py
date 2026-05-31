@@ -5658,7 +5658,7 @@ def collaborative_force_end(request, project_id, document_slug, token):
             project,
             request.user,
             f"{document_label} collaborative session closed",
-            f"No unsaved changes were waiting in OnlyOffice. Reason: {reason}",
+            f"No unsaved changes were waiting in OnlyOffice. | Reason: {reason}",
         )
         messages.success(
             request,
