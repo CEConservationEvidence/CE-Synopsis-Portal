@@ -3,6 +3,13 @@
 {% block title %}{{ project.title }} — Synopsis structure{% endblock %}
 
 {% block content %}
+{% if project_action_name_suggestions %}
+<datalist id="project-action-name-suggestions">
+    {% for name in project_action_name_suggestions %}
+    <option value="{{ name }}"></option>
+    {% endfor %}
+</datalist>
+{% endif %}
 <div id="synopsis-structure-page">
 <style>
     .synopsis-sidebar {
@@ -325,6 +332,7 @@
                         <div class="border rounded p-2 mb-2 bg-light">
                             <div class="text-muted small text-uppercase mb-2">Add intervention to {{ subheading.title }}</div>
                             <div class="small text-muted mb-2">This will place the new intervention inside the {{ subheading.title }} group. Moving a group only changes the order of groups; it does not move interventions between groups.</div>
+                            <div class="small text-muted mb-2">Saved action names from the Action List page appear as suggestions in the intervention name box below.</div>
                             <form method="post" class="row g-2 align-items-end">
                                 {% csrf_token %}
                                 <input type="hidden" name="action" value="create-intervention">
@@ -425,7 +433,12 @@
                                             {% csrf_token %}
                                             <input type="hidden" name="action" value="update-intervention-metadata">
                                             <input type="hidden" name="intervention_id" value="{{ intervention.id }}">
-                                            <div class="col-12 col-lg-5">
+                                            <div class="col-12 col-lg-4">
+                                                <label class="form-label small text-muted mb-1">Intervention title</label>
+                                                <input type="text" name="title" class="form-control form-control-sm" list="project-action-name-suggestions" value="{{ intervention.title }}" placeholder="Intervention / action name">
+                                                <div class="form-text">Saved action names from the Action List page appear as suggestions here.</div>
+                                            </div>
+                                            <div class="col-12 col-lg-4">
                                                 <label class="form-label small text-muted mb-1">IUCN actions</label>
                                                 <select name="iucn_actions" class="form-select form-select-sm" multiple size="5">
                                                     {% for category in iucn_categories %}
@@ -437,7 +450,7 @@
                                                     {% endfor %}
                                                 </select>
                                             </div>
-                                            <div class="col-12 col-lg-3">
+                                            <div class="col-12 col-lg-2">
                                                 <label class="form-label small text-muted mb-1">Primary intervention</label>
                                                 <select name="primary_intervention" class="form-select form-select-sm">
                                                     <option value="">None</option>
@@ -452,7 +465,7 @@
                                                     {% endfor %}
                                                 </select>
                                             </div>
-                                            <div class="col-12 col-lg-2 d-flex align-items-center">
+                                            <div class="col-12 col-lg-1 d-flex align-items-center">
                                                 <div class="form-check mt-3">
                                                     {% if intervention.is_cross_reference %}
                                                         <input class="form-check-input" type="checkbox" name="is_cross_reference" value="1" id="cross-ref-{{ intervention.id }}" checked>
@@ -462,7 +475,7 @@
                                                     <label class="form-check-label small" for="cross-ref-{{ intervention.id }}">Cross-ref</label>
                                                 </div>
                                             </div>
-                                            <div class="col-12 col-lg-2">
+                                            <div class="col-12 col-lg-1">
                                                 <button class="btn btn-outline-primary btn-sm w-100">Save</button>
                                             </div>
                                         </form>

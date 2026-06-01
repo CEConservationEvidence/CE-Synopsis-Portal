@@ -137,6 +137,47 @@ def minimum_allowed_deadline_date():
     return timezone.localdate() + timedelta(days=1)
 
 
+def normalize_project_action_names(raw) -> list[str]:
+    if isinstance(raw, str):
+        values = raw.splitlines()
+    elif raw:
+        values = raw
+    else:
+        values = []
+
+    cleaned = []
+    seen = set()
+    for value in values:
+        label = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not label:
+            continue
+        key = label.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(label)
+    return cleaned
+
+
+def project_action_name_values(project, *, include_intervention_titles: bool = False) -> list[str]:
+    values = normalize_project_action_names(
+        getattr(project, "saved_action_names", "") if project else ""
+    )
+    if include_intervention_titles and project and getattr(project, "pk", None):
+        from .models import SynopsisIntervention
+
+        intervention_titles = SynopsisIntervention.objects.filter(
+            subheading__chapter__project=project
+        ).order_by(
+            "subheading__chapter__position",
+            "subheading__position",
+            "position",
+            "id",
+        ).values_list("title", flat=True)
+        values = normalize_project_action_names(list(values) + list(intervention_titles))
+    return values
+
+
 GLOBAL_GROUPS = ["manager", "author", "external_collaborator"]
 
 

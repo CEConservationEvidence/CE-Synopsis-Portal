@@ -540,7 +540,7 @@
                             <div class="col-md-6">
                                 <label class="form-label">Action</label>
                                 {{ summary_form.action_choice }}
-                                <div class="form-text">Choose an action already added to the project intervention list. If it is not there yet, enter it below.</div>
+                                <div class="form-text">Choose a saved project action or an existing intervention title. Manage saved action names on the Action List page. If the action is still missing, enter it below.</div>
                                 {% if summary_form.action_choice.errors %}
                                 <div class="text-danger small mt-1">{{ summary_form.action_choice.errors|join:", " }}</div>
                                 {% endif %}

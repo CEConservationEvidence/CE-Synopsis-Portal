@@ -79,6 +79,7 @@ class Project(models.Model):
 
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
+    saved_action_names = models.TextField(blank=True, default="")
     protocol_relevant = models.BooleanField(default=True)
     advisory_board_relevant = models.BooleanField(default=True)
     advisory_invitation_message = models.TextField(blank=True, default="")
