@@ -827,6 +827,40 @@ class SynopsisStructureTests(TestCase):
         self.assertIn("Chapter: Ch", change.details)
         self.assertIn("Intervention: Intervention A", change.details)
 
+    def test_structure_page_renders_saved_action_name_suggestions(self):
+        self.project.saved_action_names = "Install nest boxes\nReduce grazing"
+        self.project.save(update_fields=["saved_action_names"])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Evidence",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        )
+
+        self.assertContains(
+            response,
+            'id="project-action-name-suggestions"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            '<option value="Install nest boxes"></option>',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            "Saved action names from the Action List page appear as suggestions",
+        )
+
     def test_move_intervention_to_another_subheading(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
         chapter = SynopsisChapter.objects.create(
@@ -1542,6 +1576,38 @@ class SynopsisStructureTests(TestCase):
             list(intervention.iucn_actions.order_by("position", "name").values_list("id", flat=True)),
             [category.id for category in action_categories],
         )
+
+    def test_update_intervention_metadata_allows_title_rename(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Old action title",
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-intervention-metadata",
+                "intervention_id": intervention.id,
+                "title": "Install nest boxes",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        intervention.refresh_from_db()
+        self.assertEqual(intervention.title, "Install nest boxes")
 
     def test_delete_assignment_removes_supporting_links_from_key_messages(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
@@ -5744,6 +5810,45 @@ class CollaborativePanelViewTests(TestCase):
             html=False,
         )
 
+    def test_action_list_page_shows_saved_action_names_editor(self):
+        self.project.saved_action_names = "Install nest boxes\nReduce grazing"
+        self.project.save(update_fields=["saved_action_names"])
+
+        response = self.client.get(
+            reverse("synopsis:action_list_detail", args=[self.project.id])
+        )
+
+        self.assertContains(response, "Saved action names for this synopsis")
+        self.assertContains(
+            response,
+            "Manage the action names once here, then reuse them in the summary action dropdown",
+        )
+        self.assertContains(response, "Install nest boxes")
+        self.assertContains(response, "Save action names")
+
+    def test_action_list_page_saves_project_action_names(self):
+        response = self.client.post(
+            reverse("synopsis:action_list_detail", args=[self.project.id]),
+            {
+                "action": "save-action-names",
+                "action_names_text": "Install nest boxes\n\ninstall nest boxes\nReduce grazing",
+            },
+            follow=True,
+        )
+
+        self.project.refresh_from_db()
+        self.assertEqual(
+            self.project.saved_action_names,
+            "Install nest boxes\nReduce grazing",
+        )
+        self.assertContains(response, "Saved action names updated.")
+        log = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Action list action names updated",
+        ).first()
+        self.assertIsNotNone(log)
+        self.assertIn("Saved action names: 2", log.details)
+
     def test_protocol_panel_active_session_explains_global_close_scope(self):
         from . import views
 
@@ -8470,6 +8575,33 @@ class ReferenceSummaryFormTests(TestCase):
         saved = form.save()
         self.assertEqual(saved.action_description, "Install nest boxes")
 
+    def test_action_dropdown_includes_saved_project_action_names(self):
+        project = Project.objects.create(
+            title="Saved action names",
+            saved_action_names="Install nest boxes\nReduce grazing",
+        )
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="saved-action-hash",
+            title="Saved action reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=project,
+            reference=reference,
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=project)
+
+        choice_values = [value for value, _label in form.fields["action_choice"].choices]
+        self.assertIn("Install nest boxes", choice_values)
+        self.assertIn("Reduce grazing", choice_values)
+
     def test_methods_and_design_save_flattens_into_single_summary_field(self):
         project = Project.objects.create(title="Methods Merge")
         batch = ReferenceSourceBatch.objects.create(
@@ -8839,22 +8971,8 @@ class ReferenceSummaryDetailViewTests(TestCase):
         )
 
     def test_detail_page_shows_project_action_dropdown_options(self):
-        chapter = SynopsisChapter.objects.create(
-            project=self.project,
-            title="Evidence",
-            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
-            position=1,
-        )
-        subheading = SynopsisSubheading.objects.create(
-            chapter=chapter,
-            title="General",
-            position=1,
-        )
-        SynopsisIntervention.objects.create(
-            subheading=subheading,
-            title="Install nest boxes",
-            position=1,
-        )
+        self.project.saved_action_names = "Install nest boxes"
+        self.project.save(update_fields=["saved_action_names"])
 
         self.client.login(username="author", password="pass123")
         response = self.client.get(
@@ -8864,7 +8982,14 @@ class ReferenceSummaryDetailViewTests(TestCase):
             )
         )
 
-        self.assertContains(response, "Choose an action already added to the project intervention list.")
+        self.assertContains(
+            response,
+            "Choose a saved project action or an existing intervention title.",
+        )
+        self.assertContains(
+            response,
+            "Manage saved action names on the Action List page.",
+        )
         self.assertContains(response, '<option value="Install nest boxes">Install nest boxes</option>', html=False)
 
     def test_detail_page_warns_when_another_author_is_active_in_summary(self):
