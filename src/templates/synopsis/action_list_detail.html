@@ -315,6 +315,50 @@
     </div>
     <div class="col-12">
         <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                    <div>
+                        <h5 class="card-title mb-1">Saved action names for this synopsis</h5>
+                        <div class="small text-muted">
+                            Manage the action names once here, then reuse them in the summary action dropdown and as suggestions when creating or renaming interventions in the synopsis structure.
+                        </div>
+                    </div>
+                    {% if saved_action_name_values %}
+                    <span class="badge text-bg-light border">{{ saved_action_name_values|length }} saved</span>
+                    {% endif %}
+                </div>
+                {% if can_edit_documents %}
+                <form method="post" class="d-flex flex-column gap-2">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="save-action-names">
+                    <label class="form-label" for="{{ action_name_bank_form.action_names_text.id_for_label }}">Action names</label>
+                    {{ action_name_bank_form.action_names_text }}
+                    <div class="form-text">
+                        {{ action_name_bank_form.action_names_text.help_text }}
+                        This list does not edit the uploaded action list document itself; it powers portal choices and suggestions.
+                    </div>
+                    {% for error in action_name_bank_form.action_names_text.errors %}
+                    <div class="text-danger small">{{ error }}</div>
+                    {% endfor %}
+                    <div class="d-flex justify-content-end">
+                        <button class="btn btn-outline-primary btn-sm">Save action names</button>
+                    </div>
+                </form>
+                {% elif saved_action_name_values %}
+                <div class="small text-muted mb-2">Saved action names</div>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for name in saved_action_name_values %}
+                    <span class="badge text-bg-light border">{{ name }}</span>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted mb-0">No saved action names yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
                 <div>
                     <h5 class="mb-0">Action list feedback window</h5>
