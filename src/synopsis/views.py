@@ -102,6 +102,7 @@ from .forms import (
     ReferenceSummaryCommentForm,
     ReferenceCommentForm,
     ReferenceDocumentForm,
+    ProjectActionNameBankForm,
     SynopsisChapterForm,
     SynopsisSubheadingForm,
     SynopsisInterventionForm,
@@ -163,6 +164,8 @@ from .utils import (
     email_subject,
     is_external_author_user,
     minimum_allowed_deadline_date,
+    normalize_project_action_names,
+    project_action_name_values,
     reference_export_default_citation,
     reference_summary_custom_citation,
     reference_summary_seed_citation,
@@ -4610,7 +4613,52 @@ def action_list_detail(request, project_id):
         collaborative_force_end_url = ""
         collaborative_can_override = False
 
-    if request.method == "POST":
+    action_name_bank_form = ProjectActionNameBankForm(
+        request.POST
+        if request.method == "POST" and request.POST.get("action") == "save-action-names"
+        else None,
+        initial={"action_names_text": project.saved_action_names},
+    )
+
+    if request.method == "POST" and request.POST.get("action") == "save-action-names":
+        if not can_edit_documents:
+            raise PermissionDenied
+        if action_name_bank_form.is_valid():
+            previous_names = normalize_project_action_names(project.saved_action_names)
+            previous_lookup = {name.casefold(): name for name in previous_names}
+            project.saved_action_names = action_name_bank_form.cleaned_data[
+                "action_names_text"
+            ]
+            updated_names = normalize_project_action_names(project.saved_action_names)
+            updated_lookup = {name.casefold(): name for name in updated_names}
+            added_names = [
+                updated_lookup[key] for key in updated_lookup if key not in previous_lookup
+            ]
+            removed_names = [
+                previous_lookup[key]
+                for key in previous_lookup
+                if key not in updated_lookup
+            ]
+            project.save(update_fields=["saved_action_names"])
+            detail_lines = [f"Saved action names: {len(updated_names)}"]
+            if added_names:
+                detail_lines.append(f"Added: {', '.join(added_names[:10])}")
+            if removed_names:
+                detail_lines.append(f"Removed: {', '.join(removed_names[:10])}")
+            _log_project_change(
+                project,
+                request.user,
+                "Action list action names updated",
+                " | ".join(detail_lines),
+            )
+            messages.success(
+                request,
+                "Saved action names updated. They are now available when summarizing references and building the synopsis structure.",
+            )
+            return redirect("synopsis:action_list_detail", project_id=project.id)
+        messages.error(request, "Please check the saved action names list.")
+        form = ActionListUpdateForm(instance=action_list)
+    elif request.method == "POST":
         form = ActionListUpdateForm(request.POST, request.FILES, instance=action_list)
         if form.is_valid():
             new_stage = form.cleaned_data.get("stage")
@@ -4889,6 +4937,8 @@ def action_list_detail(request, project_id):
             "collaborative_force_end_url": collaborative_force_end_url,
             "collaborative_can_override": collaborative_can_override,
             "collaborative_document_ready": action_document_ready,
+            "action_name_bank_form": action_name_bank_form,
+            "saved_action_name_values": project_action_name_values(project),
             "action_list_reminder_form": action_list_reminder_form,
             "action_list_pending_count": action_list_pending_count,
             "action_list_pending_dates": action_list_pending_dates,
@@ -10704,6 +10754,9 @@ def _project_synopsis_workspace(
     intervention_details_form = SynopsisInterventionDetailsForm()
     key_message_form = SynopsisKeyMessageForm()
     assignment_form = SynopsisAssignmentForm(project=project)
+    project_action_name_suggestions = project_action_name_values(
+        project, include_intervention_titles=True
+    )
     redirect_url = reverse(
         f"synopsis:{redirect_name}", kwargs={"project_id": project.id}
     )
@@ -11426,6 +11479,11 @@ def _project_synopsis_workspace(
             if categories is None:
                 messages.error(request, "Invalid IUCN action selected.")
                 return redirect(redirect_url)
+            title = (request.POST.get("title") or intervention.title or "").strip()
+            if not title:
+                messages.error(request, "Enter an intervention title.")
+                return redirect(redirect_url)
+            previous_title = intervention.title
 
             primary = None
             primary_id = (request.POST.get("primary_intervention") or "").strip()
@@ -11454,10 +11512,12 @@ def _project_synopsis_workspace(
                 )
                 return redirect(redirect_url)
 
+            intervention.title = title
             intervention.is_cross_reference = is_cross_reference
             intervention.primary_intervention = primary
             intervention.save(
                 update_fields=[
+                    "title",
                     "is_cross_reference",
                     "primary_intervention",
                     "updated_at",
@@ -11472,6 +11532,11 @@ def _project_synopsis_workspace(
                 subheading=intervention.subheading,
                 intervention=intervention,
                 extra_details=[
+                    (
+                        f"Title: {previous_title} → {intervention.title}"
+                        if previous_title != intervention.title
+                        else f"Title: {intervention.title}"
+                    ),
                     f"IUCN actions: {_history_iucn_action_names(categories)}",
                     f"Cross-reference: {'Yes' if intervention.is_cross_reference else 'No'}",
                     (
@@ -11890,6 +11955,7 @@ def _project_synopsis_workspace(
             "intervention_details_form": intervention_details_form,
             "key_message_form": key_message_form,
             "assignment_form": assignment_form,
+            "project_action_name_suggestions": project_action_name_suggestions,
             "reference_summaries": reference_summaries,
             "reference_summary_groups": reference_summary_groups,
             "text_chapters": text_chapters,
