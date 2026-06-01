@@ -19,7 +19,9 @@ from .utils import (
     default_protocol_review_message,
     default_synopsis_review_message,
     minimum_allowed_deadline_date,
+    normalize_project_action_names,
     normalize_reference_summary_citation,
+    project_action_name_values,
     reference_summary_effective_citation,
 )
 
@@ -905,7 +907,13 @@ class SynopsisSubheadingForm(forms.Form):
 class SynopsisInterventionForm(forms.Form):
     title = forms.CharField(
         max_length=255,
-        widget=forms.TextInput(attrs={"class": "form-control", "placeholder": "Intervention"}),
+        widget=forms.TextInput(
+            attrs={
+                "class": "form-control",
+                "placeholder": "Intervention / action name",
+                "list": "project-action-name-suggestions",
+            }
+        ),
         label="Intervention",
     )
     iucn_actions = forms.ModelMultipleChoiceField(
@@ -985,6 +993,30 @@ class SynopsisBackgroundForm(forms.Form):
         label="Background references",
         help_text="Optional. Use any relevant contextual references here. They do not need to be published before the search end date.",
     )
+
+
+class ProjectActionNameBankForm(forms.Form):
+    action_names_text = forms.CharField(
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 8,
+                "placeholder": "Enter one action name per line",
+            }
+        ),
+        label="Saved action names",
+        help_text=(
+            "Enter one action name per line. These names appear in the summary action dropdown "
+            "and as suggestions when creating or renaming synopsis interventions."
+        ),
+    )
+
+    def clean_action_names_text(self):
+        names = normalize_project_action_names(
+            self.cleaned_data.get("action_names_text", "")
+        )
+        return "\n".join(names)
 
 
 class SynopsisInterventionDetailsForm(forms.Form):
@@ -2252,25 +2284,10 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         )
         action_choices = [("", "Select an action")]
         if project is not None:
-            seen_titles = set()
-            interventions = (
-                SynopsisIntervention.objects.filter(
-                    subheading__chapter__project=project
-                )
-                .order_by(
-                    "subheading__chapter__position",
-                    "subheading__position",
-                    "position",
-                    "id",
-                )
-                .values_list("title", flat=True)
-            )
-            for title in interventions:
-                label = (title or "").strip()
-                if not label or label in seen_titles:
-                    continue
+            for label in project_action_name_values(
+                project, include_intervention_titles=True
+            ):
                 action_choices.append((label, label))
-                seen_titles.add(label)
         action_choices.append((self.ACTION_CUSTOM_VALUE, "Other / enter custom action"))
         self.fields["action_choice"].choices = action_choices
         self._existing_status = instance.status if instance else None
