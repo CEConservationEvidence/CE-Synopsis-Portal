@@ -11483,6 +11483,11 @@ def _project_synopsis_workspace(
             if not title:
                 messages.error(request, "Enter an intervention title.")
                 return redirect(redirect_url)
+            if len(title) > 255:
+                messages.error(
+                    request, "Intervention title must be 255 characters or fewer."
+                )
+                return redirect(redirect_url)
             previous_title = intervention.title
 
             primary = None

@@ -1609,6 +1609,42 @@ class SynopsisStructureTests(TestCase):
         intervention.refresh_from_db()
         self.assertEqual(intervention.title, "Install nest boxes")
 
+    def test_update_intervention_metadata_rejects_overlong_title(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Original title",
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-intervention-metadata",
+                "intervention_id": intervention.id,
+                "title": "x" * 256,
+            },
+            follow=True,
+        )
+
+        self.assertContains(
+            response,
+            "Intervention title must be 255 characters or fewer.",
+        )
+        intervention.refresh_from_db()
+        self.assertEqual(intervention.title, "Original title")
+
     def test_delete_assignment_removes_supporting_links_from_key_messages(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
         chapter = SynopsisChapter.objects.create(
