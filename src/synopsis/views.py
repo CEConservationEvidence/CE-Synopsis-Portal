@@ -8458,6 +8458,179 @@ def _reference_export_citation(reference):
     return reference_export_default_citation(reference)
 
 
+def _split_reference_pages_for_ris(pages_value):
+    pages = str(pages_value or "").strip()
+    if not pages:
+        return "", "", False
+    normalized = pages.replace("–", "-").replace("—", "-")
+    match = re.match(r"^\s*([^\s,;/:-]+)\s*-\s*([^\s,;/:-]+)\s*$", normalized)
+    if match:
+        return match.group(1).strip(), match.group(2).strip(), True
+    single_match = re.match(r"^\s*([^\s,;/:-]+)\s*$", normalized)
+    if single_match:
+        return single_match.group(1).strip(), "", True
+    return "", "", False
+
+
+def _append_ris_note(record, note):
+    text = str(note or "").strip()
+    if not text:
+        return
+    existing_notes = record.get("notes")
+    if isinstance(existing_notes, str):
+        notes = [existing_notes.strip()] if existing_notes.strip() else []
+    elif isinstance(existing_notes, (list, tuple)):
+        notes = [str(item).strip() for item in existing_notes if str(item).strip()]
+    else:
+        notes = []
+    if text not in notes:
+        notes.append(text)
+    if notes:
+        record["notes"] = notes
+
+
+def _apply_ris_pages(record, pages_value):
+    pages = str(pages_value or "").strip()
+    if not pages:
+        return
+    start_page, end_page, confident = _split_reference_pages_for_ris(pages)
+    if confident:
+        if start_page:
+            record["start_page"] = start_page
+        if end_page:
+            record["end_page"] = end_page
+    else:
+        _append_ris_note(record, f"Pages: {pages}")
+
+
+def _reference_ris_record(reference):
+    canonical = reference.canonical if hasattr(reference, "canonical") else reference
+    raw_record = getattr(canonical, "raw_ris", None) or getattr(reference, "raw_ris", None) or {}
+    record = {}
+    if isinstance(raw_record, dict):
+        record = {
+            key: value
+            for key, value in raw_record.items()
+            if key and not str(key).startswith("_")
+        }
+
+    raw_authors = record.get("authors") or record.get("author")
+    if raw_authors:
+        if isinstance(raw_authors, str):
+            normalized_authors = [
+                bit.strip() for bit in raw_authors.split(";") if bit.strip()
+            ]
+        elif isinstance(raw_authors, (list, tuple)):
+            normalized_authors = [str(bit).strip() for bit in raw_authors if str(bit).strip()]
+        else:
+            normalized_authors = [str(raw_authors).strip()]
+        if normalized_authors:
+            record["authors"] = normalized_authors
+        record.pop("author", None)
+
+    raw_urls = record.get("urls") or record.get("url")
+    if raw_urls:
+        if isinstance(raw_urls, str):
+            normalized_urls = [raw_urls.strip()] if raw_urls.strip() else []
+        elif isinstance(raw_urls, (list, tuple)):
+            normalized_urls = [str(bit).strip() for bit in raw_urls if str(bit).strip()]
+        else:
+            normalized_urls = [str(raw_urls).strip()]
+        if normalized_urls:
+            record["urls"] = normalized_urls
+        record.pop("url", None)
+
+    raw_pages = record.get("pages")
+    if raw_pages and not (record.get("start_page") or record.get("end_page")):
+        _apply_ris_pages(record, raw_pages)
+        record.pop("pages", None)
+
+    title = (getattr(canonical, "title", "") or getattr(reference, "title", "") or "").strip()
+    if title:
+        record["title"] = title
+
+    authors_text = (
+        getattr(canonical, "authors", "") or getattr(reference, "authors", "") or ""
+    ).strip()
+    if authors_text and not (record.get("authors") or record.get("author")):
+        authors = [bit.strip() for bit in authors_text.split(";") if bit.strip()]
+        if authors:
+            record["authors"] = authors
+
+    publication_year = getattr(canonical, "publication_year", None) or getattr(
+        reference, "publication_year", None
+    )
+    if publication_year and not record.get("year"):
+        record["year"] = str(publication_year)
+
+    journal = (
+        getattr(canonical, "journal", "") or getattr(reference, "journal", "") or ""
+    ).strip()
+    if journal and not (
+        record.get("journal_name") or record.get("secondary_title")
+    ):
+        record["journal_name"] = journal
+
+    volume = (
+        getattr(canonical, "volume", "") or getattr(reference, "volume", "") or ""
+    ).strip()
+    if volume and not record.get("volume"):
+        record["volume"] = volume
+
+    issue = (
+        getattr(canonical, "issue", "") or getattr(reference, "issue", "") or ""
+    ).strip()
+    if issue and not record.get("issue"):
+        record["issue"] = issue
+
+    pages = (
+        getattr(canonical, "pages", "") or getattr(reference, "pages", "") or ""
+    ).strip()
+    if pages and not (
+        record.get("start_page") or record.get("end_page") or record.get("pages")
+    ):
+        _apply_ris_pages(record, pages)
+
+    doi = (getattr(canonical, "doi", "") or getattr(reference, "doi", "") or "").strip()
+    if doi and not record.get("doi"):
+        record["doi"] = doi
+
+    url = (getattr(canonical, "url", "") or getattr(reference, "url", "") or "").strip()
+    if url and not (record.get("url") or record.get("urls")):
+        record["urls"] = [url]
+
+    abstract = (
+        getattr(canonical, "abstract", "")
+        or getattr(reference, "abstract", "")
+        or ""
+    ).strip()
+    if abstract and not record.get("abstract"):
+        record["abstract"] = abstract
+
+    language = (
+        getattr(canonical, "language", "")
+        or getattr(reference, "language", "")
+        or ""
+    ).strip()
+    if language and not record.get("language"):
+        record["language"] = language
+
+    source_identifier = (
+        getattr(canonical, "source_identifier", "")
+        or getattr(reference, "source_identifier", "")
+        or ""
+    ).strip()
+    if source_identifier and not (
+        record.get("accession_number") or record.get("id")
+    ):
+        record["accession_number"] = source_identifier
+
+    if not record.get("type_of_reference"):
+        record["type_of_reference"] = "JOUR"
+
+    return record
+
+
 def _add_docx_inline_markup_paragraph(doc, prefix: str, text: str):
     paragraph = doc.add_paragraph()
     if prefix:
@@ -8503,6 +8676,28 @@ def _key_message_supporting_numbers(key_message, summary_numbers):
 
 def _format_reference_number_list(numbers):
     return "; ".join(str(number) for number in numbers)
+
+
+def _summarised_synopsis_references(project):
+    summaries = (
+        ReferenceSummary.objects.filter(
+            project=project,
+            status=ReferenceSummary.STATUS_DONE,
+        )
+        .select_related("reference__library_reference")
+        .order_by("id")
+    )
+    references_by_id = {}
+    for summary in summaries:
+        reference = summary.reference
+        references_by_id.setdefault(reference.id, reference)
+    return sorted(references_by_id.values(), key=_reference_sort_key)
+
+
+def _generate_synopsis_ris(project):
+    references = _summarised_synopsis_references(project)
+    records = [_reference_ris_record(reference) for reference in references]
+    return rispy.dumps(records), references
 
 
 def _format_reference_number_ranges(numbers):
@@ -12203,6 +12398,39 @@ def project_synopsis_export_docx(request, project_id):
     response = HttpResponse(
         payload,
         content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@login_required
+def project_synopsis_export_ris(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    payload, references = _generate_synopsis_ris(project)
+    if not references:
+        messages.info(
+            request,
+            "No summarised study references are currently available in this synopsis.",
+        )
+        return redirect("synopsis:project_synopsis_evidence", project_id=project.id)
+
+    filename = slugify(f"{project.title}-synopsis-references").replace(" ", "-") + ".ris"
+    log = SynopsisExportLog.objects.create(
+        project=project,
+        exported_by=request.user,
+        note="Manual RIS export",
+    )
+    try:
+        log.archived_file.save(filename, ContentFile(payload.encode("utf-8")), save=True)
+    except Exception:
+        # Best-effort logging; continue to serve the file even if archival failed.
+        pass
+    response = HttpResponse(
+        payload,
+        content_type="application/x-research-info-systems; charset=utf-8",
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
