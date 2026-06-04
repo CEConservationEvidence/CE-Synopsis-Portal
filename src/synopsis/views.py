@@ -8458,6 +8458,15 @@ def _reference_export_citation(reference):
     return reference_export_default_citation(reference)
 
 
+def _split_reference_pages_for_ris(pages_value):
+    pages = str(pages_value or "").strip()
+    if not pages:
+        return "", ""
+    normalized = pages.replace("–", "-").replace("—", "-")
+    match = re.match(r"^\s*([^-\s]+)\s*-\s*([^-\s]+)\s*$", normalized)
+    if match:
+        return match.group(1).strip(), match.group(2).strip()
+    return pages, ""
 def _add_docx_inline_markup_paragraph(doc, prefix: str, text: str):
     paragraph = doc.add_paragraph()
     if prefix:
