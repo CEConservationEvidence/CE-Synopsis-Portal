@@ -24,6 +24,7 @@
         <div class="d-flex flex-wrap gap-2">
             <a class="btn btn-outline-primary btn-sm active" href="{{ workspace_narrative_url }}">Narrative workspace</a>
             <a class="btn btn-outline-primary btn-sm" href="{{ workspace_evidence_url }}">Evidence workspace</a>
+            <a class="btn btn-outline-success btn-sm" href="{% url 'synopsis:project_synopsis_export_ris' project.id %}">Export references RIS</a>
             <a class="btn btn-success btn-sm" href="{% url 'synopsis:project_synopsis_export_docx' project.id %}">Export to DOCX</a>
         </div>
     </div>
