@@ -8652,6 +8652,28 @@ def _format_reference_number_list(numbers):
     return "; ".join(str(number) for number in numbers)
 
 
+def _summarised_synopsis_references(project):
+    summaries = (
+        ReferenceSummary.objects.filter(
+            project=project,
+            status=ReferenceSummary.STATUS_DONE,
+        )
+        .select_related("reference__library_reference")
+        .order_by("id")
+    )
+    references_by_id = {}
+    for summary in summaries:
+        reference = summary.reference
+        references_by_id.setdefault(reference.id, reference)
+    return sorted(references_by_id.values(), key=_reference_sort_key)
+
+
+def _generate_synopsis_ris(project):
+    references = _summarised_synopsis_references(project)
+    records = [_reference_ris_record(reference) for reference in references]
+    return rispy.dumps(records), references
+
+
 def _format_reference_number_ranges(numbers):
     unique_numbers = sorted(set(numbers))
     if not unique_numbers:
