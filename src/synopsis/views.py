@@ -12378,6 +12378,39 @@ def project_synopsis_export_docx(request, project_id):
 
 
 @login_required
+def project_synopsis_export_ris(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    payload, references = _generate_synopsis_ris(project)
+    if not references:
+        messages.info(
+            request,
+            "No summarised study references are currently available in this synopsis.",
+        )
+        return redirect("synopsis:project_synopsis_evidence", project_id=project.id)
+
+    filename = slugify(f"{project.title}-synopsis-references").replace(" ", "-") + ".ris"
+    log = SynopsisExportLog.objects.create(
+        project=project,
+        exported_by=request.user,
+        note="Manual RIS export",
+    )
+    try:
+        log.archived_file.save(filename, ContentFile(payload.encode("utf-8")), save=True)
+    except Exception:
+        # Best-effort logging; continue to serve the file even if archival failed.
+        pass
+    response = HttpResponse(
+        payload,
+        content_type="application/x-research-info-systems; charset=utf-8",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@login_required
 def reference_batch_detail(request, project_id, batch_id):
     project = get_object_or_404(Project, pk=project_id)
     batch = get_object_or_404(ReferenceSourceBatch, pk=batch_id, project=project)
