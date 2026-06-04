@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 import jwt
+import rispy
 from django.contrib.auth.models import Group, User, AnonymousUser
 from django.core import mail
 from django.core.cache import cache
@@ -59,6 +60,7 @@ from .models import (
     SynopsisIntervention,
     SynopsisInterventionKeyMessage,
     SynopsisAssignment,
+    SynopsisExportLog,
     SynopsisFeedback,
 )
 from .forms import (
@@ -941,14 +943,167 @@ class SynopsisStructureTests(TestCase):
         self.assertContains(response, "Key messages")
         self.assertContains(response, "Assigned summaries")
         self.assertContains(response, "Intervention evidence details")
-        self.assertContains(response, "These fields are kept only as intervention metadata and do not add extra narrative text to the compiled synopsis.")
+        self.assertContains(
+            response,
+            "These fields are kept only as intervention metadata and do not add extra narrative text to the compiled synopsis.",
+        )
         self.assertContains(response, "Assigned study summaries to review")
         self.assertContains(response, "review the assigned summaries here first")
-        self.assertContains(response, "mowing more frequently increased arable plant richness")
+        self.assertContains(
+            response,
+            "mowing more frequently increased arable plant richness",
+        )
         self.assertContains(response, "Vegetation Community")
         self.assertContains(response, "Vegetation Abundance")
         self.assertContains(response, "Vegetation Structure")
         self.assertContains(response, "Other")
+
+    def test_synopsis_ris_export_includes_unique_summarised_references(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        self.reference.title = "Assigned done ref"
+        self.reference.authors = "Alpha A.; Beta B."
+        self.reference.publication_year = 2004
+        self.reference.journal = "Journal One"
+        self.reference.doi = "10.1234/example-one"
+        self.reference.url = "https://example.com/one"
+        self.reference.save(
+            update_fields=[
+                "title",
+                "authors",
+                "publication_year",
+                "journal",
+                "doi",
+                "url",
+                "updated_at",
+            ]
+        )
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.save(update_fields=["status", "updated_at"])
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+
+        duplicate_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=self.reference,
+            status=ReferenceSummary.STATUS_DONE,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=duplicate_summary,
+            position=2,
+        )
+
+        second_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Second done ref",
+            authors="Gamma G.",
+            publication_year=2010,
+            journal="Journal Two",
+            hash_key="hash-second-done-ref",
+            screening_status="included",
+            raw_ris={
+                "type_of_reference": "JOUR",
+                "title": "Second done ref",
+                "authors": ["Gamma G."],
+                "year": "2010",
+                "journal_name": "Journal Two",
+            },
+        )
+        second_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=second_reference,
+            status=ReferenceSummary.STATUS_DONE,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=second_summary,
+            position=3,
+        )
+
+        draft_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Assigned draft ref",
+            hash_key="hash-assigned-draft-ref",
+            screening_status="included",
+        )
+        draft_summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=draft_reference,
+            status=ReferenceSummary.STATUS_DRAFT,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=draft_summary,
+            position=4,
+        )
+
+        ReferenceSummary.objects.create(
+            project=self.project,
+            reference=Reference.objects.create(
+                project=self.project,
+                batch=self.batch,
+                title="Unassigned done ref",
+                authors="Delta D.",
+                publication_year=2015,
+                hash_key="hash-unassigned-done-ref",
+                screening_status="included",
+            ),
+            status=ReferenceSummary.STATUS_DONE,
+        )
+
+        structure_response = self.client.get(
+            reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        )
+        self.assertContains(
+            structure_response,
+            reverse("synopsis:project_synopsis_export_ris", args=[self.project.id]),
+            html=False,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_synopsis_export_ris", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("application/x-research-info-systems", response["Content-Type"])
+        self.assertIn(".ris", response["Content-Disposition"])
+        records = rispy.loads(response.content.decode("utf-8"))
+        self.assertEqual(len(records), 3)
+        by_title = {record["title"]: record for record in records}
+        self.assertEqual(
+            sorted(by_title.keys()),
+            ["Assigned done ref", "Second done ref", "Unassigned done ref"],
+        )
+        self.assertEqual(by_title["Assigned done ref"]["doi"], "10.1234/example-one")
+        self.assertEqual(by_title["Assigned done ref"]["year"], "2004")
+        self.assertEqual(by_title["Second done ref"]["journal_name"], "Journal Two")
+        self.assertEqual(by_title["Unassigned done ref"]["year"], "2015")
+        self.assertTrue(
+            SynopsisExportLog.objects.filter(
+                project=self.project,
+                note="Manual RIS export",
+            ).exists()
+        )
 
     def test_structure_page_background_reference_guidance_is_not_limited_by_search_end_date(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
