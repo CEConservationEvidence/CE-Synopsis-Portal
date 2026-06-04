@@ -8461,12 +8461,46 @@ def _reference_export_citation(reference):
 def _split_reference_pages_for_ris(pages_value):
     pages = str(pages_value or "").strip()
     if not pages:
-        return "", ""
+        return "", "", False
     normalized = pages.replace("–", "-").replace("—", "-")
-    match = re.match(r"^\s*([^-\s]+)\s*-\s*([^-\s]+)\s*$", normalized)
+    match = re.match(r"^\s*([^\s,;/:-]+)\s*-\s*([^\s,;/:-]+)\s*$", normalized)
     if match:
-        return match.group(1).strip(), match.group(2).strip()
-    return pages, ""
+        return match.group(1).strip(), match.group(2).strip(), True
+    single_match = re.match(r"^\s*([^\s,;/:-]+)\s*$", normalized)
+    if single_match:
+        return single_match.group(1).strip(), "", True
+    return "", "", False
+
+
+def _append_ris_note(record, note):
+    text = str(note or "").strip()
+    if not text:
+        return
+    existing_notes = record.get("notes")
+    if isinstance(existing_notes, str):
+        notes = [existing_notes.strip()] if existing_notes.strip() else []
+    elif isinstance(existing_notes, (list, tuple)):
+        notes = [str(item).strip() for item in existing_notes if str(item).strip()]
+    else:
+        notes = []
+    if text not in notes:
+        notes.append(text)
+    if notes:
+        record["notes"] = notes
+
+
+def _apply_ris_pages(record, pages_value):
+    pages = str(pages_value or "").strip()
+    if not pages:
+        return
+    start_page, end_page, confident = _split_reference_pages_for_ris(pages)
+    if confident:
+        if start_page:
+            record["start_page"] = start_page
+        if end_page:
+            record["end_page"] = end_page
+    else:
+        _append_ris_note(record, f"Pages: {pages}")
 
 
 def _reference_ris_record(reference):
@@ -8508,11 +8542,7 @@ def _reference_ris_record(reference):
 
     raw_pages = record.get("pages")
     if raw_pages and not (record.get("start_page") or record.get("end_page")):
-        start_page, end_page = _split_reference_pages_for_ris(raw_pages)
-        if start_page:
-            record["start_page"] = start_page
-        if end_page:
-            record["end_page"] = end_page
+        _apply_ris_pages(record, raw_pages)
         record.pop("pages", None)
 
     title = (getattr(canonical, "title", "") or getattr(reference, "title", "") or "").strip()
@@ -8559,11 +8589,7 @@ def _reference_ris_record(reference):
     if pages and not (
         record.get("start_page") or record.get("end_page") or record.get("pages")
     ):
-        start_page, end_page = _split_reference_pages_for_ris(pages)
-        if start_page:
-            record["start_page"] = start_page
-        if end_page:
-            record["end_page"] = end_page
+        _apply_ris_pages(record, pages)
 
     doi = (getattr(canonical, "doi", "") or getattr(reference, "doi", "") or "").strip()
     if doi and not record.get("doi"):

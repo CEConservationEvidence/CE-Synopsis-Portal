@@ -1105,6 +1105,26 @@ class SynopsisStructureTests(TestCase):
             ).exists()
         )
 
+    def test_synopsis_ris_export_preserves_ambiguous_pages_as_note(self):
+        self.reference.title = "Ambiguous pages ref"
+        self.reference.pages = "12-15; 20"
+        self.reference.save(update_fields=["title", "pages", "updated_at"])
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.save(update_fields=["status", "updated_at"])
+
+        response = self.client.get(
+            reverse("synopsis:project_synopsis_export_ris", args=[self.project.id])
+        )
+
+        self.assertEqual(response.status_code, 200)
+        records = rispy.loads(response.content.decode("utf-8"))
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(record["title"], "Ambiguous pages ref")
+        self.assertEqual(record.get("notes"), ["Pages: 12-15; 20"])
+        self.assertNotIn("start_page", record)
+        self.assertNotIn("end_page", record)
+
     def test_structure_page_background_reference_guidance_is_not_limited_by_search_end_date(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
         chapter = SynopsisChapter.objects.create(
