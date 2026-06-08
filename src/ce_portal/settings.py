@@ -182,8 +182,9 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "ce_portal.wsgi.application"
 
-# TODO: #98 Add Redis-backed Django cache and cached_db sessions, then use the same
-# Redis service for Celery background jobs and collaborative-session locking.
+# Redis-backed cache/session configuration.
+# TODO: #98 Use the same Redis service for Celery background jobs and
+# collaborative-session locking.
 REDIS_CACHE_URL = config("REDIS_CACHE_URL", default="").strip()
 
 if REDIS_CACHE_URL:
