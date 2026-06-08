@@ -16,6 +16,7 @@ If you are deploying the pilot on a server, use [`admin-handoff.md`](admin-hando
 
 - `web`: Django app behind Gunicorn on port `8000`
 - `db`: PostgreSQL
+- `redis`: shared cache and cached session storage
 - `onlyoffice`: ONLYOFFICE Document Server on port `8080`
 
 Optional:
@@ -37,6 +38,7 @@ Most of the Docker-specific setup comes down to these:
 - `DB_NAME`
 - `DB_USER`
 - `DB_PASSWORD`
+- `REDIS_CACHE_URL`
 - `ALLOWED_HOSTS`
 - `CSRF_TRUSTED_ORIGINS`
 - `ONLYOFFICE_URL`
@@ -88,6 +90,13 @@ Use `http://host.docker.internal:8000` only if Django is running on the host mac
 - PostgreSQL data: `postgres_data`
 - uploaded media and saved revisions: `media_data`
 - ONLYOFFICE data: `onlyoffice_data`
+
+## Redis Behavior
+
+- Docker Compose sets `REDIS_CACHE_URL=redis://redis:6379/1` by default for the `web` service.
+- When `REDIS_CACHE_URL` is set, Django uses Redis for the shared cache and `cached_db` sessions.
+- If `REDIS_CACHE_URL` is blank, Django falls back to an in-process local-memory cache and the default DB-backed session engine.
+- Redis cache loss is not fatal for this setup because session records still live in PostgreSQL when `cached_db` is enabled.
 
 ## Updating
 
