@@ -184,6 +184,27 @@ WSGI_APPLICATION = "ce_portal.wsgi.application"
 
 # TODO: #98 Add Redis-backed Django cache and cached_db sessions, then use the same
 # Redis service for Celery background jobs and collaborative-session locking.
+REDIS_CACHE_URL = config("REDIS_CACHE_URL", default="").strip()
+
+if REDIS_CACHE_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_CACHE_URL,
+            "KEY_PREFIX": "ce_portal",
+            "TIMEOUT": 300,
+        }
+    }
+    SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
+    SESSION_CACHE_ALIAS = "default"
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "ce-portal-local",
+            "TIMEOUT": 300,
+        }
+    }
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
