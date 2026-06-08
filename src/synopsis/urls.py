@@ -350,8 +350,8 @@ urlpatterns = [
     ),
     path(
         "project/<int:project_id>/synopsis/export/structure/",
-        views.project_synopsis_export_structure_tsv,
-        name="project_synopsis_export_structure_tsv",
+        views.project_synopsis_export_structure_csv,
+        name="project_synopsis_export_structure_csv",
     ),
     path(
         "project/<int:project_id>/advisory-board/invite/",

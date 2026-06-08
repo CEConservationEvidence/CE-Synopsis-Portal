@@ -8847,7 +8847,7 @@ def _synopsis_structure_export_rows(project):
     return rows
 
 
-def _generate_synopsis_structure_tsv(project):
+def _generate_synopsis_structure_csv(project):
     rows = _synopsis_structure_export_rows(project)
     columns = [
         "reference_identifier",
@@ -8889,8 +8889,8 @@ def _generate_synopsis_structure_tsv(project):
             return f"'{value}"
         return value
 
-    buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=columns, delimiter="\t")
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=columns)
     writer.writeheader()
     for row in rows:
         writer.writerow({key: _spreadsheet_safe_value(value) for key, value in row.items()})
@@ -12634,12 +12634,12 @@ def project_synopsis_export_ris(request, project_id):
 
 
 @login_required
-def project_synopsis_export_structure_tsv(request, project_id):
+def project_synopsis_export_structure_csv(request, project_id):
     project = get_object_or_404(Project, pk=project_id)
     if not _user_can_edit_project(request.user, project):
         raise PermissionDenied
 
-    payload, rows = _generate_synopsis_structure_tsv(project)
+    payload, rows = _generate_synopsis_structure_csv(project)
     if not rows:
         messages.info(
             request,
@@ -12648,12 +12648,12 @@ def project_synopsis_export_structure_tsv(request, project_id):
         return redirect("synopsis:project_synopsis_evidence", project_id=project.id)
 
     filename = (
-        slugify(f"{project.title}-synopsis-structure").replace(" ", "-") + ".tsv"
+        slugify(f"{project.title}-synopsis-structure").replace(" ", "-") + ".csv"
     )
     log = SynopsisExportLog.objects.create(
         project=project,
         exported_by=request.user,
-        note="Manual structure TSV export",
+        note="Manual structure CSV export",
     )
     try:
         log.archived_file.save(filename, ContentFile(payload.encode("utf-8")), save=True)
@@ -12662,7 +12662,7 @@ def project_synopsis_export_structure_tsv(request, project_id):
         pass
     response = HttpResponse(
         payload,
-        content_type="text/tab-separated-values; charset=utf-8",
+        content_type="text/csv; charset=utf-8",
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response

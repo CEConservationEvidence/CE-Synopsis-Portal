@@ -1126,7 +1126,7 @@ class SynopsisStructureTests(TestCase):
         self.assertNotIn("start_page", record)
         self.assertNotIn("end_page", record)
 
-    def test_synopsis_structure_tsv_export_includes_paragraphs_tags_and_structure(self):
+    def test_synopsis_structure_csv_export_includes_paragraphs_tags_and_structure(self):
         chapter = SynopsisChapter.objects.create(
             project=self.project,
             title="2. Threat: Demo",
@@ -1230,7 +1230,7 @@ class SynopsisStructureTests(TestCase):
         self.assertContains(
             structure_response,
             reverse(
-                "synopsis:project_synopsis_export_structure_tsv",
+                "synopsis:project_synopsis_export_structure_csv",
                 args=[self.project.id],
             ),
             html=False,
@@ -1238,17 +1238,15 @@ class SynopsisStructureTests(TestCase):
 
         response = self.client.get(
             reverse(
-                "synopsis:project_synopsis_export_structure_tsv",
+                "synopsis:project_synopsis_export_structure_csv",
                 args=[self.project.id],
             )
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("text/tab-separated-values", response["Content-Type"])
-        self.assertIn(".tsv", response["Content-Disposition"])
-        rows = list(
-            csv.DictReader(io.StringIO(response.content.decode("utf-8")), delimiter="\t")
-        )
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn(".csv", response["Content-Disposition"])
+        rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8"))))
         self.assertEqual(len(rows), 1)
         rows_by_title = {row["paper_title"]: row for row in rows}
         assigned_row = rows_by_title["Assigned structure ref"]
@@ -1283,11 +1281,11 @@ class SynopsisStructureTests(TestCase):
         self.assertTrue(
             SynopsisExportLog.objects.filter(
                 project=self.project,
-                note="Manual structure TSV export",
+                note="Manual structure CSV export",
             ).exists()
         )
 
-    def test_synopsis_structure_tsv_export_sanitizes_formula_like_cells(self):
+    def test_synopsis_structure_csv_export_sanitizes_formula_like_cells(self):
         self.reference.title = "=Dangerous title"
         self.reference.authors = "@Author"
         self.reference.screening_status = "included"
@@ -1308,15 +1306,13 @@ class SynopsisStructureTests(TestCase):
 
         response = self.client.get(
             reverse(
-                "synopsis:project_synopsis_export_structure_tsv",
+                "synopsis:project_synopsis_export_structure_csv",
                 args=[self.project.id],
             )
         )
 
         self.assertEqual(response.status_code, 200)
-        rows = list(
-            csv.DictReader(io.StringIO(response.content.decode("utf-8")), delimiter="\t")
-        )
+        rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8"))))
         self.assertEqual(len(rows), 1)
         row = rows[0]
         self.assertEqual(row["paper_title"], "'=Dangerous title")
