@@ -8700,6 +8700,39 @@ def _generate_synopsis_ris(project):
     return rispy.dumps(records), references
 
 
+def _export_join_values(values):
+    cleaned = []
+    seen = set()
+    for value in values or []:
+        label = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not label:
+            continue
+        key = label.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(label)
+    return " | ".join(cleaned)
+
+
+def _summary_structure_export_identifier_map(project, references):
+    identifiers = {}
+    for reference in references:
+        synced_summaries = _sync_reference_summary_identifiers_for_reference(
+            reference, save=False
+        )
+        for index, summary in enumerate(synced_summaries, start=1):
+            reference_identifier = _reference_identifier_for_summary(summary)
+            summary_identifier = (summary.summary_identifier or "").strip()
+            if not summary_identifier and reference_identifier:
+                summary_identifier = _generated_summary_identifier(
+                    reference_identifier, index
+                )
+            identifiers[summary.id] = {
+                "reference_identifier": reference_identifier,
+                "summary_identifier": summary_identifier,
+            }
+    return identifiers
 def _format_reference_number_ranges(numbers):
     unique_numbers = sorted(set(numbers))
     if not unique_numbers:
