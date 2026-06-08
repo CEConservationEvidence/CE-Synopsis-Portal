@@ -1,4 +1,5 @@
 import copy
+import csv
 import datetime as dt
 import io
 import hashlib
@@ -168,6 +169,7 @@ from .utils import (
     project_action_name_values,
     reference_export_default_citation,
     reference_summary_custom_citation,
+    reference_summary_effective_citation,
     reference_summary_seed_citation,
     reply_to_list,
     reference_hash,
@@ -8844,6 +8846,49 @@ def _synopsis_structure_export_rows(project):
         )
     return rows
 
+
+def _generate_synopsis_structure_tsv(project):
+    rows = _synopsis_structure_export_rows(project)
+    columns = [
+        "reference_identifier",
+        "summary_identifier",
+        "paper_title",
+        "authors",
+        "publication_year",
+        "journal",
+        "doi",
+        "url",
+        "reference_categories",
+        "summary_status",
+        "assigned_author",
+        "needs_help",
+        "action",
+        "study_design",
+        "study_type",
+        "research_design",
+        "broad_category",
+        "action_tags",
+        "threat_tags",
+        "habitat_tags",
+        "taxon_tags",
+        "location_tags",
+        "assignment_count",
+        "chapters",
+        "intervention_groups",
+        "interventions",
+        "structure_locations",
+        "paragraph_mode",
+        "summary_paragraph",
+        "citation_for_synopsis_export",
+    ]
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=columns, delimiter="\t")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return buffer.getvalue(), rows
+
+
 def _format_reference_number_ranges(numbers):
     unique_numbers = sorted(set(numbers))
     if not unique_numbers:
@@ -12575,6 +12620,41 @@ def project_synopsis_export_ris(request, project_id):
     response = HttpResponse(
         payload,
         content_type="application/x-research-info-systems; charset=utf-8",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@login_required
+def project_synopsis_export_structure_tsv(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    payload, rows = _generate_synopsis_structure_tsv(project)
+    if not rows:
+        messages.info(
+            request,
+            "No summarised study summaries are currently available for structure export.",
+        )
+        return redirect("synopsis:project_synopsis_evidence", project_id=project.id)
+
+    filename = (
+        slugify(f"{project.title}-synopsis-structure").replace(" ", "-") + ".tsv"
+    )
+    log = SynopsisExportLog.objects.create(
+        project=project,
+        exported_by=request.user,
+        note="Manual structure TSV export",
+    )
+    try:
+        log.archived_file.save(filename, ContentFile(payload.encode("utf-8")), save=True)
+    except Exception:
+        # Best-effort logging; continue to serve the file even if archival failed.
+        pass
+    response = HttpResponse(
+        payload,
+        content_type="text/tab-separated-values; charset=utf-8",
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
