@@ -1,6 +1,16 @@
 services:
-  # TODO: #95 Add Redis here for shared cache, session storage, distributed locks,
-  # and Celery broker/backend before the next heavier multi-author pilot.
+  # TODO: #95 Reuse this Redis service for distributed locks and Celery
+  # broker/backend before the next heavier multi-author pilot.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -26,12 +36,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       DEBUG: "False"
       DB_HOST: db
       DB_PORT: "5432"
+      REDIS_CACHE_URL: ${REDIS_CACHE_URL:-redis://redis:6379/1}
       SERVE_MEDIA: "True"
       # TODO: #96 Re-tune Gunicorn workers/threads against real 10+ author load,
       # memory limits, and OnlyOffice traffic rather than keeping the current pilot defaults.
