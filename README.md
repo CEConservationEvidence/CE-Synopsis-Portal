@@ -125,6 +125,7 @@ The main application code lives in:
 Prerequisites:
 - Python 3.12+
 - PostgreSQL
+- Redis (optional locally, enabled automatically in Docker)
 - a virtual environment
 
 Setup:
@@ -145,6 +146,8 @@ Notes:
 - direct Django commands automatically prefer `.env.local`, then fall back to `.env`
 - use `ENV_FILE=...` if you want to force a different env file for a specific command
 - the default database backend is PostgreSQL
+- set `REDIS_CACHE_URL=redis://localhost:6379/1` in `.env.local` if you want the same shared cache/session behavior locally as the Docker deployment
+- leaving `REDIS_CACHE_URL` blank falls back to a local in-process cache and default DB-backed sessions
 - email is configured to the console backend in development
 
 ## Running Checks
@@ -167,6 +170,7 @@ ENV_FILE=../.env.local python manage.py runserver
 A Docker-based deployment is now included for:
 - Django/Gunicorn
 - PostgreSQL
+- Redis-backed cache/session storage
 - OnlyOffice Document Server
 
 Main files:
