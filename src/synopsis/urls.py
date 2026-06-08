@@ -349,6 +349,11 @@ urlpatterns = [
         name="project_synopsis_export_ris",
     ),
     path(
+        "project/<int:project_id>/synopsis/export/structure/",
+        views.project_synopsis_export_structure_csv,
+        name="project_synopsis_export_structure_csv",
+    ),
+    path(
         "project/<int:project_id>/advisory-board/invite/",
         views.advisory_invite_create,
         name="advisory_invite_create",

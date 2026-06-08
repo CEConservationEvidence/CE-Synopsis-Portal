@@ -1,3 +1,4 @@
+import csv
 from datetime import date, datetime, timedelta
 import importlib
 import io
@@ -1124,6 +1125,199 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(record.get("notes"), ["Pages: 12-15; 20"])
         self.assertNotIn("start_page", record)
         self.assertNotIn("end_page", record)
+
+    def test_synopsis_structure_csv_export_includes_paragraphs_tags_and_structure(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Install nest boxes",
+            position=1,
+        )
+        self.reference.title = "Assigned structure ref"
+        self.reference.authors = "Alpha A."
+        self.reference.publication_year = 2004
+        self.reference.doi = "10.1234/structure"
+        self.reference.unlinked_reference_folder = ["1", "10"]
+        self.reference.screening_status = "included"
+        self.reference.save(
+            update_fields=[
+                "title",
+                "authors",
+                "publication_year",
+                "doi",
+                "unlinked_reference_folder",
+                "screening_status",
+                "updated_at",
+            ]
+        )
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.action_description = "Install nest boxes"
+        self.summary.study_design = "replicated study"
+        self.summary.research_design = "Before-and-after"
+        self.summary.broad_category = "Birds"
+        self.summary.action_tags = ["Install nest boxes"]
+        self.summary.threat_tags = ["Residential & commercial development-Housing & urban areas"]
+        self.summary.habitat_tags = ["5. Forests"]
+        self.summary.taxon_tags = ["Birds"]
+        self.summary.location_tags = ["United Kingdom"]
+        self.summary.synopsis_draft = "A replicated study (CR1000) found increased bird occupancy in nest boxes."
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(
+            update_fields=[
+                "status",
+                "action_description",
+                "study_design",
+                "research_design",
+                "broad_category",
+                "action_tags",
+                "threat_tags",
+                "habitat_tags",
+                "taxon_tags",
+                "location_tags",
+                "synopsis_draft",
+                "use_custom_synopsis_draft",
+                "updated_at",
+            ]
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+
+        unassigned_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Unassigned included ref",
+            authors="Beta B.",
+            publication_year=2015,
+            hash_key="hash-unassigned-structure",
+            screening_status="included",
+        )
+        ReferenceSummary.objects.create(
+            project=self.project,
+            reference=unassigned_reference,
+            status=ReferenceSummary.STATUS_TODO,
+        )
+
+        excluded_reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Excluded summary ref",
+            hash_key="hash-excluded-structure",
+            screening_status="included",
+        )
+        ReferenceSummary.objects.create(
+            project=self.project,
+            reference=excluded_reference,
+            status=ReferenceSummary.STATUS_EXCLUDED,
+            exclusion_reason="Not relevant after full text.",
+        )
+
+        structure_response = self.client.get(
+            reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        )
+        self.assertContains(
+            structure_response,
+            reverse(
+                "synopsis:project_synopsis_export_structure_csv",
+                args=[self.project.id],
+            ),
+            html=False,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:project_synopsis_export_structure_csv",
+                args=[self.project.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("text/csv", response["Content-Type"])
+        self.assertIn(".csv", response["Content-Disposition"])
+        rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8"))))
+        self.assertEqual(len(rows), 1)
+        rows_by_title = {row["paper_title"]: row for row in rows}
+        assigned_row = rows_by_title["Assigned structure ref"]
+        self.assertTrue(assigned_row["reference_identifier"])
+        self.assertTrue(assigned_row["summary_identifier"])
+        self.assertEqual(assigned_row["summary_status"], "Summarised")
+        self.assertEqual(assigned_row["action"], "Install nest boxes")
+        self.assertEqual(assigned_row["study_design"], "replicated study")
+        self.assertEqual(assigned_row["research_design"], "Before-and-after")
+        self.assertEqual(assigned_row["broad_category"], "Birds")
+        self.assertEqual(assigned_row["action_tags"], "Install nest boxes")
+        self.assertIn("Housing & urban areas", assigned_row["threat_tags"])
+        self.assertEqual(assigned_row["habitat_tags"], "5. Forests")
+        self.assertEqual(assigned_row["taxon_tags"], "Birds")
+        self.assertEqual(assigned_row["location_tags"], "United Kingdom")
+        self.assertEqual(assigned_row["assignment_count"], "1")
+        self.assertEqual(assigned_row["chapters"], "2. Threat: Demo")
+        self.assertEqual(assigned_row["intervention_groups"], "Interventions")
+        self.assertEqual(assigned_row["interventions"], "Install nest boxes")
+        self.assertIn(
+            "2. Threat: Demo > Interventions > Install nest boxes",
+            assigned_row["structure_locations"],
+        )
+        self.assertEqual(assigned_row["paragraph_mode"], "custom")
+        self.assertIn("increased bird occupancy in nest boxes", assigned_row["summary_paragraph"])
+        self.assertIn("Assigned structure ref", assigned_row["citation_for_synopsis_export"])
+        self.assertIn("Amphibians", assigned_row["reference_categories"])
+        self.assertIn("Plants/algae ex situ", assigned_row["reference_categories"])
+
+        self.assertNotIn("Unassigned included ref", rows_by_title)
+        self.assertNotIn("Excluded summary ref", rows_by_title)
+        self.assertTrue(
+            SynopsisExportLog.objects.filter(
+                project=self.project,
+                note="Manual structure CSV export",
+            ).exists()
+        )
+
+    def test_synopsis_structure_csv_export_sanitizes_formula_like_cells(self):
+        self.reference.title = "=Dangerous title"
+        self.reference.authors = "@Author"
+        self.reference.screening_status = "included"
+        self.reference.save(
+            update_fields=["title", "authors", "screening_status", "updated_at"]
+        )
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.synopsis_draft = "+Dangerous paragraph"
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(
+            update_fields=[
+                "status",
+                "synopsis_draft",
+                "use_custom_synopsis_draft",
+                "updated_at",
+            ]
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:project_synopsis_export_structure_csv",
+                args=[self.project.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8"))))
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["paper_title"], "'=Dangerous title")
+        self.assertEqual(row["authors"], "'@Author")
+        self.assertEqual(row["summary_paragraph"], "'+Dangerous paragraph")
 
     def test_structure_page_background_reference_guidance_is_not_limited_by_search_end_date(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])

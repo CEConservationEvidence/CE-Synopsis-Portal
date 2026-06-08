@@ -1,4 +1,5 @@
 import copy
+import csv
 import datetime as dt
 import io
 import hashlib
@@ -168,6 +169,7 @@ from .utils import (
     project_action_name_values,
     reference_export_default_citation,
     reference_summary_custom_citation,
+    reference_summary_effective_citation,
     reference_summary_seed_citation,
     reply_to_list,
     reference_hash,
@@ -8700,6 +8702,201 @@ def _generate_synopsis_ris(project):
     return rispy.dumps(records), references
 
 
+def _export_join_values(values):
+    cleaned = []
+    seen = set()
+    for value in values or []:
+        label = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not label:
+            continue
+        key = label.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cleaned.append(label)
+    return " | ".join(cleaned)
+
+
+def _summary_structure_export_identifier_map(project, references):
+    identifiers = {}
+    for reference in references:
+        synced_summaries = _sync_reference_summary_identifiers_for_reference(
+            reference, save=False
+        )
+        for index, summary in enumerate(synced_summaries, start=1):
+            reference_identifier = _reference_identifier_for_summary(summary)
+            summary_identifier = (summary.summary_identifier or "").strip()
+            if not summary_identifier and reference_identifier:
+                summary_identifier = _generated_summary_identifier(
+                    reference_identifier, index
+                )
+            identifiers[summary.id] = {
+                "reference_identifier": reference_identifier,
+                "summary_identifier": summary_identifier,
+            }
+    return identifiers
+
+
+def _synopsis_structure_export_rows(project):
+    summaries = list(
+        ReferenceSummary.objects.filter(
+            project=project,
+            reference__screening_status="included",
+            status=ReferenceSummary.STATUS_DONE,
+        )
+        .select_related("reference__library_reference", "assigned_to")
+        .prefetch_related(
+            Prefetch(
+                "synopsis_assignments",
+                queryset=SynopsisAssignment.objects.select_related(
+                    "intervention__subheading__chapter"
+                ).order_by(
+                    "intervention__subheading__chapter__position",
+                    "intervention__subheading__position",
+                    "intervention__position",
+                    "position",
+                    "id",
+                ),
+            )
+        )
+        .order_by("reference__title", "created_at", "id")
+    )
+    references = []
+    seen_reference_ids = set()
+    for summary in summaries:
+        if summary.reference_id in seen_reference_ids:
+            continue
+        seen_reference_ids.add(summary.reference_id)
+        references.append(summary.reference)
+    identifier_map = _summary_structure_export_identifier_map(project, references)
+
+    rows = []
+    for summary in summaries:
+        canonical = summary.reference.canonical
+        identifier_meta = identifier_map.get(summary.id, {})
+        assignment_paths = []
+        chapters = []
+        groups = []
+        interventions = []
+        for assignment in summary.synopsis_assignments.all():
+            intervention = assignment.intervention
+            subheading = intervention.subheading
+            chapter = subheading.chapter
+            chapter_title = (chapter.title or "").strip()
+            group_title = (subheading.title or "").strip()
+            intervention_title = (intervention.title or "").strip()
+            if chapter_title:
+                chapters.append(chapter_title)
+            if group_title:
+                groups.append(group_title)
+            if intervention_title:
+                interventions.append(intervention_title)
+            assignment_paths.append(
+                " > ".join(
+                    [part for part in [chapter_title, group_title, intervention_title] if part]
+                )
+            )
+
+        paragraph_mode = (
+            "custom"
+            if summary.use_custom_synopsis_draft and (summary.synopsis_draft or "").strip()
+            else "generated"
+        )
+        rows.append(
+            {
+                "reference_identifier": identifier_meta.get("reference_identifier", ""),
+                "summary_identifier": identifier_meta.get("summary_identifier", ""),
+                "paper_title": (canonical.title or "").strip(),
+                "authors": (canonical.authors or "").strip(),
+                "publication_year": str(canonical.publication_year or ""),
+                "journal": (canonical.journal or "").strip(),
+                "doi": (canonical.doi or "").strip(),
+                "url": (canonical.url or "").strip(),
+                "reference_categories": _export_join_values(
+                    summary.reference.folder_labels()
+                ),
+                "summary_status": summary.get_status_display(),
+                "assigned_author": (
+                    summary.assigned_to.get_full_name() or summary.assigned_to.username
+                    if summary.assigned_to
+                    else ""
+                ),
+                "needs_help": "Yes" if summary.needs_help else "No",
+                "action": (summary.action_description or "").strip(),
+                "study_design": (summary.study_design or "").strip(),
+                "study_type": (summary.study_type or "").strip(),
+                "research_design": (summary.research_design or "").strip(),
+                "broad_category": (summary.broad_category or "").strip(),
+                "action_tags": _export_join_values(summary.action_tags),
+                "threat_tags": _export_join_values(summary.threat_tags),
+                "habitat_tags": _export_join_values(summary.habitat_tags),
+                "taxon_tags": _export_join_values(summary.taxon_tags),
+                "location_tags": _export_join_values(summary.location_tags),
+                "assignment_count": str(summary.synopsis_assignments.count()),
+                "chapters": _export_join_values(chapters),
+                "intervention_groups": _export_join_values(groups),
+                "interventions": _export_join_values(interventions),
+                "structure_locations": _export_join_values(assignment_paths),
+                "paragraph_mode": paragraph_mode,
+                "summary_paragraph": _reference_summary_paragraph(summary),
+                "citation_for_synopsis_export": reference_summary_effective_citation(
+                    summary
+                ),
+            }
+        )
+    return rows
+
+
+def _generate_synopsis_structure_csv(project):
+    rows = _synopsis_structure_export_rows(project)
+    columns = [
+        "reference_identifier",
+        "summary_identifier",
+        "paper_title",
+        "authors",
+        "publication_year",
+        "journal",
+        "doi",
+        "url",
+        "reference_categories",
+        "summary_status",
+        "assigned_author",
+        "needs_help",
+        "action",
+        "study_design",
+        "study_type",
+        "research_design",
+        "broad_category",
+        "action_tags",
+        "threat_tags",
+        "habitat_tags",
+        "taxon_tags",
+        "location_tags",
+        "assignment_count",
+        "chapters",
+        "intervention_groups",
+        "interventions",
+        "structure_locations",
+        "paragraph_mode",
+        "summary_paragraph",
+        "citation_for_synopsis_export",
+    ]
+
+    def _spreadsheet_safe_value(value):
+        if not isinstance(value, str):
+            return value
+        if value.lstrip().startswith(("=", "+", "-", "@")):
+            return f"'{value}"
+        return value
+
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=columns)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({key: _spreadsheet_safe_value(value) for key, value in row.items()})
+    return buffer.getvalue(), rows
+
+
 def _format_reference_number_ranges(numbers):
     unique_numbers = sorted(set(numbers))
     if not unique_numbers:
@@ -12431,6 +12628,41 @@ def project_synopsis_export_ris(request, project_id):
     response = HttpResponse(
         payload,
         content_type="application/x-research-info-systems; charset=utf-8",
+    )
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@login_required
+def project_synopsis_export_structure_csv(request, project_id):
+    project = get_object_or_404(Project, pk=project_id)
+    if not _user_can_edit_project(request.user, project):
+        raise PermissionDenied
+
+    payload, rows = _generate_synopsis_structure_csv(project)
+    if not rows:
+        messages.info(
+            request,
+            "No summarised study summaries are currently available for structure export.",
+        )
+        return redirect("synopsis:project_synopsis_evidence", project_id=project.id)
+
+    filename = (
+        slugify(f"{project.title}-synopsis-structure").replace(" ", "-") + ".csv"
+    )
+    log = SynopsisExportLog.objects.create(
+        project=project,
+        exported_by=request.user,
+        note="Manual structure CSV export",
+    )
+    try:
+        log.archived_file.save(filename, ContentFile(payload.encode("utf-8")), save=True)
+    except Exception:
+        # Best-effort logging; continue to serve the file even if archival failed.
+        pass
+    response = HttpResponse(
+        payload,
+        content_type="text/csv; charset=utf-8",
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
