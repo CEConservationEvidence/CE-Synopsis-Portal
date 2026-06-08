@@ -8881,11 +8881,19 @@ def _generate_synopsis_structure_tsv(project):
         "summary_paragraph",
         "citation_for_synopsis_export",
     ]
+
+    def _spreadsheet_safe_value(value):
+        if not isinstance(value, str):
+            return value
+        if value.lstrip().startswith(("=", "+", "-", "@")):
+            return f"'{value}"
+        return value
+
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=columns, delimiter="\t")
     writer.writeheader()
     for row in rows:
-        writer.writerow(row)
+        writer.writerow({key: _spreadsheet_safe_value(value) for key, value in row.items()})
     return buffer.getvalue(), rows
 
 

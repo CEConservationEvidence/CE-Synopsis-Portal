@@ -1287,6 +1287,42 @@ class SynopsisStructureTests(TestCase):
             ).exists()
         )
 
+    def test_synopsis_structure_tsv_export_sanitizes_formula_like_cells(self):
+        self.reference.title = "=Dangerous title"
+        self.reference.authors = "@Author"
+        self.reference.screening_status = "included"
+        self.reference.save(
+            update_fields=["title", "authors", "screening_status", "updated_at"]
+        )
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.synopsis_draft = "+Dangerous paragraph"
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(
+            update_fields=[
+                "status",
+                "synopsis_draft",
+                "use_custom_synopsis_draft",
+                "updated_at",
+            ]
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:project_synopsis_export_structure_tsv",
+                args=[self.project.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = list(
+            csv.DictReader(io.StringIO(response.content.decode("utf-8")), delimiter="\t")
+        )
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["paper_title"], "'=Dangerous title")
+        self.assertEqual(row["authors"], "'@Author")
+        self.assertEqual(row["summary_paragraph"], "'+Dangerous paragraph")
+
     def test_structure_page_background_reference_guidance_is_not_limited_by_search_end_date(self):
         url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
         chapter = SynopsisChapter.objects.create(
