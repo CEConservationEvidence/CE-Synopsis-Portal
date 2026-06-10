@@ -4484,6 +4484,11 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
         email_body = mock_email.call_args[0][1]
         self.assertIn("Please review this final draft.", email_body)
         self.assertIn("Please review this version.", email_body)
+        email_instance.attach.assert_called_once_with(
+            "review-draft.pdf",
+            b"uploaded synopsis",
+            "application/pdf",
+        )
 
     @override_settings(
         ASYNC_EMAIL_DELIVERY=True,
