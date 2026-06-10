@@ -154,6 +154,7 @@ from .models import (
     normalize_reference_folder_values,
 )
 from .presets import PRESETS
+from .tasks import queue_or_send_email_message
 from .utils import (
     advisory_privacy_settings,
     advisory_member_display_name,
@@ -180,6 +181,13 @@ from .utils import (
 ONLYOFFICE_SETTINGS = getattr(settings, "ONLYOFFICE", {})
 
 logger = logging.getLogger(__name__)
+
+_DOWNLOAD_CONTENT_TYPE_OVERRIDES = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+}
 GLOBAL_ROLE_LABELS = dict(GLOBAL_ROLE_CHOICES)
 
 
@@ -212,8 +220,6 @@ class PortalPasswordResetConfirmView(auth_views.PasswordResetConfirmView):
 
 
 def _send_account_setup_email(user, request):
-    # TODO: #100 Move outbound email sending onto Celery so account creation does
-    # not block a request thread on SMTP/network latency.
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
     reset_url = request.build_absolute_uri(
@@ -230,19 +236,21 @@ def _send_account_setup_email(user, request):
         "registration/account_setup_subject.txt", context
     ).strip()
     body = render_to_string("registration/account_setup_email.txt", context)
-    sent = EmailMultiAlternatives(
+    message = EmailMultiAlternatives(
         subject=subject,
         body=body,
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[user.email],
-    ).send()
+    )
+    queued, sent = queue_or_send_email_message(message)
+    if queued:
+        return True
     if sent != 1:
         raise RuntimeError("Account setup email was not sent.")
+    return False
 
 
 def _send_password_reset_email(user, request):
-    # TODO: #100 Move outbound email sending onto Celery so password reset requests
-    # stay fast under concurrent usage.
     uid = urlsafe_base64_encode(force_bytes(user.pk))
     token = default_token_generator.make_token(user)
     context = {
@@ -256,14 +264,29 @@ def _send_password_reset_email(user, request):
         "registration/password_reset_subject.txt", context
     ).strip()
     body = render_to_string("registration/password_reset_email.txt", context)
-    sent = EmailMultiAlternatives(
+    message = EmailMultiAlternatives(
         subject=subject,
         body=body,
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[user.email],
-    ).send()
+    )
+    queued, sent = queue_or_send_email_message(message)
+    if queued:
+        return True
     if sent != 1:
         raise RuntimeError("Password reset email was not sent.")
+    return False
+
+
+def _queue_or_send_review_email_message(
+    message: EmailMultiAlternatives, *, failure_message: str
+) -> bool:
+    queued, sent = queue_or_send_email_message(message)
+    if queued:
+        return True
+    if not sent:
+        raise RuntimeError(failure_message)
+    return False
 
 
 def _manager_user_global_role(user):
@@ -5665,7 +5688,8 @@ def document_view(request, project_id, document_slug):
 
     file_handle = document.document.open("rb")
     filename = document.document.name.rsplit("/", 1)[-1]
-    content_type = (
+    extension = os.path.splitext(filename)[1].lower()
+    content_type = _DOWNLOAD_CONTENT_TYPE_OVERRIDES.get(extension) or (
         mimetypes.guess_type(filename)[0] or "application/octet-stream"
     )
     response = FileResponse(file_handle)
@@ -6682,16 +6706,24 @@ def manager_user_edit(request, user_id):
             else:
                 try:
                     if managed_user.has_usable_password():
-                        _send_password_reset_email(managed_user, request)
+                        queued = _send_password_reset_email(managed_user, request)
                         messages.success(
                             request,
-                            f"Password reset email sent to {managed_user.email}.",
+                            (
+                                f"Password reset email queued for delivery to {managed_user.email}."
+                                if queued
+                                else f"Password reset email sent to {managed_user.email}."
+                            ),
                         )
                     else:
-                        _send_account_setup_email(managed_user, request)
+                        queued = _send_account_setup_email(managed_user, request)
                         messages.success(
                             request,
-                            f"Account setup email sent to {managed_user.email}.",
+                            (
+                                f"Account setup email queued for delivery to {managed_user.email}."
+                                if queued
+                                else f"Account setup email sent to {managed_user.email}."
+                            ),
                         )
                 except Exception:
                     logger.exception("Failed to send access email for user %s", managed_user.id)
@@ -6990,7 +7022,7 @@ def user_create(request):
                                 user=user, project=project, role="author"
                             )
 
-                        _send_account_setup_email(user, request)
+                        queued = _send_account_setup_email(user, request)
                 except Exception:
                     logger.exception("Failed to create user or send account setup email.")
                     messages.error(
@@ -7000,7 +7032,13 @@ def user_create(request):
                 else:
                     messages.success(
                         request,
-                        f"User {email} created as {GLOBAL_ROLE_LABELS.get(global_role, global_role)}. A password setup email has been sent.",
+                        (
+                            f"User {email} created as {GLOBAL_ROLE_LABELS.get(global_role, global_role)}. "
+                            "A password setup email has been queued for delivery."
+                            if queued
+                            else f"User {email} created as {GLOBAL_ROLE_LABELS.get(global_role, global_role)}. "
+                            "A password setup email has been sent."
+                        ),
                     )
                     return redirect("synopsis:manager_dashboard")
     else:
@@ -13700,7 +13738,7 @@ def advisory_invite_create(request, project_id, member_id=None):
                 reply_to=reply_to_list(getattr(request.user, "email", None)),
             )
             msg.attach_alternative(html, "text/html")
-            msg.send()
+            queued, _sent = queue_or_send_email_message(msg)
 
             if member:
                 member.invite_sent = True
@@ -13726,7 +13764,14 @@ def advisory_invite_create(request, project_id, member_id=None):
                     )
                 member.save(update_fields=list(update_fields))
 
-            messages.success(request, f"Invitation sent to {email}.")
+            messages.success(
+                request,
+                (
+                    f"Invitation queued for delivery to {email}."
+                    if queued
+                    else f"Invitation sent to {email}."
+                ),
+            )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     return render(
         request,
@@ -13952,6 +13997,7 @@ def send_advisory_invites(request, project_id):
     project = get_object_or_404(Project, id=project_id)
     ids = request.POST.getlist("member_ids")
     members = AdvisoryBoardMember.objects.filter(project=project, id__in=ids)
+    queued_any = False
 
     for m in members:
         inv = AdvisoryBoardInvitation.objects.create(
@@ -13983,13 +14029,21 @@ def send_advisory_invites(request, project_id):
             reply_to=reply_to_list(getattr(request.user, "email", None)),
         )
         msg.attach_alternative(html, "text/html")
-        msg.send()
+        queued, _sent = queue_or_send_email_message(msg)
+        queued_any = queued_any or queued
 
         m.invite_sent = True
         m.invite_sent_at = timezone.now()
         m.save(update_fields=["invite_sent", "invite_sent_at"])
 
-    messages.success(request, f"Sent {members.count()} invite(s).")
+    messages.success(
+        request,
+        (
+            f"Queued {members.count()} invite(s) for delivery."
+            if queued_any
+            else f"Sent {members.count()} invite(s)."
+        ),
+    )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -14057,6 +14111,7 @@ def advisory_send_invites_bulk(request, project_id):
         )
 
         sent = 0
+        queued_any = False
         for member in members:
             due_date = _resolve_invite_due_date(bulk_due_date, member=member)
             inv = AdvisoryBoardInvitation.objects.create(
@@ -14112,7 +14167,8 @@ def advisory_send_invites_bulk(request, project_id):
             if inviter_email:
                 msg.extra_headers = msg.extra_headers or {}
                 msg.extra_headers["List-Unsubscribe"] = f"<mailto:{inviter_email}>"
-            msg.send()
+            queued, _sent = queue_or_send_email_message(msg)
+            queued_any = queued_any or queued
 
             member.invite_sent = True
             member.invite_sent_at = timezone.now()
@@ -14136,7 +14192,14 @@ def advisory_send_invites_bulk(request, project_id):
             member.save(update_fields=list(update_fields))
             sent += 1
 
-        messages.success(request, f"Sent {sent} invite(s).")
+        messages.success(
+            request,
+            (
+                f"Queued {sent} invite(s) for delivery."
+                if queued_any
+                else f"Sent {sent} invite(s)."
+            ),
+        )
         return redirect("synopsis:advisory_board_list", project_id=project.id)
 
     return render(
@@ -14168,6 +14231,7 @@ def send_protocol(request, project_id):
     proto_label = _current_revision_label(project.protocol)
     label_snippet = f" ({proto_label})" if proto_label else ""
     subject = email_subject("protocol_review", project)
+    queued_any = False
     for m in members:
         text = (
             "Dear advisory board member,\n\n"
@@ -14181,7 +14245,10 @@ def send_protocol(request, project_id):
             to=[m.email],
             reply_to=reply_to_list(getattr(request.user, "email", None)),
         )
-        msg.send()
+        queued = _queue_or_send_review_email_message(
+            msg, failure_message="Protocol review email was not sent."
+        )
+        queued_any = queued_any or queued
         m.sent_protocol_at = timezone.now()
         m.protocol_reminder_sent = False
         m.protocol_reminder_sent_at = None
@@ -14193,7 +14260,14 @@ def send_protocol(request, project_id):
             ]
         )
 
-    messages.success(request, f"Sent protocol to {members.count()} member(s).")
+    messages.success(
+        request,
+        (
+            f"Queued protocol delivery for {members.count()} member(s)."
+            if queued_any
+            else f"Sent protocol to {members.count()} member(s)."
+        ),
+    )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -14226,6 +14300,7 @@ def advisory_send_protocol_bulk(request, project_id):
     subject = email_subject("protocol_review", project)
 
     sent = 0
+    queued_any = False
     for m in members:
         text = (
             "Dear advisory board member,\n\n"
@@ -14239,7 +14314,10 @@ def advisory_send_protocol_bulk(request, project_id):
             to=[m.email],
             reply_to=reply_to_list(getattr(request.user, "email", None)),
         )
-        msg.send()
+        queued = _queue_or_send_review_email_message(
+            msg, failure_message="Protocol review email was not sent."
+        )
+        queued_any = queued_any or queued
         m.sent_protocol_at = timezone.now()
         m.protocol_reminder_sent = False
         m.protocol_reminder_sent_at = None
@@ -14252,7 +14330,14 @@ def advisory_send_protocol_bulk(request, project_id):
         )
         sent += 1
 
-    messages.success(request, f"Sent protocol to {sent} member(s).")
+    messages.success(
+        request,
+        (
+            f"Queued protocol delivery for {sent} member(s)."
+            if queued_any
+            else f"Sent protocol to {sent} member(s)."
+        ),
+    )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -14331,7 +14416,9 @@ def advisory_send_protocol_member(request, project_id, member_id):
         )
     html += privacy_html
     msg.attach_alternative(html, "text/html")
-    msg.send()
+    queued = _queue_or_send_review_email_message(
+        msg, failure_message="Protocol review email was not sent."
+    )
 
     m.sent_protocol_at = timezone.now()
     m.protocol_reminder_sent = False
@@ -14344,7 +14431,14 @@ def advisory_send_protocol_member(request, project_id, member_id):
         ]
     )
 
-    messages.success(request, f"Sent protocol to {m.email}.")
+    messages.success(
+        request,
+        (
+            f"Protocol delivery queued for {m.email}."
+            if queued
+            else f"Sent protocol to {m.email}."
+        ),
+    )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
@@ -14397,6 +14491,7 @@ def advisory_send_protocol_compose_all(request, project_id):
             proto_label = _current_revision_label(proto)
             label_snippet = f" ({proto_label})" if proto_label else ""
             sent = 0
+            queued_any = False
             for m in members:
                 member_deadline = m.feedback_on_protocol_deadline
                 deadline_changed = False
@@ -14469,7 +14564,10 @@ def advisory_send_protocol_compose_all(request, project_id):
                 if inviter_email:
                     msg.extra_headers = msg.extra_headers or {}
                     msg.extra_headers["List-Unsubscribe"] = f"<mailto:{inviter_email}>"
-                msg.send()
+                queued = _queue_or_send_review_email_message(
+                    msg, failure_message="Protocol review email was not sent."
+                )
+                queued_any = queued_any or queued
                 m.sent_protocol_at = timezone.now()
                 m.protocol_reminder_sent = False
                 m.protocol_reminder_sent_at = None
@@ -14482,7 +14580,14 @@ def advisory_send_protocol_compose_all(request, project_id):
                     update_fields.append("feedback_on_protocol_deadline")
                 m.save(update_fields=update_fields)
                 sent += 1
-            messages.success(request, f"Sent protocol to {sent} member(s).")
+            messages.success(
+                request,
+                (
+                    f"Queued protocol delivery for {sent} member(s)."
+                    if queued_any
+                    else f"Sent protocol to {sent} member(s)."
+                ),
+            )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         form = ProtocolSendForm(
@@ -14616,7 +14721,9 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
                 reply_to=reply_to_list(getattr(request.user, "email", None)),
             )
             msg.attach_alternative(html, "text/html")
-            msg.send()
+            queued = _queue_or_send_review_email_message(
+                msg, failure_message="Protocol review email was not sent."
+            )
 
             m.sent_protocol_at = timezone.now()
             m.protocol_reminder_sent = False
@@ -14629,7 +14736,14 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             if deadline_changed:
                 update_fields.append("feedback_on_protocol_deadline")
             m.save(update_fields=update_fields)
-            messages.success(request, f"Sent protocol to {m.email}.")
+            messages.success(
+                request,
+                (
+                    f"Protocol delivery queued for {m.email}."
+                    if queued
+                    else f"Sent protocol to {m.email}."
+                ),
+            )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         deadline_initial = None
@@ -14707,6 +14821,7 @@ def advisory_send_action_list_compose_all(request, project_id):
             action_label = _current_revision_label(action_list)
             label_snippet = f" ({action_label})" if action_label else ""
             sent = 0
+            queued_any = False
             for m in members:
                 member_deadline = m.feedback_on_action_list_deadline
                 deadline_changed = False
@@ -14778,7 +14893,10 @@ def advisory_send_action_list_compose_all(request, project_id):
                 if inviter_email:
                     msg.extra_headers = msg.extra_headers or {}
                     msg.extra_headers["List-Unsubscribe"] = f"<mailto:{inviter_email}>"
-                msg.send()
+                queued = _queue_or_send_review_email_message(
+                    msg, failure_message="Action list review email was not sent."
+                )
+                queued_any = queued_any or queued
                 m.sent_action_list_at = timezone.now()
                 m.action_list_reminder_sent = False
                 m.action_list_reminder_sent_at = None
@@ -14791,7 +14909,14 @@ def advisory_send_action_list_compose_all(request, project_id):
                     update_fields.append("feedback_on_action_list_deadline")
                 m.save(update_fields=update_fields)
                 sent += 1
-            messages.success(request, f"Sent action list to {sent} member(s).")
+            messages.success(
+                request,
+                (
+                    f"Queued action list delivery for {sent} member(s)."
+                    if queued_any
+                    else f"Sent action list to {sent} member(s)."
+                ),
+            )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         form = ActionListSendForm(
@@ -14931,7 +15056,9 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
                 reply_to=reply_to_list(getattr(request.user, "email", None)),
             )
             msg.attach_alternative(html, "text/html")
-            msg.send()
+            queued = _queue_or_send_review_email_message(
+                msg, failure_message="Action list review email was not sent."
+            )
 
             member.sent_action_list_at = timezone.now()
             member.action_list_reminder_sent = False
@@ -14944,7 +15071,14 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             if deadline_changed:
                 update_fields.append("feedback_on_action_list_deadline")
             member.save(update_fields=update_fields)
-            messages.success(request, f"Sent action list to {member.email}.")
+            messages.success(
+                request,
+                (
+                    f"Action list delivery queued for {member.email}."
+                    if queued
+                    else f"Sent action list to {member.email}."
+                ),
+            )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         deadline_initial = None
@@ -15057,7 +15191,9 @@ def _send_synopsis_review_email(
     if inviter_email:
         msg.extra_headers = msg.extra_headers or {}
         msg.extra_headers["List-Unsubscribe"] = f"<mailto:{inviter_email}>"
-    msg.send()
+    return _queue_or_send_review_email_message(
+        msg, failure_message="Synopsis review email was not sent."
+    )
 
 
 @login_required
@@ -15088,6 +15224,7 @@ def advisory_send_synopsis_compose_all(request, project_id):
             )
             message_body = form.cleaned_data.get("message") or ""
             sent = 0
+            queued_any = False
             for member in members:
                 member_deadline = member.feedback_on_synopsis_deadline
                 deadline_changed = False
@@ -15106,7 +15243,7 @@ def advisory_send_synopsis_compose_all(request, project_id):
                     reverse("synopsis:synopsis_feedback", args=[str(fb.token)])
                 )
 
-                _send_synopsis_review_email(
+                queued = _send_synopsis_review_email(
                     request,
                     project,
                     member,
@@ -15119,6 +15256,7 @@ def advisory_send_synopsis_compose_all(request, project_id):
                     feedback_url=feedback_url,
                     recipient_name="advisory board member",
                 )
+                queued_any = queued_any or queued
                 member.sent_synopsis_at = timezone.now()
                 member.synopsis_reminder_sent = False
                 member.synopsis_reminder_sent_at = None
@@ -15131,7 +15269,14 @@ def advisory_send_synopsis_compose_all(request, project_id):
                     update_fields.append("feedback_on_synopsis_deadline")
                 member.save(update_fields=update_fields)
                 sent += 1
-            messages.success(request, f"Sent synopsis to {sent} member(s).")
+            messages.success(
+                request,
+                (
+                    f"Queued synopsis delivery for {sent} member(s)."
+                    if queued_any
+                    else f"Sent synopsis to {sent} member(s)."
+                ),
+            )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         form = SynopsisSendForm(
@@ -15195,7 +15340,7 @@ def advisory_send_synopsis_compose_member(request, project_id, member_id):
                 reverse("synopsis:synopsis_feedback", args=[str(fb.token)])
             )
 
-            _send_synopsis_review_email(
+            queued = _send_synopsis_review_email(
                 request,
                 project,
                 member,
@@ -15220,7 +15365,14 @@ def advisory_send_synopsis_compose_member(request, project_id, member_id):
             if deadline_changed:
                 update_fields.append("feedback_on_synopsis_deadline")
             member.save(update_fields=update_fields)
-            messages.success(request, f"Sent synopsis to {member.email}.")
+            messages.success(
+                request,
+                (
+                    f"Synopsis delivery queued for {member.email}."
+                    if queued
+                    else f"Sent synopsis to {member.email}."
+                ),
+            )
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     else:
         if member.feedback_on_synopsis_deadline:
@@ -15813,7 +15965,7 @@ def advisory_send_invite_member(request, project_id, member_id):
         reply_to=reply_to_list(getattr(request.user, "email", None)),
     )
     msg.attach_alternative(html, "text/html")
-    msg.send()
+    queued, _sent = queue_or_send_email_message(msg)
 
     m.invite_sent = True
     m.invite_sent_at = timezone.now()
@@ -15833,5 +15985,12 @@ def advisory_send_invite_member(request, project_id, member_id):
     else:
         m.save(update_fields=["invite_sent", "invite_sent_at"])
 
-    messages.success(request, f"Invitation sent to {m.email}.")
+    messages.success(
+        request,
+        (
+            f"Invitation queued for delivery to {m.email}."
+            if queued
+            else f"Invitation sent to {m.email}."
+        ),
+    )
     return redirect("synopsis:advisory_board_list", project_id=project.id)
