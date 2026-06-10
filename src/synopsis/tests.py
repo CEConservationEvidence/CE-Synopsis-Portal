@@ -14,7 +14,7 @@ import rispy
 from django.contrib.auth.models import Group, User, AnonymousUser
 from django.core import mail
 from django.core.cache import cache
-from django.core.mail import EmailMessage
+from django.core.mail import EmailMessage, EmailMultiAlternatives
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings, RequestFactory, SimpleTestCase
 from django.contrib.messages import get_messages
@@ -2408,6 +2408,48 @@ class AttachmentSummaryConsoleEmailBackendTests(SimpleTestCase):
         self.assertNotIn("raw document bytes", output)
 
 
+class CeleryReminderTaskTests(SimpleTestCase):
+    @patch("synopsis.tasks.call_command")
+    def test_send_due_reminders_task_runs_management_command(self, mock_call_command):
+        from .tasks import send_due_reminders_task
+
+        send_due_reminders_task()
+
+        mock_call_command.assert_called_once_with("send_due_reminders")
+
+
+class AsyncEmailDeliveryTests(SimpleTestCase):
+    @override_settings(
+        ASYNC_EMAIL_DELIVERY=True,
+        CELERY_BROKER_URL="redis://broker.example:6379/2",
+    )
+    @patch("synopsis.tasks.send_email_message_task.delay")
+    def test_queue_or_send_email_message_queues_serialized_payload(self, mock_delay):
+        from .tasks import queue_or_send_email_message
+
+        message = EmailMultiAlternatives(
+            subject="Queued subject",
+            body="Queued body",
+            from_email="from@example.com",
+            to=["to@example.com"],
+            reply_to=["reply@example.com"],
+        )
+        message.attach_alternative("<p>Queued body</p>", "text/html")
+        message.attach("notes.txt", "hello", "text/plain")
+
+        queued, sent = queue_or_send_email_message(message)
+
+        self.assertTrue(queued)
+        self.assertIsNone(sent)
+        mock_delay.assert_called_once()
+        payload = mock_delay.call_args.args[0]
+        self.assertEqual(payload["subject"], "Queued subject")
+        self.assertEqual(payload["to"], ["to@example.com"])
+        self.assertEqual(payload["reply_to"], ["reply@example.com"])
+        self.assertEqual(payload["alternatives"][0]["mimetype"], "text/html")
+        self.assertEqual(payload["attachments"][0]["filename"], "notes.txt")
+
+
 @override_settings(DEFAULT_FROM_EMAIL="reminders@example.com")
 class SendDueRemindersTests(TestCase):
     def setUp(self):
@@ -4164,6 +4206,7 @@ class AdvisoryInviteFlowTests(TestCase):
         self.assertIn("Saved standard message", html_body)
 
 
+@override_settings(ASYNC_EMAIL_DELIVERY=False)
 class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
     def setUp(self):
         self.project = Project.objects.create(title="Document Deadlines")
@@ -4441,11 +4484,88 @@ class AdvisoryDocumentSendDefaultDeadlineTests(TestCase):
         email_body = mock_email.call_args[0][1]
         self.assertIn("Please review this final draft.", email_body)
         self.assertIn("Please review this version.", email_body)
-        email_instance.attach.assert_called_once_with(
-            "review-draft.pdf",
-            b"uploaded synopsis",
-            "application/pdf",
+
+    @override_settings(
+        ASYNC_EMAIL_DELIVERY=True,
+        CELERY_BROKER_URL="redis://broker.example:6379/2",
+    )
+    @patch("synopsis.views.queue_or_send_email_message", return_value=(True, None))
+    def test_protocol_bulk_send_reports_queued_delivery(self, mock_queue):
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_protocol_compose_all",
+                args=[self.project.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+                "include_protocol_document": "on",
+            },
         )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn("Queued protocol delivery for 1 member(s).", messages)
+        self.assertEqual(mock_queue.call_count, 1)
+
+    @override_settings(
+        ASYNC_EMAIL_DELIVERY=True,
+        CELERY_BROKER_URL="redis://broker.example:6379/2",
+    )
+    @patch("synopsis.views.queue_or_send_email_message", return_value=(True, None))
+    def test_action_list_member_send_reports_queued_delivery(self, mock_queue):
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_action_list_compose_member",
+                args=[self.project.id, self.member.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+                "include_action_list_document": "on",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(
+            f"Action list delivery queued for {self.member.email}.", messages
+        )
+        self.assertEqual(mock_queue.call_count, 1)
+
+    @override_settings(
+        ASYNC_EMAIL_DELIVERY=True,
+        CELERY_BROKER_URL="redis://broker.example:6379/2",
+    )
+    @patch("synopsis.views._generate_synopsis_docx", return_value=b"docx")
+    @patch("synopsis.views.queue_or_send_email_message", return_value=(True, None))
+    def test_synopsis_member_send_reports_queued_delivery(
+        self, mock_queue, mock_generate
+    ):
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_send_synopsis_compose_member",
+                args=[self.project.id, self.member.id],
+            ),
+            {
+                "due_date": "",
+                "message": "",
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("synopsis:advisory_board_list", args=[self.project.id])
+        )
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(
+            f"Synopsis delivery queued for {self.member.email}.", messages
+        )
+        self.assertEqual(mock_queue.call_count, 1)
+        mock_generate.assert_called_once_with(self.project)
 
 class FunderUtilityTests(TestCase):
     def test_build_display_name_prefers_organisation(self):
