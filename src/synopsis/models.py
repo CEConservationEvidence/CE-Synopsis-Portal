@@ -1,4 +1,5 @@
 import datetime as dt
+import os
 import uuid
 
 from django.contrib.auth.models import User
@@ -72,6 +73,20 @@ def normalize_reference_folder_values(values):
         cleaned.append(value)
     cleaned.sort(key=lambda value: CE_REFERENCE_FOLDER_ORDER.get(value, 10_000))
     return cleaned
+
+
+def _bounded_upload_name(prefix, owner_id, filename, *, max_length=255):
+    original_name = os.path.basename(filename or "").strip() or "document"
+    stem, ext = os.path.splitext(original_name)
+    stem = stem or "document"
+    upload_prefix = f"{prefix}/{owner_id}/{uuid.uuid4()}_"
+    available = max_length - len(upload_prefix)
+    if available <= 0:
+        return upload_prefix.rstrip("_")
+    if len(ext) >= available:
+        ext = ext[: max(0, available - 1)]
+    stem = stem[: max(1, available - len(ext))]
+    return f"{upload_prefix}{stem}{ext}"
 
 
 class Project(models.Model):
@@ -449,7 +464,7 @@ class FunderContact(models.Model):
 
 
 def protocol_upload_path(instance, filename):
-    return f"protocols/{instance.project_id}/{uuid.uuid4()}_{filename}"
+    return _bounded_upload_name("protocols", instance.project_id, filename)
 
 
 class Protocol(models.Model):
@@ -458,7 +473,7 @@ class Protocol(models.Model):
     project = models.OneToOneField(
         Project, on_delete=models.CASCADE, related_name="protocol"
     )
-    document = models.FileField(upload_to=protocol_upload_path)
+    document = models.FileField(upload_to=protocol_upload_path, max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
     last_updated = models.DateTimeField(auto_now=True)
     text_version = models.TextField(blank=True)
@@ -484,8 +499,8 @@ class Protocol(models.Model):
 
 
 def protocol_revision_upload_path(instance, filename):
-    return (
-        f"protocol_revisions/{instance.protocol.project_id}/{uuid.uuid4()}_{filename}"
+    return _bounded_upload_name(
+        "protocol_revisions", instance.protocol.project_id, filename
     )
 
 
@@ -493,7 +508,7 @@ class ProtocolRevision(models.Model):
     protocol = models.ForeignKey(
         Protocol, on_delete=models.CASCADE, related_name="revisions"
     )
-    file = models.FileField(upload_to=protocol_revision_upload_path)
+    file = models.FileField(upload_to=protocol_revision_upload_path, max_length=255)
     stage = models.CharField(max_length=20, choices=Protocol.STAGE_CHOICES)
     change_reason = models.TextField(blank=True)
     uploaded_by = models.ForeignKey(
@@ -516,18 +531,20 @@ class ProtocolRevision(models.Model):
 
 
 def action_list_upload_path(instance, filename):
-    return f"action_lists/{instance.project_id}/{uuid.uuid4()}_{filename}"
+    return _bounded_upload_name("action_lists", instance.project_id, filename)
 
 
 def action_list_revision_upload_path(instance, filename):
-    return f"action_list_revisions/{instance.action_list.project_id}/{uuid.uuid4()}_{filename}"
+    return _bounded_upload_name(
+        "action_list_revisions", instance.action_list.project_id, filename
+    )
 
 
 class ActionList(models.Model):
     project = models.OneToOneField(
         Project, on_delete=models.CASCADE, related_name="action_list"
     )
-    document = models.FileField(upload_to=action_list_upload_path)
+    document = models.FileField(upload_to=action_list_upload_path, max_length=255)
     created_at = models.DateTimeField(auto_now_add=True)
     last_updated = models.DateTimeField(auto_now=True)
     text_version = models.TextField(blank=True)
@@ -561,7 +578,9 @@ class ActionListRevision(models.Model):
     action_list = models.ForeignKey(
         ActionList, on_delete=models.CASCADE, related_name="revisions"
     )
-    file = models.FileField(upload_to=action_list_revision_upload_path)
+    file = models.FileField(
+        upload_to=action_list_revision_upload_path, max_length=255
+    )
     stage = models.CharField(max_length=20, choices=Protocol.STAGE_CHOICES)
     change_reason = models.TextField(blank=True)
     uploaded_by = models.ForeignKey(

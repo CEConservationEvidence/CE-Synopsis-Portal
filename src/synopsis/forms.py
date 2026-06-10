@@ -8,11 +8,14 @@ from django.contrib.auth.forms import (
     SetPasswordForm,
 )
 from django.contrib.auth.models import User
+from django.core.mail import EmailMultiAlternatives
 from django.core.validators import FileExtensionValidator
 from django.forms.models import BaseInlineFormSet, inlineformset_factory
+from django.template.loader import render_to_string
 from django.utils import timezone
 from django.utils.text import slugify
 
+from .tasks import queue_or_send_email_message
 from .utils import (
     default_action_list_review_message,
     default_advisory_invitation_message,
@@ -566,6 +569,29 @@ class PortalPasswordResetForm(PasswordResetForm):
         self.fields["email"].widget.attrs.update(
             {"class": "form-control", "autocomplete": "email"}
         )
+
+    def send_mail(
+        self,
+        subject_template_name,
+        email_template_name,
+        context,
+        from_email,
+        to_email,
+        html_email_template_name=None,
+    ):
+        subject = render_to_string(subject_template_name, context)
+        subject = "".join(subject.splitlines()).strip()
+        body = render_to_string(email_template_name, context)
+        message = EmailMultiAlternatives(
+            subject=subject,
+            body=body,
+            from_email=from_email,
+            to=[to_email],
+        )
+        if html_email_template_name:
+            html_email = render_to_string(html_email_template_name, context)
+            message.attach_alternative(html_email, "text/html")
+        queue_or_send_email_message(message)
 
 
 class PortalSetPasswordForm(SetPasswordForm):

@@ -13,7 +13,9 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 import importlib.util
 import os
 import subprocess
+import sys
 from pathlib import Path
+from celery.schedules import crontab
 from decouple import AutoConfig, Config, RepositoryEnv, UndefinedValueError, strtobool
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -40,6 +42,7 @@ def _build_config():
 
 
 config, ACTIVE_ENV_FILE = _build_config()
+RUNNING_TESTS = len(sys.argv) > 1 and sys.argv[1] == "test"
 
 
 def _csv_config(name: str, default: str = "") -> list[str]:
@@ -86,6 +89,11 @@ def _bool_config(name: str, default: bool = False, fallback_names: tuple[str, ..
         return config(name, cast=bool, default=default)
     except (UndefinedValueError, ValueError):
         return default
+
+
+def _set_django_setting(name: str, value) -> None:
+    # Django loads settings from this module's globals at runtime.
+    globals()[name] = value
 
 
 def _git_release_label() -> str:
@@ -182,8 +190,63 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "ce_portal.wsgi.application"
 
-# TODO: #98 Add Redis-backed Django cache and cached_db sessions, then use the same
-# Redis service for Celery background jobs and collaborative-session locking.
+# Redis-backed cache/session configuration.
+# TODO: #98 Use the same Redis service for Celery background jobs and
+# collaborative-session locking.
+REDIS_CACHE_URL = config("REDIS_CACHE_URL", default="").strip()
+REDIS_CELERY_URL = config("REDIS_CELERY_URL", default=REDIS_CACHE_URL).strip()
+USE_REDIS_CACHE = bool(REDIS_CACHE_URL and not RUNNING_TESTS)
+
+if USE_REDIS_CACHE:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_CACHE_URL,
+            "KEY_PREFIX": "ce_portal",
+            "TIMEOUT": 300,
+        }
+    }
+    _set_django_setting("SESSION_ENGINE", "django.contrib.sessions.backends.cached_db")
+    _set_django_setting("SESSION_CACHE_ALIAS", "default")
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "ce-portal-local",
+            "TIMEOUT": 300,
+        }
+    }
+
+CELERY_BROKER_URL = REDIS_CELERY_URL
+CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND", default=REDIS_CELERY_URL).strip()
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_TIMEZONE = config("CELERY_TIMEZONE", default="UTC")
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TASK_ALWAYS_EAGER = config("CELERY_TASK_ALWAYS_EAGER", cast=bool, default=False)
+CELERY_TASK_EAGER_PROPAGATES = config(
+    "CELERY_TASK_EAGER_PROPAGATES", cast=bool, default=False
+)
+ASYNC_EMAIL_DELIVERY = (
+    False
+    if RUNNING_TESTS
+    else config(
+        "ASYNC_EMAIL_DELIVERY",
+        cast=bool,
+        default=bool(REDIS_CELERY_URL and not DEBUG),
+    )
+)
+CELERY_BEAT_SCHEDULE = (
+    {
+        "send-due-reminders-hourly": {
+            "task": "synopsis.tasks.send_due_reminders_task",
+            "schedule": crontab(minute=0),
+        }
+    }
+    if REDIS_CELERY_URL
+    else {}
+)
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases

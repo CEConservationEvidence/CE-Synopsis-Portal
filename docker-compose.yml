@@ -1,6 +1,16 @@
 services:
-  # TODO: #95 Add Redis here for shared cache, session storage, distributed locks,
-  # and Celery broker/backend before the next heavier multi-author pilot.
+  # TODO: #95 Reuse this Redis service for distributed locks and Celery
+  # broker/backend before the next heavier multi-author pilot.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   db:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -26,12 +36,16 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       DEBUG: "False"
       DB_HOST: db
       DB_PORT: "5432"
+      REDIS_CACHE_URL: ${REDIS_CACHE_URL:-redis://redis:6379/1}
+      REDIS_CELERY_URL: ${REDIS_CELERY_URL:-redis://redis:6379/2}
       SERVE_MEDIA: "True"
       # TODO: #96 Re-tune Gunicorn workers/threads against real 10+ author load,
       # memory limits, and OnlyOffice traffic rather than keeping the current pilot defaults.
@@ -48,6 +62,91 @@ services:
       ONLYOFFICE_TRUSTED_DOWNLOAD_URLS: ${ONLYOFFICE_TRUSTED_DOWNLOAD_URLS:-}
     ports:
       - "${WEB_BIND_HOST:-0.0.0.0}:${WEB_PORT:-8000}:8000"
+    volumes:
+      - media_data:/app/src/media
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_RELEASE_LABEL: ${APP_RELEASE_LABEL:-}
+    restart: unless-stopped
+    user: "10001:10001"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DEBUG: "False"
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_CACHE_URL: ${REDIS_CACHE_URL:-redis://redis:6379/1}
+      REDIS_CELERY_URL: ${REDIS_CELERY_URL:-redis://redis:6379/2}
+      RUN_APP_INIT: "False"
+      SERVE_MEDIA: "True"
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,host.docker.internal}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://host.docker.internal:8000}
+      ONLYOFFICE_URL: ${ONLYOFFICE_URL:-}
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-change-me}
+      ONLYOFFICE_CALLBACK_TIMEOUT: ${ONLYOFFICE_CALLBACK_TIMEOUT:-10}
+      ONLYOFFICE_TRUSTED_DOWNLOAD_URLS: ${ONLYOFFICE_TRUSTED_DOWNLOAD_URLS:-}
+      CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-info}
+      CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-2}
+    command:
+      [
+        "celery",
+        "-A",
+        "ce_portal",
+        "worker",
+        "--loglevel=${CELERY_LOG_LEVEL:-info}",
+        "--concurrency=${CELERY_WORKER_CONCURRENCY:-2}"
+      ]
+    volumes:
+      - media_data:/app/src/media
+
+  beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_RELEASE_LABEL: ${APP_RELEASE_LABEL:-}
+    restart: unless-stopped
+    user: "10001:10001"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      DEBUG: "False"
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_CACHE_URL: ${REDIS_CACHE_URL:-redis://redis:6379/1}
+      REDIS_CELERY_URL: ${REDIS_CELERY_URL:-redis://redis:6379/2}
+      RUN_APP_INIT: "False"
+      SERVE_MEDIA: "True"
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,host.docker.internal}
+      CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-http://localhost:8000,http://host.docker.internal:8000}
+      ONLYOFFICE_URL: ${ONLYOFFICE_URL:-}
+      ONLYOFFICE_JWT_SECRET: ${ONLYOFFICE_JWT_SECRET:-change-me}
+      ONLYOFFICE_CALLBACK_TIMEOUT: ${ONLYOFFICE_CALLBACK_TIMEOUT:-10}
+      ONLYOFFICE_TRUSTED_DOWNLOAD_URLS: ${ONLYOFFICE_TRUSTED_DOWNLOAD_URLS:-}
+      CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-info}
+    command:
+      [
+        "celery",
+        "-A",
+        "ce_portal",
+        "beat",
+        "--loglevel=${CELERY_LOG_LEVEL:-info}",
+        "--schedule=/tmp/celerybeat-schedule"
+      ]
     volumes:
       - media_data:/app/src/media
 
