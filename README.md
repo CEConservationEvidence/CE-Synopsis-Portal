@@ -148,6 +148,7 @@ Notes:
 - the default database backend is PostgreSQL
 - set `REDIS_CACHE_URL=redis://localhost:6379/1` in `.env.local` if you want the same shared cache/session behavior locally as the Docker deployment
 - leaving `REDIS_CACHE_URL` blank falls back to a local in-process cache and default DB-backed sessions
+- `ASYNC_EMAIL_DELIVERY` defaults to `False` in local development, so email stays inline unless you explicitly turn it on
 - email is configured to the console backend in development
 
 ## Running Checks
@@ -171,6 +172,7 @@ A Docker-based deployment is now included for:
 - Django/Gunicorn
 - PostgreSQL
 - Redis-backed cache/session storage
+- Celery worker and beat services
 - OnlyOffice Document Server
 
 Main files:
@@ -181,13 +183,12 @@ Main files:
 Quick start:
 
 ```bash
-cp .env.template .env
+cp .env.server .env
 docker compose up --build -d
 docker compose exec web python manage.py createsuperuser
 ```
 
-Detailed setup notes, including OnlyOffice URL/JWT configuration, are in [docs/docker.md](docs/docker.md).
-The admin-facing handoff checklist is in [docs/instructions.md](docs/instructions.md).
+For an internal server deployment, use [docs/instructions.md](docs/instructions.md) as the single runbook. It covers the Docker stack, `.env.server`, ONLYOFFICE, Redis/Celery, and smoke-test steps.
 
 ## Repository Layout
 
