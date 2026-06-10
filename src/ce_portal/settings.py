@@ -91,6 +91,11 @@ def _bool_config(name: str, default: bool = False, fallback_names: tuple[str, ..
         return default
 
 
+def _set_django_setting(name: str, value) -> None:
+    # Django loads settings from this module's globals at runtime.
+    globals()[name] = value
+
+
 def _git_release_label() -> str:
     if not (REPO_ROOT / ".git").exists():
         return ""
@@ -201,8 +206,8 @@ if USE_REDIS_CACHE:
             "TIMEOUT": 300,
         }
     }
-    SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
-    SESSION_CACHE_ALIAS = "default"
+    _set_django_setting("SESSION_ENGINE", "django.contrib.sessions.backends.cached_db")
+    _set_django_setting("SESSION_CACHE_ALIAS", "default")
 else:
     CACHES = {
         "default": {
