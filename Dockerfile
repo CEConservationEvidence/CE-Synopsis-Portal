@@ -7,6 +7,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 ARG APP_RELEASE_LABEL
+ARG APP_UID=10001
+ARG APP_GID=10001
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -35,13 +37,18 @@ COPY docs /app/docs
 COPY .env.template /app/.env.template
 COPY docker/entrypoint.sh /app/docker/entrypoint.sh
 
+RUN groupadd --system --gid "${APP_GID}" portal \
+    && useradd --system --uid "${APP_UID}" --gid "${APP_GID}" \
+        --home-dir /app --no-create-home --shell /usr/sbin/nologin portal
+
 RUN chmod +x /app/docker/entrypoint.sh \
     && mkdir -p /app/src/media /app/src/staticfiles \
     && if [ -n "$APP_RELEASE_LABEL" ]; then \
         printf "%s" "$APP_RELEASE_LABEL" > /app/.release-label; \
     else \
         printf "%s" "unlabelled build" > /app/.release-label; \
-    fi
+    fi \
+    && chown -R portal:portal /app
 
 WORKDIR /app/src
 

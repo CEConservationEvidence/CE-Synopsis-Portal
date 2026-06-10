@@ -35,8 +35,10 @@ while True:
         time.sleep(2)
 PY
 
-python manage.py migrate --noinput
-python manage.py collectstatic --noinput
+if [ "${RUN_APP_INIT:-True}" = "True" ]; then
+    python manage.py migrate --noinput
+    python manage.py collectstatic --noinput
+fi
 
 if [ "$#" -eq 0 ]; then
     set -- \
