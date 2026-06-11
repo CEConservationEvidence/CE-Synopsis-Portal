@@ -95,6 +95,7 @@ ONLYOFFICE_MEMORY_LIMIT=3G
 
 REDIS_CACHE_URL=redis://redis:6379/1
 REDIS_CELERY_URL=redis://redis:6379/2
+COLLABORATIVE_SESSION_LOCK_TIMEOUT=30
 ASYNC_EMAIL_DELIVERY=True
 CELERY_LOG_LEVEL=info
 CELERY_WORKER_CONCURRENCY=2
@@ -138,6 +139,7 @@ A few practical notes:
 - in this Compose setup, `DB_HOST` should stay `db`
 - `REDIS_CACHE_URL` should stay `redis://redis:6379/1`
 - `REDIS_CELERY_URL` should stay `redis://redis:6379/2`
+- `COLLABORATIVE_SESSION_LOCK_TIMEOUT` controls the short Redis-backed lock around creating a live collaborative editing session.
 
 ## Deployment Steps
 

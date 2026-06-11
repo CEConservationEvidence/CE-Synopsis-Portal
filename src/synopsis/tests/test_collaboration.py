@@ -1322,6 +1322,161 @@ class CollaborativePanelViewTests(TestCase):
             html=False,
         )
 
+    def test_collaborative_start_respects_creation_lock(self):
+        from .. import views
+
+        original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "http://localhost:8080",
+            "internal_url": "http://onlyoffice",
+            "app_base_url": "http://web:8000",
+            "jwt_secret": "change-me",
+            "callback_timeout": 10,
+            "trusted_download_urls": [
+                "http://localhost:8080",
+                "http://onlyoffice",
+            ],
+        }
+        self.addCleanup(lambda: setattr(views, "ONLYOFFICE_SETTINGS", original_settings))
+
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        lock_key = views._collaborative_session_lock_key(
+            self.project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+        )
+        cache.add(lock_key, "held", 30)
+        self.addCleanup(lambda: cache.delete(lock_key))
+
+        response = self.client.post(
+            reverse("synopsis:collaborative_start", args=[self.project.id, "protocol"])
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
+        )
+        self.assertFalse(
+            CollaborativeSession.objects.filter(
+                project=self.project,
+                document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+                is_active=True,
+            ).exists()
+        )
+        messages_list = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(
+            "The collaborative editor is already being prepared. Please try again in a moment.",
+            messages_list,
+        )
+
+    def test_collaborative_lock_release_keeps_newer_token(self):
+        from .. import views
+
+        lock_key = views._collaborative_session_lock_key(
+            self.project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+        )
+        cache.set(lock_key, "newer-token", 30)
+        self.addCleanup(lambda: cache.delete(lock_key))
+
+        views._release_collaborative_session_lock(lock_key, "older-token")
+
+        self.assertEqual(cache.get(lock_key), "newer-token")
+
+    def test_collaborative_lock_release_uses_redis_compare_delete(self):
+        from .. import views
+
+        class FakeSerializer:
+            def dumps(self, value):
+                return f"encoded:{value}".encode()
+
+        class FakeRedisClient:
+            def __init__(self):
+                self.eval_call = None
+
+            def eval(self, script, key_count, cache_key, expected):
+                self.eval_call = (script, key_count, cache_key, expected)
+
+        class FakeBackendClient:
+            def __init__(self):
+                self._serializer = FakeSerializer()
+                self.client = FakeRedisClient()
+
+            def get_client(self, cache_key, *, write=False):
+                self.requested_cache_key = cache_key
+                self.requested_write = write
+                return self.client
+
+        class FakeRedisCache:
+            def __init__(self):
+                self._cache = FakeBackendClient()
+
+            def make_and_validate_key(self, key):
+                return f":1:{key}"
+
+            def get(self, key):
+                raise AssertionError("Redis release should not use fallback get")
+
+            def delete(self, key):
+                raise AssertionError("Redis release should not use fallback delete")
+
+        fake_cache = FakeRedisCache()
+
+        with patch.object(views, "cache", fake_cache):
+            views._release_collaborative_session_lock("lock-key", "owner-token")
+
+        backend = fake_cache._cache
+        script, key_count, cache_key, expected = backend.client.eval_call
+        self.assertIn('redis.call("get", KEYS[1])', script)
+        self.assertEqual(key_count, 1)
+        self.assertEqual(cache_key, ":1:lock-key")
+        self.assertEqual(expected, b"encoded:owner-token")
+        self.assertEqual(backend.requested_cache_key, ":1:lock-key")
+        self.assertTrue(backend.requested_write)
+
+    def test_required_collaborative_invite_link_raises_while_lock_is_held(self):
+        from .. import views
+
+        original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "http://localhost:8080",
+            "internal_url": "http://onlyoffice",
+            "app_base_url": "http://web:8000",
+            "jwt_secret": "change-me",
+            "callback_timeout": 10,
+            "trusted_download_urls": [
+                "http://localhost:8080",
+                "http://onlyoffice",
+            ],
+        }
+        self.addCleanup(lambda: setattr(views, "ONLYOFFICE_SETTINGS", original_settings))
+
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        lock_key = views._collaborative_session_lock_key(
+            self.project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+        )
+        cache.set(lock_key, "held", 30)
+        self.addCleanup(lambda: cache.delete(lock_key))
+        request = RequestFactory().get("/", HTTP_HOST="testserver")
+        request.user = self.user
+
+        with self.assertRaisesMessage(
+            views.CollaborativeSessionBusy,
+            views.COLLABORATIVE_SESSION_BUSY_MESSAGE,
+        ):
+            views._ensure_collaborative_invite_link(
+                request,
+                self.project,
+                CollaborativeSession.DOCUMENT_PROTOCOL,
+                require_link=True,
+            )
+
     def test_action_list_panel_disabled_without_document(self):
         response = self.client.get(
             reverse("synopsis:action_list_detail", args=[self.project.id])

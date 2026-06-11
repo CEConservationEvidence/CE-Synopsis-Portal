@@ -183,6 +183,13 @@ from .utils import (
 ONLYOFFICE_SETTINGS = getattr(settings, "ONLYOFFICE", {})
 
 logger = logging.getLogger(__name__)
+COLLABORATIVE_SESSION_BUSY_MESSAGE = (
+    "The collaborative editor is already being prepared. Please try again in a moment."
+)
+
+
+class CollaborativeSessionBusy(RuntimeError):
+    """Raised when a required collaborative session link cannot be prepared."""
 
 _DOWNLOAD_CONTENT_TYPE_OVERRIDES = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1551,12 +1558,88 @@ def _get_active_collaborative_session(project, document_type):
     return session
 
 
+def _collaborative_session_lock_key(project, document_type):
+    project_id = getattr(project, "id", project)
+    return f"ce-collaborative-session-start:{project_id}:{document_type}"
+
+
+def _collaborative_session_lock_timeout():
+    try:
+        timeout = int(getattr(settings, "COLLABORATIVE_SESSION_LOCK_TIMEOUT", 30))
+    except (TypeError, ValueError):
+        timeout = 30
+    return max(1, timeout)
+
+
+def _acquire_collaborative_session_lock(project, document_type):
+    lock_key = _collaborative_session_lock_key(project, document_type)
+    lock_token = uuid.uuid4().hex
+    if not cache.add(lock_key, lock_token, _collaborative_session_lock_timeout()):
+        return lock_key, ""
+    return lock_key, lock_token
+
+
+def _release_collaborative_session_lock(lock_key, lock_token):
+    if not lock_token:
+        return
+    if _release_collaborative_session_lock_redis(lock_key, lock_token):
+        return
+    if cache.get(lock_key) == lock_token:
+        cache.delete(lock_key)
+
+
+def _release_collaborative_session_lock_redis(lock_key, lock_token):
+    backend_client = getattr(cache, "_cache", None)
+    get_client = getattr(backend_client, "get_client", None)
+    serializer = getattr(backend_client, "_serializer", None)
+    make_key = getattr(cache, "make_and_validate_key", None)
+    if not (get_client and serializer and make_key):
+        return False
+
+    try:
+        cache_key = make_key(lock_key)
+        expected = serializer.dumps(lock_token)
+        client = get_client(cache_key, write=True)
+        client.eval(
+            """
+            if redis.call("get", KEYS[1]) == ARGV[1] then
+                return redis.call("del", KEYS[1])
+            end
+            return 0
+            """,
+            1,
+            cache_key,
+            expected,
+        )
+    except Exception:
+        return False
+    return True
+
+
+def _create_collaborative_session(project, document_type, document, started_by=None):
+    initial_revision = getattr(document, "current_revision", None)
+    if not initial_revision and hasattr(document, "latest_revision"):
+        try:
+            initial_revision = document.latest_revision()
+        except Exception:
+            initial_revision = None
+
+    session_kwargs = {
+        "project": project,
+        "document_type": document_type,
+        "started_by": started_by,
+        "last_activity_at": timezone.now(),
+    }
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        session_kwargs["initial_protocol_revision"] = initial_revision
+    else:
+        session_kwargs["initial_action_list_revision"] = initial_revision
+    return CollaborativeSession.objects.create(**session_kwargs)
+
+
 def _end_active_collaborative_session(
     project, document_type, *, ended_by=None, reason=""
 ):
-    # TODO: #101 Guard collaborative session creation with a distributed lock
-    # (Redis) and/or a database uniqueness guarantee so concurrent requests cannot
-    # create competing active sessions under load.
     session = _get_active_collaborative_session(project, document_type)
     if not session:
         return None
@@ -1575,6 +1658,7 @@ def _ensure_collaborative_invite_link(
     *,
     member=None,
     feedback=None,
+    require_link=False,
 ):
     if not _onlyoffice_enabled():
         return ""
@@ -1609,31 +1693,37 @@ def _ensure_collaborative_invite_link(
     created = False
 
     if not session:
-        initial_revision = getattr(document, "current_revision", None)
-        if not initial_revision and hasattr(document, "latest_revision"):
-            try:
-                initial_revision = document.latest_revision()
-            except Exception:
-                initial_revision = None
-
-        session_kwargs = {
-            "project": project,
-            "document_type": document_type,
-            "started_by": (
-                request.user
-                if getattr(request.user, "is_authenticated", False)
-                else None
-            ),
-            "last_activity_at": timezone.now(),
-        }
-
-        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
-            session_kwargs["initial_protocol_revision"] = initial_revision
+        lock_key, lock_token = _acquire_collaborative_session_lock(
+            project,
+            document_type,
+        )
+        if not lock_token:
+            session = _get_active_collaborative_session(project, document_type)
+            if not session:
+                logger.info(
+                    "Skipped collaborative invite link creation while session lock is held for project %s document %s",
+                    project.pk,
+                    document_type,
+                )
+                if require_link:
+                    raise CollaborativeSessionBusy(COLLABORATIVE_SESSION_BUSY_MESSAGE)
+                return ""
         else:
-            session_kwargs["initial_action_list_revision"] = initial_revision
-
-        session = CollaborativeSession.objects.create(**session_kwargs)
-        created = True
+            try:
+                session = _get_active_collaborative_session(project, document_type)
+                if not session:
+                    user = getattr(request, "user", None)
+                    session = _create_collaborative_session(
+                        project,
+                        document_type,
+                        document,
+                        started_by=(
+                            user if getattr(user, "is_authenticated", False) else None
+                        ),
+                    )
+                    created = True
+            finally:
+                _release_collaborative_session_lock(lock_key, lock_token)
 
     if invitation and session:
         if _collaborative_invitation_table_ready():
@@ -1667,6 +1757,11 @@ def _ensure_collaborative_invite_link(
     if params:
         path = f"{path}?{urlencode(params)}"
     return request.build_absolute_uri(path)
+
+
+def _collaborative_session_busy_response(request, project):
+    messages.error(request, COLLABORATIVE_SESSION_BUSY_MESSAGE)
+    return redirect("synopsis:advisory_board_list", project_id=project.id)
 
 
 def _document_detail_url(project_id, document_type):
@@ -5252,7 +5347,6 @@ def collaborative_start(request, project_id, document_slug):
         )
         return redirect(_document_detail_url(project.id, document_type))
 
-    # TODO: #17 Make collaborative session creation atomic so concurrent POSTs cannot spawn two active sessions.
     active_session = _get_active_collaborative_session(project, document_type)
     if active_session:
         messages.info(
@@ -5266,29 +5360,38 @@ def collaborative_start(request, project_id, document_slug):
             token=active_session.token,
         )
 
-    initial_revision = None
-    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
-        initial_revision = (
-            getattr(document, "current_revision", None) or document.latest_revision()
+    lock_key, lock_token = _acquire_collaborative_session_lock(
+        project,
+        document_type,
+    )
+    if not lock_token:
+        messages.info(
+            request,
+            COLLABORATIVE_SESSION_BUSY_MESSAGE,
         )
-        session = CollaborativeSession.objects.create(
-            project=project,
-            document_type=document_type,
+        return redirect(_document_detail_url(project.id, document_type))
+
+    try:
+        active_session = _get_active_collaborative_session(project, document_type)
+        if active_session:
+            messages.info(
+                request,
+                "A collaborative session is already live. Opening the shared editor now.",
+            )
+            return redirect(
+                "synopsis:collaborative_edit",
+                project_id=project.id,
+                document_slug=_document_type_slug(document_type),
+                token=active_session.token,
+            )
+        session = _create_collaborative_session(
+            project,
+            document_type,
+            document,
             started_by=request.user,
-            last_activity_at=timezone.now(),
-            initial_protocol_revision=initial_revision,
         )
-    else:
-        initial_revision = (
-            getattr(document, "current_revision", None) or document.latest_revision()
-        )
-        session = CollaborativeSession.objects.create(
-            project=project,
-            document_type=document_type,
-            started_by=request.user,
-            last_activity_at=timezone.now(),
-            initial_action_list_revision=initial_revision,
-        )
+    finally:
+        _release_collaborative_session_lock(lock_key, lock_token)
 
     document_label = _document_label(document_type)
     _log_project_change(
@@ -13712,13 +13815,18 @@ def advisory_invite_create(request, project_id, member_id=None):
                 and form.cleaned_data.get("include_collaborative_link")
             )
             if include_collaborative_link:
-                collab_url = _ensure_collaborative_invite_link(
-                    request,
-                    project,
-                    CollaborativeSession.DOCUMENT_ACTION_LIST,
-                    inv,
-                    member=member,
-                )
+                try:
+                    collab_url = _ensure_collaborative_invite_link(
+                        request,
+                        project,
+                        CollaborativeSession.DOCUMENT_ACTION_LIST,
+                        inv,
+                        member=member,
+                        require_link=True,
+                    )
+                except CollaborativeSessionBusy:
+                    inv.delete()
+                    return _collaborative_session_busy_response(request, project)
                 if collab_url:
                     attachment_lines.append(("Collaborative editor", collab_url))
 
@@ -14137,13 +14245,18 @@ def advisory_send_invites_bulk(request, project_id):
 
             collab_url = ""
             if include_collaborative_link:
-                collab_url = _ensure_collaborative_invite_link(
-                    request,
-                    project,
-                    CollaborativeSession.DOCUMENT_ACTION_LIST,
-                    inv,
-                    member=member,
-                )
+                try:
+                    collab_url = _ensure_collaborative_invite_link(
+                        request,
+                        project,
+                        CollaborativeSession.DOCUMENT_ACTION_LIST,
+                        inv,
+                        member=member,
+                        require_link=True,
+                    )
+                except CollaborativeSessionBusy:
+                    inv.delete()
+                    return _collaborative_session_busy_response(request, project)
                 if collab_url:
                     attachment_lines.append(("Collaborative editor", collab_url))
 
@@ -14385,14 +14498,19 @@ def advisory_send_protocol_member(request, project_id, member_id):
         and _document_requires_file(project.protocol)
         and not protocol_closed
     ):
-        collaborative_url = _ensure_collaborative_invite_link(
-            request,
-            project,
-            CollaborativeSession.DOCUMENT_PROTOCOL,
-            None,
-            member=m,
-            feedback=fb,
-        )
+        try:
+            collaborative_url = _ensure_collaborative_invite_link(
+                request,
+                project,
+                CollaborativeSession.DOCUMENT_PROTOCOL,
+                None,
+                member=m,
+                feedback=fb,
+                require_link=True,
+            )
+        except CollaborativeSessionBusy:
+            fb.delete()
+            return _collaborative_session_busy_response(request, project)
         if collaborative_url:
             text += f"Collaborative editor: {collaborative_url}\n"
     privacy_text, privacy_html = _advisory_privacy_email_sections()
@@ -14537,14 +14655,19 @@ def advisory_send_protocol_compose_all(request, project_id):
                 text += f"Provide feedback: {feedback_url}\n"
                 html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
                 if include_collab:
-                    collaborative_url = _ensure_collaborative_invite_link(
-                        request,
-                        project,
-                        CollaborativeSession.DOCUMENT_PROTOCOL,
-                        None,
-                        member=m,
-                        feedback=fb,
-                    )
+                    try:
+                        collaborative_url = _ensure_collaborative_invite_link(
+                            request,
+                            project,
+                            CollaborativeSession.DOCUMENT_PROTOCOL,
+                            None,
+                            member=m,
+                            feedback=fb,
+                            require_link=True,
+                        )
+                    except CollaborativeSessionBusy:
+                        fb.delete()
+                        return _collaborative_session_busy_response(request, project)
                     if collaborative_url:
                         text += f"Collaborative editor: {collaborative_url}\n"
                         html += (
@@ -14698,14 +14821,19 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
             if collaborative_enabled and form.cleaned_data.get(
                 "include_collaborative_link"
             ):
-                collaborative_url = _ensure_collaborative_invite_link(
-                    request,
-                    project,
-                    CollaborativeSession.DOCUMENT_PROTOCOL,
-                    None,
-                    member=m,
-                    feedback=fb,
-                )
+                try:
+                    collaborative_url = _ensure_collaborative_invite_link(
+                        request,
+                        project,
+                        CollaborativeSession.DOCUMENT_PROTOCOL,
+                        None,
+                        member=m,
+                        feedback=fb,
+                        require_link=True,
+                    )
+                except CollaborativeSessionBusy:
+                    fb.delete()
+                    return _collaborative_session_busy_response(request, project)
                 if collaborative_url:
                     text += f"Collaborative editor: {collaborative_url}\n"
                     html += (
@@ -14866,14 +14994,19 @@ def advisory_send_action_list_compose_all(request, project_id):
                 text += f"Provide feedback: {feedback_url}\n"
                 html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
                 if include_collab:
-                    collaborative_url = _ensure_collaborative_invite_link(
-                        request,
-                        project,
-                        CollaborativeSession.DOCUMENT_ACTION_LIST,
-                        None,
-                        member=m,
-                        feedback=fb,
-                    )
+                    try:
+                        collaborative_url = _ensure_collaborative_invite_link(
+                            request,
+                            project,
+                            CollaborativeSession.DOCUMENT_ACTION_LIST,
+                            None,
+                            member=m,
+                            feedback=fb,
+                            require_link=True,
+                        )
+                    except CollaborativeSessionBusy:
+                        fb.delete()
+                        return _collaborative_session_busy_response(request, project)
                     if collaborative_url:
                         text += f"Collaborative editor: {collaborative_url}\n"
                         html += (
@@ -15033,14 +15166,19 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
             text += f"Provide feedback: {feedback_url}\n"
             html += f"<p><a href='{feedback_url}'>Provide feedback</a></p>"
             if include_collab:
-                collaborative_url = _ensure_collaborative_invite_link(
-                    request,
-                    project,
-                    CollaborativeSession.DOCUMENT_ACTION_LIST,
-                    None,
-                    member=member,
-                    feedback=fb,
-                )
+                try:
+                    collaborative_url = _ensure_collaborative_invite_link(
+                        request,
+                        project,
+                        CollaborativeSession.DOCUMENT_ACTION_LIST,
+                        None,
+                        member=member,
+                        feedback=fb,
+                        require_link=True,
+                    )
+                except CollaborativeSessionBusy:
+                    fb.delete()
+                    return _collaborative_session_busy_response(request, project)
                 if collaborative_url:
                     text += f"Collaborative editor: {collaborative_url}\n"
                     html += (

@@ -190,11 +190,15 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "ce_portal.wsgi.application"
 
-# Redis-backed cache/session configuration.
-# TODO: #98 Use the same Redis service for Celery background jobs and
-# collaborative-session locking.
+# Redis-backed cache/session configuration. In Docker, the same Redis service
+# also backs Celery and short-lived collaborative-session creation locks.
 REDIS_CACHE_URL = config("REDIS_CACHE_URL", default="").strip()
 REDIS_CELERY_URL = config("REDIS_CELERY_URL", default=REDIS_CACHE_URL).strip()
+COLLABORATIVE_SESSION_LOCK_TIMEOUT = config(
+    "COLLABORATIVE_SESSION_LOCK_TIMEOUT",
+    cast=int,
+    default=30,
+)
 USE_REDIS_CACHE = bool(REDIS_CACHE_URL and not RUNNING_TESTS)
 
 if USE_REDIS_CACHE:
