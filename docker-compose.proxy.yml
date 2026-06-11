@@ -3,7 +3,7 @@ services:
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
-      - web
+      - web-proxy
       - onlyoffice
     ports:
       - "80:80"

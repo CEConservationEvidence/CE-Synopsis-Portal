@@ -330,7 +330,6 @@ PASSWORD_RESET_TIMEOUT = config("PASSWORD_RESET_TIMEOUT", cast=int, default=8640
 
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
-SERVE_MEDIA = config("SERVE_MEDIA", cast=bool, default=False)
 
 DEFAULT_CONSOLE_EMAIL_BACKEND = "synopsis.email_backends.AttachmentSummaryConsoleEmailBackend"
 EMAIL_BACKEND = config("EMAIL_BACKEND", default=DEFAULT_CONSOLE_EMAIL_BACKEND)

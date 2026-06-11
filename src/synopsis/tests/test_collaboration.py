@@ -1245,10 +1245,21 @@ class CollaborativeForceSaveCloseTests(TestCase):
 
 
 class MediaServingUrlTests(SimpleTestCase):
-    def test_media_route_added_when_serve_media_enabled_without_debug(self):
+    def test_media_route_not_added_without_debug(self):
         import ce_portal.urls as project_urls
 
-        with override_settings(DEBUG=False, SERVE_MEDIA=True):
+        with override_settings(DEBUG=False):
+            reloaded = importlib.reload(project_urls)
+            try:
+                route_texts = [str(pattern.pattern) for pattern in reloaded.urlpatterns]
+                self.assertFalse(any(text.startswith("^media/") for text in route_texts))
+            finally:
+                importlib.reload(project_urls)
+
+    def test_media_route_added_in_debug(self):
+        import ce_portal.urls as project_urls
+
+        with override_settings(DEBUG=True):
             reloaded = importlib.reload(project_urls)
             try:
                 route_texts = [str(pattern.pattern) for pattern in reloaded.urlpatterns]

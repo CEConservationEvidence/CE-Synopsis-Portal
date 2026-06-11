@@ -14,14 +14,17 @@ In the standard internal setup:
 
 - users open the portal at `http://<server-ip>:8000`
 - users open ONLYOFFICE at `http://<server-ip>:8080`
+- the portal port is served by the `web-proxy` Nginx container, which serves
+  uploaded media from the shared media volume and proxies app traffic to Django
 - Django talks to PostgreSQL at `db:5432`
 - Django talks to Redis at `redis:6379`
 - Django talks to ONLYOFFICE internally at `http://onlyoffice`
-- ONLYOFFICE talks back to Django internally at `http://web:8000`
+- ONLYOFFICE talks back to the app proxy internally at `http://web-proxy`
 
 That last line is the one people usually get wrong. In the full Compose stack,
-`ONLYOFFICE_APP_BASE_URL` should stay `http://web:8000`. It should not be set
-to the public server IP.
+`ONLYOFFICE_APP_BASE_URL` should stay `http://web-proxy`. It should not be set
+to the public server IP or directly to `web:8000`, because uploaded media is
+served by the proxy rather than by Gunicorn.
 
 ## Info needed before deploy
 
@@ -100,7 +103,7 @@ ASYNC_EMAIL_DELIVERY=True
 CELERY_LOG_LEVEL=info
 CELERY_WORKER_CONCURRENCY=2
 
-ALLOWED_HOSTS=<server-ip>
+ALLOWED_HOSTS=<server-ip>,web-proxy,web
 CSRF_TRUSTED_ORIGINS=http://<server-ip>:8000
 
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
@@ -115,7 +118,7 @@ SERVER_EMAIL=CE Synopsis Portal <pilot-mailbox@your-organisation>
 
 ONLYOFFICE_URL=http://<server-ip>:8080
 ONLYOFFICE_INTERNAL_URL=http://onlyoffice
-ONLYOFFICE_APP_BASE_URL=http://web:8000
+ONLYOFFICE_APP_BASE_URL=http://web-proxy
 ONLYOFFICE_JWT_ENABLED=true
 ONLYOFFICE_JWT_SECRET=<onlyoffice-jwt-secret>
 ONLYOFFICE_CALLBACK_TIMEOUT=10
@@ -133,13 +136,17 @@ A few practical notes:
 
 - `ONLYOFFICE_URL` is the URL the browser opens.
 - `ONLYOFFICE_INTERNAL_URL` is how Django reaches ONLYOFFICE inside Docker.
-- `ONLYOFFICE_APP_BASE_URL` is how ONLYOFFICE reaches Django for downloads and save callbacks.
+- `ONLYOFFICE_APP_BASE_URL` is how ONLYOFFICE reaches the portal for downloads
+  and save callbacks; in this stack it must use `web-proxy` so document
+  downloads can come from the shared media volume.
 - `ONLYOFFICE_JWT_SECRET` must match what the ONLYOFFICE container uses.
 - if `SECRET_KEY` contains `$`, write it as `$$` in `.env`
 - in this Compose setup, `DB_HOST` should stay `db`
 - `REDIS_CACHE_URL` should stay `redis://redis:6379/1`
 - `REDIS_CELERY_URL` should stay `redis://redis:6379/2`
 - `COLLABORATIVE_SESSION_LOCK_TIMEOUT` controls the short Redis-backed lock around creating a live collaborative editing session.
+- if upgrading an existing `.env`, remove `SERVE_MEDIA` and change
+  `ONLYOFFICE_APP_BASE_URL` from `http://web:8000` to `http://web-proxy`.
 
 ## Deployment Steps
 
@@ -157,6 +164,7 @@ docker compose exec web python manage.py createsuperuser
 This starts:
 
 - `web`
+- `web-proxy`
 - `db`
 - `redis`
 - `worker`
@@ -218,7 +226,7 @@ The most common failure pattern is:
 - but ONLYOFFICE cannot fetch the document or send the save callback back to Django
 - because `ONLYOFFICE_APP_BASE_URL` points to the wrong host
 
-Again, in the full Compose stack, that value should stay `http://web:8000`.
+Again, in the full Compose stack, that value should stay `http://web-proxy`.
 
 ## Email / Celery Smoke Test (NOT CURRENTLY IMPLEMENTED -- skip for now)
 
