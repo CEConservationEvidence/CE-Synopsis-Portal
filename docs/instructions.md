@@ -61,7 +61,9 @@ Before deploying, check that the server has:
 - enough RAM and CPU for Django, PostgreSQL, Redis, Celery, and ONLYOFFICE (at least 5-6 GB RAM)
 
 ONLYOFFICE is not a trivial sidecar. It is one of the heavier services in this
-stack, so the server should be sized with that in mind.
+stack, so the server should be sized with that in mind. The Compose file gives
+ONLYOFFICE explicit CPU and memory reservations/limits; adjust those values in
+`.env` if the host is materially smaller or larger than the pilot server.
 
 ## Setting `.env`
 
@@ -86,6 +88,10 @@ WEB_BIND_HOST=0.0.0.0
 WEB_PORT=8000
 ONLYOFFICE_BIND_HOST=0.0.0.0
 ONLYOFFICE_PORT=8080
+ONLYOFFICE_CPU_RESERVATION=1.0
+ONLYOFFICE_CPU_LIMIT=2.0
+ONLYOFFICE_MEMORY_RESERVATION=2G
+ONLYOFFICE_MEMORY_LIMIT=3G
 
 REDIS_CACHE_URL=redis://redis:6379/1
 REDIS_CELERY_URL=redis://redis:6379/2
