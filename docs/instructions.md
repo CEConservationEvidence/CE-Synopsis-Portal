@@ -1,12 +1,4 @@
-# Internal Server Instructions
-
-This is the file to hand to whoever is deploying the portal on an internal
-server. It is written for the Docker Compose setup that is already in this
-repo: Django, PostgreSQL, Redis, Celery, and ONLYOFFICE all running together.
-
-If you only read one deployment document, read this one.
-
-## What To Use
+# Internal Server Instructions - Docker Compose
 
 For the deployment itself:
 
@@ -16,10 +8,7 @@ For the deployment itself:
   the infrastructure team decides to put the app behind the optional Caddy
   reverse proxy
 
-`README.md` is still useful as a general project overview, but it is not the
-deployment guide.
-
-## How This Stack Is Meant To Work
+## How this stack works together
 
 In the standard internal setup:
 
@@ -34,7 +23,7 @@ That last line is the one people usually get wrong. In the full Compose stack,
 `ONLYOFFICE_APP_BASE_URL` should stay `http://web:8000`. It should not be set
 to the public server IP.
 
-## Information To Have Ready Before You Start
+## Info needed before deploy
 
 The deployer will need:
 
@@ -61,7 +50,7 @@ That choice affects:
 
 Try to stay consistent and use the real browser-facing host everywhere.
 
-## Server Prerequisites
+## Server requirements
 
 Before deploying, check that the server has:
 
@@ -69,13 +58,12 @@ Before deploying, check that the server has:
 - Docker Compose plugin installed
 - ports `8000` and `8080` available
 - network access to the chosen SMTP server
-- enough RAM and CPU for Django, PostgreSQL, Redis, Celery, and ONLYOFFICE
-- persistent Docker volumes
+- enough RAM and CPU for Django, PostgreSQL, Redis, Celery, and ONLYOFFICE (at least 5-6 GB RAM)
 
 ONLYOFFICE is not a trivial sidecar. It is one of the heavier services in this
 stack, so the server should be sized with that in mind.
 
-## Setting Up `.env`
+## Setting `.env`
 
 Start by copying the server preset:
 
@@ -145,23 +133,6 @@ A few practical notes:
 - `REDIS_CACHE_URL` should stay `redis://redis:6379/1`
 - `REDIS_CELERY_URL` should stay `redis://redis:6379/2`
 
-## Plain Internal HTTP vs Optional Proxy
-
-The default setup in this repo assumes plain internal HTTP:
-
-- Django on `http://<server-ip>:8000`
-- ONLYOFFICE on `http://<server-ip>:8080`
-- no TLS termination in front of Django
-
-If the infrastructure team wants HTTPS or a reverse proxy, then they should:
-
-- review [`../docker-compose.proxy.yml`](../docker-compose.proxy.yml)
-- set `APP_DOMAIN`, `ONLYOFFICE_DOMAIN`, and `ACME_EMAIL`
-- review the `USE_X_FORWARDED_*` and secure cookie/redirect settings before go-live
-
-Those proxy/HTTPS flags should only be turned on if there really is a trusted
-proxy in front of the app.
-
 ## Deployment Steps
 
 From the server:
@@ -213,15 +184,15 @@ In this deployment:
 
 So for the internal server deployment, Redis should be treated as required.
 
-## ONLYOFFICE Smoke Test
+## ONLYOFFICE Smoke Test (VERY IMPORTANT!)
 
 After deployment:
 
 1. open `http://<server-ip>:8000`
-2. log in as a manager or author
+2. log in as a superuser
 3. open a project with a protocol or action list
-4. choose `Open collaborative editor`
-5. confirm the ONLYOFFICE editor loads
+4. choose `Open collaborative editor` (loads new window)
+5. confirm the ONLYOFFICE editor loads (so the doucment loads and the toolbar appears)
 6. make a change, return to the detail page, and confirm the revision saved
 
 If the editor page opens but the document itself does not load, check these
@@ -241,7 +212,7 @@ The most common failure pattern is:
 
 Again, in the full Compose stack, that value should stay `http://web:8000`.
 
-## Email / Celery Smoke Test
+## Email / Celery Smoke Test (NOT CURRENTLY IMPLEMENTED -- skip for now)
 
 Because review and invitation emails are queued, a healthy deployment depends
 on all of these working together:
@@ -257,6 +228,32 @@ Minimum email check:
 2. confirm the UI says `queued` or `sent`
 3. check `docker compose logs worker`
 4. confirm the recipient actually receives the email
+
+### GitHub Secrets Needed
+
+Set these repository secrets before turning the deploy job on:
+
+- `DEPLOY_HOST`
+- `DEPLOY_USER`
+- `DEPLOY_PATH`
+- `DEPLOY_SSH_KEY`
+
+Optional:
+
+- `DEPLOY_PORT`
+- `DEPLOY_KNOWN_HOSTS`
+
+Optional repository variable:
+
+- `ENABLE_DEPLOY`
+  - set this to `true` when you actually want GitHub Actions to redeploy the server
+  - if this is left unset, the deploy job stays off and only CI runs
+- `DEPLOY_BRANCH`
+  - defaults to `main` if you do not set it
+
+If you use `DEPLOY_KNOWN_HOSTS`, put the server's known-host entry there and
+the workflow will use it directly. If you leave it blank, the workflow will use
+`ssh-keyscan` at runtime.
 
 ## Useful Commands
 
