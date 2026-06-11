@@ -1653,6 +1653,53 @@ class AdvisoryInviteFlowTests(TestCase):
         self.assertFalse(member.action_list_reminder_sent)
         self.assertIsNone(member.action_list_reminder_sent_at)
 
+    @patch("synopsis.views._ensure_collaborative_invite_link")
+    @patch("synopsis.views._onlyoffice_enabled", return_value=True)
+    @patch("synopsis.views.EmailMultiAlternatives")
+    def test_single_invite_requires_selected_collaborative_link(
+        self, mock_email, mock_onlyoffice, mock_collab
+    ):
+        from .. import views
+
+        mock_collab.side_effect = views.CollaborativeSessionBusy(
+            views.COLLABORATIVE_SESSION_BUSY_MESSAGE
+        )
+        member = AdvisoryBoardMember.objects.create(
+            project=self.project,
+            first_name="Ibrahim",
+            email="ibrahim@example.com",
+        )
+        ActionList.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("action-list.docx", b"alist"),
+        )
+        due = timezone.localdate() + timedelta(days=14)
+
+        response = self.client.post(
+            reverse(
+                "synopsis:advisory_invite_create_for_member",
+                args=[self.project.id, member.id],
+            ),
+            {
+                "email": member.email,
+                "due_date": due.strftime("%Y-%m-%d"),
+                "message": "Welcome aboard",
+                "include_collaborative_link": "on",
+            },
+        )
+
+        self.assertRedirects(response, self.board_url)
+        messages = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(views.COLLABORATIVE_SESSION_BUSY_MESSAGE, messages)
+        self.assertEqual(
+            AdvisoryBoardInvitation.objects.filter(project=self.project).count(),
+            0,
+        )
+        member.refresh_from_db()
+        self.assertFalse(member.invite_sent)
+        mock_email.assert_not_called()
+        self.assertTrue(mock_collab.call_args.kwargs["require_link"])
+
     @patch("synopsis.views.EmailMultiAlternatives")
     def test_bulk_invite_skips_members_with_existing_invites(self, mock_email):
         mock_email.return_value = MagicMock()
