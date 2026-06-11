@@ -1,0 +1,169 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Manage User – Manager{% endblock %}
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+        <div>
+            <h1 class="mb-1">Manage user</h1>
+            <div class="text-muted">
+                {{ managed_user.get_full_name|default:managed_user.username }}
+            </div>
+        </div>
+        <a class="btn btn-outline-secondary" href="{% url 'synopsis:manager_dashboard' %}">Back to manager</a>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-lg-7">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Account details</h2>
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="update_user">
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in form.non_field_errors %}
+                            <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                {{ form.first_name.label_tag }}
+                                {{ form.first_name }}
+                                {{ form.first_name.errors }}
+                            </div>
+                            <div class="col-md-6">
+                                {{ form.last_name.label_tag }}
+                                {{ form.last_name }}
+                                {{ form.last_name.errors }}
+                            </div>
+                            <div class="col-12">
+                                {{ form.email.label_tag }}
+                                {{ form.email }}
+                                {% if form.email.help_text %}
+                                <div class="form-text">{{ form.email.help_text }}</div>
+                                {% endif %}
+                                {{ form.email.errors }}
+                            </div>
+                            <div class="col-md-6">
+                                {{ form.global_role.label_tag }}
+                                {{ form.global_role }}
+                                {% if form.global_role.help_text %}
+                                <div class="form-text">{{ form.global_role.help_text }}</div>
+                                {% endif %}
+                                {{ form.global_role.errors }}
+                            </div>
+                            <div class="col-md-6 d-flex align-items-end">
+                                <div class="form-check mb-2">
+                                    {{ form.is_active }}
+                                    {{ form.is_active.label_tag }}
+                                </div>
+                            </div>
+                            <div class="col-12">
+                                {{ form.assigned_projects.label_tag }}
+                                {% include "synopsis/includes/projects/assigned_projects_picker.html" with field=form.assigned_projects intro_text="Select the synopses this user should be able to work on. External authors will only see the synopses ticked here." %}
+                                {% if form.assigned_projects.help_text %}
+                                <div class="form-text">{{ form.assigned_projects.help_text }}</div>
+                                {% endif %}
+                                {{ form.assigned_projects.errors }}
+                            </div>
+                        </div>
+                        <div class="mt-4">
+                            <button class="btn btn-primary" type="submit">Save account</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Secure delete</h2>
+                    <p class="text-muted small">
+                        Deleting this user removes their account and any project-linked records that cascade from it, including role assignments and authored comments.
+                    </p>
+                    <form method="post" novalidate>
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="delete_user">
+                        <div class="mb-3">
+                            {{ delete_form.confirm_email.label_tag }}
+                            {{ delete_form.confirm_email }}
+                            {{ delete_form.confirm_email.errors }}
+                        </div>
+                        <button
+                            type="submit"
+                            class="btn btn-danger"
+                            onclick="return confirm('Delete this user account permanently?');"
+                        >
+                            Delete user
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-5">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Account status</h2>
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4">Global role</dt>
+                        <dd class="col-sm-8">{{ global_role_label }}</dd>
+                        <dt class="col-sm-4">Status</dt>
+                        <dd class="col-sm-8">{% if managed_user.is_active %}Active{% else %}Inactive{% endif %}</dd>
+                        <dt class="col-sm-4">Password</dt>
+                        <dd class="col-sm-8">{{ password_state }}</dd>
+                        <dt class="col-sm-4">Joined</dt>
+                        <dd class="col-sm-8">{{ managed_user.date_joined|date:"Y-m-d H:i" }}</dd>
+                    </dl>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Access email</h2>
+                    <p class="text-muted small">
+                        {% if managed_user.has_usable_password %}
+                        Send a password reset email so the user can regain access securely.
+                        {% else %}
+                        Send the account setup email again so the user can choose a password.
+                        {% endif %}
+                    </p>
+                    <form method="post">
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="send_access_email">
+                        <button class="btn btn-outline-primary" type="submit">
+                            {% if managed_user.has_usable_password %}
+                            Send password reset email
+                            {% else %}
+                            Resend setup email
+                            {% endif %}
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-4">
+                <div class="card-body">
+                    <h2 class="h5 mb-3">Project roles</h2>
+                    {% if project_roles %}
+                    <ul class="list-group list-group-flush">
+                        {% for role in project_roles %}
+                        <li class="list-group-item px-0 d-flex justify-content-between align-items-start gap-3">
+                            <div>
+                                <div class="fw-semibold">{{ role.project.title }}</div>
+                                <div class="small text-muted">{{ role.get_role_display }}</div>
+                            </div>
+                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' role.project.id %}">Open</a>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-muted mb-0">This user has no project role assignments.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

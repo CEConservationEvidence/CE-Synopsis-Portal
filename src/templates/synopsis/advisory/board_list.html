@@ -1,0 +1,1975 @@
+{# templates/synopsis/advisory/board_list.html #}
+{% extends "synopsis/base.html" %}
+{% load advisory_extras %}
+{% block title %}Advisory Board – {{ project.title }}{% endblock %}
+{% block page_container_class %}container-fluid px-3 px-xl-4 advisory-board-page-container{% endblock %}
+{% block content %}
+<h1 class="mb-3" id="page-top">Advisory Board – {{ project.title }}</h1>
+<style>
+    .advisory-board-page-container {
+        max-width: 90vw;
+        margin-left: auto;
+        margin-right: auto;
+    }
+
+    .advisory-board-table {
+        --ab-invite-bg: var(--bs-warning-bg-subtle, #fff7d6);
+        --ab-action-bg: var(--bs-info-bg-subtle, #d7f3fe);
+        --ab-protocol-bg: #f1e7ff;
+        --ab-synopsis-bg: #e4f4ec;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .advisory-board-table :is(th, td) {
+        padding: 0.5rem 0.9rem;
+        vertical-align: middle;
+        text-align: center;
+    }
+
+    .advisory-board-table thead th {
+        white-space: nowrap;
+        position: sticky;
+        background-color: var(--bs-table-bg, #f8f9fa);
+        background-clip: padding-box;
+        box-shadow: inset 0 -1px 0 var(--bs-border-color, #dee2e6);
+    }
+
+    .advisory-board-table thead tr:first-child th {
+        top: 0;
+        z-index: 4;
+    }
+
+    .advisory-board-table thead tr:nth-child(2) th {
+        top: 2.5rem;
+        z-index: 3;
+    }
+
+    .advisory-board-table thead th[rowspan="2"] {
+        top: 0;
+        z-index: 5;
+    }
+
+    .advisory-board-table :is(th, td).ab-status-invite {
+        background-color: var(--ab-invite-bg);
+    }
+
+    .advisory-board-table :is(th, td).ab-status-action {
+        background-color: var(--ab-action-bg);
+    }
+
+    .advisory-board-table :is(th, td).ab-status-protocol {
+        background-color: var(--ab-protocol-bg);
+    }
+
+    .advisory-board-table :is(th, td).ab-status-synopsis {
+        background-color: var(--ab-synopsis-bg);
+    }
+
+    .ab-row-status-accepted {
+        background-color: var(--bs-success-bg-subtle, #d1e7dd);
+    }
+
+    .ab-row-status-pending {
+        background-color: var(--bs-warning-bg-subtle, #fff3cd);
+    }
+
+    .ab-row-status-declined {
+        background-color: var(--bs-danger-bg-subtle, #f8d7da);
+    }
+
+    .ab-row-status-accepted td:first-child,
+    .ab-row-status-pending td:first-child,
+    .ab-row-status-declined td:first-child {
+        border-left: 4px solid var(--bs-border-color-translucent, rgba(0, 0, 0, 0.1));
+    }
+
+    .ab-row-status-accepted td:first-child {
+        border-left-color: var(--bs-success-border-subtle, #badbcc);
+    }
+
+    .ab-row-status-pending td:first-child {
+        border-left-color: var(--bs-warning-border-subtle, #ffe69c);
+    }
+
+    .ab-row-status-declined td:first-child {
+        border-left-color: var(--bs-danger-border-subtle, #f1aeb5);
+    }
+
+    .ab-status-cell {
+        white-space: nowrap;
+        text-align: center;
+    }
+
+    .reminder-inline-form .form-control {
+        min-width: 10rem;
+    }
+
+    .reminder-inline-form .btn {
+        white-space: nowrap;
+    }
+
+    .ab-row-status-declined {
+        color: var(--bs-secondary-color, #6c757d);
+        opacity: 0.75;
+    }
+
+    .ab-row-status-declined .decline-reason-btn {
+        opacity: 1;
+    }
+
+    .ab-group-header {
+        font-size: 0.95rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+    }
+
+    .advisory-board-table-wrapper {
+        max-height: 90vh;
+        overflow: auto;
+        scrollbar-gutter: stable both-edges;
+        margin-left: -0.25rem;
+        margin-right: -0.25rem;
+        padding-left: 0.25rem;
+        padding-right: 0.25rem;
+    }
+</style>
+<div class="d-flex flex-wrap gap-2 mb-3">
+    {% if total_member_count %}
+    <a class="btn btn-outline-primary" href="{% url 'synopsis:advisory_invite_compose_all' project.id %}" title="Compose invites for every listed member">Send invitations to all</a>
+    {% else %}
+    <div class="d-flex flex-column">
+        <button type="button" class="btn btn-outline-primary" disabled tabindex="-1" aria-disabled="true">Send invitations to all</button>
+        <small class="text-muted">Add at least one member to enable bulk invitations.</small>
+    </div>
+    {% endif %}
+    {% with has_protocol=protocol_feedback_state.document_ready %}
+    {% if has_protocol %}
+    <a
+        class="btn btn-outline-primary"
+        href="{% url 'synopsis:advisory_send_protocol_compose_all' project.id %}"
+        title="Send the latest protocol to all eligible members"
+    >
+        Send protocol to all
+    </a>
+    {% else %}
+    <div class="d-flex flex-column">
+        <button
+            type="button"
+            class="btn btn-outline-primary disabled"
+            tabindex="-1"
+            aria-disabled="true"
+        >
+            Send protocol to all
+        </button>
+        <small class="text-muted">Upload the protocol file to enable bulk sending.</small>
+    </div>
+    {% endif %}
+    {% endwith %}
+    {% with has_action_list=action_list_feedback_state.document_ready %}
+    {% if has_action_list %}
+    <a
+        class="btn btn-outline-primary"
+        href="{% url 'synopsis:advisory_send_action_list_compose_all' project.id %}"
+        title="Send the latest action list to all eligible members"
+    >
+        Send action list to all
+    </a>
+    {% else %}
+    <div class="d-flex flex-column">
+        <button
+            type="button"
+            class="btn btn-outline-primary disabled"
+            tabindex="-1"
+            aria-disabled="true"
+        >
+            Send action list to all
+        </button>
+        <small class="text-muted">Upload the action list file to enable bulk sending.</small>
+    </div>
+    {% endif %}
+    {% endwith %}
+    {% if total_member_count %}
+    <a
+        class="btn btn-outline-primary"
+        href="{% url 'synopsis:advisory_send_synopsis_compose_all' project.id %}"
+        title="Send the generated synopsis document to all eligible members"
+    >
+        Send synopsis to all
+    </a>
+    {% else %}
+    <div class="d-flex flex-column">
+        <button
+            type="button"
+            class="btn btn-outline-primary disabled"
+            tabindex="-1"
+            aria-disabled="true"
+        >
+            Send synopsis to all
+        </button>
+        <small class="text-muted">Add at least one member to enable bulk sending.</small>
+    </div>
+    {% endif %}
+    <button
+        type="button"
+        class="btn btn-outline-primary"
+        data-bs-toggle="modal"
+        data-bs-target="#manageRemindersModal"
+        title="View and update invitation response deadlines, synopsis deadlines, and reminder schedules"
+    >
+        Invitation &amp; synopsis deadlines
+    </button>
+    <button
+        type="button"
+        class="btn btn-outline-secondary"
+        data-bs-toggle="modal"
+        data-bs-target="#customColumnsModal"
+        title="Manage custom advisory board columns"
+    >
+        Custom columns
+    </button>
+</div>
+
+<div class="modal fade" id="addMemberModal" tabindex="-1" aria-labelledby="addMemberModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addMemberModalLabel">Add advisory board member</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form method="post" class="row g-3">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="add_member">
+                    <div class="col-12">
+                        <div class="small text-muted">
+                            Add the core contact details first. Only first name, last name and email are required.
+                            Optional details can be added now or later.
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <h6 class="mb-1">Required to add member</h6>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">First name <span class="text-danger">*</span></label>
+                        {{ form.first_name }}
+                        {{ form.first_name.errors }}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Last name <span class="text-danger">*</span></label>
+                        {{ form.last_name }}
+                        {{ form.last_name.errors }}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Email <span class="text-danger">*</span></label>
+                        {{ form.email }}
+                        {{ form.email.errors }}
+                    </div>
+                    <div class="col-12">
+                        <hr class="my-1">
+                        <h6 class="mb-1">Optional details</h6>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Title <span class="text-muted small">(optional)</span></label>
+                        {{ form.title }}
+                        {{ form.title.errors }}
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Middle name <span class="text-muted small">(optional)</span></label>
+                        {{ form.middle_name }}
+                        {{ form.middle_name.errors }}
+                    </div>
+                    <div class="col-md-8">
+                        <label class="form-label">Organisation <span class="text-muted small">(optional)</span></label>
+                        {{ form.organisation }}
+                        {{ form.organisation.errors }}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Country <span class="text-muted small">(optional)</span></label>
+                        {{ form.country }}
+                        {{ form.country.errors }}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Continent <span class="text-muted small">(optional)</span></label>
+                        {{ form.continent }}
+                        {{ form.continent.errors }}
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Notes <span class="text-muted small">(optional)</span></label>
+                        {{ form.notes }}
+                        {{ form.notes.errors }}
+                    </div>
+                    <div class="col-12">
+                        <button class="btn btn-primary">Review member details</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start gap-3">
+            <div class="d-flex flex-wrap align-items-baseline gap-2">
+                <h4 class="mb-0">Advisory Board Members</h4>
+                <span class="badge text-bg-light text-dark-emphasis fs-6">{{ total_member_count }}</span>
+                <p class="text-muted mb-0">Invited, pending and declined members listed here.</p>
+            </div>
+            <div class="d-flex flex-column align-items-lg-end gap-2 w-100 w-lg-auto">
+                <button
+                    type="button"
+                    class="btn btn-primary align-self-lg-end"
+                    data-bs-toggle="modal"
+                    data-bs-target="#addMemberModal"
+                    title="Add a new advisory board member"
+                >
+                    Add member
+                </button>
+            </div>
+        </div>
+        {% if total_member_count %}
+        <div class="table-responsive mt-4 advisory-board-table-wrapper">
+            <table class="table table-sm align-middle advisory-board-table">
+                
+                <thead class="table-light">
+                    <tr class="text-uppercase">
+                        <th rowspan="2" class="ab-status-cell" scope="col">Status</th>
+                        <th rowspan="2" class="text-muted" scope="col">
+                            <span class="visually-hidden">Edit</span>
+                        </th>
+                        {% with personal_extra=combined_fields_by_group.personal|length %}
+                        <th class="ab-group-header text-start" scope="colgroup" colspan="{{ personal_extra|add:9 }}">PERSONAL DETAILS</th>
+                        {% endwith %}
+                        {% with invitation_extra=combined_fields_by_group.invitation|length %}
+                        <th class="ab-group-header text-start ab-status-invite" scope="colgroup" colspan="{{ invitation_extra|add:4 }}">INVITATION</th>
+                        {% endwith %}
+                        {% with action_extra=combined_fields_by_group.action|length %}
+                        <th class="ab-group-header text-start ab-status-action" scope="colgroup" colspan="{{ action_extra|add:7 }}">ACTION LIST</th>
+                        {% endwith %}
+                        {% with protocol_extra=combined_fields_by_group.protocol|length %}
+                        <th class="ab-group-header text-start ab-status-protocol" scope="colgroup" colspan="{{ protocol_extra|add:7 }}">PROTOCOL</th>
+                        {% endwith %}
+                        {% with synopsis_extra=combined_fields_by_group.synopsis|length %}
+                        <th class="ab-group-header text-start ab-status-synopsis" scope="colgroup" colspan="{{ synopsis_extra|add:7 }}">SYNOPSIS</th>
+                        {% endwith %}
+                        {% with custom_extra=combined_fields_by_group.custom|length %}
+                        {% if custom_extra %}
+                        <th class="ab-group-header text-start" scope="colgroup" colspan="{{ custom_extra }}">CUSTOM COLUMNS</th>
+                        {% endif %}
+                        {% endwith %}
+                    </tr>
+                    <tr>
+                        <th class="text-center" scope="col">TITLE</th>
+                        <th class="text-center" scope="col">NAME 1</th>
+                        <th class="text-center" scope="col">NAME 2</th>
+                        <th class="text-center" scope="col">NAME 3</th>
+                        <th class="text-center" scope="col">ORGANISATION</th>
+                        <th class="text-center" scope="col">EMAIL</th>
+                        <th class="text-center" scope="col">COUNTRY</th>
+                        <th class="text-center" scope="col">CONTINENT</th>
+                        <th class="text-center" scope="col">NOTES</th>
+                        {% for field in combined_fields_by_group.personal %}
+                        <th class="text-center" scope="col">
+                            <div class="fw-semibold">{{ field.name }}</div>
+                            {% if field.description %}
+                            <small class="text-muted d-block">{{ field.description }}</small>
+                            {% endif %}
+                            <small class="text-muted">{{ field.get_data_type_display }}</small>
+                        </th>
+                        {% endfor %}
+                        <th class="ab-status-invite text-start" scope="col">INVITE SENT</th>
+                        <th class="ab-status-invite text-start" scope="col">RESPONSE DEADLINE</th>
+                        <th class="ab-status-invite text-start" scope="col">REMINDER SENT</th>
+                        <th class="ab-status-invite text-start" scope="col">ACCEPTED?</th>
+                        {% for field in combined_fields_by_group.invitation %}
+                        <th class="ab-status-invite text-start" scope="col">
+                            <div class="fw-semibold">{{ field.name }}</div>
+                            {% if field.description %}
+                            <small class="text-muted d-block">{{ field.description }}</small>
+                            {% endif %}
+                            <small class="text-muted">{{ field.get_data_type_display }}</small>
+                        </th>
+                        {% endfor %}
+                        <th class="ab-status-action text-start" scope="col">ACTION LIST SENT</th>
+                        <th class="ab-status-action text-start" scope="col">FEEDBACK DEADLINE</th>
+                        <th class="ab-status-action text-start" scope="col">REMINDER SENT</th>
+                        <th class="ab-status-action text-start" scope="col">FEEDBACK RECEIVED</th>
+                        <th class="ab-status-action text-start" scope="col">AUTHOR REPLIED</th>
+                        <th class="ab-status-action text-start" scope="col">FEEDBACK ADDED TO DOC</th>
+                        <th class="ab-status-action text-start" scope="col">FEEDBACK DOCUMENT</th>
+                        {% for field in combined_fields_by_group.action %}
+                        <th class="ab-status-action text-start" scope="col">
+                            <div class="fw-semibold">{{ field.name }}</div>
+                            {% if field.description %}
+                            <small class="text-muted d-block">{{ field.description }}</small>
+                            {% endif %}
+                            <small class="text-muted">{{ field.get_data_type_display }}</small>
+                        </th>
+                        {% endfor %}
+                        <th class="ab-status-protocol text-start" scope="col">PROTOCOL SENT</th>
+                        <th class="ab-status-protocol text-start" scope="col">FEEDBACK DEADLINE</th>
+                        <th class="ab-status-protocol text-start" scope="col">REMINDER SENT</th>
+                        <th class="ab-status-protocol text-start" scope="col">FEEDBACK RECEIVED</th>
+                        <th class="ab-status-protocol text-start" scope="col">AUTHOR REPLIED</th>
+                        <th class="ab-status-protocol text-start" scope="col">ADDED TO DOC</th>
+                        <th class="ab-status-protocol text-start" scope="col">FEEDBACK DOCUMENT</th>
+                        {% for field in combined_fields_by_group.protocol %}
+                        <th class="ab-status-protocol text-start" scope="col">
+                            <div class="fw-semibold">{{ field.name }}</div>
+                            {% if field.description %}
+                            <small class="text-muted d-block">{{ field.description }}</small>
+                            {% endif %}
+                            <small class="text-muted">{{ field.get_data_type_display }}</small>
+                        </th>
+                        {% endfor %}
+                        <th class="ab-status-synopsis text-start" scope="col">SYNOPSIS SENT</th>
+                        <th class="ab-status-synopsis text-start" scope="col">FEEDBACK DEADLINE</th>
+                        <th class="ab-status-synopsis text-start" scope="col">REMINDER SENT</th>
+                        <th class="ab-status-synopsis text-start" scope="col">FEEDBACK RECEIVED</th>
+                        <th class="ab-status-synopsis text-start" scope="col">AUTHOR REPLIED</th>
+                        <th class="ab-status-synopsis text-start" scope="col">ADDED TO DOC</th>
+                        <th class="ab-status-synopsis text-start" scope="col">FEEDBACK DOCUMENT</th>
+                        {% for field in combined_fields_by_group.synopsis %}
+                        <th class="ab-status-synopsis text-start" scope="col">
+                            <div class="fw-semibold">{{ field.name }}</div>
+                            {% if field.description %}
+                            <small class="text-muted d-block">{{ field.description }}</small>
+                            {% endif %}
+                            <small class="text-muted">{{ field.get_data_type_display }}</small>
+                        </th>
+                        {% endfor %}
+                        {% for field in combined_fields_by_group.custom %}
+                        <th class="text-start" scope="col">
+                            <div class="fw-semibold">{{ field.name }}</div>
+                            {% if field.description %}
+                            <small class="text-muted d-block">{{ field.description }}</small>
+                            {% endif %}
+                            <small class="text-muted">{{ field.get_data_type_display }}</small>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for section in member_sections %}
+                        {% if section.members %}
+                        {% with status_meta=member_status_badges|get_item:section.key %}
+                            {% if status_meta %}
+                                {% for m in section.members %}
+                                <tr class="align-middle {{ status_meta.row_class }}">
+                                    <td class="ab-status-cell"><span class="badge {{ status_meta.badge_class }}">{{ status_meta.label }}</span></td>
+                                    <td class="ab-status-cell">
+                                        {% if can_edit_members %}
+                                        <a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_edit' project.id m.id %}">Edit</a>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ m.title|default:"—" }}</td>
+                                    <td>{{ m.first_name|default:"—" }}</td>
+                                    <td>{{ m.middle_name|default:"—" }}</td>
+                                    <td>{{ m.last_name|default:"—" }}</td>
+                                    <td>{{ m.organisation|default:"—" }}</td>
+                                    <td>
+                                        {% if m.email %}
+                                        <a href="mailto:{{ m.email }}">{{ m.email }}</a>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ m.country|default:"—" }}</td>
+                                    <td>{{ m.get_continent_display|default:"—" }}</td>
+                                    <td>{{ m.notes|linebreaksbr|default:"—" }}</td>
+                                    {% for field in combined_fields_by_group.personal %}
+                                        {% if field.id in section.field_ids_by_group.personal %}
+                                            {% with value=m.custom_field_values|get_item:field.id %}
+                                    <td>
+                                        {% if value and value != '—' %}
+                                        {{ value }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                        {% if not m.is_declined %}
+                                        <div>
+                                            <a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                            {% endwith %}
+                                        {% else %}
+                                    <td><span class="text-muted">—</span></td>
+                                        {% endif %}
+                                    {% endfor %}
+                                    <td class="ab-status-invite">
+                                        {% if m.invite_sent %}
+                                        <span class="badge text-bg-success">Sent</span>
+                                        {% if m.invite_sent_at %}
+                                        <div class="small text-muted">{{ m.invite_sent_at|date:"Y-m-d" }}</div>
+                                        {% endif %}
+                                        {% elif m.is_declined %}
+                                        <span class="text-muted">Declined</span>
+                                        {% else %}
+                                        <a class="btn btn-sm btn-outline-primary" href="{% url 'synopsis:advisory_invite_create_for_member' project.id m.id %}">Compose invite</a>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-invite">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">Declined</span>
+                                        {% elif m.response == 'Y' %}
+                                        <div class="input-group input-group-sm opacity-75">
+                                            <input
+                                                type="date"
+                                                class="form-control bg-light text-muted"
+                                                value="{{ m.response_date|date:'Y-m-d' }}"
+                                                aria-label="Response deadline for {{ m.first_name|default:m.email }}"
+                                                disabled
+                                                readonly
+                                            >
+                                            <button
+                                                class="btn btn-outline-secondary btn-sm"
+                                                type="button"
+                                                disabled
+                                                aria-disabled="true"
+                                                tabindex="-1"
+                                            >Locked</button>
+                                        </div>
+                                        <div class="small text-muted mt-1">Accepted</div>
+                                        {% else %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_deadline' project.id m.id 'invite' %}"
+                                            class="reminder-inline-form"
+                                        >
+                                            {% csrf_token %}
+                                            <div class="input-group input-group-sm">
+                                                <input
+                                                    type="date"
+                                                    name="reminder_date"
+                                                    class="form-control"
+                                                    value="{{ m.response_date|date:'Y-m-d' }}"
+                                                    min="{{ minimum_allowed_deadline_date|date:'Y-m-d' }}"
+                                                    aria-label="Response deadline for {{ m.first_name|default:m.email }}"
+                                                >
+                                                <button class="btn btn-outline-primary btn-sm">Save</button>
+                                                {% if m.response_date %}
+                                                <button
+                                                    class="btn btn-outline-secondary btn-sm"
+                                                    type="submit"
+                                                    name="clear_deadline"
+                                                    value="1"
+                                                >Clear</button>
+                                                {% endif %}
+                                            </div>
+                                        </form>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-invite">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">Declined</span>
+                                        {% elif m.reminder_sent %}
+                                        <span class="badge text-bg-success">Yes</span>
+                                        {% if m.reminder_sent_at %}
+                                        <div class="small text-muted">{{ m.reminder_sent_at|date:"Y-m-d" }}</div>
+                                        {% endif %}
+                                        {% elif m.response == 'Y' %}
+                                        <span class="text-muted">Not needed</span>
+                                        {% elif m.response_date %}
+                                        <span class="badge text-bg-warning text-dark">Set</span>
+                                        <div class="small text-muted">{{ m.response_date|date:"Y-m-d" }}</div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-invite">
+                                        {% if m.is_declined %}
+                                        <div class="small text-muted">
+                                            {% if m.declined_at %}
+                                                {{ m.declined_at|date:"Y-m-d H:i" }}
+                                            {% elif m.response_date %}
+                                                {{ m.response_date|date:"Y-m-d" }}
+                                            {% endif %}
+                                        </div>
+                                        {% elif m.response == 'Y' %}
+                                        <div class="small text-muted">
+                                            {% if m.accepted_at %}
+                                                {{ m.accepted_at|date:"Y-m-d H:i" }}
+                                            {% elif m.response_date %}
+                                                {{ m.response_date|date:"Y-m-d" }}
+                                            {% endif %}
+                                        </div>
+                                        {% endif %}
+                                        {% if m.response %}
+                                        <div class="d-flex align-items-center justify-content-center gap-2 flex-wrap w-100">
+                                            <span class="badge {% if m.response == 'Y' %}text-bg-success{% elif m.is_declined %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{{ m.response }}</span>
+                                            {% if m.response == 'Y' and m.participation_statement %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#accepted-message-{{ m.id }}"
+                                                aria-label="View participation note for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View note
+                                            </button>
+                                            {% endif %}
+                                            {% if m.is_declined and m.participation_statement %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#decline-reason-{{ m.id }}"
+                                                aria-label="View decline reason for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View reason
+                                            </button>
+                                            {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    {% for field in combined_fields_by_group.invitation %}
+                                        {% if field.id in section.field_ids_by_group.invitation %}
+                                            {% with value=m.custom_field_values|get_item:field.id %}
+                                    <td class="ab-status-invite">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif value and value != '—' %}
+                                        {{ value }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                        {% if not m.is_declined %}
+                                        <div>
+                                            <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                            {% endwith %}
+                                        {% else %}
+                                    <td class="ab-status-invite"><span class="text-muted">—</span></td>
+                                        {% endif %}
+                                    {% endfor %}
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.sent_action_list_at %}
+                                        <span class="badge text-bg-success">Sent</span>
+                                        <div class="small text-muted">{{ m.sent_action_list_at|date:"Y-m-d" }}</div>
+                                        {% else %}
+                                        {% if action_list_feedback_state.document_ready %}
+                                        <a
+                                            class="btn btn-sm btn-outline-secondary"
+                                            href="{% url 'synopsis:advisory_send_action_list_compose_member' project.id m.id %}"
+                                            title="Send the latest action list to this member"
+                                        >Send</a>
+                                        {% else %}
+                                        <div class="d-inline-flex flex-column align-items-center gap-1">
+                                            <button
+                                                class="btn btn-sm btn-outline-secondary disabled"
+                                                type="button"
+                                                tabindex="-1"
+                                                aria-disabled="true"
+                                                disabled
+                                            >Send</button>
+                                            <small class="text-muted text-nowrap">Upload action list first.</small>
+                                        </div>
+                                        {% endif %}
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.feedback_on_action_list_deadline %}
+                                        {{ m.feedback_on_action_list_deadline|date:"Y-m-d H:i" }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.action_list_reminder_sent %}
+                                        <span class="badge text-bg-success">Sent</span>
+                                        {% if m.action_list_reminder_sent_at %}
+                                        <div class="small text-muted">{{ m.action_list_reminder_sent_at|date:"Y-m-d" }}</div>
+                                        {% endif %}
+                                        {% elif m.feedback_on_action_list_deadline %}
+                                        <span class="badge text-bg-warning">Scheduled</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.latest_action_list_feedback_obj.submitted_at|date:"Y-m-d" }}</div>
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#action-list-feedback-{{ m.id }}"
+                                                aria-label="View action list feedback for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View feedback
+                                            </button>
+                                        </div>
+                                        {% elif m.feedback_on_action_list_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.feedback_on_action_list_received|date:"Y-m-d" }}</div>
+                                        </div>
+                                        {% elif m.feedback_on_action_list_deadline %}
+                                        <span class="badge text-bg-warning">Awaiting</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.wm_replied %}
+                                        <span class="badge text-bg-success">Replied</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not yet</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_action_list_flag' project.id m.id 'author-replied' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.wm_replied %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.wm_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.wm_replied %}Clear{% else %}Mark replied{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_action_list_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.wm_replied %}
+                                        <span class="badge text-bg-success">Replied</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not yet</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_action_list_flag' project.id m.id 'author-replied' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.wm_replied %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.wm_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.wm_replied %}Clear{% else %}Mark replied{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.sent_action_list_at %}
+                                        <span class="text-muted small">Awaiting feedback</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.added_to_action_list_doc %}
+                                        <span class="badge text-bg-success">Added</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_action_list_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_action_list_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_action_list_doc %}Clear feedback added to document{% else %}Mark feedback added to document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_action_list_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_action_list_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.added_to_action_list_doc %}
+                                        <span class="badge text-bg-success">Added</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_action_list_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_action_list_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_action_list_doc %}Clear feedback added to document{% else %}Mark feedback added to document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_action_list_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.uploaded_document %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span class="badge text-bg-success">Document received</span>
+                                            {% if m.latest_action_list_feedback_obj.submitted_at %}
+                                            <div class="text-muted small">{{ m.latest_action_list_feedback_obj.submitted_at|date:"Y-m-d H:i" }}</div>
+                                            {% endif %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#action-list-feedback-document-{{ m.id }}"
+                                                aria-label="View action list feedback document for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View document
+                                            </button>
+                                        </div>
+                                        {% elif m.latest_action_list_feedback_obj and m.latest_action_list_feedback_obj.content %}
+                                        <span class="text-muted small">No document</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    {% for field in combined_fields_by_group.action %}
+                                        {% if field.id in section.field_ids_by_group.action %}
+                                            {% with value=m.custom_field_values|get_item:field.id %}
+                                    <td class="ab-status-action">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif value and value != '—' %}
+                                        {{ value }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                        {% if not m.is_declined %}
+                                        <div>
+                                            <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                            {% endwith %}
+                                        {% else %}
+                                    <td class="ab-status-action"><span class="text-muted">—</span></td>
+                                        {% endif %}
+                                    {% endfor %}
+                                    <td class="ab-status-protocol">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.sent_protocol_at %}
+                                        <span class="badge text-bg-success">Sent</span>
+                                        <div class="small text-muted">{{ m.sent_protocol_at|date:"Y-m-d" }}</div>
+                                        {% else %}
+                                        {% if protocol_feedback_state.document_ready %}
+                                        <a
+                                            class="btn btn-sm btn-outline-secondary"
+                                            href="{% url 'synopsis:advisory_send_protocol_compose_member' project.id m.id %}"
+                                            title="Send the latest protocol to this member"
+                                        >Send</a>
+                                        {% else %}
+                                        <div class="d-inline-flex flex-column align-items-center gap-1">
+                                            <button
+                                                class="btn btn-sm btn-outline-secondary disabled"
+                                                type="button"
+                                                tabindex="-1"
+                                                aria-disabled="true"
+                                                disabled
+                                            >Send</button>
+                                            <small class="text-muted text-nowrap">Upload protocol first.</small>
+                                        </div>
+                                        {% endif %}
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-protocol">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.feedback_on_protocol_deadline %}
+                                        {{ m.feedback_on_protocol_deadline|date:"Y-m-d H:i" }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-protocol">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.protocol_reminder_sent %}
+                                        <span class="badge text-bg-success">Sent</span>
+                                        {% if m.protocol_reminder_sent_at %}
+                                        <div class="small text-muted">{{ m.protocol_reminder_sent_at|date:"Y-m-d" }}</div>
+                                        {% endif %}
+                                        {% elif m.feedback_on_protocol_deadline %}
+                                        <span class="badge text-bg-warning">Scheduled</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-protocol">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_feedback and m.latest_feedback.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.latest_feedback.submitted_at|date:"Y-m-d" }}</div>
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#protocol-feedback-{{ m.id }}"
+                                                aria-label="View protocol feedback for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View feedback
+                                            </button>
+                                        </div>
+                                        {% elif m.feedback_on_protocol_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.feedback_on_protocol_received|date:"Y-m-d" }}</div>
+                                        </div>
+                                        {% elif m.feedback_on_protocol_deadline %}
+                                        <span class="badge text-bg-warning">Awaiting</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-protocol">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_feedback and m.latest_feedback.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.protocol_author_replied %}
+                                        <span class="badge text-bg-success">Replied</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not yet</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_protocol_flag' project.id m.id 'author-replied' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.protocol_author_replied %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.protocol_author_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.protocol_author_replied %}Clear{% else %}Mark replied{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_protocol_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.protocol_author_replied %}
+                                        <span class="badge text-bg-success">Replied</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not yet</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_protocol_flag' project.id m.id 'author-replied' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.protocol_author_replied %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.protocol_author_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.protocol_author_replied %}Clear{% else %}Mark replied{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.sent_protocol_at %}
+                                        <span class="text-muted small">Awaiting feedback</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-protocol">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_feedback and m.latest_feedback.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.added_to_protocol_doc %}
+                                        <span class="badge text-bg-success">Added</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_protocol_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_protocol_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_protocol_doc %}Clear feedback added to protocol document{% else %}Mark feedback added to protocol document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_protocol_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_protocol_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.added_to_protocol_doc %}
+                                        <span class="badge text-bg-success">Added</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_protocol_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_protocol_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_protocol_doc %}Clear feedback added to protocol document{% else %}Mark feedback added to protocol document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_protocol_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-protocol">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_feedback and m.latest_feedback.uploaded_document %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span class="badge text-bg-success">Document received</span>
+                                            {% if m.latest_feedback.submitted_at %}
+                                            <div class="text-muted small">{{ m.latest_feedback.submitted_at|date:"Y-m-d H:i" }}</div>
+                                            {% endif %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#protocol-feedback-document-{{ m.id }}"
+                                                aria-label="View protocol feedback document for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View document
+                                            </button>
+                                        </div>
+                                        {% elif m.latest_feedback and m.latest_feedback.content %}
+                                        <span class="text-muted small">No document</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    {% for field in combined_fields_by_group.protocol %}
+                                        {% if field.id in section.field_ids_by_group.protocol %}
+                                            {% with value=m.custom_field_values|get_item:field.id %}
+                                    <td class="ab-status-protocol">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif value and value != '—' %}
+                                        {{ value }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                        {% if not m.is_declined %}
+                                        <div>
+                                            <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                            {% endwith %}
+                                        {% else %}
+                                    <td class="ab-status-protocol"><span class="text-muted">—</span></td>
+                                        {% endif %}
+                                    {% endfor %}
+                                    <td class="ab-status-synopsis">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.sent_synopsis_at %}
+                                        <span class="badge text-bg-success">Sent</span>
+                                        <div class="small text-muted">{{ m.sent_synopsis_at|date:"Y-m-d" }}</div>
+                                        {% else %}
+                                            {% if m.response == 'Y' and m.participation_confirmed %}
+                                        <a
+                                            class="btn btn-sm btn-outline-secondary"
+                                            href="{% url 'synopsis:advisory_send_synopsis_compose_member' project.id m.id %}"
+                                            title="Send the generated synopsis document to this member"
+                                        >Send</a>
+                                            {% elif m.response == 'Y' %}
+                                        <span class="text-muted small">Confirm first</span>
+                                            {% else %}
+                                        <span class="text-muted">—</span>
+                                            {% endif %}
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-synopsis">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.sent_synopsis_at and m.response == 'Y' %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_deadline' project.id m.id 'synopsis' %}"
+                                            class="reminder-inline-form"
+                                        >
+                                            {% csrf_token %}
+                                            <div class="input-group input-group-sm">
+                                                <input
+                                                    type="datetime-local"
+                                                    name="deadline"
+                                                    class="form-control"
+                                                    value="{{ m.feedback_on_synopsis_deadline|date:'Y-m-d\\TH:i' }}"
+                                                    min="{{ minimum_allowed_deadline_date|date:'Y-m-d' }}T00:00"
+                                                    aria-label="Synopsis feedback deadline for {{ m.first_name|default:m.email }}"
+                                                >
+                                                <button class="btn btn-outline-primary btn-sm">Save</button>
+                                                {% if m.feedback_on_synopsis_deadline %}
+                                                <button
+                                                    class="btn btn-outline-secondary btn-sm"
+                                                    type="submit"
+                                                    name="clear_deadline"
+                                                    value="1"
+                                                >Clear</button>
+                                                {% endif %}
+                                            </div>
+                                        </form>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-synopsis">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.synopsis_reminder_sent %}
+                                        <span class="badge text-bg-success">Sent</span>
+                                        {% if m.synopsis_reminder_sent_at %}
+                                        <div class="small text-muted">{{ m.synopsis_reminder_sent_at|date:"Y-m-d" }}</div>
+                                        {% endif %}
+                                        {% elif m.feedback_on_synopsis_deadline %}
+                                        <span class="badge text-bg-warning">Scheduled</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-synopsis">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_synopsis_feedback_obj and m.latest_synopsis_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.latest_synopsis_feedback_obj.submitted_at|date:"Y-m-d" }}</div>
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#synopsis-feedback-{{ m.id }}"
+                                                aria-label="View synopsis feedback for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View feedback
+                                            </button>
+                                        </div>
+                                        {% elif m.feedback_on_synopsis_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span aria-hidden="true">✅</span>
+                                            <div class="small text-muted">{{ m.feedback_on_synopsis_received|date:"Y-m-d" }}</div>
+                                            {% if can_edit_members %}
+                                            <form
+                                                method="post"
+                                                action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'feedback-received' %}"
+                                                class="d-inline-flex justify-content-center"
+                                            >
+                                                {% csrf_token %}
+                                                <input type="hidden" name="value" value="0">
+                                                <button
+                                                    class="btn btn-link btn-sm p-0"
+                                                    type="submit"
+                                                    aria-label="Clear synopsis feedback received for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                                >Clear</button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                        {% elif m.sent_synopsis_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        <span class="badge text-bg-warning">Awaiting</span>
+                                            {% if can_edit_members %}
+                                            <form
+                                                method="post"
+                                                action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'feedback-received' %}"
+                                                class="d-inline-flex justify-content-center"
+                                            >
+                                                {% csrf_token %}
+                                                <input type="hidden" name="value" value="1">
+                                                <button
+                                                    class="btn btn-link btn-sm p-0"
+                                                    type="submit"
+                                                    aria-label="Mark synopsis feedback received for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                                >Mark received</button>
+                                            </form>
+                                            {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-synopsis">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_synopsis_feedback_obj and m.latest_synopsis_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.synopsis_author_replied %}
+                                        <span class="badge text-bg-success">Replied</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not yet</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'author-replied' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.synopsis_author_replied %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.synopsis_author_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.synopsis_author_replied %}Clear{% else %}Mark replied{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_synopsis_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.synopsis_author_replied %}
+                                        <span class="badge text-bg-success">Replied</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not yet</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'author-replied' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.synopsis_author_replied %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.synopsis_author_replied %}Clear author replied{% else %}Mark author replied{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.synopsis_author_replied %}Clear{% else %}Mark replied{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.sent_synopsis_at %}
+                                        <span class="text-muted small">Awaiting feedback</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-synopsis">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_synopsis_feedback_obj and m.latest_synopsis_feedback_obj.submitted_at %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.added_to_synopsis_doc %}
+                                        <span class="badge text-bg-success">Added</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_synopsis_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_synopsis_doc %}Clear feedback added to synopsis document{% else %}Mark feedback added to synopsis document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_synopsis_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% elif m.feedback_on_synopsis_received %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                        {% if m.added_to_synopsis_doc %}
+                                        <span class="badge text-bg-success">Added</span>
+                                        {% else %}
+                                        <span class="badge text-bg-secondary">Not added</span>
+                                        {% endif %}
+                                        {% if can_edit_members %}
+                                        <form
+                                            method="post"
+                                            action="{% url 'synopsis:advisory_member_set_synopsis_flag' project.id m.id 'added-to-doc' %}"
+                                            class="d-inline-flex justify-content-center"
+                                        >
+                                            {% csrf_token %}
+                                            <input type="hidden" name="value" value="{% if m.added_to_synopsis_doc %}0{% else %}1{% endif %}">
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="submit"
+                                                aria-label="{% if m.added_to_synopsis_doc %}Clear feedback added to synopsis document{% else %}Mark feedback added to synopsis document{% endif %} for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                {% if m.added_to_synopsis_doc %}Clear{% else %}Mark added{% endif %}
+                                            </button>
+                                        </form>
+                                        {% endif %}
+                                        </div>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="ab-status-synopsis">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif m.latest_synopsis_feedback_obj and m.latest_synopsis_feedback_obj.uploaded_document %}
+                                        <div class="d-flex flex-column align-items-center gap-1">
+                                            <span class="badge text-bg-success">Document received</span>
+                                            {% if m.latest_synopsis_feedback_obj.submitted_at %}
+                                            <div class="text-muted small">{{ m.latest_synopsis_feedback_obj.submitted_at|date:"Y-m-d H:i" }}</div>
+                                            {% endif %}
+                                            <button
+                                                class="btn btn-link btn-sm p-0"
+                                                type="button"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#synopsis-feedback-document-{{ m.id }}"
+                                                aria-label="View synopsis feedback document for {{ m.first_name }}{% if m.last_name %} {{ m.last_name }}{% endif %}"
+                                            >
+                                                View document
+                                            </button>
+                                        </div>
+                                        {% elif m.latest_synopsis_feedback_obj and m.latest_synopsis_feedback_obj.content %}
+                                        <span class="text-muted small">No document</span>
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    {% for field in combined_fields_by_group.synopsis %}
+                                        {% if field.id in section.field_ids_by_group.synopsis %}
+                                            {% with value=m.custom_field_values|get_item:field.id %}
+                                    <td class="ab-status-synopsis">
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif value and value != '—' %}
+                                        {{ value }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                        {% if not m.is_declined %}
+                                        <div>
+                                            <a class="btn btn-link btn-sm p-0 text-reset" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                            {% endwith %}
+                                        {% else %}
+                                    <td class="ab-status-synopsis"><span class="text-muted">—</span></td>
+                                        {% endif %}
+                                    {% endfor %}
+                                    {% for field in combined_fields_by_group.custom %}
+                                        {% if field.id in section.field_ids_by_group.custom %}
+                                            {% with value=m.custom_field_values|get_item:field.id %}
+                                    <td>
+                                        {% if m.is_declined %}
+                                        <span class="text-muted">—</span>
+                                        {% elif value and value != '—' %}
+                                        {{ value }}
+                                        {% else %}
+                                        <span class="text-muted">—</span>
+                                        {% endif %}
+                                        {% if not m.is_declined %}
+                                        <div>
+                                            <a class="btn btn-link btn-sm p-0" href="{% url 'synopsis:advisory_member_custom_data' project.id m.id %}?field={{ field.id }}">Edit</a>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                            {% endwith %}
+                                        {% else %}
+                                    <td><span class="text-muted">—</span></td>
+                                        {% endif %}
+                                    {% endfor %}
+                                </tr>
+                                {% endfor %}
+                            {% endif %}
+                        {% endwith %}
+                        {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No advisory board members yet.</p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="modal fade" id="manageRemindersModal" tabindex="-1" aria-labelledby="manageRemindersModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="manageRemindersModalLabel">Invitation &amp; synopsis deadlines</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-light border mb-4">
+                    <div class="fw-semibold mb-1">How this works</div>
+                    <div class="small text-muted">
+                        Use this modal for invitation response deadlines and synopsis feedback deadlines only.
+                    </div>
+                    <div class="small text-muted mt-2">
+                        Protocol and action list feedback deadlines are managed from the
+                        <a href="{% url 'synopsis:protocol_detail' project.id %}">Protocol</a>
+                        and
+                        <a href="{% url 'synopsis:action_list_detail' project.id %}">Action list</a>
+                        pages once those documents have been sent. The member table on this page shows the currently saved document feedback deadlines.
+                    </div>
+                    <div class="small text-muted mt-2">
+                        Changing a deadline updates portal tracking and future reminders. It does not send the member a new email immediately.
+                    </div>
+                </div>
+                <div class="card border-warning-subtle">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                            <div>
+                                <h6 class="fw-semibold mb-1">Invitation response</h6>
+                                <div class="small text-muted">For members added to the board who still need a response deadline.</div>
+                            </div>
+                            <span class="badge text-bg-warning">{{ pending_reminders }}</span>
+                        </div>
+                        <div class="small mb-3">
+                            <div><strong>Current date:</strong>
+                                {% if pending_reminders and pending_reminder_dates %}
+                                    {{ pending_reminder_dates.0|date:"Y-m-d" }}
+                                    {% if pending_reminder_dates|length > 1 %}
+                                        <span class="text-muted">({{ pending_reminder_dates|length }} different dates)</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted">Not set</span>
+                                {% endif %}
+                            </div>
+                            {% if initial_reminder_log %}
+                            <div class="text-muted mt-1">
+                                First scheduled {{ initial_reminder_log.created_at|date:"Y-m-d H:i" }}
+                            </div>
+                            {% endif %}
+                        </div>
+                        <form method="post" action="{% url 'synopsis:advisory_schedule_reminders' project.id %}">
+                            {% csrf_token %}
+                            <div class="mb-2">
+                                {{ reminder_form.reminder_date.label_tag }}
+                                {{ reminder_form.reminder_date }}
+                                {{ reminder_form.reminder_date.errors }}
+                                <div class="form-text">Must be at least tomorrow.</div>
+                            </div>
+                            <button class="btn btn-outline-primary btn-sm">Set invitation deadline</button>
+                        </form>
+                    </div>
+                </div>
+                <div class="card border-primary-subtle mt-3">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                            <div>
+                                <h6 class="fw-semibold mb-1">Synopsis feedback</h6>
+                                <div class="small text-muted">For accepted members who have already been sent the synopsis.</div>
+                            </div>
+                            <span class="badge text-bg-primary">{{ synopsis_pending_count }}</span>
+                        </div>
+                        <div class="small mb-3">
+                            <div><strong>Current date:</strong>
+                                {% if synopsis_pending_count and synopsis_pending_dates %}
+                                    {{ synopsis_pending_dates.0|date:"Y-m-d H:i" }}
+                                    {% if synopsis_pending_dates|length > 1 %}
+                                        <span class="text-muted">({{ synopsis_pending_dates|length }} different dates)</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted">Not set</span>
+                                {% endif %}
+                            </div>
+                            {% if initial_synopsis_reminder_log %}
+                            <div class="text-muted mt-1">
+                                First scheduled {{ initial_synopsis_reminder_log.created_at|date:"Y-m-d H:i" }}
+                            </div>
+                            {% endif %}
+                        </div>
+                        <form method="post" action="{% url 'synopsis:advisory_schedule_synopsis_reminders' project.id %}">
+                            {% csrf_token %}
+                            <div class="mb-2">
+                                {{ synopsis_reminder_form.deadline.label_tag }}
+                                {{ synopsis_reminder_form.deadline }}
+                                {{ synopsis_reminder_form.deadline.errors }}
+                                <div class="form-text">{{ synopsis_reminder_form.deadline.help_text }}</div>
+                            </div>
+                            <button class="btn btn-outline-primary btn-sm">Set synopsis deadline</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="customColumnsModal" tabindex="-1" aria-labelledby="customColumnsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="customColumnsModalLabel">Custom columns</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small mb-3">Add, move, and remove custom advisory board columns from one place.</p>
+                {% if custom_fields %}
+                <ul class="list-group list-group-flush mb-3">
+                    {% for field in custom_fields %}
+                    <li class="list-group-item px-0">
+                        <div class="d-flex justify-content-between align-items-start gap-3">
+                            <div class="flex-grow-1">
+                                <div class="fw-semibold">{{ field.name }}</div>
+                                <div class="d-flex flex-wrap gap-2 mb-1">
+                                    <span class="badge text-bg-light text-muted border">{{ field.get_data_type_display }}</span>
+                                    <span class="badge text-bg-light border text-muted">{{ field.get_display_group_display }}</span>
+                                    {% if field.sections %}
+                                        {% for label in field.section_labels %}
+                                    <span class="badge bg-secondary-subtle text-dark">{{ label }}</span>
+                                        {% endfor %}
+                                    {% endif %}
+                                </div>
+                                {% if field.description %}
+                                <div class="small text-muted mb-2">{{ field.description }}</div>
+                                {% endif %}
+                                <form method="post" class="d-flex align-items-center gap-2 flex-wrap">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="custom_field_move">
+                                    <input type="hidden" name="field_id" value="{{ field.id }}">
+                                    <label class="form-label small mb-0" for="display-group-{{ field.id }}">Show in</label>
+                                    <select
+                                        id="display-group-{{ field.id }}"
+                                        name="display_group"
+                                        class="form-select form-select-sm w-auto"
+                                    >
+                                        {% for value, label in custom_field_group_choices %}
+                                            {% if field.display_group == value %}
+                                                <option value="{{ value }}" selected>{{ label }}</option>
+                                            {% else %}
+                                                <option value="{{ value }}">{{ label }}</option>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </select>
+                                    <button class="btn btn-outline-secondary btn-sm">Move</button>
+                                </form>
+                            </div>
+                            <form method="post" action="" onsubmit="return confirm('Remove this custom column?');">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="custom_field_delete">
+                                <input type="hidden" name="field_id" value="{{ field.id }}">
+                                <button class="btn btn-sm btn-outline-danger">Remove</button>
+                            </form>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-muted mb-2">No custom columns yet.</p>
+                {% endif %}
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="custom_field_add">
+                    <div class="mb-2">
+                        {{ custom_field_form.name.label_tag }}
+                        {{ custom_field_form.name }}
+                        {{ custom_field_form.name.errors }}
+                    </div>
+                    <div class="mb-2">
+                        {{ custom_field_form.data_type.label_tag }}
+                        {{ custom_field_form.data_type }}
+                        {{ custom_field_form.data_type.errors }}
+                    </div>
+                    <div class="mb-2">
+                        {{ custom_field_form.display_group.label_tag }}
+                        {{ custom_field_form.display_group }}
+                        {{ custom_field_form.display_group.errors }}
+                        {% if custom_field_form.display_group.help_text %}
+                        <div class="form-text">{{ custom_field_form.display_group.help_text }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="mb-2">
+                        {{ custom_field_form.description.label_tag }}
+                        {{ custom_field_form.description }}
+                        {{ custom_field_form.description.errors }}
+                    </div>
+                    <button class="btn btn-outline-primary btn-sm">Add column</button>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if accepted_members_with_statement %}
+    {% for accepted_member in accepted_members_with_statement %}
+    <div class="modal fade" id="accepted-message-{{ accepted_member.id }}" tabindex="-1" aria-labelledby="accepted-message-{{ accepted_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="accepted-message-{{ accepted_member.id }}-label">Participation note</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="border rounded bg-light p-3 text-start text-break">
+                        {% if accepted_member.participation_statement %}
+                        <p class="mb-0" style="white-space: pre-wrap;">{{ accepted_member.participation_statement }}</p>
+                        {% else %}
+                        <p class="text-muted mb-0">No note provided.</p>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+{% if declined_members_with_reason %}
+    {% for declined_member in declined_members_with_reason %}
+    <div class="modal fade" id="decline-reason-{{ declined_member.id }}" tabindex="-1" aria-labelledby="decline-reason-{{ declined_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="decline-reason-{{ declined_member.id }}-label">Decline reason</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="border rounded bg-light p-3 text-start text-break">
+                        {% if declined_member.participation_statement %}
+                        <p class="mb-0" style="white-space: pre-wrap;">{{ declined_member.participation_statement }}</p>
+                        {% else %}
+                        <p class="text-muted mb-0">No reason provided.</p>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+{% if action_list_feedback_members %}
+    {% for action_feedback_member in action_list_feedback_members %}
+        {% with feedback=action_feedback_member.latest_action_list_feedback_obj %}
+    <div class="modal fade" id="action-list-feedback-{{ action_feedback_member.id }}" tabindex="-1" aria-labelledby="action-list-feedback-{{ action_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="action-list-feedback-{{ action_feedback_member.id }}-label">Action list feedback</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="mb-3">
+                        <h6 class="mb-2">Comments</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.content %}
+                            <p class="mb-0" style="white-space: pre-wrap;">{{ feedback.content }}</p>
+                            {% else %}
+                            <p class="text-muted mb-0">No written comments were provided.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <h6 class="mb-2">Uploaded document</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.uploaded_document %}
+                            <a href="{{ feedback.uploaded_document.url }}">{{ feedback.latest_document_label }}</a>
+                            {% else %}
+                            <p class="text-muted mb-0">No document was uploaded.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+            {% if feedback.uploaded_document %}
+    <div class="modal fade" id="action-list-feedback-document-{{ action_feedback_member.id }}" tabindex="-1" aria-labelledby="action-list-feedback-document-{{ action_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="action-list-feedback-document-{{ action_feedback_member.id }}-label">Action list feedback document</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="border rounded bg-light p-3 mb-3 text-break">
+                        <div class="fw-semibold">{{ feedback.latest_document_label }}</div>
+                        <div class="small text-muted">Stored with this action list feedback submission.</div>
+                    </div>
+                    <a class="btn btn-outline-primary" href="{{ feedback.uploaded_document.url }}" target="_blank" rel="noopener">Open document</a>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+            {% endif %}
+        {% endwith %}
+    {% endfor %}
+{% endif %}
+
+{% if protocol_feedback_members %}
+    {% for protocol_feedback_member in protocol_feedback_members %}
+        {% with feedback=protocol_feedback_member.latest_feedback %}
+    <div class="modal fade" id="protocol-feedback-{{ protocol_feedback_member.id }}" tabindex="-1" aria-labelledby="protocol-feedback-{{ protocol_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="protocol-feedback-{{ protocol_feedback_member.id }}-label">Protocol feedback</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="mb-3">
+                        <h6 class="mb-2">Comments</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.content %}
+                            <p class="mb-0" style="white-space: pre-wrap;">{{ feedback.content }}</p>
+                            {% else %}
+                            <p class="text-muted mb-0">No written comments were provided.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <h6 class="mb-2">Uploaded document</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.uploaded_document %}
+                            <a href="{{ feedback.uploaded_document.url }}">{{ feedback.latest_document_label }}</a>
+                            {% else %}
+                            <p class="text-muted mb-0">No document was uploaded.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+            {% if feedback.uploaded_document %}
+    <div class="modal fade" id="protocol-feedback-document-{{ protocol_feedback_member.id }}" tabindex="-1" aria-labelledby="protocol-feedback-document-{{ protocol_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="protocol-feedback-document-{{ protocol_feedback_member.id }}-label">Protocol feedback document</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="border rounded bg-light p-3 mb-3 text-break">
+                        <div class="fw-semibold">{{ feedback.latest_document_label }}</div>
+                        <div class="small text-muted">Stored with this protocol feedback submission.</div>
+                    </div>
+                    <a class="btn btn-outline-primary" href="{{ feedback.uploaded_document.url }}" target="_blank" rel="noopener">Open document</a>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+            {% endif %}
+        {% endwith %}
+    {% endfor %}
+{% endif %}
+
+{% if synopsis_feedback_members %}
+    {% for synopsis_feedback_member in synopsis_feedback_members %}
+    <div class="modal fade" id="synopsis-feedback-{{ synopsis_feedback_member.id }}" tabindex="-1" aria-labelledby="synopsis-feedback-{{ synopsis_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="synopsis-feedback-{{ synopsis_feedback_member.id }}-label">Synopsis feedback</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% with feedback=synopsis_feedback_member.latest_synopsis_feedback_obj %}
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="mb-3">
+                        <h6 class="mb-2">Comments</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.content %}
+                            <p class="mb-0" style="white-space: pre-wrap;">{{ feedback.content }}</p>
+                            {% else %}
+                            <p class="text-muted mb-0">No written comments were provided.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div>
+                        <h6 class="mb-2">Uploaded document</h6>
+                        <div class="border rounded bg-light p-3 text-break">
+                            {% if feedback.uploaded_document %}
+                            <a href="{{ feedback.uploaded_document.url }}">{{ feedback.latest_document_label }}</a>
+                            {% else %}
+                            <p class="text-muted mb-0">No document was uploaded.</p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endwith %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+{% endif %}
+
+{% if synopsis_feedback_members %}
+    {% for synopsis_feedback_member in synopsis_feedback_members %}
+        {% with feedback=synopsis_feedback_member.latest_synopsis_feedback_obj %}
+            {% if feedback.uploaded_document %}
+    <div class="modal fade" id="synopsis-feedback-document-{{ synopsis_feedback_member.id }}" tabindex="-1" aria-labelledby="synopsis-feedback-document-{{ synopsis_feedback_member.id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="synopsis-feedback-document-{{ synopsis_feedback_member.id }}-label">Synopsis feedback document</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-start">
+                    {% if feedback.submitted_at %}
+                    <p class="small text-muted mb-3">Submitted {{ feedback.submitted_at|date:"Y-m-d H:i" }}</p>
+                    {% endif %}
+                    <div class="border rounded bg-light p-3 mb-3 text-break">
+                        <div class="fw-semibold">{{ feedback.latest_document_label }}</div>
+                        <div class="small text-muted">Stored with this synopsis feedback submission.</div>
+                    </div>
+                    <a class="btn btn-outline-primary" href="{{ feedback.uploaded_document.url }}" target="_blank" rel="noopener">Open document</a>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+            {% endif %}
+        {% endwith %}
+    {% endfor %}
+{% endif %}
+<div class="d-flex justify-content-end mt-4">
+    <a class="btn btn-outline-secondary btn-sm" href="#page-top">Back to top</a>
+</div>
+</div>
+</div>
+{% if form.errors or open_add_member_modal %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var modalElement = document.getElementById("addMemberModal");
+    if (modalElement && window.bootstrap) {
+        window.bootstrap.Modal.getOrCreateInstance(modalElement).show();
+    }
+});
+</script>
+{% endif %}
+{% if custom_field_form.errors %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var modalElement = document.getElementById("customColumnsModal");
+    if (modalElement && window.bootstrap) {
+        window.bootstrap.Modal.getOrCreateInstance(modalElement).show();
+    }
+});
+</script>
+{% endif %}
+{% if reminder_form.errors %}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var modalElement = document.getElementById("manageRemindersModal");
+    if (modalElement && window.bootstrap) {
+        window.bootstrap.Modal.getOrCreateInstance(modalElement).show();
+    }
+});
+</script>
+{% endif %}
+{% endblock %}

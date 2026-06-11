@@ -247,7 +247,7 @@ class CollaborativeClosureTests(TestCase):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Window closed")
-        self.assertTemplateUsed(response, "synopsis/collaborative_editor.html")
+        self.assertTemplateUsed(response, "synopsis/documents/collaborative_editor.html")
 
         start_url = reverse(
             "synopsis:collaborative_start",

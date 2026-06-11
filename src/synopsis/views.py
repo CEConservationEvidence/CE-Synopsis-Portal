@@ -1723,7 +1723,7 @@ def _collaborative_access_closed_response(
 ):
     return render(
         request,
-        "synopsis/collaborative_editor.html",
+        "synopsis/documents/collaborative_editor.html",
         {
             "project": project,
             "document_label": document_label,
@@ -3214,7 +3214,7 @@ def dashboard(request):
         )
     return render(
         request,
-        "synopsis/dashboard.html",
+        "synopsis/dashboards/dashboard.html",
         {
             "active_projects": active_projects,
             "completed_projects": completed_projects,
@@ -3469,7 +3469,7 @@ def project_create(request):
                 pform.fields["start_date"].initial = today
                 return render(
                     request,
-                    "synopsis/project_create.html",
+                    "synopsis/projects/create.html",
                     {
                         "form": pform,
                         "authors_form": aform,
@@ -3565,7 +3565,7 @@ def project_create(request):
 
             return render(
                 request,
-                "synopsis/project_create_confirm.html",
+                "synopsis/projects/create_confirm.html",
                 {
                     "project_form": hidden_project_form,
                     "authors_form_hidden": hidden_authors_form,
@@ -3588,7 +3588,7 @@ def project_create(request):
 
     return render(
         request,
-        "synopsis/project_create.html",
+        "synopsis/projects/create.html",
         {
             "form": pform,
             "authors_form": aform,
@@ -3756,7 +3756,7 @@ def project_hub(request, project_id):
 
     return render(
         request,
-        "synopsis/project_hub.html",
+        "synopsis/projects/hub.html",
         {
             "project": project,
             "protocol": protocol,
@@ -3895,7 +3895,7 @@ def project_authors_manage(request, project_id):
 
     return render(
         request,
-        "synopsis/project_authors_form.html",
+        "synopsis/projects/authors_form.html",
         {
             "project": project,
             "form": form,
@@ -3959,7 +3959,7 @@ def project_funder_add(request, project_id):
 
     return render(
         request,
-        "synopsis/funder_form.html",
+        "synopsis/funders/form.html",
         {
             "project": project,
             "form": form,
@@ -4033,7 +4033,7 @@ def project_funder_edit(request, project_id, funder_id):
 
     return render(
         request,
-        "synopsis/funder_form.html",
+        "synopsis/funders/form.html",
         {
             "project": project,
             "form": form,
@@ -4061,7 +4061,7 @@ def project_funder_delete(request, project_id, funder_id):
 
     return render(
         request,
-        "synopsis/funder_confirm_delete.html",
+        "synopsis/funders/confirm_delete.html",
         {"project": project, "funder": funder},
     )
 
@@ -4088,7 +4088,7 @@ def project_delete(request, project_id):
 
     return render(
         request,
-        "synopsis/project_confirm_delete.html",
+        "synopsis/projects/confirm_delete.html",
         {
             "project": project,
             "form": form,
@@ -4474,7 +4474,7 @@ def protocol_detail(request, project_id):
 
     return render(
         request,
-        "synopsis/protocol_detail.html",
+        "synopsis/documents/protocol_detail.html",
         {
             "project": project,
             "protocol": protocol,
@@ -4939,7 +4939,7 @@ def action_list_detail(request, project_id):
 
     return render(
         request,
-        "synopsis/action_list_detail.html",
+        "synopsis/documents/action_list_detail.html",
         {
             "project": project,
             "action_list": action_list,
@@ -5389,7 +5389,7 @@ def collaborative_edit(request, project_id, document_slug, token):
         )
         return render(
             request,
-            "synopsis/collaborative_editor.html",
+            "synopsis/documents/collaborative_editor.html",
             {
                 "project": project,
                 "document_label": document_label,
@@ -5548,7 +5548,7 @@ def collaborative_edit(request, project_id, document_slug, token):
 
     return render(
         request,
-        "synopsis/collaborative_editor.html",
+        "synopsis/documents/collaborative_editor.html",
         {
             "project": project,
             "session": session,
@@ -5622,7 +5622,7 @@ def collaborative_leave(request, project_id, document_slug, token):
 
     return render(
         request,
-        "synopsis/collaborative_editor.html",
+        "synopsis/documents/collaborative_editor.html",
         {
             "project": project,
             "document_label": document_label,
@@ -5995,7 +5995,7 @@ def action_list_delete_file(request, project_id):
 
     return render(
         request,
-        "synopsis/action_list_confirm_delete.html",
+        "synopsis/documents/action_list_confirm_delete.html",
         {
             "project": project,
             "action_list": action_list,
@@ -6088,7 +6088,7 @@ def action_list_clear_text(request, project_id):
 
     return render(
         request,
-        "synopsis/action_list_confirm_delete.html",
+        "synopsis/documents/action_list_confirm_delete.html",
         {
             "project": project,
             "action_list": action_list,
@@ -6142,7 +6142,7 @@ def action_list_delete(request, project_id):
 
     return render(
         request,
-        "synopsis/action_list_confirm_delete.html",
+        "synopsis/documents/action_list_confirm_delete.html",
         {
             "project": project,
             "action_list": action_list,
@@ -6324,7 +6324,7 @@ def protocol_delete_file(request, project_id):
 
     return render(
         request,
-        "synopsis/protocol_confirm_delete.html",
+        "synopsis/documents/protocol_confirm_delete.html",
         {
             "project": project,
             "protocol": protocol,
@@ -6478,7 +6478,7 @@ def protocol_clear_text(request, project_id):
 
     return render(
         request,
-        "synopsis/protocol_confirm_delete.html",
+        "synopsis/documents/protocol_confirm_delete.html",
         {
             "project": project,
             "protocol": protocol,
@@ -6530,7 +6530,7 @@ def protocol_delete(request, project_id):
 
     return render(
         request,
-        "synopsis/protocol_confirm_delete.html",
+        "synopsis/documents/protocol_confirm_delete.html",
         {
             "project": project,
             "protocol": protocol,
@@ -6566,7 +6566,7 @@ def manager_dashboard(request):
 
     return render(
         request,
-        "synopsis/manager_dashboard.html",
+        "synopsis/dashboards/manager_dashboard.html",
         {"user_entries": _manager_user_entries(), "project_entries": project_entries},
     )
 
@@ -6779,7 +6779,7 @@ def manager_user_edit(request, user_id):
 
     return render(
         request,
-        "synopsis/user_edit.html",
+        "synopsis/accounts/user_edit.html",
         {
             "managed_user": managed_user,
             "form": form,
@@ -6974,7 +6974,7 @@ def project_settings(request, project_id):
 
     return render(
         request,
-        "synopsis/project_settings_form.html",
+        "synopsis/projects/settings_form.html",
         context,
     )
 
@@ -7044,7 +7044,7 @@ def user_create(request):
     else:
         form = CreateUserForm()
 
-    return render(request, "synopsis/user_create.html", {"form": form})
+    return render(request, "synopsis/accounts/user_create.html", {"form": form})
 
 
 # TODO: #22 Add search, filtering, and pagination to the advisory board list once larger projects need it.
@@ -7078,7 +7078,7 @@ def advisory_board_list(request, project_id):
                 member_form=AdvisoryBoardMemberForm(),
                 custom_field_form=form,
             )
-            return render(request, "synopsis/advisory_board_list.html", context)
+            return render(request, "synopsis/advisory/board_list.html", context)
 
         if action == "custom_field_delete":
             field_id = request.POST.get("field_id")
@@ -7113,7 +7113,7 @@ def advisory_board_list(request, project_id):
                 member_form=AdvisoryBoardMemberForm(),
                 custom_field_form=AdvisoryCustomFieldForm(project),
             )
-            return render(request, "synopsis/advisory_board_list.html", context)
+            return render(request, "synopsis/advisory/board_list.html", context)
 
         if action == "add_member_confirm":
             form = AdvisoryBoardMemberForm(request.POST)
@@ -7124,13 +7124,13 @@ def advisory_board_list(request, project_id):
                 messages.success(request, "Advisory Board member added.")
                 return redirect("synopsis:advisory_board_list", project_id=project.id)
             context = _advisory_board_context(project, user=request.user, member_form=form)
-            return render(request, "synopsis/advisory_board_list.html", context)
+            return render(request, "synopsis/advisory/board_list.html", context)
 
         if action == "add_member_back":
             form = AdvisoryBoardMemberForm(request.POST)
             context = _advisory_board_context(project, user=request.user, member_form=form)
             context["open_add_member_modal"] = True
-            return render(request, "synopsis/advisory_board_list.html", context)
+            return render(request, "synopsis/advisory/board_list.html", context)
 
         if action == "add_member":
             form = AdvisoryBoardMemberForm(request.POST)
@@ -7138,7 +7138,7 @@ def advisory_board_list(request, project_id):
                 cleaned = form.cleaned_data
                 return render(
                     request,
-                    "synopsis/advisory_member_confirm.html",
+                    "synopsis/advisory/member_confirm.html",
                     {
                         "project": project,
                         "form": form,
@@ -7146,11 +7146,11 @@ def advisory_board_list(request, project_id):
                     },
                 )
             context = _advisory_board_context(project, user=request.user, member_form=form)
-            return render(request, "synopsis/advisory_board_list.html", context)
+            return render(request, "synopsis/advisory/board_list.html", context)
 
     form = AdvisoryBoardMemberForm()
     context = _advisory_board_context(project, user=request.user, member_form=form)
-    return render(request, "synopsis/advisory_board_list.html", context)
+    return render(request, "synopsis/advisory/board_list.html", context)
 
 
 @login_required
@@ -7164,7 +7164,7 @@ def advisory_schedule_reminders(request, project_id):
 
     if not form.is_valid():
         context = _advisory_board_context(project, user=request.user, reminder_form=form)
-        return render(request, "synopsis/advisory_board_list.html", context)
+        return render(request, "synopsis/advisory/board_list.html", context)
 
     reminder_date = form.cleaned_data["reminder_date"]
     updated = 0
@@ -7372,7 +7372,7 @@ def advisory_schedule_synopsis_reminders(request, project_id):
             user=request.user,
             synopsis_form=form,
         )
-        return render(request, "synopsis/advisory_board_list.html", context)
+        return render(request, "synopsis/advisory/board_list.html", context)
 
     deadline = form.cleaned_data["deadline"]
     if timezone.is_naive(deadline):
@@ -7881,7 +7881,7 @@ def advisory_member_edit(request, project_id, member_id):
 
     return render(
         request,
-        "synopsis/advisory_member_edit.html",
+        "synopsis/advisory/member_edit.html",
         {
             "project": project,
             "member": member,
@@ -7972,7 +7972,7 @@ def reference_batch_list(request, project_id):
 
     return render(
         request,
-        "synopsis/reference_batch_list.html",
+        "synopsis/references/batch_list.html",
         {
             "project": project,
             "batches": batches,
@@ -8142,7 +8142,7 @@ def reference_library(request):
 
     return render(
         request,
-        "synopsis/reference_library.html",
+        "synopsis/references/library.html",
         {
             "references": refs,
             "q": q,
@@ -8172,7 +8172,7 @@ def library_batch_list(request):
 
     return render(
         request,
-        "synopsis/library_batch_list.html",
+        "synopsis/references/library_batch_list.html",
         {"batches": batches, "q": q},
     )
 
@@ -8239,7 +8239,7 @@ def library_batch_detail(request, batch_id):
 
     return render(
         request,
-        "synopsis/library_batch_detail.html",
+        "synopsis/references/library_batch_detail.html",
         {
             "batch": batch,
             "references": refs,
@@ -8382,7 +8382,7 @@ def library_reference_batch_upload(request):
 
     return render(
         request,
-        "synopsis/library_reference_batch_upload.html",
+        "synopsis/references/library_reference_batch_upload.html",
         {"form": form},
     )
 
@@ -8469,7 +8469,7 @@ def library_reference_detail(request, reference_id):
 
     return render(
         request,
-        "synopsis/library_reference_detail.html",
+        "synopsis/references/library_reference_detail.html",
         {
             "reference": library_reference,
             "form": form,
@@ -10233,7 +10233,7 @@ def reference_summary_board(request, project_id):
 
     return render(
         request,
-        "synopsis/reference_summary_board.html",
+        "synopsis/references/summary_board.html",
         {
             "project": project,
             "columns": columns,
@@ -11061,7 +11061,7 @@ def reference_summary_detail(request, project_id, summary_id):
 
     return render(
         request,
-        "synopsis/reference_summary_detail.html",
+        "synopsis/references/summary_detail.html",
         {
             "project": project,
             "summary": summary,
@@ -11167,7 +11167,7 @@ def _project_synopsis_workspace(
     *,
     workspace_mode="evidence",
     redirect_name="project_synopsis_structure",
-    template_name="synopsis/project_synopsis_structure.html",
+    template_name="synopsis/projects/synopsis_structure.html",
 ):
     project = get_object_or_404(Project, pk=project_id)
     if not _user_can_edit_project(request.user, project):
@@ -12421,7 +12421,7 @@ def project_synopsis_structure(request, project_id):
         project_id,
         workspace_mode="evidence",
         redirect_name="project_synopsis_structure",
-        template_name="synopsis/project_synopsis_structure.html",
+        template_name="synopsis/projects/synopsis_structure.html",
     )
 
 
@@ -12432,7 +12432,7 @@ def project_synopsis_evidence(request, project_id):
         project_id,
         workspace_mode="evidence",
         redirect_name="project_synopsis_evidence",
-        template_name="synopsis/project_synopsis_structure.html",
+        template_name="synopsis/projects/synopsis_structure.html",
     )
 
 
@@ -12443,7 +12443,7 @@ def project_synopsis_narrative(request, project_id):
         project_id,
         workspace_mode="narrative",
         redirect_name="project_synopsis_narrative",
-        template_name="synopsis/project_synopsis_narrative.html",
+        template_name="synopsis/projects/synopsis_narrative.html",
     )
 
 
@@ -13222,7 +13222,7 @@ def reference_batch_detail(request, project_id, batch_id):
 
     return render(
         request,
-        "synopsis/reference_batch_detail.html",
+        "synopsis/references/batch_detail.html",
         {
             "project": project,
             "batch": batch,
@@ -13460,7 +13460,7 @@ def reference_batch_upload(request, project_id):
 
     return render(
         request,
-        "synopsis/reference_batch_upload.html",
+        "synopsis/references/batch_upload.html",
         {"project": project, "form": form},
     )
 
@@ -13775,7 +13775,7 @@ def advisory_invite_create(request, project_id, member_id=None):
             return redirect("synopsis:advisory_board_list", project_id=project.id)
     return render(
         request,
-        "synopsis/advisory_invite_form.html",
+        "synopsis/advisory/invite_form.html",
         {
             "project": project,
             "form": form,
@@ -13837,7 +13837,7 @@ def advisory_invite_reply(request, token, choice):
             )
             return render(
                 request,
-                "synopsis/invite_thanks.html",
+                "synopsis/advisory/invite_thanks.html",
                 {"member": member, "project": inv.project, "accepted": True},
             )
 
@@ -13898,7 +13898,7 @@ def advisory_invite_reply(request, token, choice):
 
                 return render(
                     request,
-                    "synopsis/invite_thanks.html",
+                    "synopsis/advisory/invite_thanks.html",
                     {
                         "member": member,
                         "project": inv.project,
@@ -13908,7 +13908,7 @@ def advisory_invite_reply(request, token, choice):
 
         return render(
             request,
-            "synopsis/advisory_participation_confirm.html",
+            "synopsis/advisory/participation_confirm.html",
             {
                 "project": inv.project,
                 "invitation": inv,
@@ -13955,13 +13955,13 @@ def advisory_invite_reply(request, token, choice):
 
         return render(
             request,
-            "synopsis/invite_thanks.html",
+            "synopsis/advisory/invite_thanks.html",
             {"member": member, "project": inv.project, "accepted": inv.accepted},
         )
 
     return render(
         request,
-        "synopsis/advisory_participation_decline.html",
+        "synopsis/advisory/participation_decline.html",
         {
             "project": inv.project,
             "invitation": inv,
@@ -14204,7 +14204,7 @@ def advisory_send_invites_bulk(request, project_id):
 
     return render(
         request,
-        "synopsis/advisory_invite_compose_all.html",
+        "synopsis/advisory/invite_compose_all.html",
         {
             "project": project,
             "form": form,
@@ -14597,7 +14597,7 @@ def advisory_send_protocol_compose_all(request, project_id):
         )
     return render(
         request,
-        "synopsis/protocol_send_compose.html",
+        "synopsis/documents/protocol_send_compose.html",
         {
             "project": project,
             "form": form,
@@ -14761,7 +14761,7 @@ def advisory_send_protocol_compose_member(request, project_id, member_id):
         )
     return render(
         request,
-        "synopsis/protocol_send_compose.html",
+        "synopsis/documents/protocol_send_compose.html",
         {
             "project": project,
             "form": form,
@@ -14926,7 +14926,7 @@ def advisory_send_action_list_compose_all(request, project_id):
         )
     return render(
         request,
-        "synopsis/action_list_send_compose.html",
+        "synopsis/documents/action_list_send_compose.html",
         {
             "project": project,
             "form": form,
@@ -15096,7 +15096,7 @@ def advisory_send_action_list_compose_member(request, project_id, member_id):
         )
     return render(
         request,
-        "synopsis/action_list_send_compose.html",
+        "synopsis/documents/action_list_send_compose.html",
         {
             "project": project,
             "form": form,
@@ -15284,7 +15284,7 @@ def advisory_send_synopsis_compose_all(request, project_id):
         )
     return render(
         request,
-        "synopsis/synopsis_send_compose.html",
+        "synopsis/documents/synopsis_send_compose.html",
         {
             "project": project,
             "form": form,
@@ -15383,7 +15383,7 @@ def advisory_send_synopsis_compose_member(request, project_id, member_id):
         form = SynopsisSendForm(initial={"due_date": deadline_initial})
     return render(
         request,
-        "synopsis/synopsis_send_compose.html",
+        "synopsis/documents/synopsis_send_compose.html",
         {
             "project": project,
             "form": form,
@@ -15476,7 +15476,7 @@ def advisory_member_custom_data(request, project_id, member_id):
 
     return render(
         request,
-        "synopsis/advisory_member_custom_data.html",
+        "synopsis/advisory/member_custom_data.html",
         {
             "project": project,
             "member": member,
@@ -15512,7 +15512,7 @@ def protocol_feedback(request, token):
     if member and member.response == "N":
         return render(
             request,
-            "synopsis/protocol_feedback_thanks.html",
+            "synopsis/documents/protocol_feedback_thanks.html",
             {
                 "project": project,
                 "error": "This link is no longer available because you declined the invitation.",
@@ -15525,7 +15525,7 @@ def protocol_feedback(request, token):
         )
         return render(
             request,
-            "synopsis/protocol_feedback_thanks.html",
+            "synopsis/documents/protocol_feedback_thanks.html",
             {
                 "project": project,
                 "feedback": fb,
@@ -15541,7 +15541,7 @@ def protocol_feedback(request, token):
         )
         return render(
             request,
-            "synopsis/protocol_feedback_thanks.html",
+            "synopsis/documents/protocol_feedback_thanks.html",
             {
                 "project": project,
                 "feedback": fb,
@@ -15594,7 +15594,7 @@ def protocol_feedback(request, token):
                     )
             return render(
                 request,
-                "synopsis/protocol_feedback_thanks.html",
+                "synopsis/documents/protocol_feedback_thanks.html",
                 {
                     "project": project,
                     "feedback": fb,
@@ -15606,7 +15606,7 @@ def protocol_feedback(request, token):
 
     return render(
         request,
-        "synopsis/protocol_feedback_form.html",
+        "synopsis/documents/protocol_feedback_form.html",
         {
             "project": project,
             "token": fb.token,
@@ -15640,7 +15640,7 @@ def action_list_feedback(request, token):
     if member and member.response == "N":
         return render(
             request,
-            "synopsis/action_list_feedback_thanks.html",
+            "synopsis/documents/action_list_feedback_thanks.html",
             {
                 "project": project,
                 "error": "This link is no longer available because you declined the invitation.",
@@ -15653,7 +15653,7 @@ def action_list_feedback(request, token):
         )
         return render(
             request,
-            "synopsis/action_list_feedback_thanks.html",
+            "synopsis/documents/action_list_feedback_thanks.html",
             {
                 "project": project,
                 "feedback": fb,
@@ -15669,7 +15669,7 @@ def action_list_feedback(request, token):
         )
         return render(
             request,
-            "synopsis/action_list_feedback_thanks.html",
+            "synopsis/documents/action_list_feedback_thanks.html",
             {
                 "project": project,
                 "feedback": fb,
@@ -15726,7 +15726,7 @@ def action_list_feedback(request, token):
 
             return render(
                 request,
-                "synopsis/action_list_feedback_thanks.html",
+                "synopsis/documents/action_list_feedback_thanks.html",
                 {
                     "project": project,
                     "feedback": fb,
@@ -15738,7 +15738,7 @@ def action_list_feedback(request, token):
 
     return render(
         request,
-        "synopsis/action_list_feedback_form.html",
+        "synopsis/documents/action_list_feedback_form.html",
         {
             "project": project,
             "token": fb.token,
@@ -15771,7 +15771,7 @@ def synopsis_feedback(request, token):
     if member and member.response == "N":
         return render(
             request,
-            "synopsis/synopsis_feedback_thanks.html",
+            "synopsis/documents/synopsis_feedback_thanks.html",
             {
                 "project": project,
                 "error": "This link is no longer available because you declined the invitation.",
@@ -15784,7 +15784,7 @@ def synopsis_feedback(request, token):
         )
         return render(
             request,
-            "synopsis/synopsis_feedback_thanks.html",
+            "synopsis/documents/synopsis_feedback_thanks.html",
             {
                 "project": project,
                 "feedback": fb,
@@ -15837,7 +15837,7 @@ def synopsis_feedback(request, token):
                     )
             return render(
                 request,
-                "synopsis/synopsis_feedback_thanks.html",
+                "synopsis/documents/synopsis_feedback_thanks.html",
                 {
                     "project": project,
                     "feedback": fb,
@@ -15849,7 +15849,7 @@ def synopsis_feedback(request, token):
 
     return render(
         request,
-        "synopsis/synopsis_feedback_form.html",
+        "synopsis/documents/synopsis_feedback_form.html",
         {
             "project": project,
             "token": fb.token,
