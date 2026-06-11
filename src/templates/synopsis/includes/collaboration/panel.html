@@ -1,0 +1,120 @@
+{# TODO: #91 Test repeated save actions during a live collaborative session and harden the flow if versions can race. #}
+{# TODO: #93 Confirm that token-based advisory access and signed-in author access are scoped correctly for every shared document route. #}
+
+
+{% if collaborative_enabled %}
+{% with doc_ready=collaborative_document_ready %}
+{% with help_modal_slug=document_label|slugify %}
+<div class="border rounded bg-light p-3 mt-3">
+    {% if collaborative_session %}
+    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
+        <div>
+            <div class="fw-semibold mb-1">Collaborative editor is live</div>
+            <div class="small text-muted">
+                Started {{ collaborative_session.started_at|date:"Y-m-d H:i" }}
+                {% if collaborative_session.started_by %}
+                by {{ collaborative_session.started_by.get_full_name|default:collaborative_session.started_by.username }}
+                {% endif %}
+                {% if collaborative_session.last_activity_at %}
+                · Last activity {{ collaborative_session.last_activity_at|date:"Y-m-d H:i" }}
+                {% endif %}
+            </div>
+            {% if collaborative_session.last_participant_name %}
+            <div class="small text-muted mt-1">Latest update by {{ collaborative_session.last_participant_name }}</div>
+            {% endif %}
+            <div class="small text-muted mt-1">
+                This is the current shared {{ document_label|lower }} session. Click <strong>Open collaborative editor</strong> to join it or return to it.
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+            <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                data-bs-toggle="modal"
+                data-bs-target="#{{ help_modal_slug }}-workflow-help"
+            >
+                How collaborative editing works
+            </button>
+            {% if can_edit_documents %}
+            <form
+                method="post"
+                action="{{ collaborative_start_url }}"
+                class="d-inline"
+                target="_blank"
+                rel="noopener"
+            >
+                {% csrf_token %}
+                <button type="submit" class="btn btn-primary btn-sm">
+                    Open collaborative editor
+                </button>
+            </form>
+            {% endif %}
+            {% if collaborative_can_override and collaborative_force_end_url %}
+            <form
+                method="post"
+                action="{{ collaborative_force_end_url }}"
+                class="d-inline"
+                onsubmit="return confirm('Save the current shared version and close this collaborative editor for everyone? Use this only when all participants are finished with this editing round.');"
+            >
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-danger btn-sm">Save current version and close shared editor</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+    {% if collaborative_can_override and collaborative_force_end_url %}
+    <div class="small text-muted mt-2">
+        Going back to the {{ document_label|lower }} page only leaves your own browser tab. Use this button only once, when everyone is finished with this shared editing round. If OnlyOffice has unsaved changes, the portal saves a new revision before closing the shared editor for everyone.
+    </div>
+    <div class="small text-muted mt-1">
+        Advisory review deadlines do not close author editing automatically. Collaborative editing stays available until the feedback window is closed on this page.
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 align-items-start align-items-lg-center">
+        <div>
+            <div class="fw-semibold mb-1">Collaborative editing</div>
+            <div class="small text-muted">
+                Open the shared OnlyOffice editor for this {{ document_label|lower }}. If no live session exists yet, the portal starts one. If another author opens it first, the same button joins that shared session.
+            </div>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            <button
+                type="button"
+                class="btn btn-outline-secondary btn-sm"
+                data-bs-toggle="modal"
+                data-bs-target="#{{ help_modal_slug }}-workflow-help"
+            >
+                How collaborative editing works
+            </button>
+            {% if can_edit_documents %}
+            <form
+                method="post"
+                action="{{ collaborative_start_url }}"
+                class="d-inline"
+                target="_blank"
+                rel="noopener"
+            >
+                {% csrf_token %}
+                <button
+                    type="submit"
+                    class="btn btn-outline-primary btn-sm{% if not doc_ready %} disabled{% endif %}"
+                    {% if not doc_ready %}disabled tabindex="-1" aria-disabled="true"{% endif %}
+                >
+                    Open collaborative editor
+                </button>
+            </form>
+            {% if not doc_ready %}
+            <small class="text-muted">Upload the {{ document_label|lower }} before opening the collaborative editor.</small>
+            {% endif %}
+            {% else %}
+            <span class="small text-muted">You need edit access to open the collaborative editor.</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% include "synopsis/includes/collaboration/workflow_modal.html" with workflow_help_slug=help_modal_slug %}
+{% endwith %}
+{% endwith %}
+{% endif %}

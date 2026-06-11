@@ -1,0 +1,565 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Collaborative Editor – {{ document_label }}{% endblock %}
+{% block nav_actions %}{% endblock %}
+{% block page_container_class %}container-fluid p-0{% endblock %}
+{% block content %}
+{# TODO: #45 Recover cleanly if a user loses connection and then reconnects to a live session. #}
+{# TODO: #46 Explain autosave behavior in the editor UI so collaborators know when changes are persisted. #}
+{# TODO: #44 Warn before closing the tab while a collaborative editing session is still open. #}
+{# External advisory reviewers reach this page through secure feedback or invitation tokens. Project authors and managers use normal signed-in access. #}
+{# TODO: #57 Show a last-edited timestamp, and ideally who made the latest change if OnlyOffice exposes it. #}
+{# TODO: #58 Add document version history or snapshots that collaborators can inspect and restore. #}
+{# TODO: #59 Support inline document comments, either through OnlyOffice features or a portal-side comment layer. #}
+{# TODO: #60 Show who is currently viewing or editing the document in real time. #}
+<style>
+  .collab-top {
+    background: linear-gradient(180deg, #f7f9fc 0%, #ffffff 100%);
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  }
+
+  .collab-header-card {
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 1rem;
+    background: #ffffff;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+    padding: 1rem 1.1rem;
+  }
+
+  .collab-header-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1rem;
+    align-items: start;
+  }
+
+  .collab-kicker {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #5b6b7f;
+    margin-bottom: 0.35rem;
+  }
+
+  .collab-title {
+    font-size: 1.45rem;
+    line-height: 1.15;
+    margin: 0;
+  }
+
+  .collab-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .collab-project-inline {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #475569;
+  }
+
+  .collab-project {
+    font-weight: 600;
+    color: #1f2937;
+    margin-top: 0.3rem;
+  }
+
+  .collab-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.65rem;
+  }
+
+  .collab-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    background: #eef3f8;
+    color: #334155;
+    font-size: 0.9rem;
+  }
+
+  .collab-pill-strong {
+    background: #e7f1ff;
+    color: #0b4a8b;
+  }
+
+  .collab-link {
+    font-size: 0.95rem;
+    text-decoration: none;
+  }
+
+  .collab-link:hover {
+    text-decoration: underline;
+  }
+
+  .collab-header-actions {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: flex-end;
+    gap: 0.75rem;
+  }
+
+  .collab-header-status {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .collab-review-summary {
+    margin-top: 0.5rem;
+    color: #475569;
+    font-size: 0.92rem;
+    line-height: 1.4;
+  }
+
+  .collab-active-participants {
+    margin-top: 0.5rem;
+    color: #475569;
+    font-size: 0.92rem;
+    line-height: 1.4;
+  }
+
+  .collab-active-participants strong {
+    color: #0f172a;
+  }
+
+  .collab-save-status {
+    font-weight: 600;
+  }
+
+  .collab-save-status.is-saved {
+    color: #166534;
+  }
+
+  .collab-review-guide {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid rgba(15, 23, 42, 0.08);
+  }
+
+  .collab-review-guide summary {
+    cursor: pointer;
+    font-weight: 700;
+    color: #0f172a;
+    list-style: none;
+  }
+
+  .collab-review-guide summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .collab-review-guide-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 0.8rem;
+    background: #f8fafc;
+    padding: 0.7rem 0.9rem;
+  }
+
+  .collab-review-guide-summary small {
+    color: #5b6b7f;
+    font-weight: 500;
+  }
+
+  .collab-review-guide-body {
+    margin-top: 0.65rem;
+    padding: 0 0.15rem;
+  }
+
+  .collab-review-guide-body ul {
+    margin: 0;
+    padding-left: 1.1rem;
+  }
+
+  .collab-review-guide-body li {
+    margin-bottom: 0.35rem;
+    color: #475569;
+    font-size: 0.92rem;
+    line-height: 1.4;
+  }
+
+  #onlyoffice-editor {
+    width: 100%;
+    min-height: 420px;
+    height: 100%;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  @media (max-width: 900px) {
+    .collab-header-main {
+      grid-template-columns: 1fr;
+    }
+
+    .collab-header-actions {
+      justify-content: flex-start;
+      align-items: flex-start;
+    }
+
+    .collab-header-status {
+      justify-content: flex-start;
+    }
+  }
+
+  @media (max-width: 768px) {
+    #onlyoffice-editor {
+      min-height: 360px;
+    }
+
+    .collab-header-card {
+      padding: 0.9rem;
+      border-radius: 0.85rem;
+    }
+
+    .collab-title {
+      font-size: 1.25rem;
+    }
+  }
+</style>
+
+<div class="collab-top">
+    <div class="collab-header py-3 px-3 px-md-4">
+        <div class="collab-header-card">
+            <div class="collab-header-main">
+                <div>
+                    <div class="collab-kicker">
+                        {% if editor_comment_only %}Advisory board review workspace{% else %}Collaborative editing workspace{% endif %}
+                    </div>
+                    <div class="collab-title-row">
+                        <h1 class="collab-title">{{ document_label }} editor</h1>
+                        <span class="collab-project-inline">{{ project.title }}</span>
+                    </div>
+                    {% if collaborative_presence_url %}
+                    <div class="collab-active-participants">
+                        <strong>Active in this document:</strong>
+                        <span id="collab-active-participants-text">
+                            {% if active_participant_names %}
+                                {{ active_participant_names|join:", " }}
+                            {% else %}
+                                No other reviewers or authors are active right now.
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% if editor_comment_only %}
+                    <div class="collab-review-summary">
+                        To comment, highlight text and use the comment button in the toolbar. Authors will review your comments and decide whether to apply them.
+                        <span id="collab-save-status" class="collab-save-status">Comments save automatically while you work.</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="collab-header-actions">
+                    <div class="collab-header-status">
+                        {% if participant_display %}
+                        <span class="collab-pill">
+                            {% if editor_comment_only %}Reviewing as{% else %}You are signed in as{% endif %} <strong>{{ participant_display }}</strong>
+                        </span>
+                        {% endif %}
+                        {% if editor_comment_only %}
+                        <span class="collab-pill collab-pill-strong">Comment-only access</span>
+                        {% endif %}
+                        {% if review_deadline_display %}
+                        <span class="collab-pill">Comments accepted until <strong>{{ review_deadline_display }}</strong></span>
+                        {% endif %}
+                        {% if editor_comment_only and leave_url %}
+                        <a class="btn btn-primary btn-sm" href="{{ leave_url }}">Leave review page</a>
+                        {% elif editor_comment_only and detail_url %}
+                        <a class="btn btn-primary btn-sm" href="{{ detail_url }}">Leave review page</a>
+                        {% endif %}
+                    </div>
+                    {% if not editor_comment_only and leave_url %}
+                    <a class="btn btn-primary btn-sm" href="{{ leave_url }}">Back to {{ document_label|lower }} page</a>
+                    {% elif not editor_comment_only and detail_url %}
+                    <a class="btn btn-primary btn-sm" href="{{ detail_url }}">Back to {{ document_label|lower }} page</a>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if editor_config and editor_comment_only and participant_display %}
+            <details class="collab-review-guide">
+                <summary class="collab-review-guide-summary">
+                    <span>How to review this document</span>
+                    <small>Open instructions</small>
+                </summary>
+                <div class="collab-review-guide-body">
+                    <ul>
+                        <li>Advisory board feedback is collected as comments so the authors can review each suggestion and decide what to change.</li>
+                        <li>Highlight the relevant text and use the comment button in the editor toolbar, or right-click the highlighted text and choose the comment option.</li>
+                        <li>Place the cursor near the relevant section first, then add the comment from the toolbar so the authors can see what part of the document it refers to.</li>
+                        <li>Use <strong>Leave review page</strong>. This does not close the shared session for anyone else, and you can reopen the same link later while the feedback window is still open.</li>
+                    </ul>
+                </div>
+            </details>
+            {% include "synopsis/includes/advisory/privacy_notice.html" with title="How your review information is used" compact=1 extra_classes="mt-3 mb-0" %}
+            {% elif can_force_end and detail_url %}
+            <div class="small text-muted mt-3">
+                Back to the {{ document_label|lower }} page only leaves your own browser tab. To finish this shared editing round, return to the {{ document_label|lower }} detail page and use <strong>Save current version and close shared editor</strong>.
+            </div>
+            <div class="small text-muted mt-1">
+                That closes the current shared editor for everyone after requesting a final save. Authors can open a fresh collaborative session later if more edits are needed.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% if window_closed_message %}
+<div class="alert alert-warning mx-3 mx-md-4 mt-3" role="alert">
+    {{ window_closed_message }}
+</div>
+{% endif %}
+{% if leave_message %}
+<div class="alert alert-info mx-3 mx-md-4 mt-3" role="alert">
+    {{ leave_message }}
+</div>
+<div class="mx-3 mx-md-4 mb-3 d-flex flex-wrap gap-2">
+    {% if reopen_url %}
+    <a class="btn btn-outline-primary btn-sm" href="{{ reopen_url }}">{{ reopen_label|default:"Reopen editor" }}</a>
+    {% endif %}
+    {% if detail_url %}
+    <a class="btn btn-outline-secondary btn-sm" href="{{ detail_url }}">Back to {{ document_label|lower }} detail</a>
+    {% else %}
+    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.close()">Close this tab</button>
+    {% endif %}
+</div>
+{% endif %}
+{% if editor_config %}
+<div id="onlyoffice-editor"></div>
+{{ editor_config|json_script:"onlyoffice-editor-config" }}
+{% if reviewer_tab_lock_key %}
+{{ reviewer_tab_lock_key|json_script:"reviewer-tab-lock-key" }}
+{% endif %}
+<script src="{{ onlyoffice_js_url }}"></script>
+<script>
+    (function() {
+        const container = document.getElementById('onlyoffice-editor');
+        const errorMessage = `<div class="p-4 text-danger">Unable to load the OnlyOffice editor. Check your OnlyOffice configuration.</div>`;
+        const duplicateTabMessage = `
+            <div class="alert alert-warning mx-3 mx-md-4 mt-3" role="alert">
+                This review page is already open in another tab. Return to that tab or close it before opening another one.
+            </div>
+        `;
+        if (!container) {
+            console.error('OnlyOffice editor container is missing.');
+            return;
+        }
+
+        const configElement = document.getElementById('onlyoffice-editor-config');
+        if (!configElement) {
+            console.error('OnlyOffice editor configuration element is missing.');
+            container.innerHTML = errorMessage;
+            return;
+        }
+
+        let config;
+        try {
+            config = JSON.parse(configElement.textContent);
+        } catch (error) {
+            console.error('OnlyOffice editor configuration is invalid.', error);
+            container.innerHTML = errorMessage;
+            return;
+        }
+
+        const MIN_HEIGHT = 420;
+        let reviewTabLockRelease = null;
+
+        const establishReviewerTabLock = function () {
+            {% if reviewer_tab_lock_key %}
+            const lockSource = document.getElementById('reviewer-tab-lock-key');
+            const resolvedLockKey = lockSource ? JSON.parse(lockSource.textContent) : '';
+            if (!resolvedLockKey) {
+                return true;
+            }
+            const tabId = 'tab-' + Math.random().toString(36).slice(2);
+            const heartbeatMs = 5000;
+            const staleAfterMs = 15000;
+
+            const readLock = function () {
+                try {
+                    const raw = window.localStorage.getItem(resolvedLockKey);
+                    return raw ? JSON.parse(raw) : null;
+                } catch (error) {
+                    return null;
+                }
+            };
+
+            const writeLock = function () {
+                try {
+                    window.localStorage.setItem(
+                        resolvedLockKey,
+                        JSON.stringify({ tabId: tabId, ts: Date.now() })
+                    );
+                    return true;
+                } catch (error) {
+                    return true;
+                }
+            };
+
+            const existing = readLock();
+            if (existing && existing.tabId !== tabId && (Date.now() - (existing.ts || 0)) < staleAfterMs) {
+                container.style.display = 'none';
+                container.insertAdjacentHTML('beforebegin', duplicateTabMessage);
+                return false;
+            }
+
+            writeLock();
+            const heartbeat = window.setInterval(writeLock, heartbeatMs);
+            reviewTabLockRelease = function () {
+                window.clearInterval(heartbeat);
+                const latest = readLock();
+                if (latest && latest.tabId === tabId) {
+                    try {
+                        window.localStorage.removeItem(resolvedLockKey);
+                    } catch (error) {
+                        // ignore
+                    }
+                }
+            };
+
+            window.addEventListener('beforeunload', function () {
+                if (reviewTabLockRelease) {
+                    reviewTabLockRelease();
+                }
+            });
+            return true;
+            {% else %}
+            return true;
+            {% endif %}
+        };
+
+        function calculateEditorHeight() {
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || MIN_HEIGHT;
+            const header = document.querySelector('.collab-header');
+            const navbar = document.querySelector('nav.navbar');
+            const headerHeight = header ? header.offsetHeight : 0;
+            const navbarHeight = navbar ? navbar.offsetHeight : 0;
+            const paddingOffset = 24; // offset for body/container padding
+            return Math.max(viewportHeight - headerHeight - navbarHeight - paddingOffset, MIN_HEIGHT);
+        }
+
+        function applyHeight(height) {
+            container.style.height = `${height}px`;
+            if (window.docEditor && typeof window.docEditor.resize === 'function') {
+                window.docEditor.resize('100%', `${height}px`);
+            }
+        }
+
+        function initialiseEditor() {
+            const height = calculateEditorHeight();
+            container.style.height = `${height}px`;
+            config.width = '100%';
+            config.height = `${height}px`;
+            {% if editor_comment_only %}
+            const saveStatus = document.getElementById('collab-save-status');
+            const setSaveStatus = function(message, isSaved) {
+                if (!saveStatus) return;
+                saveStatus.textContent = message;
+                saveStatus.classList.toggle('is-saved', Boolean(isSaved));
+            };
+            config.events = config.events || {};
+            config.events.onDocumentStateChange = function(event) {
+                if (event && event.data) {
+                    setSaveStatus('Saving comments...', false);
+                } else {
+                    setSaveStatus('Comments saved.', true);
+                }
+            };
+            {% endif %}
+            window.docEditor = new DocsAPI.DocEditor('onlyoffice-editor', config);
+        }
+
+        {% if collaborative_presence_url %}
+        const participantsText = document.getElementById('collab-active-participants-text');
+        let presencePollTimer = null;
+        const renderParticipants = function (participants) {
+            if (!participantsText) return;
+            if (Array.isArray(participants) && participants.length) {
+                participantsText.textContent = participants.join(', ');
+                return;
+            }
+            participantsText.textContent = 'No other reviewers or authors are active right now.';
+        };
+
+        const refreshPresence = function () {
+            fetch('{{ collaborative_presence_url }}', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin'
+            })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('Presence request failed');
+                    }
+                    return response.json();
+                })
+                .then(function (data) {
+                    renderParticipants(data.participants || []);
+                })
+                .catch(function () {
+                    // Keep the most recent successful presence text if polling fails.
+                });
+        };
+
+        const stopPresencePolling = function () {
+            if (presencePollTimer) {
+                window.clearInterval(presencePollTimer);
+                presencePollTimer = null;
+            }
+        };
+
+        const startPresencePolling = function () {
+            if (presencePollTimer || document.hidden) {
+                return;
+            }
+            refreshPresence();
+            presencePollTimer = window.setInterval(refreshPresence, 15000);
+        };
+        {% endif %}
+
+        function handleResize() {
+            applyHeight(calculateEditorHeight());
+        }
+
+        if (window.DocsAPI && window.DocsAPI.DocEditor) {
+            if (!establishReviewerTabLock()) {
+                return;
+            }
+            initialiseEditor();
+            window.addEventListener('resize', handleResize);
+            window.addEventListener('load', handleResize);
+            {% if collaborative_presence_url %}
+            startPresencePolling();
+            document.addEventListener('visibilitychange', function () {
+                if (document.hidden) {
+                    stopPresencePolling();
+                    return;
+                }
+                startPresencePolling();
+            });
+            window.addEventListener('beforeunload', function () {
+                stopPresencePolling();
+            });
+            {% endif %}
+        } else {
+            console.error('OnlyOffice DocsAPI is not available.');
+            container.innerHTML = errorMessage;
+        }
+    })();
+</script>
+{% elif not window_closed_message and not leave_message %}
+<div class="p-4 text-muted">
+    Collaborative editing is currently unavailable.
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,738 @@
+{% extends "synopsis/base.html" %}
+{% block title %}Protocol – {{ project.title }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <h1 class="mb-0">Protocol – {{ project.title }}</h1>
+    <div class="d-flex flex-wrap gap-2">
+        {% if can_edit_documents %}
+        <button
+            class="btn btn-primary"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#protocolUploadCollapse"
+            aria-expanded="{% if form.errors %}true{% else %}false{% endif %}"
+            aria-controls="protocolUploadCollapse"
+        >
+            Upload new version
+        </button>
+        {% endif %}
+        <button
+            class="btn btn-outline-secondary"
+            type="button"
+            data-bs-toggle="collapse"
+            data-bs-target="#protocolChangeLogCollapse"
+            aria-expanded="false"
+            aria-controls="protocolChangeLogCollapse"
+        >
+            Recent change log
+        </button>
+    </div>
+</div>
+{% if can_edit_documents %}
+<div class="collapse{% if form.errors %} show{% endif %} mb-4" id="protocolUploadCollapse">
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title">Upload a new version</h5>
+            {% if final_stage_locked %}
+            <div class="alert alert-warning">
+                This protocol is marked as
+                <strong>Final</strong>
+                . Switch the stage back to Draft and include a revision reason before uploading a new version.
+            </div>
+            {% endif %}
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                {% if form.non_field_errors %}
+                <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+                {% endif %}
+                <div class="mb-3">
+                    {{ form.document.label_tag }}
+                    {{ form.document }}
+                    {% if form.document.help_text %}
+                    <div class="form-text">{{ form.document.help_text }}</div>
+                    {% endif %}
+                    {% for error in form.document.errors %}
+                    <div class="text-danger small">{{ error }}</div>
+                    {% endfor %}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Stage</label>
+                    {{ form.stage }}
+                    <div class="form-text">Set to Final when agreed by authors.</div>
+                    {% if final_stage_locked %}
+                    <div class="text-warning small">Final protocols are read-only. Select Draft first if you need to upload a revision.</div>
+                    {% endif %}
+                    {% for error in form.stage.errors %}
+                    <div class="text-danger small">{{ error }}</div>
+                    {% endfor %}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="{{ form.version_label.id_for_label }}">Version label (optional)</label>
+                    {{ form.version_label }}
+                    <div class="form-text">{{ form.version_label.help_text }}</div>
+                    {% for error in form.version_label.errors %}
+                    <div class="text-danger small">{{ error }}</div>
+                    {% endfor %}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label" for="{{ form.change_reason.id_for_label }}">
+                        Change reason
+                        {% if first_upload_pending %}
+                        <span class="text-muted small ms-1">(optional for the initial upload)</span>
+                        {% else %}
+                        <span class="text-danger small ms-1">(required for revisions)</span>
+                        {% endif %}
+                    </label>
+                    {{ form.change_reason }}
+                    {% if form.change_reason.help_text %}
+                    <div class="form-text">{{ form.change_reason.help_text }}</div>
+                    {% endif %}
+                    {% for error in form.change_reason.errors %}
+                    <div class="text-danger small">{{ error }}</div>
+                    {% endfor %}
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <button class="btn btn-primary">Save revision</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+<div class="collapse mb-4" id="protocolChangeLogCollapse">
+    <div class="card">
+        <div class="card-body">
+            <h5 class="card-title">Recent change log</h5>
+            {% if protocol_history_entries %}
+            <div class="list-group list-group-flush">
+                {% for item in protocol_history_entries %}
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div>
+                            <div class="fw-semibold">{{ item.display_action|default:item.log.action }}</div>
+                            <div class="small text-muted mt-1">
+                                {{ item.log.created_at|date:"Y-m-d H:i" }} · {{ item.actor }}
+                            </div>
+                            {% if item.changes %}
+                            <ul class="small mb-1">
+                                {% for change in item.changes %}
+                                <li>{{ change }}</li>
+                                {% endfor %}
+                            </ul>
+                            {% endif %}
+                            {% if item.reason %}
+                            <div class="small">
+                                <strong>Reason:</strong> {{ item.reason }}
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-muted mb-0">No protocol-specific change log entries yet.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+<div class="row g-3">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body py-3">
+                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                    <div>
+                        <h5 class="card-title mb-1">Latest protocol</h5>
+                        {% if protocol %}
+                        <div class="small text-muted">Last updated {{ protocol.last_updated|date:"Y-m-d H:i" }}</div>
+                        {% else %}
+                        <p class="text-muted mb-0">No protocol exists yet. Upload the first version below to get started.</p>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex align-items-center flex-wrap gap-2">
+                        <button
+                            type="button"
+                            class="btn btn-outline-secondary btn-sm"
+                            data-bs-toggle="modal"
+                            data-bs-target="#protocol-document-workflow-help"
+                        >
+                            How this works
+                        </button>
+                    {% if protocol %}
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="fw-semibold">Stage:</span>
+                            {% if protocol.stage == 'final' %}
+                            <span class="badge text-bg-success">Final</span>
+                            {% else %}
+                            <span class="badge text-bg-warning text-dark">Draft</span>
+                            {% endif %}
+                        </div>
+                        {% if can_toggle_stage and current_revision_entry %}
+                        {% if protocol.stage == 'final' %}
+                        <button
+                            class="btn btn-outline-warning btn-sm"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#protocolReturnDraftModal"
+                        >
+                            Return to draft
+                        </button>
+                        {% else %}
+                        <button
+                            class="btn btn-outline-success btn-sm"
+                            type="button"
+                            data-bs-toggle="modal"
+                            data-bs-target="#protocolSetFinalCurrentModal"
+                        >
+                            Set current revision as final
+                        </button>
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% include "synopsis/includes/documents/workflow_modal.html" with workflow_help_slug="protocol" document_label="Protocol" %}
+                {% include "synopsis/includes/collaboration/panel.html" with document_label="Protocol" collaborative_document_ready=collaborative_document_ready %}
+                <div class="alert alert-info mt-3 mb-0">
+                    <div class="fw-semibold">Sending the protocol for review happens on the Advisory Board page.</div>
+                    <div class="small mt-1">
+                        Use this page to upload, revise, edit, and manage the protocol file. When you are ready to send it to advisory board members, go to the Advisory Board page and use the protocol sending controls there. The feedback window below controls deadlines, reminders, and closure after the protocol has been sent.
+                    </div>
+                    <a class="btn btn-outline-primary btn-sm mt-2" href="{% url 'synopsis:advisory_board_list' project.id %}">Go to Advisory Board</a>
+                </div>
+                {% if current_revision_entry %}
+                <div class="mt-2">
+                    <strong>File:</strong>
+                    {% if current_revision_download_url %}
+                    <a class="link-secondary" href="{% url 'synopsis:document_view' project.id 'protocol' %}" target="_blank" rel="noopener">
+                        {{ current_revision_entry.file_name }}
+                    </a>
+                    {% else %}
+                    <span class="text-muted">{{ current_revision_entry.file_name }}</span>
+                    {% endif %}
+                    {% if current_revision_entry.file_size and current_revision_entry.file_size != '—' %}
+                    <span class="text-muted small">({{ current_revision_entry.file_size }})</span>
+                    {% endif %}
+                    {% if current_revision_entry.version_label %}
+                    <span class="badge text-bg-info-subtle text-dark ms-2">{{ current_revision_entry.version_label }}</span>
+                    {% endif %}
+                </div>
+                <div class="mt-2 d-flex flex-wrap gap-2">
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:document_view' project.id 'protocol' %}" target="_blank" rel="noopener">Download current document</a>
+                    {% if protocol.document and can_delete_documents %}
+                    <button
+                        class="btn btn-outline-danger btn-sm ms-md-auto"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#protocolDangerZone"
+                        aria-expanded="false"
+                        aria-controls="protocolDangerZone"
+                    >
+                        Danger zone: permanent deletion
+                    </button>
+                    {% endif %}
+                </div>
+                {% if protocol.document and can_delete_documents %}
+                <div class="collapse mt-3" id="protocolDangerZone">
+                    <div class="border border-danger-subtle rounded p-3 bg-body-tertiary">
+                        <div class="fw-semibold text-danger mb-1">Danger zone: permanent deletion</div>
+                        <div class="small text-muted mb-3">These actions are final and destructive. Deleting the current file or the whole protocol removes it from this synopsis and cannot be undone from the portal.</div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <form method="post" action="{% url 'synopsis:protocol_delete_file' project.id %}" class="d-inline">
+                                {% csrf_token %}
+                                <button class="btn btn-outline-danger btn-sm" onclick="return confirm('Permanently delete the current protocol file from this synopsis? This action is final and cannot be undone from the portal.');">Permanently delete file</button>
+                            </form>
+                            <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}" class="d-inline">
+                                {% csrf_token %}
+                                <button class="btn btn-danger btn-sm" onclick="return confirm('Permanently delete the entire protocol from this synopsis, including its current file and saved details? This action is final and cannot be undone from the portal.');">Permanently delete protocol</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                <div class="small text-muted mt-2">
+                    Version uploaded {{ current_revision_entry.revision.uploaded_at|date:"Y-m-d H:i" }}
+                    {% if current_revision_entry.revision.uploaded_by %}
+                    by {{ current_revision_entry.revision.uploaded_by.get_full_name|default:current_revision_entry.revision.uploaded_by.username }}
+                    {% endif %}
+                </div>
+                {% elif protocol and protocol.document %}
+                <p class="mt-2 text-muted">Protocol record exists but no revision metadata was captured. Upload a new version so the revision timeline can start tracking changes.</p>
+                <div class="mt-2 d-flex flex-wrap gap-2">
+                    <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:document_view' project.id 'protocol' %}" target="_blank" rel="noopener">Download current document</a>
+                    {% if can_delete_documents %}
+                    <button
+                        class="btn btn-outline-danger btn-sm ms-md-auto"
+                        type="button"
+                        data-bs-toggle="collapse"
+                        data-bs-target="#protocolDangerZoneFallback"
+                        aria-expanded="false"
+                        aria-controls="protocolDangerZoneFallback"
+                    >
+                        Danger zone: permanent deletion
+                    </button>
+                    {% endif %}
+                </div>
+                {% if can_delete_documents %}
+                <div class="collapse mt-3" id="protocolDangerZoneFallback">
+                    <div class="border border-danger-subtle rounded p-3 bg-body-tertiary">
+                        <div class="fw-semibold text-danger mb-1">Danger zone: permanent deletion</div>
+                        <div class="small text-muted mb-3">This action is final and destructive. Deleting the whole protocol removes it from this synopsis and cannot be undone from the portal.</div>
+                        <form method="post" action="{% url 'synopsis:protocol_delete' project.id %}" class="d-inline">
+                            {% csrf_token %}
+                            <button class="btn btn-danger btn-sm" onclick="return confirm('Permanently delete the entire protocol from this synopsis, including its current file and saved details? This action is final and cannot be undone from the portal.');">Permanently delete protocol</button>
+                        </form>
+                    </div>
+                </div>
+                {% endif %}
+                {% elif protocol %}
+                <p class="mt-2 text-muted">No protocol file is active right now. Restore an earlier revision or upload a new version.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                <div>
+                    <h5 class="mb-0">Protocol feedback window</h5>
+                    <div class="small text-muted">Advisory board review deadline, reminders, and closure controls.</div>
+                </div>
+                <button
+                    class="btn btn-outline-secondary btn-sm"
+                    type="button"
+                    data-bs-toggle="collapse"
+                    data-bs-target="#protocolFeedbackWindowCollapse"
+                    data-collapse-toggle-label
+                    data-label-closed="Show"
+                    data-label-open="Hide"
+                    aria-expanded="false"
+                    aria-controls="protocolFeedbackWindowCollapse"
+                >
+                    Show
+                </button>
+            </div>
+            <div class="collapse" id="protocolFeedbackWindowCollapse">
+            <div class="card-body">
+                <div class="d-flex flex-column flex-xl-row justify-content-between gap-4">
+                    <div class="flex-grow-1">
+                        {% if protocol_pending_count %}
+                        <p class="text-muted small mb-2">Set or update the feedback deadline here for advisory board members who have already been sent and accepted the protocol. Saving a date here replaces the saved deadline for all of those members at once. Reminder emails still go automatically two business days before each member's saved deadline.</p>
+                        {% else %}
+                        <p class="text-muted small mb-2">Send the protocol from the Advisory Board page first. You can set the first deadline while sending; after at least one member has the protocol, you can update the feedback deadline here.</p>
+                        {% endif %}
+                        <div class="small mb-2">
+                            Members with protocol:
+                            <strong>{{ protocol_pending_count }}</strong>
+                        </div>
+                        <p class="mb-2 text-muted">
+                            {% if protocol_feedback_state.deadline and protocol_feedback_state.has_multiple_deadlines %}
+                                Saved member deadlines: {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }} to {{ protocol_feedback_state.latest_deadline|date:"Y-m-d H:i" }}
+                            {% elif protocol_feedback_state.deadline %}
+                                Saved member deadline: {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}
+                            {% else %}
+                                No saved member deadlines yet.
+                            {% endif %}
+                        </p>
+                        {% if protocol_feedback_state.has_multiple_deadlines %}
+                        <p class="text-muted small mb-2">Different advisory board members currently have different protocol deadlines.</p>
+                        {% endif %}
+                        {% if protocol_feedback_state.without_deadline_count %}
+                        <p class="text-muted small mb-2">{{ protocol_feedback_state.without_deadline_count }} member{{ protocol_feedback_state.without_deadline_count|pluralize }} currently {{ protocol_feedback_state.without_deadline_count|pluralize:"has,have" }} no saved protocol deadline.</p>
+                        {% endif %}
+                        {% if protocol_feedback_state.some_deadlines_passed %}
+                        <p class="text-muted small mb-2">Some earlier member deadlines have already passed, but other members can still submit because their own saved deadline has not passed or because no protocol deadline is saved for them.</p>
+                        {% elif protocol_feedback_state.all_current_deadlines_passed %}
+                        <p class="text-muted small mb-2">All currently saved member deadlines have passed. Set a new deadline here if already-sent members should be able to submit again.</p>
+                        {% endif %}
+                        {% if initial_protocol_reminder_log %}
+                        <p class="small text-muted mb-2">
+                            First scheduled {{ initial_protocol_reminder_log.created_at|date:"Y-m-d H:i" }}
+                        </p>
+                        {% endif %}
+                        {% if protocol_feedback_state.protocol %}
+                            {% if protocol_feedback_state.is_closed %}
+                        <span class="badge text-bg-danger">Closed {{ protocol_feedback_state.closed_at|date:"Y-m-d H:i" }}</span>
+                            {% elif protocol_feedback_state.all_current_deadlines_passed and protocol_pending_count %}
+                        <span class="badge text-bg-warning text-dark">No current member can submit</span>
+                            {% elif protocol_feedback_state.some_deadlines_passed or protocol_feedback_state.has_multiple_deadlines or protocol_feedback_state.without_deadline_count %}
+                        <span class="badge text-bg-info text-dark">Open for some members</span>
+                            {% else %}
+                        <span class="badge text-bg-success">Open for submissions</span>
+                            {% endif %}
+                        <p class="text-muted small mt-2 mb-0">Feedback links stay open until each member's own saved deadline, or until you close the whole feedback window manually.</p>
+                        {% if protocol_feedback_state.without_deadline_count %}
+                        <p class="text-muted small mt-2 mb-0">Members without a saved deadline can keep using their protocol link until you close the whole feedback window manually.</p>
+                        {% endif %}
+                        {% if protocol_feedback_state.closure_message %}
+                        <p class="mt-2 mb-0">
+                            <strong>Closure note shown after closure:</strong>
+                            {{ protocol_feedback_state.closure_message }}
+                        </p>
+                        {% endif %}
+                        {% else %}
+                        <span class="badge text-bg-secondary">Waiting for upload</span>
+                        <p class="text-muted small mt-2 mb-0">Upload a protocol file to enable the feedback window.</p>
+                        {% endif %}
+                    </div>
+                    <div class="flex-grow-1">
+                        {% if can_edit_documents %}
+                        {% if protocol_pending_count %}
+                        <form method="post" action="{% url 'synopsis:advisory_schedule_protocol_reminders' project.id %}" class="mb-3">
+                            {% csrf_token %}
+                            <div class="mb-2">
+                                {{ protocol_reminder_form.deadline.label_tag }}
+                                {{ protocol_reminder_form.deadline }}
+                                {{ protocol_reminder_form.deadline.errors }}
+                                <div class="form-text">Must be at least tomorrow. Saving here updates all already-sent accepted members and does not send a new email immediately.</div>
+                            </div>
+                            <button class="btn btn-outline-primary btn-sm">Save deadline for sent members</button>
+                        </form>
+                        {% else %}
+                        <div class="alert alert-info py-2 small">
+                            No protocol feedback deadline can be updated here yet because no accepted advisory board member has been sent the protocol.
+                            <div class="mt-2">
+                                <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:advisory_board_list' project.id %}">Go to Advisory Board</a>
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% if protocol_feedback_state.protocol %}
+                            {% if protocol_feedback_state.is_closed %}
+                        <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="reopen">
+                            <button
+                                class="btn btn-outline-secondary align-self-start"
+                                type="submit"
+                                onclick="return confirm('Reopening this feedback window will allow advisory members to submit protocol feedback again and can allow collaborative editing for this protocol again. Are you sure?');"
+                            >
+                                Reopen feedback
+                            </button>
+                            {% if protocol_feedback_state.deadline %}
+                            <small class="text-muted">
+                                {% if protocol_feedback_state.has_multiple_deadlines %}
+                                Reopening will still respect each member's saved protocol deadline (currently {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }} to {{ protocol_feedback_state.latest_deadline|date:"Y-m-d H:i" }}).
+                                {% else %}
+                                Reopening will still respect the saved protocol deadline of {{ protocol_feedback_state.deadline|date:"Y-m-d H:i" }}.
+                                {% endif %}
+                            </small>
+                            {% endif %}
+                        </form>
+                            {% else %}
+                        <form method="post" action="{% url 'synopsis:advisory_protocol_feedback_close' project.id %}" class="d-flex flex-column gap-2">
+                            {% csrf_token %}
+                            {{ protocol_feedback_close_form.non_field_errors }}
+                            <div>
+                                {{ protocol_feedback_close_form.message.label_tag }}
+                                {{ protocol_feedback_close_form.message }}
+                                {{ protocol_feedback_close_form.message.errors }}
+                                <div class="form-text">Members see this note only after the protocol feedback window has been closed. It is not used for reminder or deadline-change emails.</div>
+                            </div>
+                            <button
+                                class="btn btn-outline-danger align-self-start"
+                                type="submit"
+                                onclick="return confirm('Closing this feedback window will stop advisory members from submitting protocol feedback and will end collaborative editing for this protocol. Are you sure?');"
+                            >
+                                Close feedback now
+                            </button>
+                        </form>
+                            {% endif %}
+                        {% endif %}
+                        {% else %}
+                        <p class="text-muted small mb-0">You can view the feedback window here, but only project editors can update its deadline or closure state.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            </div>
+        </div>
+    </div>
+    {% if can_toggle_stage and current_revision_entry %}
+    <div class="modal fade" id="protocolSetFinalCurrentModal" tabindex="-1" aria-labelledby="protocolSetFinalCurrentModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="protocolSetFinalCurrentModalLabel">Set current revision as final</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="post" action="{% url 'synopsis:protocol_set_stage' project.id %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="stage" value="final">
+                    <input type="hidden" name="revision_id" value="{{ current_revision_entry.revision.id }}">
+                    <div class="modal-body">
+                        <label class="form-label" for="protocol-final-current-reason">Reason</label>
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="protocol-final-current-reason"
+                            name="reason"
+                            placeholder="e.g., Consensus reached with authors"
+                            required
+                        >
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button class="btn btn-success">Set as Final</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade" id="protocolReturnDraftModal" tabindex="-1" aria-labelledby="protocolReturnDraftModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="protocolReturnDraftModalLabel">Return to draft</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="post" action="{% url 'synopsis:protocol_set_stage' project.id %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="stage" value="draft">
+                    <div class="modal-body">
+                        <label class="form-label" for="protocol-draft-reason">Reason (optional)</label>
+                        <input
+                            type="text"
+                            class="form-control"
+                            id="protocol-draft-reason"
+                            name="reason"
+                            placeholder="e.g., Additional edits required"
+                        >
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button class="btn btn-warning">Return to Draft</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    <div class="col-12">
+        <div class="card">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+                    <div>
+                        <h5 class="card-title mb-1">Revision history</h5>
+                        <div class="small text-muted">
+                            The current live version is pinned first. Older saved versions appear below so authors can quickly see what changed and restore one if needed.
+                        </div>
+                    </div>
+                    {% if protocol_revision_entries %}
+                    <span class="badge rounded-pill text-bg-light text-dark border">
+                        {{ protocol_revision_entries|length }} saved revision{{ protocol_revision_entries|length|pluralize }}
+                    </span>
+                    {% endif %}
+                </div>
+                {% if protocol_revision_entries %}
+                {% if current_revision_entry %}
+                <div class="border rounded-3 bg-body-tertiary p-3 mb-3">
+                    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div class="flex-grow-1">
+                            <div class="small text-uppercase text-muted fw-semibold mb-2">Current live version</div>
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                <span class="fw-semibold">{{ current_revision_entry.display_title }}</span>
+                                {% if current_revision_entry.stage_badge_label %}
+                                <span class="badge text-bg-{% if current_revision_entry.revision.stage == 'final' %}success{% else %}warning text-dark{% endif %}">
+                                    {{ current_revision_entry.stage_badge_label }}
+                                </span>
+                                {% endif %}
+                                <span class="badge text-bg-primary">Current</span>
+                            </div>
+                            <div class="small text-muted mt-2">
+                                Saved {{ current_revision_entry.revision.uploaded_at|date:"Y-m-d H:i" }}
+                                {% if current_revision_entry.uploaded_by and current_revision_entry.uploaded_by != '—' %}
+                                by {{ current_revision_entry.uploaded_by }}
+                                {% endif %}
+                                {% if current_revision_entry.file_size and current_revision_entry.file_size != '—' %}
+                                · {{ current_revision_entry.file_size }}
+                                {% endif %}
+                            </div>
+                            <div class="small mt-2">
+                                <strong>File:</strong>
+                                <span class="text-break">{{ current_revision_entry.file_name }}</span>
+                            </div>
+                            <div class="small mt-2">
+                                <strong>Revision note:</strong>
+                                {% if current_revision_entry.change_reason_missing %}
+                                <span class="text-muted">{{ current_revision_entry.change_reason_display }}</span>
+                                {% else %}
+                                {{ current_revision_entry.change_reason_display }}
+                                {% endif %}
+                            </div>
+                            <div class="small text-muted mt-2">
+                                This is the live version authors should keep using unless an earlier version is restored below.
+                            </div>
+                        </div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:document_view' project.id 'protocol' %}" target="_blank" rel="noopener">
+                                Download current document
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+                <div class="d-grid gap-3">
+                    {% if protocol_revision_entries|length > 1 or not current_revision_entry %}
+                    <div class="small text-uppercase text-muted fw-semibold">Earlier saved versions</div>
+                    {% endif %}
+                    {% for entry in protocol_revision_entries %}
+                    {% if not entry.is_current %}
+                    <div class="border rounded-3 p-3">
+                        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                            <div class="flex-grow-1">
+                                <div class="d-flex align-items-center gap-2 flex-wrap">
+                                    <span class="fw-semibold">{{ entry.display_title }}</span>
+                                    {% if entry.stage_badge_label %}
+                                    <span class="badge text-bg-success">{{ entry.stage_badge_label }}</span>
+                                    {% endif %}
+                                </div>
+                                <div class="small text-muted mt-1">
+                                    Saved {{ entry.revision.uploaded_at|date:"Y-m-d H:i" }}
+                                    {% if entry.uploaded_by and entry.uploaded_by != '—' %}
+                                    by {{ entry.uploaded_by }}
+                                    {% endif %}
+                                    {% if entry.file_size and entry.file_size != '—' %}
+                                    · {{ entry.file_size }}
+                                    {% endif %}
+                                </div>
+                                <div class="small mt-2">
+                                    <strong>File:</strong>
+                                    <span class="text-break">{{ entry.file_name }}</span>
+                                </div>
+                                <div class="small mt-2">
+                                    <strong>Revision note:</strong>
+                                    {% if entry.change_reason_missing %}
+                                    <span class="text-muted">{{ entry.change_reason_display }}</span>
+                                    {% else %}
+                                    {{ entry.change_reason_display }}
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="d-flex flex-wrap gap-2 ms-auto">
+                                {% if entry.download_url %}
+                                <a class="btn btn-outline-secondary btn-sm" href="{{ entry.download_url }}" download>
+                                    Download
+                                </a>
+                                {% endif %}
+                                <button
+                                    class="btn btn-outline-primary btn-sm"
+                                    type="button"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#protocolRestoreModal-{{ entry.revision.id }}"
+                                >
+                                    Restore as current
+                                </button>
+                                {% if entry.can_mark_final %}
+                                <button
+                                    class="btn btn-outline-success btn-sm"
+                                    type="button"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#protocolSetFinalModal-{{ entry.revision.id }}"
+                                >
+                                    Set as final
+                                </button>
+                                {% endif %}
+                                {% if can_delete_documents %}
+                                <button
+                                    class="btn btn-outline-danger btn-sm"
+                                    type="button"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#protocolDeleteModal-{{ entry.revision.id }}"
+                                >
+                                    Delete revision
+                                </button>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if not entry.is_current %}
+            <div class="modal fade" id="protocolRestoreModal-{{ entry.revision.id }}" tabindex="-1" aria-labelledby="protocolRestoreModalLabel-{{ entry.revision.id }}" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="protocolRestoreModalLabel-{{ entry.revision.id }}">Restore revision</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            Restore <strong>{{ entry.file_name }}</strong> as the active protocol?
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <form method="post" action="{% url 'synopsis:protocol_restore_revision' project.id entry.revision.id %}">
+                                {% csrf_token %}
+                                <button class="btn btn-primary">Restore</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% if entry.can_mark_final %}
+            <div class="modal fade" id="protocolSetFinalModal-{{ entry.revision.id }}" tabindex="-1" aria-labelledby="protocolSetFinalModalLabel-{{ entry.revision.id }}" aria-hidden="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="protocolSetFinalModalLabel-{{ entry.revision.id }}">Set revision as final</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <form method="post" action="{% url 'synopsis:protocol_set_stage' project.id %}">
+                            {% csrf_token %}
+                            <input type="hidden" name="stage" value="final">
+                            <input type="hidden" name="revision_id" value="{{ entry.revision.id }}">
+                            <div class="modal-body">
+                                <label class="form-label" for="protocol-final-reason-{{ entry.revision.id }}">Reason</label>
+                                <input
+                                    type="text"
+                                    class="form-control"
+                                    id="protocol-final-reason-{{ entry.revision.id }}"
+                                    name="reason"
+                                    placeholder="e.g., Consensus reached with authors"
+                                    required
+                                >
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button class="btn btn-success">Set as Final</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+            {% if can_delete_documents %}
+            <div class="modal fade" id="protocolDeleteModal-{{ entry.revision.id }}" tabindex="-1" aria-labelledby="protocolDeleteModalLabel-{{ entry.revision.id }}" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="protocolDeleteModalLabel-{{ entry.revision.id }}">Delete revision</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            Delete <strong>{{ entry.file_name }}</strong>? This cannot be undone.
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <form method="post" action="{% url 'synopsis:protocol_delete_revision' project.id entry.revision.id %}">
+                                {% csrf_token %}
+                                <button class="btn btn-danger">Delete</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+                {% if protocol_revision_entries|length == 1 and current_revision_entry %}
+                <p class="text-muted mb-0">No earlier versions yet. Save another revision to build the timeline.</p>
+                {% endif %}
+        </div>
+                {% else %}
+                <p class="text-muted mb-0">Upload a protocol to start building a revision timeline.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
