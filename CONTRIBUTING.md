@@ -57,12 +57,28 @@ We welcome all kinds of contributions — bug reports, feature requests, documen
 ---
 
 ## Code Style
-TODO: #12 Add project-level code style guidance covering formatting, naming, and template conventions.
+- Follow the style already used in the surrounding Django app. Prefer clear, explicit code over clever abstractions, and keep changes scoped to the workflow you are touching.
+- Use descriptive names for models, forms, views, templates, and helper functions. Keep workflow terms consistent with the product language used in the UI: projects, protocols, action lists, advisory board members, references, summaries, and synopsis content.
+- Keep Django views and forms readable by extracting shared behavior into helpers or service modules when it avoids real duplication. Do not move code just to create more files.
+- Add short module docstrings for new Python modules, and add comments only where the intent would otherwise be hard to recover from the code.
+- Keep templates organized by workflow under `src/templates/synopsis/`. Shared partials belong under `src/templates/synopsis/includes/<workflow>/`.
+- In templates, keep presentation logic light. Put non-trivial business rules in Python code, and use template tags only for small display helpers.
+- Avoid unrelated formatting churn. If a file does not already have broad formatting changes, keep the diff focused on the behavior or documentation you are changing.
 
 ---
 
 ## Testing
-TODO: #13 Add testing guidance covering when to write unit tests, integration tests, and UI regression tests.
+- Run the standard Django checks before submitting code:
+  ```bash
+  cd src
+  python manage.py check
+  python manage.py test
+  ```
+- Add or update tests when changing behavior, permissions, data validation, imports/exports, email delivery, reminder scheduling, document workflows, reference handling, or synopsis compilation.
+- Use focused unit tests for pure helpers, model methods, form validation, parsing, formatting, and permission predicates.
+- Use Django integration tests for views, workflows, database state changes, redirects, template rendering, emails, management commands, and Celery task entry points.
+- Add UI regression coverage or clear manual verification notes when changing complex templates, multi-step screens, collaborative document flows, or JavaScript-heavy interactions.
+- For documentation-only or comment-only changes, tests are usually not needed, but the PR should say that explicitly.
 - PRs without relevant tests may not be accepted unless they’re doc-only.
 
 ---
