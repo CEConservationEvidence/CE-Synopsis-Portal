@@ -1,3 +1,5 @@
+"""Signal handlers that keep synopsis app defaults in place after migrations."""
+
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 

@@ -1,3 +1,5 @@
+"""View functions and helpers for the synopsis portal's user workflows."""
+
 import copy
 import csv
 import datetime as dt

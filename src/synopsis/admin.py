@@ -1,3 +1,5 @@
+"""Admin registrations for inspecting and managing synopsis data in Django admin."""
+
 from django.contrib import admin
 
 from .models import (

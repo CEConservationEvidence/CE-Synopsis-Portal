@@ -1,3 +1,5 @@
+"""Celery tasks for asynchronous email delivery and scheduled reminder jobs."""
+
 import logging
 import base64
 

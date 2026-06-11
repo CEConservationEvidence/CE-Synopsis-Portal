@@ -1,3 +1,14 @@
+"""Database models for synopsis projects, documents, references, and review workflows.
+
+TODO: #16 Split this file into smaller model modules once the schema stabilises, and keep high-level docstrings so new teams can navigate the data model.
+TODO: #59 Move models into synopsis/models/* (for example project.py, funding.py, protocol.py) instead of growing this file further.
+TODO: #60 Finish the remaining role-based access rules across project and document workflows.
+TODO: #61 Add notifications for project status changes and role changes.
+TODO: #62 Extend revision history beyond protocols and action lists to synopsis drafts, summaries, and intervention content.
+TODO: #63 Define and implement field-level audit trails for the remaining high-risk models.
+TODO: #64 Add targeted model comments where the conservation workflow is not obvious to teams reusing this codebase.
+"""
+
 import datetime as dt
 import os
 import uuid
@@ -7,16 +18,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.utils import timezone
-
-"""
-TODO: #16 Split this file into smaller model modules once the schema stabilises, and keep high-level docstrings so new teams can navigate the data model.
-TODO: #59 Move models into synopsis/models/* (for example project.py, funding.py, protocol.py) instead of growing this file further.
-TODO: #60 Finish the remaining role-based access rules across project and document workflows.
-TODO: #61 Add notifications for project status changes and role changes.
-TODO: #62 Extend revision history beyond protocols and action lists to synopsis drafts, summaries, and intervention content.
-TODO: #63 Define and implement field-level audit trails for the remaining high-risk models.
-TODO: #64 Add targeted model comments where the conservation workflow is not obvious to teams reusing this codebase.
-"""
 
 CE_REFERENCE_FOLDER_CHOICES = [
     ("", "—"),

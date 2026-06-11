@@ -1,3 +1,5 @@
+"""Helpers for building editable front-matter sections in synopsis outlines."""
+
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Optional
 

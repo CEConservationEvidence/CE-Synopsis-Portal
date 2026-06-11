@@ -1,3 +1,5 @@
+"""Django app configuration and startup hooks for the synopsis application."""
+
 from django.apps import AppConfig
 
 

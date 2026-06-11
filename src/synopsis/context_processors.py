@@ -1,3 +1,5 @@
+"""Template context helpers shared across synopsis pages."""
+
 from .models import UserRole
 from .utils import advisory_privacy_settings, is_external_author_user
 

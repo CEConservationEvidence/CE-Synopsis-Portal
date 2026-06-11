@@ -1,3 +1,5 @@
+"""Shared utility functions for permissions, email text, deadlines, and references."""
+
 import hashlib
 import html
 import re

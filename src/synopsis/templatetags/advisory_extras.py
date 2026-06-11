@@ -1,3 +1,5 @@
+"""Template filters used by advisory-board forms and display tables."""
+
 from django import template
 
 register = template.Library()

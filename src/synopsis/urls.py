@@ -1,3 +1,5 @@
+"""URL routes for the synopsis application views and workflow endpoints."""
+
 from django.urls import path, reverse_lazy
 from . import views
 

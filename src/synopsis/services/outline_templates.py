@@ -1,3 +1,5 @@
+"""Static outline templates used to seed synopsis front matter and chapters."""
+
 from dataclasses import dataclass
 from typing import List, Optional
 

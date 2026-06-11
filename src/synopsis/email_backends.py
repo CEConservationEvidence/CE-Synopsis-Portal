@@ -1,3 +1,5 @@
+"""Email backend helpers used by local development and test diagnostics."""
+
 import sys
 
 from django.core.mail.backends.base import BaseEmailBackend

@@ -1,3 +1,5 @@
+"""Preset synopsis outline definitions used when creating project structures."""
+
 from dataclasses import dataclass
 from typing import List, Optional
 
