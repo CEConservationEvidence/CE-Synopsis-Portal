@@ -1322,6 +1322,55 @@ class CollaborativePanelViewTests(TestCase):
             html=False,
         )
 
+    def test_collaborative_start_respects_creation_lock(self):
+        from .. import views
+
+        original_settings = views.ONLYOFFICE_SETTINGS
+        views.ONLYOFFICE_SETTINGS = {
+            "base_url": "http://localhost:8080",
+            "internal_url": "http://onlyoffice",
+            "app_base_url": "http://web:8000",
+            "jwt_secret": "change-me",
+            "callback_timeout": 10,
+            "trusted_download_urls": [
+                "http://localhost:8080",
+                "http://onlyoffice",
+            ],
+        }
+        self.addCleanup(lambda: setattr(views, "ONLYOFFICE_SETTINGS", original_settings))
+
+        Protocol.objects.create(
+            project=self.project,
+            document=SimpleUploadedFile("protocol.docx", b"protocol"),
+        )
+        lock_key = views._collaborative_session_lock_key(
+            self.project,
+            CollaborativeSession.DOCUMENT_PROTOCOL,
+        )
+        cache.add(lock_key, "held", 30)
+        self.addCleanup(lambda: cache.delete(lock_key))
+
+        response = self.client.post(
+            reverse("synopsis:collaborative_start", args=[self.project.id, "protocol"])
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("synopsis:protocol_detail", args=[self.project.id]),
+        )
+        self.assertFalse(
+            CollaborativeSession.objects.filter(
+                project=self.project,
+                document_type=CollaborativeSession.DOCUMENT_PROTOCOL,
+                is_active=True,
+            ).exists()
+        )
+        messages_list = [message.message for message in get_messages(response.wsgi_request)]
+        self.assertIn(
+            "The collaborative editor is already being prepared. Please try again in a moment.",
+            messages_list,
+        )
+
     def test_action_list_panel_disabled_without_document(self):
         response = self.client.get(
             reverse("synopsis:action_list_detail", args=[self.project.id])

@@ -1551,12 +1551,43 @@ def _get_active_collaborative_session(project, document_type):
     return session
 
 
+def _collaborative_session_lock_key(project, document_type):
+    project_id = getattr(project, "id", project)
+    return f"ce-collaborative-session-start:{project_id}:{document_type}"
+
+
+def _collaborative_session_lock_timeout():
+    try:
+        timeout = int(getattr(settings, "COLLABORATIVE_SESSION_LOCK_TIMEOUT", 30))
+    except (TypeError, ValueError):
+        timeout = 30
+    return max(1, timeout)
+
+
+def _create_collaborative_session(project, document_type, document, started_by=None):
+    initial_revision = getattr(document, "current_revision", None)
+    if not initial_revision and hasattr(document, "latest_revision"):
+        try:
+            initial_revision = document.latest_revision()
+        except Exception:
+            initial_revision = None
+
+    session_kwargs = {
+        "project": project,
+        "document_type": document_type,
+        "started_by": started_by,
+        "last_activity_at": timezone.now(),
+    }
+    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
+        session_kwargs["initial_protocol_revision"] = initial_revision
+    else:
+        session_kwargs["initial_action_list_revision"] = initial_revision
+    return CollaborativeSession.objects.create(**session_kwargs)
+
+
 def _end_active_collaborative_session(
     project, document_type, *, ended_by=None, reason=""
 ):
-    # TODO: #101 Guard collaborative session creation with a distributed lock
-    # (Redis) and/or a database uniqueness guarantee so concurrent requests cannot
-    # create competing active sessions under load.
     session = _get_active_collaborative_session(project, document_type)
     if not session:
         return None
@@ -1609,31 +1640,37 @@ def _ensure_collaborative_invite_link(
     created = False
 
     if not session:
-        initial_revision = getattr(document, "current_revision", None)
-        if not initial_revision and hasattr(document, "latest_revision"):
-            try:
-                initial_revision = document.latest_revision()
-            except Exception:
-                initial_revision = None
-
-        session_kwargs = {
-            "project": project,
-            "document_type": document_type,
-            "started_by": (
-                request.user
-                if getattr(request.user, "is_authenticated", False)
-                else None
-            ),
-            "last_activity_at": timezone.now(),
-        }
-
-        if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
-            session_kwargs["initial_protocol_revision"] = initial_revision
+        lock_key = _collaborative_session_lock_key(project, document_type)
+        lock_acquired = cache.add(
+            lock_key,
+            "1",
+            _collaborative_session_lock_timeout(),
+        )
+        if not lock_acquired:
+            session = _get_active_collaborative_session(project, document_type)
+            if not session:
+                logger.info(
+                    "Skipped collaborative invite link creation while session lock is held for project %s document %s",
+                    project.pk,
+                    document_type,
+                )
+                return ""
         else:
-            session_kwargs["initial_action_list_revision"] = initial_revision
-
-        session = CollaborativeSession.objects.create(**session_kwargs)
-        created = True
+            try:
+                session = _get_active_collaborative_session(project, document_type)
+                if not session:
+                    user = getattr(request, "user", None)
+                    session = _create_collaborative_session(
+                        project,
+                        document_type,
+                        document,
+                        started_by=(
+                            user if getattr(user, "is_authenticated", False) else None
+                        ),
+                    )
+                    created = True
+            finally:
+                cache.delete(lock_key)
 
     if invitation and session:
         if _collaborative_invitation_table_ready():
@@ -5252,7 +5289,6 @@ def collaborative_start(request, project_id, document_slug):
         )
         return redirect(_document_detail_url(project.id, document_type))
 
-    # TODO: #17 Make collaborative session creation atomic so concurrent POSTs cannot spawn two active sessions.
     active_session = _get_active_collaborative_session(project, document_type)
     if active_session:
         messages.info(
@@ -5266,29 +5302,40 @@ def collaborative_start(request, project_id, document_slug):
             token=active_session.token,
         )
 
-    initial_revision = None
-    if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
-        initial_revision = (
-            getattr(document, "current_revision", None) or document.latest_revision()
+    lock_key = _collaborative_session_lock_key(project, document_type)
+    lock_acquired = cache.add(
+        lock_key,
+        "1",
+        _collaborative_session_lock_timeout(),
+    )
+    if not lock_acquired:
+        messages.info(
+            request,
+            "The collaborative editor is already being prepared. Please try again in a moment.",
         )
-        session = CollaborativeSession.objects.create(
-            project=project,
-            document_type=document_type,
+        return redirect(_document_detail_url(project.id, document_type))
+
+    try:
+        active_session = _get_active_collaborative_session(project, document_type)
+        if active_session:
+            messages.info(
+                request,
+                "A collaborative session is already live. Opening the shared editor now.",
+            )
+            return redirect(
+                "synopsis:collaborative_edit",
+                project_id=project.id,
+                document_slug=_document_type_slug(document_type),
+                token=active_session.token,
+            )
+        session = _create_collaborative_session(
+            project,
+            document_type,
+            document,
             started_by=request.user,
-            last_activity_at=timezone.now(),
-            initial_protocol_revision=initial_revision,
         )
-    else:
-        initial_revision = (
-            getattr(document, "current_revision", None) or document.latest_revision()
-        )
-        session = CollaborativeSession.objects.create(
-            project=project,
-            document_type=document_type,
-            started_by=request.user,
-            last_activity_at=timezone.now(),
-            initial_action_list_revision=initial_revision,
-        )
+    finally:
+        cache.delete(lock_key)
 
     document_label = _document_label(document_type)
     _log_project_change(
