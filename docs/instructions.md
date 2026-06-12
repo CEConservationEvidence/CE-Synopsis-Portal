@@ -287,7 +287,7 @@ docker compose exec web python manage.py check
 docker compose exec web python manage.py send_due_reminders
 ```
 
-## Updating Later
+## Updating Later (CI/CD)
 
 For an update:
 
@@ -296,3 +296,5 @@ git pull
 docker compose up --build -d
 docker compose exec web python manage.py check
 ```
+
+Finally, please create a superuser and share the credentials with the team so we can log in and check the admin if needed.
