@@ -30,7 +30,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        APP_RELEASE_LABEL: ${APP_RELEASE_LABEL:-}
+        APP_RELEASE_LABEL: ${APP_RELEASE_LABEL:-v1.0.0}
     restart: unless-stopped
     depends_on:
       db:
@@ -45,6 +45,7 @@ services:
       DB_PORT: "5432"
       REDIS_CACHE_URL: ${REDIS_CACHE_URL:-redis://redis:6379/1}
       REDIS_CELERY_URL: ${REDIS_CELERY_URL:-redis://redis:6379/2}
+      RUN_APP_INIT: ${RUN_APP_INIT:-True}
       SERVE_MEDIA: "True"
       # Pilot defaults; override in .env after measuring memory and request latency.
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
@@ -68,7 +69,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        APP_RELEASE_LABEL: ${APP_RELEASE_LABEL:-}
+        APP_RELEASE_LABEL: ${APP_RELEASE_LABEL:-v1.0.0}
     restart: unless-stopped
     user: "10001:10001"
     depends_on:
@@ -111,7 +112,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        APP_RELEASE_LABEL: ${APP_RELEASE_LABEL:-}
+        APP_RELEASE_LABEL: ${APP_RELEASE_LABEL:-v1.0.0}
     restart: unless-stopped
     user: "10001:10001"
     depends_on:
