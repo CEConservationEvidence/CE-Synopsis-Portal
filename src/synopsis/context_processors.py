@@ -1,5 +1,7 @@
 """Template context helpers shared across synopsis pages."""
 
+from django.conf import settings
+
 from .models import UserRole
 from .utils import advisory_privacy_settings, is_external_author_user
 
@@ -64,5 +66,6 @@ def navigation_roles(request):
         "nav_can_create_project": is_authenticated and not is_external_author,
         "nav_user_display_name": _user_display_name(user),
         "nav_user_role_label": _preferred_role_label(user, request),
+        "app_release_label": settings.APP_RELEASE_LABEL,
         "advisory_privacy": advisory_privacy_settings(),
     }

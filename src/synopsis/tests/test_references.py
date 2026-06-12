@@ -4207,7 +4207,7 @@ class GlobalReferenceLibraryAccessTests(TestCase):
         self.other_project = Project.objects.create(title="Unassigned Project")
         UserRole.objects.create(user=self.user, project=self.project, role="author")
 
-    @override_settings(APP_RELEASE_LABEL="pilot-2026-03-29")
+    @override_settings(APP_RELEASE_LABEL="v1.0.0")
     def test_author_sees_global_library_entry_points(self):
         self.client.login(username="authorlib", password="pass123")
 
@@ -4216,8 +4216,17 @@ class GlobalReferenceLibraryAccessTests(TestCase):
             reverse("synopsis:project_hub", args=[self.project.id])
         )
 
-        self.assertContains(dashboard_response, "Deployed version")
-        self.assertContains(dashboard_response, "pilot-2026-03-29")
+        self.assertContains(dashboard_response, "Build")
+        self.assertContains(
+            dashboard_response,
+            '<span class="ce-build-label">Build <code>v1.0.0</code></span>',
+            html=False,
+        )
+        self.assertNotContains(
+            dashboard_response,
+            '<p class="small text-muted text-end mt-4 mb-0">Build:',
+            html=False,
+        )
         self.assertContains(dashboard_response, "Shared Reference Library")
         self.assertContains(dashboard_response, "Create New Synopsis")
         self.assertNotContains(dashboard_response, "How this works for authors")
@@ -4234,6 +4243,28 @@ class GlobalReferenceLibraryAccessTests(TestCase):
             reverse("synopsis:reference_library") + f"?project={self.project.id}",
             html=False,
         )
+
+    @override_settings(APP_RELEASE_LABEL="")
+    def test_dashboard_hides_empty_release_label(self):
+        self.client.login(username="authorlib", password="pass123")
+
+        response = self.client.get(reverse("synopsis:dashboard"))
+
+        self.assertNotContains(response, '<span class="ce-build-label">Build <code>')
+        self.assertNotContains(response, "unlabelled build")
+
+    def test_templates_without_nav_actions_also_hide_build_label(self):
+        templates_dir = settings.BASE_DIR / "templates" / "synopsis"
+        offenders = []
+        for template_path in templates_dir.rglob("*.html"):
+            template_source = template_path.read_text(encoding="utf-8")
+            if (
+                "{% block nav_actions %}{% endblock %}" in template_source
+                and "{% block build_label %}{% endblock %}" not in template_source
+            ):
+                offenders.append(str(template_path.relative_to(templates_dir)))
+
+        self.assertEqual(offenders, [])
 
     def test_author_can_open_unassigned_synopsis(self):
         self.client.login(username="authorlib", password="pass123")

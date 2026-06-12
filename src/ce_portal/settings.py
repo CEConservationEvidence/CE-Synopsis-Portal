@@ -355,7 +355,6 @@ APP_RELEASE_LABEL = (
     _release_label_file()
     or config("APP_RELEASE_LABEL", default="").strip()
     or _git_release_label()
-    or "unlabelled build"
 )
 
 USE_X_FORWARDED_HOST = config("USE_X_FORWARDED_HOST", cast=bool, default=False)
