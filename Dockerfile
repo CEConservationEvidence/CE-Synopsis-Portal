@@ -45,8 +45,6 @@ RUN chmod +x /app/docker/entrypoint.sh \
     && mkdir -p /app/src/media /app/src/staticfiles \
     && if [ -n "$APP_RELEASE_LABEL" ]; then \
         printf "%s" "$APP_RELEASE_LABEL" > /app/.release-label; \
-    else \
-        printf "%s" "unlabelled build" > /app/.release-label; \
     fi \
     && chown -R portal:portal /app
 
