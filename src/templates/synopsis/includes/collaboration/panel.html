@@ -1,7 +1,3 @@
-{# TODO: #91 Test repeated save actions during a live collaborative session and harden the flow if versions can race. #}
-{# TODO: #93 Confirm that token-based advisory access and signed-in author access are scoped correctly for every shared document route. #}
-
-
 {% if collaborative_enabled %}
 {% with doc_ready=collaborative_document_ready %}
 {% with help_modal_slug=document_label|slugify %}
