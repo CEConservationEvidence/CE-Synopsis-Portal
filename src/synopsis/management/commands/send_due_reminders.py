@@ -8,8 +8,6 @@ from synopsis.models import AdvisoryBoardMember
 from django.core.mail import EmailMultiAlternatives
 from synopsis.utils import advisory_member_display_name, email_subject, reply_to_list
 
-# TODO: #26 Replace the hand-rolled business-day calculation if reminder rules need holidays or country-specific calendars.
-
 
 def minus_business_days(d, n):
     if hasattr(d, "date"):

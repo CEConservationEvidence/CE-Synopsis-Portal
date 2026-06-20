@@ -321,8 +321,6 @@ GLOBAL_ROLE_CHOICES = [
     ),
     ("manager", "Manager"),
 ]
-
-# TODO: #35 Extract the shared document-update behavior used by protocol and action list forms, then tighten validation and error handling in one place.
 class ProtocolUpdateForm(forms.ModelForm):
     document = forms.FileField(
         required=False,
@@ -1933,7 +1931,6 @@ class ProtocolFeedbackCloseForm(forms.Form):
     )
 
 
-# TODO: #15 Tighten reference batch upload validation: verify parseable RIS/TXT content, return clearer file errors, and keep the supported extensions aligned with the team workflow.
 class ReferenceBatchUploadForm(forms.Form):
     label = forms.CharField(
         max_length=255,

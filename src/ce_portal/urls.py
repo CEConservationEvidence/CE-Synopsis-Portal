@@ -30,8 +30,6 @@ if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 elif getattr(settings, "SERVE_MEDIA", False):
     # Internal pilot only: this exposes MEDIA_URL directly without per-file auth.
-    # TODO: #99 Stop serving media through Django in deployed environments; use a
-    # reverse proxy or object storage so file traffic does not consume Gunicorn capacity.
     media_prefix = settings.MEDIA_URL.lstrip("/")
     urlpatterns += [
         re_path(

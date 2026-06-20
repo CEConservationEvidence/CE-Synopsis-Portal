@@ -2390,8 +2390,6 @@ def _collaborative_active_participant_names_cached(
 
 
 def _wait_for_collaborative_save(session, document_type, timeout_seconds: int) -> bool:
-    # TODO: #102 Reduce blocking waits during collaborative final-save handling,
-    # ideally by shifting the long-running part onto callback-driven or background work.
     deadline = time.monotonic() + max(timeout_seconds, 1)
     if document_type == CollaborativeSession.DOCUMENT_PROTOCOL:
         result_field = "result_protocol_revision_id"
@@ -7149,13 +7147,6 @@ def user_create(request):
         form = CreateUserForm()
 
     return render(request, "synopsis/accounts/user_create.html", {"form": form})
-
-
-# TODO: #22 Add search, filtering, and pagination to the advisory board list once larger projects need it.
-# TODO: #23 Add CSV export for advisory board members and their response state.
-# TODO: #25 Finish advisory-board access control and replace any remaining broad file access with scoped links or tokens.
-# TODO: #40 Add a resend-invitation action that preserves the original member record and audit history.
-# TODO: #39 Add bulk CSV import for advisory board members.
 
 @login_required
 def advisory_board_list(request, project_id):
