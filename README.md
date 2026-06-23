@@ -2,121 +2,51 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/CEConservationEvidence/CE-Synopsis-Portal/8-synopsis-structure-and-compilation)
 
-A Django-based workspace for planning, screening, summarising, compiling, and exporting Conservation Evidence synopses from a single system instead of scattered Word, Excel, and manual website workflows.
+CE Synopsis Portal is a Django application for running Conservation Evidence synopsis projects in one place. It replaces separate fragmented files, spreadsheets, and ad hoc review email flows with a single workflow for project setup, reference handling, summary writing, synopsis assembly, review, and export.
 
-## Purpose & Users
+## What The Portal Supports Today
 
-This system is being built originally for the Conservation Evidence team, but the structure is intended to be reusable for other evidence-synthesis teams later.
-
-The aim is to replace scattered Word/Excel files and manual assembly steps with one system that keeps references, summaries, synopsis structure, and exportable content in one place.
-
-Primary users:
-- **Authors**: import/search, screen, write structured study summaries, and help assemble synopsis content
-- **Project managers**: draft protocols, manage projects and authors, oversee progress, and review output
-- **Advisory board members**: review protocol/action-list material and provide feedback
-- **Administrators**: manage users, permissions, and operational setup
-
-## Core Expectations
-
-These remain the main product expectations, even where implementation is still incomplete:
-
-1. **Single source of truth**
-   - References, summaries, synopsis structure, and supporting metadata should live in the database rather than separate files.
-
-2. **End-to-end workflow**
-   - The system should cover planning, protocol drafting, screening, summary writing, synopsis assembly, review, and export/publication handoff.
-
-3. **Zero duplicate data entry**
-   - Data entered once should be reused across screening, summary authoring, synopsis compilation, and export.
-
-4. **Version control and auditability**
-   - Changes should be attributable and recoverable where appropriate.
-
-5. **Clear roles and review flow**
-   - Different users should see the right tools and responsibilities for their part of the process.
-
-6. **Usable authoring experience**
-   - The interface should reduce ambiguity and make compilation behavior understandable to authors.
-
-7. **Data quality and integrity**
-   - Import validation, duplicate detection, and consistency rules should protect the underlying data.
-
-8. **Export and interoperability**
-   - The system should support clean exports and, eventually, website/API integration.
+- project hubs with phase tracking, status management, authors, and funders
+- protocol and action-list workflows with revision history, draft/final states, and document download
+- optional OnlyOffice collaborative editing for protocol and action-list documents
+- advisory board invitations, secure response links, protocol review, action-list review, synopsis review, reminders, and custom member fields
+- shared reference library import from RIS, plain text, and EndNote XML
+- project reference import from RIS or plain text, plus linking from the shared library
+- reference screening with shared CE subject categories stored on canonical library records
+- summary workspace with author assignment, "needs help" tracking, multiple summary tabs per reference, comments, and reference PDF upload/viewing
+- synopsis narrative and evidence workspaces with chapters, intervention groups, interventions, key messages, cross-references, and summary assignment
+- exports for compiled synopsis DOCX, synopsis references RIS, and synopsis structure CSV
 
 ## Current Status
 
-The project is already beyond the initial prototype stage for several core author workflows.
+The core author and manager workflows are implemented. The repo now contains a working local setup, a Docker deployment stack, and dedicated Django tests around references, collaboration, advisory workflows, email, accounts, and synopsis compilation.
 
-Implemented now:
-- protocol drafting and revision workflow
-- advisory board invitations and feedback workflow
-- library and project reference import
-- reference screening and batch review
-- summary workspace, including multiple summaries per reference
-- synopsis evidence authoring and compilation
-- DOCX export of compiled synopsis content
+The main two gaps are:
+- final publication-grade PDF output with CE-controlled styling/fonts
+- website/API publication integration
 
-Still in progress:
-- final publication PDF workflow with CE-controlled styling/fonts
-- API/website integration
-- richer dashboards and notifications
-- broader documentation, QA, and launch/cutover work
+See [docs/roadmap.md](docs/roadmap.md) for the current priority view.
 
-See [docs/roadmap.md](docs/roadmap.md) for the current roadmap.
+## Roles
 
-## What The System Covers
-
-Current workflow coverage:
-- manage projects, users, and roles
-- draft synopsis protocols
-- invite and track advisory board participation
-- import references into a central library
-- link/import references into project batches, reusing canonical library records where possible
-- screen references for inclusion/exclusion
-- write structured study summaries
-- assign summaries to synopsis interventions
-- compile intervention evidence into exportable synopsis structure
-
-## Minimum Viable Product Direction
-
-The MVP is still centered on these capabilities:
-- protocol drafting plus advisory workflow
-- library/project reference import with validation and de-duplication
-- screening workflow
-- structured summary editor with CE-oriented metadata
-- synopsis chapter/intervention assembly
-- exportable compiled synopsis output
-
-## Ultimate Outcome
-
-What “good” looks like for the CE team:
-- a single reliable platform used for new synopses
-- far less manual copy-paste during synopsis assembly
-- clearer consistency in summaries and compilation structure
-- better accountability through structured workflows and stored history
-- a system that other evidence-synthesis teams could adapt later
-
-## Roles & Permissions
-
-Current role model in broad terms:
-- **Author**: create/edit summaries and synopsis content within project scope
-- **Manager**: oversee projects, assign work, and access broader management actions
-- **Advisory board**: review and respond to protocol/action-list/synopsis related requests
-- **Admin/staff**: broader operational and system-level access
+- **Manager**: creates synopses, manages users/authors/funders, controls project settings, phases, and review workflows
+- **Author**: works inside assigned projects on references, summaries, documents, and synopsis content
+- **External author**: limited author account without shared-library or project-creation access
+- **Advisory board member**: usually interacts through secure emailed links rather than a full portal account
+- **System admin**: Django superuser/staff account with broader operational access
 
 ## Tech Stack
 
-What is actually in the repo today:
 - Python 3.12
 - Django 5.2
 - PostgreSQL
-- Django REST Framework
-- Celery and Redis dependencies
-- `python-docx` dependencies for export/output work
-- OnlyOffice configuration hooks for collaborative editing
+- Celery + Redis for queued emails, reminder scheduling, shared cache/session storage, and collaborative-session locking
+- Gunicorn and WhiteNoise in the Docker deployment
+- OnlyOffice Document Server integration for collaborative editing
+- `python-docx` for DOCX export
+- `rispy` plus custom EndNote XML/plain-text import parsing
 
-The main application code lives in:
+Main application code:
 - [src/synopsis](src/synopsis)
 - [src/ce_portal](src/ce_portal)
 
@@ -125,8 +55,8 @@ The main application code lives in:
 Prerequisites:
 - Python 3.12+
 - PostgreSQL
-- Redis (optional locally, enabled automatically in Docker)
-- a virtual environment
+- optional Redis if you want Docker-like cache/session and Celery behavior locally
+- optional OnlyOffice if you want to test collaborative editing locally
 
 Setup:
 
@@ -135,21 +65,34 @@ cp .env.local.template .env.local
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+Then make sure the database settings in `.env.local` point at a real local PostgreSQL database. The template defaults are:
+- `DB_NAME=ce_portal`
+- `DB_USER=ce_user`
+- `DB_PASSWORD=ce_pass`
+- `DB_HOST=localhost`
+- `DB_PORT=5432`
+
+After that:
+
+```bash
 cd src
 python manage.py migrate
+python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Then open `http://127.0.0.1:8000/`.
+Open `http://127.0.0.1:8000/login/`.
 
 Notes:
 - direct Django commands automatically prefer `.env.local`, then fall back to `.env`
-- use `ENV_FILE=...` if you want to force a different env file for a specific command
-- the default database backend is PostgreSQL
-- set `REDIS_CACHE_URL=redis://localhost:6379/1` in `.env.local` if you want the same shared cache/session behavior locally as the Docker deployment
-- leaving `REDIS_CACHE_URL` blank falls back to a local in-process cache and default DB-backed sessions
-- `ASYNC_EMAIL_DELIVERY` defaults to `False` in local development, so email stays inline unless you explicitly turn it on
-- email is configured to the console backend in development
+- use `ENV_FILE=...` to force a different env file for one command
+- `post_migrate` creates the global `manager`, `author`, and `external_collaborator` groups automatically
+- leaving `REDIS_CACHE_URL` blank uses local-memory cache and DB-backed sessions
+- setting `REDIS_CACHE_URL=redis://localhost:6379/1` and `REDIS_CELERY_URL=redis://localhost:6379/2` gives local behavior closer to Docker
+- development email defaults to the attachment-summary console backend, so messages and attachment summaries print to the terminal instead of being sent
+- leaving `ONLYOFFICE_URL` blank disables collaborative editing while keeping the rest of the document workflow usable
 
 ## Running Checks
 
@@ -160,7 +103,9 @@ python manage.py check
 python manage.py test
 ```
 
-Example override:
+`python manage.py test` requires PostgreSQL test-database access using the values from the active env file.
+
+Example env override:
 
 ```bash
 ENV_FILE=../.env.local python manage.py runserver
@@ -168,17 +113,13 @@ ENV_FILE=../.env.local python manage.py runserver
 
 ## Docker Deployment
 
-A Docker-based deployment is now included for:
-- Django/Gunicorn
-- PostgreSQL
-- Redis-backed cache/session storage
-- Celery worker and beat services
-- OnlyOffice Document Server
-
-Main files:
-- [Dockerfile](Dockerfile)
-- [docker-compose.yml](docker-compose.yml)
-- [docker/entrypoint.sh](docker/entrypoint.sh)
+The default Compose stack starts:
+- `web`
+- `db`
+- `redis`
+- `worker`
+- `beat`
+- `onlyoffice`
 
 Quick start:
 
@@ -188,34 +129,47 @@ docker compose up --build -d
 docker compose exec web python manage.py createsuperuser
 ```
 
-For an internal server deployment, use [docs/instructions.md](docs/instructions.md) as the single runbook. It covers the Docker stack, `.env.server`, ONLYOFFICE, Redis/Celery, and smoke-test steps.
+Optional HTTPS reverse proxy:
+- [docker-compose.proxy.yml](docker-compose.proxy.yml)
+- [docker/Caddyfile](docker/Caddyfile)
+
+Use [docs/instructions.md](docs/instructions.md) for the full internal-server runbook, including `.env.server`, OnlyOffice wiring, Redis/Celery behavior, smoke tests, and the optional Caddy layer.
 
 ## Repository Layout
 
 ```text
 .
 ├── docs/
+│   ├── instructions.md
+│   ├── reference-library-model.md
 │   └── roadmap.md
+├── docker/
+│   ├── Caddyfile
+│   └── entrypoint.sh
 ├── src/
 │   ├── ce_portal/
 │   ├── synopsis/
 │   └── manage.py
-├── requirements.txt
-└── README.md
+├── .env.local.template
+├── .env.server
+├── .env.template
+├── docker-compose.yml
+├── docker-compose.proxy.yml
+└── requirements.txt
 ```
 
 ## Documentation
 
-Current project docs in this repo:
-- [Roadmap](docs/roadmap.md)
-- [Reference Library Model](docs/reference-library-model.md)
-- For a very detailed overview of the system, see the [project wiki](https://deepwiki.com/CEConservationEvidence/CE-Synopsis-Portal/1-overview). Do note that the wiki is a living document and may not always reflect the current state of the system, but it contains a lot of useful information about the design and rationale behind various features.
-
-Additional user and technical documentation still needs to be formalized.
+- [docs/author-guide.md](docs/author-guide.md): author-facing onboarding guide and workflow handbook
+- [docs/instructions.md](docs/instructions.md): internal Docker deployment runbook
+- [docs/technical-notes.md](docs/technical-notes.md): technical architecture and component walkthrough
+- [docs/roadmap.md](docs/roadmap.md): current priority and gap summary
+- [docs/reference-library-model.md](docs/reference-library-model.md): how canonical library records and project references relate
+- [DeepWiki project wiki](https://deepwiki.com/CEConservationEvidence/CE-Synopsis-Portal/1-overview): broader design/context notes, but it may lag behind the codebase
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License
 
@@ -223,4 +177,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ## Acknowledgements
 
-Maintainer and main developer: Ibrahim Alhas.
+Developed by: [Ibrahim Alhas](https://github.com/alhasacademy96).
