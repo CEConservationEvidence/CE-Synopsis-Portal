@@ -150,3 +150,11 @@ Media serving behavior:
 - outside `DEBUG`, media can still be served by Django if `SERVE_MEDIA=True`
 - that `SERVE_MEDIA` path is intended for internal/pilot deployments and does not provide per-file auth checks
 
+## 5. Rendering Model And Request Handling
+
+The UI is server-rendered with Django templates and Bootstrap.
+
+The common request pattern is:
+
+1. a route in `synopsis.urls` resolves to a workflow view
+2. the view checks authentication and project-scoped permissions
