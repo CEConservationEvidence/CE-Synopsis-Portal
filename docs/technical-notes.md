@@ -158,3 +158,23 @@ The common request pattern is:
 
 1. a route in `synopsis.urls` resolves to a workflow view
 2. the view checks authentication and project-scoped permissions
+3. the view loads or materializes the related rows it needs
+4. if the page supports several operations, the POST branch switches behavior using a hidden `action` field
+5. successful writes usually add a Django message, record change history, and redirect
+6. failed validation re-renders the same template with inline errors
+
+Technical characteristics:
+
+- form submissions are the main state transition mechanism
+- large workflow pages often host multiple forms and multiple POST actions on the same URL
+- there is some targeted JavaScript for UI behaviors, filters, and presence updates
+- there is no first-party REST API exposed by the root URL configuration
+- auth flows reuse Django auth views with custom templates/forms
+
+Custom auth wrappers in `synopsis.views`:
+
+- `PortalLoginView`
+- `PortalLogoutView`
+- `PortalPasswordResetView`
+- `PortalPasswordResetConfirmView`
+
