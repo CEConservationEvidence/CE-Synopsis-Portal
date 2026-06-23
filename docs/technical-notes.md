@@ -114,3 +114,39 @@ One important characteristic is that `src/synopsis/views.py` is a large orchestr
 4. normal environment lookup through `python-decouple`
 
 This lets local development and Docker deployment use different env files without changing code.
+
+### 4.2 Core Settings
+
+Important settings behavior:
+
+- database backend is always PostgreSQL
+- Redis-backed cache/session behavior is enabled only when `REDIS_CACHE_URL` is present and tests are not running
+- `CELERY_BROKER_URL` is taken from `REDIS_CELERY_URL`
+- `ASYNC_EMAIL_DELIVERY` defaults to enabled when a Celery broker is configured and `DEBUG` is false, but can be overridden explicitly
+- Celery beat schedules the `send_due_reminders_task` hourly when `REDIS_CELERY_URL` is configured
+- development email defaults to `AttachmentSummaryConsoleEmailBackend`, which prints message content without dumping attachment payloads
+- OnlyOffice is configured through the `ONLYOFFICE` dict in settings
+- the OnlyOffice settings bundle includes `base_url`, `internal_url`, `app_base_url`, `jwt_secret`, `callback_timeout`, and `trusted_download_urls`
+- WhiteNoise is enabled only if installed
+
+### 4.3 Django Boot Hooks
+
+`SynopsisConfig.ready()` imports `synopsis.signals`.
+
+`post_migrate` signal behavior:
+
+- ensures the global Django auth groups `manager`, `author`, and `external_collaborator` exist
+
+### 4.4 Root Routing
+
+`ce_portal.urls` is intentionally small:
+
+- `/admin/` -> Django admin
+- `/` -> `synopsis.urls`
+
+Media serving behavior:
+
+- in `DEBUG`, Django serves media directly
+- outside `DEBUG`, media can still be served by Django if `SERVE_MEDIA=True`
+- that `SERVE_MEDIA` path is intended for internal/pilot deployments and does not provide per-file auth checks
+
