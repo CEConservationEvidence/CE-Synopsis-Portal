@@ -204,3 +204,193 @@ Important permission helpers:
 Navigation also reflects permissions through `synopsis.context_processors.navigation_roles`.
 
 ## 7. Data Model By Subsystem
+
+### 7.1 Project, Audit, And Funding
+
+Core models:
+
+- `Project`
+- `ProjectPhaseEvent`
+- `ProjectChangeLog`
+- `UserRole`
+- `Funder`
+- `FunderContact`
+
+Important design points:
+
+- project status is separate from phase
+- phase can be inferred from related workflow state
+- phase can also be manually advanced, but the manual phase cannot move behind the inferred phase
+- project change history is stored explicitly in `ProjectChangeLog`
+
+### 7.2 Documents And Revisions
+
+Core models:
+
+- `Protocol`
+- `ProtocolRevision`
+- `ActionList`
+- `ActionListRevision`
+- `CollaborativeSession`
+
+Important design points:
+
+- protocol and action list are one-to-one with a project
+- each document stores a current file plus a revision history
+- current stage is `draft` or `final`
+- review windows can be closed independently with `feedback_closed_at`
+- collaborative sessions track the initial revision, resulting revision, participant activity, and closure reason
+
+### 7.3 Advisory Board Workflow
+
+Core models:
+
+- `AdvisoryBoardMember`
+- `AdvisoryBoardCustomField`
+- `AdvisoryBoardCustomFieldValue`
+- `AdvisoryBoardCustomFieldValueHistory`
+- `AdvisoryBoardInvitation`
+- `ProtocolFeedback`
+- `ActionListFeedback`
+- `SynopsisFeedback`
+
+Important design points:
+
+- invitations and review feedback are tokenized with UUIDs
+- protocol/action-list/synopsis review are stored separately
+- feedback models snapshot the relevant document metadata and deadline context
+- advisory board tables support project-specific custom fields
+
+### 7.4 Reference Library And Screening
+
+Core models:
+
+- `LibraryImportBatch`
+- `LibraryReference`
+- `LibraryReferenceFolderHistory`
+- `ReferenceSourceBatch`
+- `ReferenceSourceBatchNoteHistory`
+- `Reference`
+
+Important design points:
+
+- `LibraryReference` is the canonical shared record
+- `Reference` is the project-specific working copy
+- project references can point back to canonical library records
+- CE subject categories live on the canonical library record for linked references
+- folder/category change history is stored at the library level
+
+### 7.5 Summary Authoring
+
+Core models:
+
+- `ReferenceSummary`
+- `ReferenceSummaryComment`
+- `ReferenceComment`
+- `ReferenceActionSummary`
+- `VocabularyTerm`
+
+Important design points:
+
+- one project reference can have multiple summary tabs
+- summary tabs carry structured study metadata plus synopsis-draft text
+- comments support threaded discussion and file attachments
+- controlled-list/tag support exists through `VocabularyTerm`
+- `ReferenceSummary` still contains AI-related fields, but the active generated-summary workflow is rule-based from structured fields rather than driven by a background AI pipeline
+
+### 7.6 Synopsis Assembly And Export
+
+Core models:
+
+- `IUCNCategory`
+- `SynopsisChapter`
+- `SynopsisSubheading`
+- `SynopsisIntervention`
+- `SynopsisInterventionKeyMessage`
+- `SynopsisAssignment`
+- `SynopsisExportLog`
+
+Important design points:
+
+- synopsis content is modeled as chapters -> subheadings -> interventions
+- interventions can be true evidence sections or cross-references to a primary intervention
+- key messages can cite a subset of supporting summary tabs
+- export events are archived in `SynopsisExportLog`
+
+## 8. URL And Workflow Grouping
+
+`synopsis.urls` groups routes by workflow rather than by generic CRUD resources.
+
+Major route families:
+
+- dashboard and auth
+- project creation, settings, team, funders, and phase control
+- protocol and action-list detail/revision workflows
+- collaborative editing routes
+- advisory board management, invitations, reminders, and review forms
+- shared reference library
+- project reference batches and screening
+- summary board and summary detail pages
+- synopsis narrative/evidence workspaces and exports
+
+This route organization mirrors the UI and the underlying business workflow closely.
+
+## 9. Primary Workflow Architecture
+
+### 9.1 Project Lifecycle
+
+The project hub is the central coordination page. It aggregates:
+
+- current phase
+- protocol/action-list state
+- advisory board state
+- reference and summary progress
+- synopsis assembly progress
+
+Phase behavior is hybrid:
+
+- a best-effort phase is inferred from related activity
+- users with configuration access can manually move the phase forward
+- confirmations are stored in `ProjectPhaseEvent`
+
+### 9.2 Document Workflow
+
+Protocol and action-list pages support:
+
+- initial upload
+- subsequent revisions
+- restore/delete revision operations
+- draft/final state changes
+- changelog entries
+- optional collaborative editing
+
+Internally, uploaded files become `ProtocolRevision` or `ActionListRevision` rows, and the current document pointer is updated to the latest applied revision.
+
+### 9.3 Advisory Workflow
+
+The advisory workflow is implemented as three related systems:
+
+- invitation and participation tracking
+- document review distribution
+- secure feedback submission
+
+Supported review channels:
+
+- protocol review
+- action-list review
+- synopsis review
+
+Review emails are built in the view layer and sent either synchronously or via Celery depending on settings. Review feedback links are token-based and can also optionally include a comment-only collaborative editor link for protocol/action-list review.
+
+### 9.4 Reference Workflow
+
+The reference pipeline is:
+
+1. import into shared library, or import directly into a project
+2. normalize and deduplicate records
+3. create/reuse canonical `LibraryReference`
+4. create project-level `Reference`
+5. screen references as included/excluded/pending
+6. included references feed the summary board
+
+Project imports are still canonical-library aware. Even direct project imports attempt to create or reuse `LibraryReference` rows behind the scenes.
