@@ -22,3 +22,14 @@ The core mental model is:
 - OnlyOffice is an external editor used only for collaborative protocol and action-list editing
 
 At a high level, the system supports:
+
+- project and user management
+- protocol and action-list document handling
+- collaborative document editing through OnlyOffice
+- advisory board invitation and review workflows
+- shared reference library and project-level screening
+- structured reference-summary authoring
+- synopsis assembly in narrative and evidence workspaces
+- export to DOCX, RIS, and CSV
+
+The application is not currently structured as a public API platform or SPA. It is primarily a route-driven, template-rendered Django system using classic POST/redirect/GET flows.
