@@ -178,3 +178,29 @@ Custom auth wrappers in `synopsis.views`:
 - `PortalPasswordResetView`
 - `PortalPasswordResetConfirmView`
 
+## 6. Roles And Permission Model
+
+Permissions are enforced through a mix of:
+
+- Django auth flags and groups
+- project-scoped `UserRole` rows
+- helper predicates in `synopsis.views`
+
+Key rules:
+
+- **Manager** is effectively `is_staff` or in the `manager` group
+- **Author** can work inside assigned projects
+- **External author** is intentionally restricted from creating projects or managing the shared library; the bootstrapped Django auth group name for this role is `external_collaborator`
+- **Advisory board member** usually operates through secure emailed tokens rather than a normal portal session
+
+Important permission helpers:
+
+- `_user_is_manager()`
+- `_user_can_manage_library()`
+- `_user_can_view_project()`
+- `_user_can_manage_project_configuration()`
+- `_user_can_edit_project()`
+
+Navigation also reflects permissions through `synopsis.context_processors.navigation_roles`.
+
+## 7. Data Model By Subsystem
