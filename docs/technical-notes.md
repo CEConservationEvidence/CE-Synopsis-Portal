@@ -418,3 +418,39 @@ Important board mechanics:
 - a short-lived cache of summary IDs is used so board presence checks do not have to recalculate the project summary set on every request
 - creating or deleting summary tabs invalidates that cache so board presence stays aligned with the current data
 
+The summary detail page combines:
+
+- structured study metadata
+- generated or custom synopsis paragraph text
+- paragraph notes
+- comments
+- reference PDF viewing/upload
+- citation overrides for export
+- classification controls for the underlying project reference
+
+Its request model is action-driven. One route handles several POST actions, including:
+
+- `save-summary`
+- `save-synopsis-draft`
+- `save-paragraph-notes`
+- `assign`
+- `update-status`
+- `update-classification`
+- create, duplicate, and delete summary-tab actions
+
+Concurrency protection is intentionally lightweight but real:
+
+- active authors are stored in cache per summary/user key with a 45-second presence TTL
+- the browser refreshes presence about every 15 seconds through `reference_summary_presence`
+- guarded save actions submit a hidden `summary_revision_token` derived from `ReferenceSummary.updated_at`
+- if another author saves first, the submitted token becomes stale and the portal rejects the save rather than overwriting newer work
+- the stale-save warning can name both the assigned author and any currently active authors
+
+Workflow-specific behavior worth knowing:
+
+- one paper can have multiple summary tabs because the same study may support multiple interventions or distinct summaries
+- saving meaningful summary content or a paragraph draft can auto-promote a tab from "To summarise" to "In progress"
+- a custom saved synopsis paragraph is used for compilation only when `use_custom_synopsis_draft` is enabled; otherwise export falls back to the generated structured paragraph
+- deleting a summary tab resequences any affected synopsis assignments
+- excluding the underlying reference from the summary page can remove synopsis assignments tied to that reference
+
