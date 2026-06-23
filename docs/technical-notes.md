@@ -59,3 +59,58 @@ Component responsibilities:
 - **Celery worker**: runs queued tasks from the same Django codebase, currently mostly async email delivery.
 - **Celery beat**: triggers the reminder task hourly.
 - **OnlyOffice Document Server**: serves the live editor UI to the browser, downloads the current document from Django, and posts save/close callbacks back to Django.
+
+## 3. Repository Structure
+
+Main areas of the repository:
+
+- `src/manage.py`
+  - standard Django management entry point
+- `src/ce_portal/`
+  - project-level configuration: settings, root URLs, Celery bootstrap, ASGI/WSGI
+- `src/synopsis/`
+  - the main application: models, views, forms, tasks, utilities, admin, services, templates, tests
+- `src/templates/`
+  - Django templates, mostly grouped under `synopsis/`
+- `docker-compose.yml`
+  - application stack with Django, PostgreSQL, Redis, Celery, and OnlyOffice
+- `docker-compose.proxy.yml` and `docker/Caddyfile`
+  - optional HTTPS reverse-proxy layer
+
+Useful code landmarks:
+
+- `src/synopsis/models.py`
+  - core domain model for projects, documents, references, summaries, synopsis structure, and review workflows
+- `src/synopsis/forms.py`
+  - workflow-specific validation and field shaping for the large form-driven pages
+- `src/synopsis/views.py`
+  - the main orchestration layer; most business rules and state transitions still live here
+- `src/templates/synopsis/`
+  - server-rendered UI for all major workflows
+- `src/synopsis/tasks.py`
+  - queued email delivery and scheduled reminder execution
+- `src/synopsis/tests/`
+  - integration-heavy Django test coverage grouped by workflow
+
+Architecturally, the codebase is centered on:
+
+- **models** for domain state
+- **forms** for validation and workflow-specific input handling
+- **views** for orchestration
+- **templates** for UI
+- **tasks** for asynchronous email and scheduled reminders
+
+One important characteristic is that `src/synopsis/views.py` is a large orchestration module. The architecture is workflow-centric rather than heavily layered, so it is normal for one route handler to validate forms, update models, write audit logs, and choose the next UI state in the same function.
+
+## 4. Application Startup And Configuration
+
+### 4.1 Environment Resolution
+
+`ce_portal.settings` resolves environment in this order:
+
+1. `ENV_FILE` if explicitly set
+2. `.env.local`
+3. `.env`
+4. normal environment lookup through `python-decouple`
+
+This lets local development and Docker deployment use different env files without changing code.
