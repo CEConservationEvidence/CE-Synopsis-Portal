@@ -1,95 +1,103 @@
 # Contributing Guidelines
 
-Hello stranger!
+Contributions are welcome across bugs, documentation, tests, and feature work. Keep changes technically grounded in the current codebase rather than older planning notes or assumptions.
 
-Thank you for considering contributing to Conservation Evidence!
+## Read This First
 
-We welcome all kinds of contributions — bug reports, feature requests, documentation improvements, tests, and code.
+Start with the repo-local docs:
+- [README.md](README.md) for setup and an accurate feature summary
+- [docs/instructions.md](docs/instructions.md) for the Docker deployment model
+- [docs/reference-library-model.md](docs/reference-library-model.md) for the shared library vs project-reference design
+- [docs/roadmap.md](docs/roadmap.md) for the current gap list
 
-**Please take a moment to read these guidelines before submitting an issue or pull request.**
-
----
-
-## First Things First
-- Please read the [README](README.md) for setup instructions and project overview.
-- Then, please read the technical documentation in the [project wiki](https://deepwiki.com/CEConservationEvidence/CE-Synopsis-Portal/1-overview) for a deeper understanding of the system’s architecture and design rationale. This will help you make informed contributions that align with the project’s goals and standards.
+The [project wiki](https://deepwiki.com/CEConservationEvidence/CE-Synopsis-Portal/1-overview) is useful for background and rationale, but it is secondary to the repository itself and may lag behind the code.
 
 ## Reporting Issues
-- Before opening a new issue, **search the issue tracker** to see if it’s already reported.  
-- Use the **issue template** (already provided) to ensure we get all necessary details.  
-- Be clear and provide:
-  - Steps to reproduce
-  - Expected vs actual behavior
-  - Environment details (OS, version, etc.)
-  - Screenshots/logs if helpful
 
----
+- Search existing issues first.
+- Use the provided issue template.
+- Include:
+  - steps to reproduce
+  - expected vs actual behavior
+  - environment details
+  - screenshots, logs, or example files when relevant
 
 ## Suggesting Features
-- Open a **feature request issue** using the template.  
-- Clearly explain the problem your feature would solve.  
-- If possible, suggest implementation ideas or examples.
 
----
+- Open a feature request issue.
+- Explain the problem first, then the proposed change.
+- Call out any workflow impact on managers, authors, external authors, or advisory board members.
 
-## Contributing Code
+## Local Workflow
 
-### Getting Started
-1. Fork the repository and clone your fork.  
-2. Create a new branch:  
+1. Fork the repository and clone your fork.
+2. Create a focused branch.
    ```bash
-   git checkout -b feature/my-feature
+   git checkout -b feature/my-change
    ```
-3. Make your changes following our [code style](#-code-style).  
-4. Commit with a clear message:  
-   ```bash
-   git commit -m "Add feature X that does Y"
-   ```
-5. Push to your fork and open a pull request.
+3. Set up the app using the [README](README.md).
+4. Make the smallest coherent change that solves the problem.
+5. Run checks/tests relevant to the area you changed.
+6. Open a pull request with a clear problem statement and verification notes.
 
-### Pull Request Checklist
-- Fill out the **PR template** fully.  
-- Keep PRs focused — small, self-contained changes are easier to review.  
-- Update or add tests where appropriate.  
-- Update documentation if behavior changes.  
-- Ensure all checks (CI/tests) pass before requesting review.  
+## Documentation Standard
 
----
+Documentation changes should be verified against the current code, env templates, and templates/views that users actually see.
+
+If your change affects:
+- environment variables, update the relevant `.env` template files and [docs/instructions.md](docs/instructions.md)
+- setup or developer workflow, update [README.md](README.md)
+- reference-library behavior, update [docs/reference-library-model.md](docs/reference-library-model.md)
+- current scope or open gaps, update [docs/roadmap.md](docs/roadmap.md)
 
 ## Code Style
-- Follow the style already used in the surrounding Django app. Prefer clear, explicit code over clever abstractions, and keep changes scoped to the workflow you are touching.
-- Use descriptive names for models, forms, views, templates, and helper functions. Keep workflow terms consistent with the product language used in the UI: projects, protocols, action lists, advisory board members, references, summaries, and synopsis content.
-- Keep Django views and forms readable by extracting shared behavior into helpers or service modules when it avoids real duplication. Do not move code just to create more files.
-- Add short module docstrings for new Python modules, and add comments only where the intent would otherwise be hard to recover from the code.
-- Keep templates organized by workflow under `src/templates/synopsis/`. Shared partials belong under `src/templates/synopsis/includes/<workflow>/`.
-- In templates, keep presentation logic light. Put non-trivial business rules in Python code, and use template tags only for small display helpers.
-- Avoid unrelated formatting churn. If a file does not already have broad formatting changes, keep the diff focused on the behavior or documentation you are changing.
 
----
+- Follow the surrounding Django style. Prefer clear, explicit code over clever abstractions.
+- Keep workflow terms consistent with the UI and data model: projects, protocols, action lists, advisory board members, references, summaries, and synopsis content.
+- Extract helpers or service functions when they remove real duplication or clarify a workflow boundary.
+- Add short module docstrings for new Python modules.
+- Add comments only where the intent would otherwise be hard to recover from the code.
+- Keep templates organized under `src/templates/synopsis/` by workflow. Shared partials belong under `src/templates/synopsis/includes/<workflow>/`.
+- Keep business rules in Python rather than templates where practical.
+- Avoid unrelated formatting churn.
 
 ## Testing
-- Run the standard Django checks before submitting code:
-  ```bash
-  cd src
-  python manage.py check
-  python manage.py test
-  ```
-- Add or update tests when changing behavior, permissions, data validation, imports/exports, email delivery, reminder scheduling, document workflows, reference handling, or synopsis compilation.
-- Use focused unit tests for pure helpers, model methods, form validation, parsing, formatting, and permission predicates.
-- Use Django integration tests for views, workflows, database state changes, redirects, template rendering, emails, management commands, and Celery task entry points.
-- Add UI regression coverage or clear manual verification notes when changing complex templates, multi-step screens, collaborative document flows, or JavaScript-heavy interactions.
-- For documentation-only or comment-only changes, tests are usually not needed, but the PR should say that explicitly.
-- PRs without relevant tests may not be accepted unless they’re doc-only.
 
----
+Run the standard checks before submitting code:
+
+```bash
+cd src
+python manage.py check
+python manage.py test
+```
+
+Notes:
+- the test suite expects PostgreSQL test-database access
+- documentation-only changes usually do not need tests, but say so explicitly in the PR
+
+Add or update tests when changing:
+- permissions or roles
+- imports, deduplication, or reference linking
+- screening and summary workflows
+- synopsis compilation or export
+- advisory workflows, reminders, or email delivery
+- collaborative editing / OnlyOffice behavior
+- management commands or Celery task entry points
+
+Prefer:
+- focused unit tests for helpers, parsing, formatting, and validation
+- Django integration tests for views, DB changes, redirects, emails, and workflow state
+
+## Pull Requests
+
+- Fill out the PR template.
+- Keep PRs scoped and reviewable.
+- Include manual verification notes for UI-heavy changes.
+- Update documentation when behavior changes.
+- Call out any known risk, migration concern, or follow-up work.
 
 ## License
-By contributing, you agree that your contributions will be licensed under the same license as this project (see [LICENSE](LICENSE)).  
 
----
+By contributing, you agree that your contributions will be licensed under the project license in [LICENSE](LICENSE).
 
-## Questions?
-- Check the [README](README.md) for setup instructions.  
-- If you’re unsure, feel free to open a draft PR and ask for feedback!  
-
-*We’re excited to collaborate with you. Thank you for helping improve this project.*
+By Ibrahim Alhas, 2025-2026.
