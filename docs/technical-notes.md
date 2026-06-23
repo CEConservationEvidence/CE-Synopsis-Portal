@@ -394,3 +394,27 @@ The reference pipeline is:
 6. included references feed the summary board
 
 Project imports are still canonical-library aware. Even direct project imports attempt to create or reuse `LibraryReference` rows behind the scenes.
+
+### 9.5 Summary Workflow
+
+The summary workflow is deliberately different from the OnlyOffice document workflow. It is not live shared editing. It is a Django form workflow with conflict warnings and stale-page protection layered on top.
+
+The summary board acts as a Kanban-like orchestration layer over `ReferenceSummary` rows.
+
+It supports:
+
+- author assignment
+- status transitions
+- `needs_help` flags
+- multiple summary tabs per paper
+- workload/distribution views
+- bulk distribution actions
+- presence tracking to reduce conflicting edits
+
+Important board mechanics:
+
+- included project references are ensured to have summary rows before the board is rendered
+- the board polls `reference_summary_board_presence` to show which summaries currently have active authors
+- a short-lived cache of summary IDs is used so board presence checks do not have to recalculate the project summary set on every request
+- creating or deleting summary tabs invalidates that cache so board presence stays aligned with the current data
+
