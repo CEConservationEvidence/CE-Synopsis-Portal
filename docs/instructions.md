@@ -1,149 +1,115 @@
-# Internal Server Instructions - Docker Compose
+# Internal Server Deployment Runbook
 
-For the deployment itself:
+This runbook describes the Docker Compose deployment that is committed in this repository.
 
-- start from [`../.env.server`](../.env.server)
-- use [`../docker-compose.yml`](../docker-compose.yml)
-- only look at [`../docker-compose.proxy.yml`](../docker-compose.proxy.yml) if
-  the infrastructure team decides to put the app behind the optional Caddy
-  reverse proxy
+Use:
+- [`../.env.server`](../.env.server) as the starting env file
+- [`../docker-compose.yml`](../docker-compose.yml) for the base stack
+- [`../docker-compose.proxy.yml`](../docker-compose.proxy.yml) and [`../docker/Caddyfile`](../docker/Caddyfile) only if you want the optional HTTPS reverse proxy
 
-## How this stack works together
+## Default Topology
 
-In the standard internal setup:
+In the base stack:
 
-- users open the portal at `http://<server-ip>:8000`
-- users open ONLYOFFICE at `http://<server-ip>:8080`
+- users open the portal at `http://<server>:8000`
+- users open OnlyOffice at `http://<server>:8080`
 - Django talks to PostgreSQL at `db:5432`
 - Django talks to Redis at `redis:6379`
-- Django talks to ONLYOFFICE internally at `http://onlyoffice`
-- ONLYOFFICE talks back to Django internally at `http://web:8000`
+- Django talks to OnlyOffice internally at `http://onlyoffice`
+- OnlyOffice talks back to Django internally at `http://web:8000`
 
-That last line is the one people usually get wrong. In the full Compose stack,
-`ONLYOFFICE_APP_BASE_URL` should stay `http://web:8000`. It should not be set
-to the public server IP.
+The last item is the one that matters most for collaborative editing. In the full Compose stack, `ONLYOFFICE_APP_BASE_URL` should stay `http://web:8000`. Do not point it at the public server IP.
 
-## Info needed before deploy
+## Information Before Deploying
 
-The deployer will need:
-
-- the server IP or internal hostname
-- a Django `SECRET_KEY`
-- the PostgreSQL password
-- the ONLYOFFICE JWT secret
+- server IP or hostname
+- Django `SECRET_KEY`
+- PostgreSQL password
+- OnlyOffice JWT secret
 - SMTP host, port, username, and password
-- the sender mailbox/address to use for portal emails
+- sender mailbox/address for portal email
 
-If the app will be reachable by more than one label, decide that before editing
-the env file. For example:
+If you are using the optional Caddy layer, also decide:
+- portal hostname for `APP_DOMAIN`
+- OnlyOffice hostname for `ONLYOFFICE_DOMAIN`
+- ACME email for `ACME_EMAIL`
 
-- IP only
-- hostname only
-- both hostname and IP
-
-That choice affects:
-
+Be consistent about the browser-facing hostname(s). That affects:
 - `ALLOWED_HOSTS`
 - `CSRF_TRUSTED_ORIGINS`
 - `ONLYOFFICE_URL`
 - `ONLYOFFICE_TRUSTED_DOWNLOAD_URLS`
 
-Try to stay consistent and use the real browser-facing host everywhere.
-
-## Server requirements
-
-Before deploying, check that the server has:
+## Server Requirements
 
 - Docker Engine installed
 - Docker Compose plugin installed
-- ports `8000` and `8080` available
-- network access to the chosen SMTP server
-- enough RAM and CPU for Django, PostgreSQL, Redis, Celery, and ONLYOFFICE (at least 5-6 GB RAM)
+- ports `8000` and `8080` available for the base stack
+- ports `80` and `443` available if using the optional Caddy layer
+- outbound network access to the SMTP server
+- enough RAM/CPU for Django, PostgreSQL, Redis, Celery, and OnlyOffice
 
-ONLYOFFICE is not a trivial sidecar. It is one of the heavier services in this
-stack, so the server should be sized with that in mind. The Compose file gives
-ONLYOFFICE explicit CPU and memory reservations/limits; adjust those values in
-`.env` if the host is materially smaller or larger than the pilot server.
+Min 5-6 GB RAM as a practical minimum. OnlyOffice is the heaviest service in this stack. The Compose file already includes CPU and memory controls for it through env vars.
 
-## Setting `.env`
+## Configure `.env`
 
-Start by copying the server preset:
+Start by copying the committed server preset:
 
 ```bash
 cp .env.server .env
 ```
 
-Then edit `.env` with the real server values.
+Then edit `.env`.
 
-At minimum, make sure these are set correctly:
+At minimum, review and replace:
 
 ```env
-SECRET_KEY=<django-secret>
+SECRET_KEY=replace-with-django-secret-key
 
-DB_NAME=ce_portal
-DB_USER=ce_user
-DB_PASSWORD=<db-password>
+DB_PASSWORD=replace-with-db-password
 
-WEB_BIND_HOST=0.0.0.0
-WEB_PORT=8000
-ONLYOFFICE_BIND_HOST=0.0.0.0
-ONLYOFFICE_PORT=8080
-ONLYOFFICE_CPU_RESERVATION=1.0
-ONLYOFFICE_CPU_LIMIT=2.0
-ONLYOFFICE_MEMORY_RESERVATION=2G
-ONLYOFFICE_MEMORY_LIMIT=3G
+ALLOWED_HOSTS=server-ip-or-hostname
+CSRF_TRUSTED_ORIGINS=http://server-ip-or-hostname:8000
 
-REDIS_CACHE_URL=redis://redis:6379/1
-REDIS_CELERY_URL=redis://redis:6379/2
-COLLABORATIVE_SESSION_LOCK_TIMEOUT=30
-ASYNC_EMAIL_DELIVERY=True
-CELERY_LOG_LEVEL=info
-CELERY_WORKER_CONCURRENCY=2
-
-ALLOWED_HOSTS=<server-ip>
-CSRF_TRUSTED_ORIGINS=http://<server-ip>:8000
-
-EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
-EMAIL_HOST=<smtp-host>
+EMAIL_HOST=replace-with-smtp-host
 EMAIL_PORT=587
-EMAIL_HOST_USER=<smtp-user>
-EMAIL_HOST_PASSWORD=<smtp-password>
-EMAIL_USE_TLS=True
-EMAIL_USE_SSL=False
+EMAIL_HOST_USER=replace-with-smtp-user
+EMAIL_HOST_PASSWORD=replace-with-smtp-password
 DEFAULT_FROM_EMAIL=CE Synopsis Portal <pilot-mailbox@your-organisation>
 SERVER_EMAIL=CE Synopsis Portal <pilot-mailbox@your-organisation>
 
-ONLYOFFICE_URL=http://<server-ip>:8080
+ONLYOFFICE_URL=http://server-ip-or-hostname:8080
 ONLYOFFICE_INTERNAL_URL=http://onlyoffice
 ONLYOFFICE_APP_BASE_URL=http://web:8000
-ONLYOFFICE_JWT_ENABLED=true
-ONLYOFFICE_JWT_SECRET=<onlyoffice-jwt-secret>
-ONLYOFFICE_CALLBACK_TIMEOUT=10
-ONLYOFFICE_TRUSTED_DOWNLOAD_URLS=http://<server-ip>:8080,http://onlyoffice
-
-USE_X_FORWARDED_HOST=False
-USE_X_FORWARDED_PORT=False
-SECURE_PROXY_SSL_HEADER_ENABLED=False
-SESSION_COOKIE_SECURE=False
-CSRF_COOKIE_SECURE=False
-SECURE_SSL_REDIRECT=False
+ONLYOFFICE_JWT_SECRET=replace-with-onlyoffice-jwt-secret
+ONLYOFFICE_TRUSTED_DOWNLOAD_URLS=http://server-ip-or-hostname:8080,http://onlyoffice
 ```
 
-A few practical notes:
+Important notes:
 
-- `ONLYOFFICE_URL` is the URL the browser opens.
-- `ONLYOFFICE_INTERNAL_URL` is how Django reaches ONLYOFFICE inside Docker.
-- `ONLYOFFICE_APP_BASE_URL` is how ONLYOFFICE reaches Django for downloads and save callbacks.
-- `ONLYOFFICE_JWT_SECRET` must match what the ONLYOFFICE container uses.
-- if `SECRET_KEY` contains `$`, write it as `$$` in `.env`
-- in this Compose setup, `DB_HOST` should stay `db`
+- `DB_HOST` should stay `db` in this deployment
 - `REDIS_CACHE_URL` should stay `redis://redis:6379/1`
 - `REDIS_CELERY_URL` should stay `redis://redis:6379/2`
-- `COLLABORATIVE_SESSION_LOCK_TIMEOUT` controls the short Redis-backed lock around creating a live collaborative editing session.
+- `ONLYOFFICE_URL` is the browser-facing Document Server URL
+- `ONLYOFFICE_INTERNAL_URL` is how Django reaches Document Server inside Docker
+- `ONLYOFFICE_APP_BASE_URL` is how Document Server reaches Django for downloads and save callbacks
+- `ONLYOFFICE_JWT_SECRET` must match the OnlyOffice container setting
+- if `SECRET_KEY` contains `$`, escape it as `$$` in `.env`
+- `ASYNC_EMAIL_DELIVERY=True` is the expected deployment mode so web requests do not block on SMTP
 
-## Deployment Steps
+If you are exposing the portal directly over HTTP on an internal server, keep:
+- `USE_X_FORWARDED_HOST=False`
+- `USE_X_FORWARDED_PORT=False`
+- `SECURE_PROXY_SSL_HEADER_ENABLED=False`
+- `SESSION_COOKIE_SECURE=False`
+- `CSRF_COOKIE_SECURE=False`
+- `SECURE_SSL_REDIRECT=False`
 
-From the server:
+If you put the app behind a real HTTPS reverse proxy, review those values before go-live.
+
+## Deploy The Stack
+
+Base stack:
 
 ```bash
 git clone <repo-url>
@@ -154,147 +120,116 @@ docker compose up --build -d
 docker compose exec web python manage.py createsuperuser
 ```
 
-This starts:
+Optional Caddy HTTPS layer:
 
+```bash
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up --build -d
+```
+
+What starts:
 - `web`
 - `db`
 - `redis`
 - `worker`
 - `beat`
 - `onlyoffice`
+- `caddy` if the proxy override is included
 
-The Docker volumes used by this stack are:
+The first startup can take a while because:
+- Django runs migrations automatically in the `web` container
+- Django collects static files automatically in the `web` container
+- OnlyOffice can take time to become ready
 
+The base stack uses these Docker volumes:
 - `postgres_data` for PostgreSQL
-- `media_data` for uploaded media and saved document revisions
-- `onlyoffice_data` for ONLYOFFICE data
+- `media_data` for uploaded files and saved revisions
+- `onlyoffice_data` for Document Server state
 
-The first startup can take a little while because:
-
-- Django runs migrations automatically
-- Django collects static files automatically
-- ONLYOFFICE can take a while to finish starting up
-
-Also worth knowing:
-
-- `worker` and `beat` run as a non-root app user
-- `web` still follows the existing startup path, including migrations and static collection
-
-## What Redis and Celery Are Doing Here
+## What Redis And Celery Do Here
 
 In this deployment:
 
 - Redis backs the shared Django cache
 - Redis backs `cached_db` sessions
-- Celery worker runs background jobs
-- Celery beat schedules the advisory reminder task hourly
-- invite/review/access emails are queued through Celery instead of blocking the web request on SMTP
+- Redis backs Celery broker/result storage
+- Celery worker sends queued portal email
+- Celery beat schedules the hourly advisory reminder task
+- Redis also backs the short lock used when creating collaborative sessions
 
-So for the internal server deployment, Redis should be treated as required.
+For this deployment model, Redis should be treated as required.
 
-## ONLYOFFICE Smoke Test (VERY IMPORTANT!)
+## Smoke Tests
 
-After deployment:
+### Portal
 
-1. open `http://<server-ip>:8000`
-2. log in as a superuser
-3. open a project with a protocol or action list
-4. choose `Open collaborative editor` (loads new window)
-5. confirm the ONLYOFFICE editor loads (so the doucment loads and the toolbar appears)
-6. make a change, return to the detail page, and confirm the revision saved
+1. Open `http://<server>:8000`.
+2. Sign in as the superuser you created.
+3. Open an existing project or create a small test project.
+4. Confirm the dashboard, project hub, and shared reference library load.
 
-If the editor page opens but the document itself does not load, check these
-first:
+### Collaborative Editing
 
+1. Upload a protocol or action-list document.
+2. Choose `Open collaborative editor`.
+3. Confirm the OnlyOffice editor and toolbar load.
+4. Make a small edit.
+5. Close the collaborative round from the portal.
+6. Confirm a new revision is saved on the relevant detail page.
+
+If the editor window opens but the document itself does not load, check:
 - `ONLYOFFICE_URL`
 - `ONLYOFFICE_INTERNAL_URL`
 - `ONLYOFFICE_APP_BASE_URL`
 - matching `ONLYOFFICE_JWT_SECRET`
 - `ONLYOFFICE_TRUSTED_DOWNLOAD_URLS`
 
-The most common failure pattern is:
+The common failure pattern is that the browser can open OnlyOffice, but OnlyOffice cannot fetch the document or post the save callback back to Django because `ONLYOFFICE_APP_BASE_URL` points at the wrong host.
 
-- the browser can open ONLYOFFICE
-- but ONLYOFFICE cannot fetch the document or send the save callback back to Django
-- because `ONLYOFFICE_APP_BASE_URL` points to the wrong host
+### Email / Worker
 
-Again, in the full Compose stack, that value should stay `http://web:8000`.
+1. Send a test advisory invitation or review email from the portal.
+2. Confirm the UI reports the email as queued or sent.
+3. Check worker logs:
+   ```bash
+   docker compose logs worker
+   ```
+4. Confirm the recipient receives the message.
 
-## Email / Celery Smoke Test (NOT CURRENTLY IMPLEMENTED -- skip for now)
+If email does not send, check:
+- `EMAIL_*` settings
+- `ASYNC_EMAIL_DELIVERY`
+- `REDIS_CELERY_URL`
+- that `worker` is running and healthy
 
-Because review and invitation emails are queued, a healthy deployment depends
-on all of these working together:
+## Operational Commands
 
-- `redis`
-- `worker`
-- `beat`
-- valid SMTP settings
-
-Minimum email check:
-
-1. send a test advisory invitation or review email from the portal
-2. confirm the UI says `queued` or `sent`
-3. check `docker compose logs worker`
-4. confirm the recipient actually receives the email
-
-### GitHub Secrets Needed
-
-Set these repository secrets before turning the deploy job on:
-
-- `DEPLOY_HOST`
-- `DEPLOY_USER`
-- `DEPLOY_PATH`
-- `DEPLOY_SSH_KEY`
-
-Optional:
-
-- `DEPLOY_PORT`
-- `DEPLOY_KNOWN_HOSTS`
-
-Optional repository variable:
-
-- `ENABLE_DEPLOY`
-  - set this to `true` when you actually want GitHub Actions to redeploy the server
-  - if this is left unset, the deploy job stays off and only CI runs
-- `DEPLOY_BRANCH`
-  - defaults to `main` if you do not set it
-
-If you use `DEPLOY_KNOWN_HOSTS`, put the server's known-host entry there and
-the workflow will use it directly. If you leave it blank, the workflow will use
-`ssh-keyscan` at runtime.
-
-## Useful Commands
-
-Check service state:
+Useful log commands:
 
 ```bash
-docker compose ps
+docker compose logs web
+docker compose logs worker
+docker compose logs beat
+docker compose logs onlyoffice
 ```
 
-Tail logs:
-
-```bash
-docker compose logs -f web
-docker compose logs -f worker
-docker compose logs -f beat
-docker compose logs -f onlyoffice
-```
-
-Run checks manually:
+Run Django checks manually:
 
 ```bash
 docker compose exec web python manage.py check
 docker compose exec web python manage.py send_due_reminders
 ```
 
-## Updating Later (CI/CD)
-
-For an update:
+Restart after env/config changes:
 
 ```bash
-git pull
-docker compose up --build -d
-docker compose exec web python manage.py check
+docker compose up -d --build
 ```
 
-Finally, please create a superuser and share the credentials with the team so we can log in and check the admin if needed.
+## Backups
+
+Back up at least:
+- PostgreSQL data from `postgres_data`
+- uploaded/revision files from `media_data`
+
+`onlyoffice_data` is also worth preserving if you want the Document Server cache/state retained across host rebuilds.
+
