@@ -33,3 +33,29 @@ At a high level, the system supports:
 - export to DOCX, RIS, and CSV
 
 The application is not currently structured as a public API platform or SPA. It is primarily a route-driven, template-rendered Django system using classic POST/redirect/GET flows.
+
+## 2. Runtime Topology
+
+The production-style Docker deployment uses a small set of long-lived services. Not every service talks directly to every other service.
+
+```text
+Normal pages:
+Browser <-> Django / Gunicorn (`web`)
+Django / Gunicorn <-> PostgreSQL (`db`)
+Django / Gunicorn <-> Redis (`redis`)
+Celery worker (`worker`) <-> Redis
+Celery beat (`beat`) -> Redis / Celery worker
+
+Collaborative document pages add:
+Browser <-> OnlyOffice Document Server (`onlyoffice`)
+OnlyOffice Document Server <-> Django / Gunicorn (`web`)
+```
+
+Component responsibilities:
+
+- **Django/Gunicorn**: serves HTML, handles forms, permissions, workflow actions, exports, and OnlyOffice callbacks.
+- **PostgreSQL**: primary relational data store for all domain models.
+- **Redis**: shared cache, `cached_db` session backend when enabled, Celery broker/result backend, summary/editor presence caching, and collaborative-session lock coordination.
+- **Celery worker**: runs queued tasks from the same Django codebase, currently mostly async email delivery.
+- **Celery beat**: triggers the reminder task hourly.
+- **OnlyOffice Document Server**: serves the live editor UI to the browser, downloads the current document from Django, and posts save/close callbacks back to Django.
