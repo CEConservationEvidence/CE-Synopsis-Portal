@@ -14,3 +14,11 @@ If you are tracing behaviour in the code, the usual path is:
 
 CE Synopsis Portal is a server-rendered Django application for managing Conservation Evidence synopsis projects end to end. The application is built around one main Django app, synopsis, which contains almost all workflow logic.
 
+The core mental model is:
+
+- Django renders pages and handles most state transitions through forms and POST actions
+- PostgreSQL stores the durable workflow state
+- Redis, when enabled, provides shared cache/session behavior and Celery coordination
+- OnlyOffice is an external editor used only for collaborative protocol and action-list editing
+
+At a high level, the system supports:
