@@ -28,6 +28,7 @@ from .utils import (
     normalize_reference_summary_citation,
     project_action_name_values,
     reference_summary_effective_citation,
+    validate_inline_markup_structure,
 )
 
 MAX_LOCATION_LINE_LENGTH = 200
@@ -81,6 +82,17 @@ def _validate_not_same_day_datetime(value, field_label):
             f"{field_label} must be at least one day in the future."
         )
     return value
+
+
+def _clean_inline_markup_text(value, field_label):
+    cleaned = (value or "").strip()
+    try:
+        validate_inline_markup_structure(cleaned)
+    except ValueError as exc:
+        raise forms.ValidationError(
+            f"{field_label} has invalid inline formatting. {exc}"
+        ) from exc
+    return cleaned
 
 from .models import (
     ActionList,
