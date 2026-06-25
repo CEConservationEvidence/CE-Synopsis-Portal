@@ -1,19 +1,272 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Manager – Admin{% endblock %}
+{% block page_container_class %}container-fluid px-3 px-xl-4 px-xxl-5{% endblock %}
 {% block content %}
-<div class="container py-4">
-    <h1 class="mb-4 text-center">Manager Dashboard</h1>
-    <!-- Synopsis Management Section -->
-    <section class="mb-5">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h2 class="h4">Synopsis Management</h2>
+{% with project_count=project_entries|length user_count=user_entries|length %}
+<div id="manager-dashboard-page" class="pb-4">
+    <style>
+        #manager-dashboard-page {
+            max-width: 1500px;
+            margin: 0 auto;
+        }
+        .manager-intro {
+            background: #fff;
+            border: 1px solid #dfe5ec;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+        }
+        .manager-intro-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.8fr) minmax(18rem, 1fr);
+            gap: 1.25rem;
+            align-items: start;
+        }
+        .manager-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.75rem;
+        }
+        .manager-stat {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.65rem;
+            padding: 0.85rem 0.95rem;
+            min-width: 0;
+        }
+        .manager-stat-label {
+            display: block;
+            color: #6b7280;
+            font-size: 0.74rem;
+            text-transform: uppercase;
+            margin-bottom: 0.35rem;
+        }
+        .manager-stat-value {
+            display: block;
+            color: #1f2937;
+            font-size: 1.35rem;
+            font-weight: 600;
+            line-height: 1;
+        }
+        .manager-section {
+            background: #fff;
+            border: 1px solid #dfe5ec;
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+        .manager-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            padding: 1.15rem 1.25rem 1rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .manager-section-header p {
+            max-width: 48rem;
+        }
+        .manager-section-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .manager-section-count {
+            flex-shrink: 0;
+        }
+        .manager-table {
+            margin-bottom: 0;
+        }
+        .manager-table thead th {
+            color: #6b7280;
+            font-size: 0.74rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            white-space: nowrap;
+            border-bottom-width: 1px;
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+        .manager-table tbody td {
+            padding-top: 0.95rem;
+            padding-bottom: 0.95rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            vertical-align: top;
+        }
+        .manager-table thead th:first-child,
+        .manager-table tbody td:first-child {
+            padding-left: 1.25rem;
+        }
+        .manager-table thead th:last-child,
+        .manager-table tbody td:last-child {
+            padding-right: 1.25rem;
+        }
+        .manager-table tbody tr:last-child td {
+            border-bottom: 0;
+        }
+        .manager-title-link {
+            color: #1f2937;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .manager-title-link:hover,
+        .manager-title-link:focus {
+            color: #24559a;
+            text-decoration: underline;
+        }
+        .manager-project-summary,
+        .manager-meta-note {
+            color: #6b7280;
+            font-size: 0.84rem;
+            line-height: 1.45;
+            margin-top: 0.3rem;
+        }
+        .manager-chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 1.9rem;
+            padding: 0.3rem 0.65rem;
+            border-radius: 999px;
+            border: 1px solid #d4dbe3;
+            background: #f8fafc;
+            color: #334155;
+            font-size: 0.8rem;
+            font-weight: 500;
+            line-height: 1.2;
+        }
+        .manager-chip-warning {
+            background: #fbf6e8;
+            border-color: #e7d2a2;
+            color: #8a6115;
+        }
+        .manager-chip-success {
+            background: #edf8f1;
+            border-color: #b9ddca;
+            color: #1f7a4f;
+        }
+        .manager-chip-info {
+            background: #eef4fb;
+            border-color: #bfd0e8;
+            color: #24559a;
+        }
+        .manager-chip-dark {
+            background: #e5e7eb;
+            border-color: #cfd5dc;
+            color: #1f2937;
+        }
+        .manager-date {
+            color: #1f2937;
+            font-weight: 500;
+        }
+        .manager-date-subtext {
+            color: #6b7280;
+            font-size: 0.82rem;
+            margin-top: 0.15rem;
+        }
+        .manager-actions {
+            display: flex;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .manager-empty {
+            padding: 1.1rem 1.25rem;
+            color: #6b7280;
+        }
+        .project-delete-details {
+            min-width: min(22rem, 100%);
+        }
+        .project-delete-details summary {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            color: #b2414b;
+            cursor: pointer;
+            font-weight: 500;
+            list-style: none;
+        }
+        .project-delete-details summary::-webkit-details-marker {
+            display: none;
+        }
+        .project-delete-panel {
+            margin-top: 0.65rem;
+            padding: 0.9rem;
+            border: 1px solid #e6bcc0;
+            border-radius: 0.65rem;
+            background: #fff8f8;
+        }
+        .project-delete-panel p {
+            margin-bottom: 0.75rem;
+        }
+        .project-delete-panel p:last-child {
+            margin-bottom: 0;
+        }
+        .project-delete-panel form p {
+            margin-bottom: 0.75rem;
+        }
+        .project-delete-panel input[type="text"],
+        .project-delete-panel input[type="checkbox"] {
+            margin-top: 0.2rem;
+        }
+        @media (max-width: 991.98px) {
+            .manager-intro-grid {
+                grid-template-columns: 1fr;
+            }
+            .manager-section-header {
+                flex-direction: column;
+            }
+        }
+        @media (max-width: 767.98px) {
+            .manager-intro,
+            .manager-section-header {
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+            .manager-stat-grid {
+                grid-template-columns: 1fr;
+            }
+            .manager-table thead th {
+                white-space: normal;
+            }
+            .manager-actions {
+                justify-content: flex-start;
+            }
+        }
+    </style>
+
+    <section class="manager-intro mb-4">
+        <div class="manager-intro-grid">
+            <div>
+                <p class="text-uppercase text-muted small mb-1">Administration</p>
+                <h1 class="h3 mb-2">Manager Dashboard</h1>
+                <p class="text-muted mb-2">Manage synopsis access, review account state, open project hubs, and handle protected deletion workflows from one place.</p>
+                <p class="small text-muted mb-0">This page is limited to staff users with manager access.</p>
+            </div>
+            <div class="manager-stat-grid">
+                <div class="manager-stat">
+                    <span class="manager-stat-label">Synopses</span>
+                    <span class="manager-stat-value">{{ project_count }}</span>
+                </div>
+                <div class="manager-stat">
+                    <span class="manager-stat-label">User Accounts</span>
+                    <span class="manager-stat-value">{{ user_count }}</span>
+                </div>
+            </div>
         </div>
-        <p class="text-muted small">
-            Review active synopses, open their hub, or permanently delete them with the safeguards below.
-        </p>
+    </section>
+
+    <section class="manager-section mb-4" aria-labelledby="manager-synopses-heading">
+        <div class="manager-section-header">
+            <div>
+                <h2 class="h5 mb-1" id="manager-synopses-heading">Synopsis Management</h2>
+                <p class="small text-muted mb-0">Review active synopses, open their hub, or permanently delete them with the safeguards below.</p>
+            </div>
+            <span class="badge text-bg-light border manager-section-count">{{ project_count }}</span>
+        </div>
         <div class="table-responsive">
-            <table class="table table-hover table-bordered align-middle">
-                <thead class="table-light">
+            <table class="table table-hover align-middle manager-table">
+                <thead>
                     <tr>
                         <th>Synopsis</th>
                         <th>Authors</th>
@@ -26,25 +279,42 @@
                     {% for entry in project_entries %}
                     {% with project=entry.project form=entry.delete_form %}
                     <tr>
-                        <td>{{ project.title }}</td>
+                        <td>
+                            <a class="manager-title-link" href="{% url 'synopsis:project_hub' project.id %}">{{ project.title }}</a>
+                            <div class="manager-project-summary">
+                                {% if project.description %}
+                                {{ project.description|truncatechars:120 }}
+                                {% else %}
+                                No project description added yet.
+                                {% endif %}
+                            </div>
+                        </td>
                         <td class="small">
                             {% if entry.authors %}
+                            <div>
                                 {% for user in entry.authors %}
                                     {{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}
                                 {% endfor %}
+                            </div>
+                            <div class="manager-meta-note">{{ entry.authors|length }} author{{ entry.authors|length|pluralize }}</div>
                             {% else %}
                             <span class="text-muted">No authors assigned</span>
                             {% endif %}
                         </td>
-                        <td>{{ project.created_at|date:"Y-m-d H:i" }}</td>
                         <td>
-                            <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_hub' project.id %}">Open Synopsis</a>
+                            <div class="manager-date">{{ project.created_at|date:"Y-m-d" }}</div>
+                            <div class="manager-date-subtext">{{ project.created_at|date:"H:i" }}</div>
+                        </td>
+                        <td>
+                            <div class="manager-actions justify-content-start">
+                                <a class="btn btn-outline-primary btn-sm" href="{% url 'synopsis:project_hub' project.id %}">Open Synopsis</a>
+                            </div>
                         </td>
                         <td class="text-end">
                             <details class="project-delete-details">
-                                <summary class="text-danger">Delete…</summary>
-                                <div class="mt-2 p-3 border rounded bg-light">
-                                    <p class="text-muted small mb-2">
+                                <summary>Delete…</summary>
+                                <div class="project-delete-panel text-start">
+                                    <p class="text-muted small">
                                         This action is permanent. Type
                                         <strong>{{ project.title }}</strong>
                                         and confirm the warning to proceed.
@@ -53,9 +323,9 @@
                                         {% csrf_token %}
                                         {{ form.as_p }}
                                         <input type="hidden" name="next" value="{% url 'synopsis:manager_dashboard' %}">
-                                        <div class="d-flex justify-content-end">
+                                        <div class="manager-actions">
                                             <button type="submit" class="btn btn-danger btn-sm">Delete</button>
-                                            <a href="{% url 'synopsis:manager_dashboard' %}" class="btn btn-secondary btn-sm ms-2">Cancel</a>
+                                            <a href="{% url 'synopsis:manager_dashboard' %}" class="btn btn-secondary btn-sm">Cancel</a>
                                         </div>
                                     </form>
                                 </div>
@@ -65,22 +335,28 @@
                     {% endwith %}
                     {% empty %}
                     <tr>
-                        <td colspan="5" class="text-muted text-center">No synopses yet.</td>
+                        <td colspan="5" class="manager-empty">No synopses yet.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     </section>
-    <!-- User Management Section -->
-    <section>
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <h2 class="h4">User Management</h2>
-            <a class="btn btn-primary btn-sm" href="{% url 'synopsis:user_create' %}">Add New User</a>
+
+    <section class="manager-section" aria-labelledby="manager-users-heading">
+        <div class="manager-section-header">
+            <div>
+                <h2 class="h5 mb-1" id="manager-users-heading">User Management</h2>
+                <p class="small text-muted mb-0">Review account state, global role assignment, login readiness, and direct management links for editable users.</p>
+            </div>
+            <div class="manager-section-actions">
+                <span class="badge text-bg-light border manager-section-count">{{ user_count }}</span>
+                <a class="btn btn-primary btn-sm" href="{% url 'synopsis:user_create' %}">Add New User</a>
+            </div>
         </div>
         <div class="table-responsive">
-            <table class="table table-hover table-bordered align-middle">
-                <thead class="table-light">
+            <table class="table table-hover align-middle manager-table">
+                <thead>
                     <tr>
                         <th>Name</th>
                         <th>Email</th>
@@ -94,23 +370,30 @@
                     {% for entry in user_entries %}
                     {% with u=entry.user %}
                     <tr>
-                        <td>{{ u.get_full_name|default:u.username }}</td>
                         <td>
-                            <div>{{ u.email|default:u.username }}</div>
-                            <div class="small text-muted">Login: {{ u.username }}</div>
+                            <div class="fw-semibold text-body">{{ u.get_full_name|default:u.username }}</div>
+                            {% if u.get_full_name %}
+                            <div class="manager-meta-note">Login: {{ u.username }}</div>
+                            {% endif %}
                         </td>
                         <td>
-                            <span class="badge {% if entry.global_role == 'manager' %}text-bg-warning{% elif entry.global_role == 'external_collaborator' %}text-bg-info{% elif entry.global_role == 'system_admin' %}text-bg-dark{% else %}text-bg-secondary{% endif %}">
+                            <div>{{ u.email|default:u.username }}</div>
+                            {% if u.email and u.email != u.username %}
+                            <div class="manager-meta-note">Username: {{ u.username }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="manager-chip {% if entry.global_role == 'manager' %}manager-chip-warning{% elif entry.global_role == 'external_collaborator' %}manager-chip-info{% elif entry.global_role == 'system_admin' %}manager-chip-dark{% endif %}">
                                 {{ entry.global_role_label }}
                             </span>
                         </td>
                         <td>
-                            <span class="badge {% if u.is_active %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+                            <span class="manager-chip {% if u.is_active %}manager-chip-success{% endif %}">
                                 {{ entry.status_label }}
                             </span>
                         </td>
                         <td>
-                            <span class="badge {% if entry.password_state == 'Password set' %}text-bg-success{% else %}text-bg-warning text-dark{% endif %}">
+                            <span class="manager-chip {% if entry.password_state == 'Password set' %}manager-chip-success{% else %}manager-chip-warning{% endif %}">
                                 {{ entry.password_state }}
                             </span>
                         </td>
@@ -125,7 +408,7 @@
                     {% endwith %}
                     {% empty %}
                     <tr>
-                        <td colspan="6" class="text-muted text-center">No users yet.</td>
+                        <td colspan="6" class="manager-empty">No users yet.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -133,4 +416,5 @@
         </div>
     </section>
 </div>
+{% endwith %}
 {% endblock %}
