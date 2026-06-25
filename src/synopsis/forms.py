@@ -1011,6 +1011,19 @@ class SynopsisChapterForm(forms.Form):
         return (self.cleaned_data.get("title") or "").strip()
 
 
+class SynopsisTitleForm(forms.Form):
+    title = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Title"}
+        ),
+        label="Title",
+    )
+
+    def clean_title(self):
+        return (self.cleaned_data.get("title") or "").strip()
+
+
 class SynopsisSubheadingForm(forms.Form):
     title = forms.CharField(
         max_length=255,
@@ -1045,17 +1058,6 @@ class SynopsisInterventionForm(forms.Form):
         widget=forms.SelectMultiple(attrs={"class": "form-select", "size": 5}),
         label="IUCN actions",
     )
-    is_cross_reference = forms.BooleanField(
-        required=False,
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        label="Cross-reference only",
-    )
-    primary_intervention = forms.ModelChoiceField(
-        queryset=SynopsisIntervention.objects.none(),
-        required=False,
-        widget=forms.Select(attrs={"class": "form-select"}),
-        label="Primary intervention",
-    )
 
     def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1064,32 +1066,9 @@ class SynopsisInterventionForm(forms.Form):
             is_active=True,
         ).order_by("position", "name")
         self.fields["iucn_actions"].label_from_instance = lambda obj: obj.name
-        interventions = SynopsisIntervention.objects.none()
-        if project:
-            interventions = (
-                SynopsisIntervention.objects.filter(
-                    subheading__chapter__project=project
-                )
-                .select_related("subheading__chapter")
-                .order_by("title")
-            )
-        self.fields["primary_intervention"].queryset = interventions
 
     def clean_title(self):
         return (self.cleaned_data.get("title") or "").strip()
-
-    def clean(self):
-        cleaned = super().clean()
-        is_cross_ref = cleaned.get("is_cross_reference")
-        primary = cleaned.get("primary_intervention")
-        if is_cross_ref and not primary:
-            self.add_error(
-                "primary_intervention",
-                "Select the main intervention that holds the full evidence summary.",
-            )
-        if primary and not is_cross_ref:
-            cleaned["is_cross_reference"] = True
-        return cleaned
 
 
 class SynopsisBackgroundForm(forms.Form):
@@ -1099,10 +1078,15 @@ class SynopsisBackgroundForm(forms.Form):
             attrs={
                 "class": "form-control",
                 "rows": 4,
+                "data-inline-markup": "true",
                 "placeholder": "Brief background (<200 words): description, context, related literature/harms.",
             }
         ),
         label="Background",
+        help_text=(
+            "Formatting supported: italics, subscript, superscript, and inserted symbols. "
+            "This formatting is preserved in the portal and DOCX export."
+        ),
     )
     background_references = forms.CharField(
         required=False,
@@ -1116,6 +1100,12 @@ class SynopsisBackgroundForm(forms.Form):
         label="Background references",
         help_text="Optional. Use any relevant contextual references here. They do not need to be published before the search end date.",
     )
+
+    def clean_background_text(self):
+        return _clean_inline_markup_text(
+            self.cleaned_data.get("background_text"),
+            "Background",
+        )
 
 
 class ProjectActionNameBankForm(forms.Form):
@@ -1187,10 +1177,15 @@ class SynopsisKeyMessageForm(forms.Form):
             attrs={
                 "class": "form-control form-control-sm",
                 "rows": 3,
+                "data-inline-markup": "true",
                 "placeholder": "Key message statement.",
             }
         ),
         label="Statement",
+        help_text=(
+            "Formatting supported: italics, subscript, superscript, and inserted symbols. "
+            "This formatting is preserved in the portal and DOCX export."
+        ),
     )
     supporting_summaries = forms.ModelMultipleChoiceField(
         queryset=ReferenceSummary.objects.none(),
@@ -1222,7 +1217,10 @@ class SynopsisKeyMessageForm(forms.Form):
         return (self.cleaned_data.get("outcome_label") or "").strip()
 
     def clean_statement(self):
-        return (self.cleaned_data.get("statement") or "").strip()
+        return _clean_inline_markup_text(
+            self.cleaned_data.get("statement"),
+            "Statement",
+        )
 
 
 class SynopsisAssignmentForm(forms.Form):
@@ -2314,7 +2312,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         required=False,
         choices=IUCN_HABITAT_CHOICES,
         widget=forms.CheckboxSelectMultiple(attrs={"class": "tag-choice-input"}),
-        label="Habitat (IUCN)",
+        label="Habitat (Conservation Evidence)",
     )
     taxon_tags = TagCommaField(
         required=False,
@@ -2413,6 +2411,31 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         action_choices.append((self.ACTION_CUSTOM_VALUE, "Other / enter custom action"))
         self.fields["action_choice"].choices = action_choices
         self._existing_status = instance.status if instance else None
+        if instance and instance.pk:
+            habitat_choices = list(self.fields["habitat_tags"].choices)
+            current_habitat_tags = list(instance.habitat_tags or [])
+            legacy_habitat_tags = []
+            normalized_habitat_tags = []
+            for tag in current_habitat_tags:
+                normalized = _normalize_habitat_tag(tag)
+                if normalized:
+                    normalized_habitat_tags.append(normalized)
+                if normalized not in IUCN_HABITAT_CHOICE_SET and tag not in IUCN_HABITAT_CHOICE_SET:
+                    legacy_habitat_tags.append(tag)
+            if legacy_habitat_tags:
+                for tag in legacy_habitat_tags:
+                    if tag not in {value for value, _label in habitat_choices}:
+                        habitat_choices.append((tag, f"{tag} (legacy saved value)"))
+                self.fields["habitat_tags"].choices = habitat_choices
+            if not self.is_bound and normalized_habitat_tags:
+                deduped_tags = []
+                seen_habitat_tags = set()
+                for tag in normalized_habitat_tags:
+                    if tag in seen_habitat_tags:
+                        continue
+                    seen_habitat_tags.add(tag)
+                    deduped_tags.append(tag)
+                self.initial["habitat_tags"] = deduped_tags
         if not self.is_bound and instance and instance.research_design:
             self.initial["research_design"] = self._split_research_design_value(
                 instance.research_design
@@ -2556,6 +2579,60 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             return [part.strip() for part in value.split(",") if part.strip()]
         return []
 
+    def _clean_structured_markup_field(self, field_name, field_label):
+        return _clean_inline_markup_text(
+            self.cleaned_data.get(field_name),
+            field_label,
+        )
+
+    def clean_study_design(self):
+        return self._clean_structured_markup_field("study_design", "Study design")
+
+    def clean_sites_replications(self):
+        return self._clean_structured_markup_field(
+            "sites_replications",
+            "Sites / replications",
+        )
+
+    def clean_year_range(self):
+        return self._clean_structured_markup_field("year_range", "Year range")
+
+    def clean_habitat_and_sites(self):
+        return self._clean_structured_markup_field(
+            "habitat_and_sites",
+            "Habitat and sites",
+        )
+
+    def clean_region(self):
+        return self._clean_structured_markup_field("region", "Region")
+
+    def clean_country(self):
+        return self._clean_structured_markup_field("country", "Country")
+
+    def clean_summary_of_results(self):
+        return self._clean_structured_markup_field(
+            "summary_of_results",
+            "Summary of results",
+        )
+
+    def clean_site_context_details(self):
+        return self._clean_structured_markup_field(
+            "site_context_details",
+            "Site context details",
+        )
+
+    def clean_sampling_methods_details(self):
+        return self._clean_structured_markup_field(
+            "sampling_methods_details",
+            "Sampling methods details",
+        )
+
+    def clean_methods_and_design(self):
+        return self._clean_structured_markup_field(
+            "methods_and_design",
+            "Methods, design and context notes",
+        )
+
     def clean_action_tags(self):
         return self._split_tags("action_tags")
 
@@ -2566,7 +2643,15 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         return self._split_tags("taxon_tags")
 
     def clean_habitat_tags(self):
-        return self._split_tags("habitat_tags")
+        normalized = []
+        seen = set()
+        for tag in self._split_tags("habitat_tags"):
+            cleaned = _normalize_habitat_tag(tag)
+            if not cleaned or cleaned in seen:
+                continue
+            seen.add(cleaned)
+            normalized.append(cleaned)
+        return normalized
 
     @staticmethod
     def _split_research_design_value(value):
@@ -2669,6 +2754,14 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                         "notes": parts[9],
                     }
                 )
+        try:
+            for row in parsed:
+                for value in row.values():
+                    validate_inline_markup_structure(value or "")
+        except ValueError as exc:
+            raise forms.ValidationError(
+                f"Outcome notes has invalid inline formatting. {exc}"
+            ) from exc
         return parsed
 
     def _clean_score_in_range(self, field_name):
@@ -2751,7 +2844,10 @@ class ReferenceSummaryDraftForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["synopsis_draft"].required = False
         self.fields["synopsis_draft"].help_text = (
-            "Saving here tells the system to use this paragraph for compilation and export. Switch back to the auto-generated paragraph if you want changes in the structured fields above to flow through again."
+            "Saving here tells the system to use this paragraph for compilation and export. "
+            "Switch back to the auto-generated paragraph if you want changes in the structured fields above to flow through again. "
+            "Formatting supported: <i>...</i> or <em>...</em> for italics, <sub>...</sub> for subscript, "
+            "and <sup>...</sup> for superscript. Pasted symbols are preserved."
         )
         if (
             not self.is_bound
@@ -2774,10 +2870,17 @@ class ReferenceSummaryDraftForm(forms.ModelForm):
                 attrs={
                     "class": "form-control",
                     "rows": 8,
+                    "data-inline-markup": "true",
                     "placeholder": "Edit the generated paragraph here, or leave blank to fall back to the auto-generated text.",
                 }
             )
         }
+
+    def clean_synopsis_draft(self):
+        return _clean_inline_markup_text(
+            self.cleaned_data.get("synopsis_draft"),
+            "Summary paragraph",
+        )
 
 
 class ReferenceSummaryParagraphNotesForm(forms.ModelForm):
