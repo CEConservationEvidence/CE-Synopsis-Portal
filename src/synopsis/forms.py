@@ -367,6 +367,13 @@ IUCN_HABITAT_TAG_ALIASES = {
     "Artificial - Aquatic - Excavations": "Artificial Exposures (quarries, opencast mines)",
 }
 
+
+def _normalize_habitat_tag(tag):
+    cleaned = (tag or "").strip()
+    if not cleaned:
+        return ""
+    return IUCN_HABITAT_TAG_ALIASES.get(cleaned, cleaned)
+
 class TagCommaField(forms.CharField):
     """Render list-like values as comma-separated strings and back."""
 
