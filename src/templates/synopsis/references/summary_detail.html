@@ -1,4 +1,5 @@
 {% extends "synopsis/base.html" %}
+{% load synopsis_formatting %}
 {% block title %}Reference summary – {{ project.title }}{% endblock %}
 {% block page_container_class %}container-fluid px-3 px-xl-4 px-xxl-5{% endblock %}
 {% block content %}
@@ -817,6 +818,12 @@
                 {% else %}
                     <p class="text-muted small mb-3">Fill in any of the optional structured fields above to generate a paragraph automatically, or write a custom summary paragraph here.</p>
                 {% endif %}
+                {% if current_summary_paragraph %}
+                <div class="border rounded bg-light p-3 small mb-3">
+                    <div class="fw-semibold small text-uppercase text-muted mb-1">Current compiled paragraph</div>
+                    <div class="text-body">{{ current_summary_paragraph|render_inline_markup }}</div>
+                </div>
+                {% endif %}
                 <form method="post" class="d-flex flex-column gap-3" id="summary-draft-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-synopsis-draft">
@@ -1429,6 +1436,7 @@
         }
     })();
 </script>
+{% include "synopsis/includes/inline_markup_toolbar_assets.html" %}
 <div class="d-flex justify-content-end my-3">
     <a href="#top" class="btn btn-outline-secondary btn-sm">Back to top</a>
 </div>
