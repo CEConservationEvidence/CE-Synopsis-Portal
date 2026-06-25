@@ -1683,23 +1683,25 @@ class ReferenceSummaryFormTests(TestCase):
 
     def test_habitat_tags_use_detailed_iucn_choices(self):
         values = [value for value, _label in IUCN_HABITAT_CHOICES]
-        self.assertEqual(len(values), 63)
-        self.assertIn("Marine Coral Reefs", values)
+        self.assertEqual(len(values), 94)
+        self.assertIn("Boreal Woodland/Forest", values)
         self.assertIn(
-            "Wetlands (inland) - Permanent Freshwater Lakes",
+            "Permanent Freshwater Lakes",
             values,
         )
         self.assertIn(
-            "Artificial - Subtropical/Tropical Heavily Degraded Former Forest",
+            "Dams and Reservoirs",
             values,
         )
+        self.assertIn("Marine Anthropogenic Structures", values)
+        self.assertIn("Continental Ice or Glaciers", values)
 
         form = ReferenceSummaryUpdateForm(
             data={
                 "status": ReferenceSummary.STATUS_TODO,
                 "habitat_tags": [
-                    "Marine Coral Reefs",
-                    "Forest - Temperate",
+                    "Coral Reefs",
+                    "Dams and Reservoirs",
                 ],
             },
             project=self.project,
@@ -1708,9 +1710,34 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertEqual(
             form.cleaned_data["habitat_tags"],
             [
-                "Marine Coral Reefs",
-                "Forest - Temperate",
+                "Coral Reefs",
+                "Dams and Reservoirs",
             ],
+        )
+
+    def test_habitat_tags_normalize_saved_legacy_values_when_editing(self):
+        batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Legacy habitat batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=batch,
+            hash_key="h" * 40,
+            title="Legacy habitat reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            habitat_tags=["Marine Coral Reefs", "Artificial - Urban Areas"],
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
+
+        self.assertEqual(
+            form.initial["habitat_tags"],
+            ["Coral Reefs", "Built-up Areas"],
         )
 
     def test_action_tags_use_detailed_iucn_choices(self):
@@ -2142,6 +2169,29 @@ class ReferenceSummaryFormTests(TestCase):
 
         self.assertEqual(form["synopsis_draft"].value(), "Author edited paragraph.")
 
+    def test_draft_form_rejects_invalid_supported_inline_markup(self):
+        project = Project.objects.create(title="Invalid markup paragraph")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="g" * 40,
+            title="Invalid markup reference",
+        )
+        summary = ReferenceSummary.objects.create(project=project, reference=reference)
+
+        form = ReferenceSummaryDraftForm(
+            data={"synopsis_draft": "A replicated study found that CO<sup>2."},
+            instance=summary,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("matching closing tag", form.errors["synopsis_draft"][0])
+
     def test_citation_field_prefills_with_shared_reference_citation_when_no_local_override_exists(self):
         batch = ReferenceSourceBatch.objects.create(
             project=self.project,
@@ -2273,6 +2323,17 @@ class ReferenceSummaryFormTests(TestCase):
             ],
         )
 
+    def test_outcomes_raw_rejects_invalid_inline_markup(self):
+        data = {
+            "status": ReferenceSummary.STATUS_TODO,
+            "outcomes_raw": "Species richness increased under CO<sup>2.",
+        }
+        form = ReferenceSummaryUpdateForm(data=data, project=self.project)
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Outcome notes has invalid inline formatting", str(form.errors))
+        self.assertIn("matching closing tag", str(form.errors))
+
     def test_structured_summary_paragraph_uses_free_text_outcome_notes(self):
         summary = ReferenceSummary(
             study_design="replicated study",
@@ -2305,6 +2366,22 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertNotIn("Reliability:", paragraph)
         self.assertNotIn("Relevance:", paragraph)
 
+    def test_structured_summary_paragraph_places_reference_number_after_country(self):
+        summary = ReferenceSummary(
+            study_design="replicated study",
+            year_range="2018",
+            habitat_and_sites="wetland sites",
+            country="UK",
+            sites_replications="12 sites",
+            summary_of_results="installing nest boxes increased occupancy.",
+        )
+
+        paragraph = _structured_summary_paragraph(
+            summary, reference_identifier_override="3"
+        )
+
+        self.assertIn("in UK (3) (12 sites) found that", paragraph)
+
     def test_quality_scores_accept_boundary_values(self):
         form = ReferenceSummaryUpdateForm(
             data={
@@ -2321,6 +2398,19 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertEqual(form.cleaned_data["harms_score"], 100.0)
         self.assertEqual(form.cleaned_data["reliability_score"], 0.0)
         self.assertEqual(form.cleaned_data["relevance_score"], 1.0)
+
+    def test_structured_summary_fields_reject_invalid_inline_markup(self):
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "summary_of_results": "CO<sup>2 increased.",
+            },
+            project=self.project,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Summary of results has invalid inline formatting", str(form.errors))
+        self.assertIn("matching closing tag", str(form.errors))
 
     def test_quality_scores_reject_values_outside_ranges(self):
         invalid_cases = [
@@ -2601,6 +2691,33 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Outcome notes")
         self.assertContains(response, "Main findings summary")
         self.assertContains(response, "More optional detail boxes")
+
+    def test_detail_page_shows_inline_formatting_preview_and_editor_hook(self):
+        self.summary.synopsis_draft = (
+            "A replicated study found that <i>Festuca</i> increased in the 10<sup>th</sup> plot."
+        )
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(
+            update_fields=["synopsis_draft", "use_custom_synopsis_draft", "updated_at"]
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "Current compiled paragraph")
+        self.assertContains(response, "<i>Festuca</i>", html=False)
+        self.assertContains(response, "10<sup>th</sup> plot.", html=False)
+        self.assertContains(response, 'data-inline-markup="true"', html=False)
+        self.assertContains(
+            response,
+            "&lt;sub&gt;...&lt;/sub&gt; for subscript, and &lt;sup&gt;...&lt;/sup&gt; for superscript.",
+            html=False,
+        )
 
     def test_creating_summary_tab_invalidates_board_presence_summary_id_cache(self):
         self.client.login(username="author", password="pass123")
