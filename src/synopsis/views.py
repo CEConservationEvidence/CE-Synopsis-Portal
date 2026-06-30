@@ -116,6 +116,8 @@ from .forms import (
     SynopsisAssignmentForm,
     ReferenceActionSummaryForm,
     FunderContactFormSet,
+    normalize_action_tags,
+    normalize_habitat_tags,
 )
 from .models import (
     Project,
@@ -8995,9 +8997,13 @@ def _synopsis_structure_export_rows(project):
                 "study_type": (summary.study_type or "").strip(),
                 "research_design": (summary.research_design or "").strip(),
                 "broad_category": (summary.broad_category or "").strip(),
-                "action_tags": _export_join_values(summary.action_tags),
+                "action_tags": _export_join_values(
+                    normalize_action_tags(summary.action_tags)
+                ),
                 "threat_tags": _export_join_values(summary.threat_tags),
-                "habitat_tags": _export_join_values(summary.habitat_tags),
+                "habitat_tags": _export_join_values(
+                    normalize_habitat_tags(summary.habitat_tags)
+                ),
                 "taxon_tags": _export_join_values(summary.taxon_tags),
                 "location_tags": _export_join_values(summary.location_tags),
                 "assignment_count": str(summary.synopsis_assignments.count()),
@@ -9497,10 +9503,14 @@ def _duplicate_reference_summary(source_summary, user=None):
         keywords=copy.deepcopy(source_summary.keywords or []),
         source_url=source_summary.source_url,
         crop_type=source_summary.crop_type,
-        action_tags=copy.deepcopy(source_summary.action_tags or []),
+        action_tags=normalize_action_tags(
+            copy.deepcopy(source_summary.action_tags or [])
+        ),
         threat_tags=copy.deepcopy(source_summary.threat_tags or []),
         taxon_tags=copy.deepcopy(source_summary.taxon_tags or []),
-        habitat_tags=copy.deepcopy(source_summary.habitat_tags or []),
+        habitat_tags=normalize_habitat_tags(
+            copy.deepcopy(source_summary.habitat_tags or [])
+        ),
         location_tags=copy.deepcopy(source_summary.location_tags or []),
         research_design=source_summary.research_design,
         citation=reference_summary_custom_citation(source_summary),
@@ -11572,6 +11582,13 @@ def _project_synopsis_workspace(
     project_action_name_suggestions = project_action_name_values(
         project, include_intervention_titles=True
     )
+    active_action_categories = list(
+        IUCNCategory.objects.filter(
+            kind=IUCNCategory.KIND_ACTION,
+            is_active=True,
+        ).order_by("position", "name")
+    )
+    active_action_category_ids = {category.id for category in active_action_categories}
     redirect_url = reverse(
         f"synopsis:{redirect_name}", kwargs={"project_id": project.id}
     )
@@ -11641,18 +11658,23 @@ def _project_synopsis_workspace(
             )
             return intervention
 
-        def _action_categories_from_post(field_name="iucn_actions"):
+        def _action_categories_from_post(field_name="iucn_actions", intervention=None):
             action_ids = {
                 value.strip()
                 for value in request.POST.getlist(field_name)
                 if value and value.strip()
             }
+            category_filters = Q(is_active=True)
+            if intervention is not None:
+                category_filters |= Q(synopsis_interventions=intervention)
             categories = list(
                 IUCNCategory.objects.filter(
                     pk__in=action_ids,
                     kind=IUCNCategory.KIND_ACTION,
-                    is_active=True,
-                ).order_by("position", "name")
+                )
+                .filter(category_filters)
+                .distinct()
+                .order_by("position", "name")
             )
             if len(categories) != len(action_ids):
                 return None
@@ -12383,7 +12405,7 @@ def _project_synopsis_workspace(
             return redirect(redirect_url)
         elif action == "update-intervention-metadata":
             intervention = _intervention_from_post()
-            categories = _action_categories_from_post()
+            categories = _action_categories_from_post(intervention=intervention)
             if categories is None:
                 messages.error(request, "Invalid IUCN action selected.")
                 return redirect(redirect_url)
@@ -12667,6 +12689,17 @@ def _project_synopsis_workspace(
                 intervention.iucn_action_ids = {
                     category.id for category in intervention.iucn_actions.all()
                 }
+                legacy_iucn_actions = sorted(
+                    [
+                        category
+                        for category in intervention.iucn_actions.all()
+                        if category.id not in active_action_category_ids
+                    ],
+                    key=lambda category: (category.position, category.name, category.id),
+                )
+                intervention.edit_iucn_categories = (
+                    active_action_categories + legacy_iucn_actions
+                )
                 assignments = list(intervention.assignments.all())
                 (
                     _,
@@ -12814,12 +12847,7 @@ def _project_synopsis_workspace(
         chapter.assignment_total for chapter in evidence_chapters
     )
     narrative_total = len(text_chapters) + len(appendix_chapters)
-    iucn_categories = IUCNCategory.objects.filter(
-        kind=IUCNCategory.KIND_ACTION,
-        is_active=True,
-    ).order_by(
-        "position", "name"
-    )
+    iucn_categories = active_action_categories
     last_export = SynopsisExportLog.objects.filter(project=project).first()
 
     return render(
