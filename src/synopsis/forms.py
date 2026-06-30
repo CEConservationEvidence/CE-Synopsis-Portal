@@ -134,46 +134,59 @@ RESEARCH_DESIGN_TAG_CHOICES = [
 MAX_RESEARCH_DESIGN_TAGS = 4
 
 IUCN_ACTION_TAGS = [
-    "Land/water protection-Area protection",
-    "Land/water protection-Site/area stewardship",
-    "Land/water management-Site/area management",
-    "Land/water management-Invasive/problematic species control",
-    "Land/water management-Habitat & natural process restoration",
-    "Land/water management-Natural process regeneration",
-    "Species management-Species recovery",
-    "Species management-Species re-introduction",
-    "Species management-Ex situ conservation",
-    "Species management-Conservation translocation",
-    "Species management-Disease/pathogen treatment",
-    "Species management-Biological resource use management",
-    "Education & awareness-Formal education",
-    "Education & awareness-Training",
-    "Education & awareness-Awareness & communications",
-    "Law & policy-Legislation",
-    "Law & policy-Regulations",
-    "Law & policy-Incentives",
-    "Law & policy-Private sector standards & codes",
-    "Law & policy-Policies & regulations",
-    "Law & policy-Law enforcement & prosecution",
-    "Livelihood, economic & other incentives-Linked enterprises & livelihood alternatives",
-    "Livelihood, economic & other incentives-Incentives/subsidies",
-    "Livelihood, economic & other incentives-Market forces",
-    "Livelihood, economic & other incentives-Conservation payments",
-    "Livelihood, economic & other incentives-Non-monetary values",
-    "External capacity building-Institutional development",
-    "External capacity building-Alliance & partnership development",
-    "External capacity building-Conservation finance",
-    "External capacity building-Capacity building",
-    "External capacity building-Technology transfer",
-    "Research & monitoring-Basic research & status monitoring",
-    "Research & monitoring-Resource & habitat management",
-    "Research & monitoring-Species management",
-    "Research & monitoring-Socio-economics",
-    "Research & monitoring-Conservation planning",
-    "Research & monitoring-Other",
+    "Land/water protection - 1.1 Site/area protection",
+    "Land/water protection - 1.2 Resource & habitat protection",
+    "Land/water management - 2.1 Site/area management",
+    "Land/water management - 2.2 Invasive/problematic species control",
+    "Land/water management - 2.3 Habitat & natural process restoration",
+    "Species management - 3.1 Species management - 3.1.1 Harvest management",
+    "Species management - 3.1 Species management - 3.1.2 Trade management",
+    "Species management - 3.1 Species management - 3.1.3 Limiting population growth",
+    "Species management - 3.2 Species recovery",
+    "Species management - 3.3 Species re-introduction - 3.3.1 Reintroduction",
+    "Species management - 3.3 Species re-introduction - 3.3.1 Re-introduction",
+    "Species management - 3.3 Species re-introduction - 3.3.2 Benign introduction",
+    "Species management - 3.4 Ex-situ conservation - 3.4.1 Captive breeding/artificial propagation",
+    "Species management - 3.4 Ex-situ conservation - 3.4.2 Genome resource bank",
+    "Education & awareness - 4.1 Formal education",
+    "Education & awareness - 4.2 Training",
+    "Education & awareness - 4.3 Awareness & communications",
+    "Law & policy - 5.1 Legislation - 5.1.1 International level",
+    "Law & policy - 5.1 Legislation - 5.1.2 National level",
+    "Law & policy - 5.1 Legislation - 5.1.3 Sub-national level",
+    "Law & policy - 5.1 Legislation - 5.1.4 Scale unspecified",
+    "Law & policy - 5.2 Policies and regulations",
+    "Law & policy - 5.3 Private sector standards & codes",
+    "Law & policy - 5.4 Compliance and enforcement - 5.4.1 International level",
+    "Law & policy - 5.4 Compliance and enforcement - 5.4.3 Sub-national level",
+    "Law & policy - 5.4 Compliance and enforcement - 5.4.4 Scale unspecified",
+    "Livelihood, economic & other incentives - 6.1 Linked enterprises & livelihood alternatives",
+    "Livelihood, economic & other incentives - 6.2 Substitution",
+    "Livelihood, economic & other incentives - 6.3 Market forces",
+    "Livelihood, economic & other incentives - 6.4 Conservation payments",
+    "Livelihood, economic & other incentives - 6.5 Non-monetary values",
 ]
 
 IUCN_ACTION_CHOICES = [(tag, tag) for tag in IUCN_ACTION_TAGS]
+IUCN_ACTION_CHOICE_SET = set(IUCN_ACTION_TAGS)
+IUCN_ACTION_TAG_ALIASES = {
+    "Land/water protection-Area protection": "Land/water protection - 1.1 Site/area protection",
+    "Land/water protection-Site/area stewardship": "Land/water protection - 1.2 Resource & habitat protection",
+    "Land/water management-Site/area management": "Land/water management - 2.1 Site/area management",
+    "Land/water management-Invasive/problematic species control": "Land/water management - 2.2 Invasive/problematic species control",
+    "Land/water management-Habitat & natural process restoration": "Land/water management - 2.3 Habitat & natural process restoration",
+    "Species management-Species recovery": "Species management - 3.2 Species recovery",
+    "Education & awareness-Formal education": "Education & awareness - 4.1 Formal education",
+    "Education & awareness-Training": "Education & awareness - 4.2 Training",
+    "Education & awareness-Awareness & communications": "Education & awareness - 4.3 Awareness & communications",
+    "Law & policy-Private sector standards & codes": "Law & policy - 5.3 Private sector standards & codes",
+    "Law & policy-Policies & regulations": "Law & policy - 5.2 Policies and regulations",
+    "Law & policy-Regulations": "Law & policy - 5.2 Policies and regulations",
+    "Livelihood, economic & other incentives-Linked enterprises & livelihood alternatives": "Livelihood, economic & other incentives - 6.1 Linked enterprises & livelihood alternatives",
+    "Livelihood, economic & other incentives-Market forces": "Livelihood, economic & other incentives - 6.3 Market forces",
+    "Livelihood, economic & other incentives-Conservation payments": "Livelihood, economic & other incentives - 6.4 Conservation payments",
+    "Livelihood, economic & other incentives-Non-monetary values": "Livelihood, economic & other incentives - 6.5 Non-monetary values",
+}
 
 IUCN_THREAT_TAGS = [
     "Residential & commercial development-Housing/urban areas",
@@ -222,150 +235,156 @@ IUCN_THREAT_TAGS = [
 IUCN_THREAT_CHOICES = [(tag, tag) for tag in IUCN_THREAT_TAGS]
 
 IUCN_HABITAT_TAGS = [
-    "Boreal Woodland/Forest",
-    "Subarctic Woodland/Forest",
-    "Subantarctic Woodland/Forest",
-    "Temperate Broadleaf Woodland/Forest",
-    "Temperate Coniferous Woodland/Forest",
-    "Temperate Mixed Woodland/Forest",
-    "Subtropical/Tropical Dry Woodland/Forest",
-    "Subtropical/Tropical Moist Woodland/Lowland Forest",
-    "Subtropical/Tropical Swamp Forest",
-    "Subtropical/Tropical Moist Montane Woodland/Forest",
-    "Mangroves",
-    "Other",
-    "Dry Savanna",
-    "Moist Savanna",
-    "Subarctic Shrubland",
-    "Subantarctic Shrubland",
-    "Temperate Shrubland",
-    "Heathland",
-    "Moorland",
-    "Subtropical/Tropical Dry Shrubland",
-    "Subtropical/Tropical Moist Shrubland",
-    "Subtropical/Tropical High Altitude Shrubland",
-    "Mediterranean-type Shrubland",
-    "Tundra",
-    "Alpine Grasslands and Meadows",
-    "Subarctic Grassland",
-    "Subantarctic Grassland",
-    "Temperate Grassland",
-    "Subtropical/Tropical Dry Lowland Grassland",
-    "Subtropical/Tropical Seasonally Wet/Flooded Lowland Grassland",
-    "Subtropical/Tropical High Altitude Grassland",
-    "Shrub Dominated Wetlands",
-    "Bogs and Peatlands (general/unspecified)",
-    "Fens",
-    "Reedbeds",
-    "Swamps",
-    "Permanent Freshwater Lakes",
-    "Ephemeral Freshwater Lakes",
-    "Permanent Freshwater Marshes/Pools",
-    "Ephemeral Freshwater Marshes/Pools",
-    "Flushes and Springs",
-    "Geothermal Wetlands",
-    "Saline, Brackish or Alkaline Lakes and Flats",
-    "Permanent Saline, Brackish or Alkaline Marshes/Pools",
-    "Ephemeral Saline, Brackish or Alkaline Marshes/Pools",
-    "Karst and Other Subterranean Aquatic Systems",
-    "Ephemeral Rivers, Streams, Creeks",
-    "Permanent Rivers, Streams, Creeks",
-    "Riparian Areas",
-    "Caves and Subterranean Habitats (dry)",
-    "Natural Exposures (cliff, scree, limestone pavement, rock outcrop)",
-    "Desert",
-    "Semi-desert",
-    "Benthic Pebbles",
-    "Benthic Rock",
-    "Benthic Sand/Mud",
-    "Coral Reefs",
-    "Macroalgal/Kelp Beds",
-    "Pelagic",
-    "Reefs (other than Coral)",
-    "Seagrasses",
-    "Coastal Brackish/Saline Lagoons",
-    "Coastal Caves",
-    "Coastal Sand Dunes",
-    "Coastal Shingle",
-    "Estuaries",
-    "Intertidal Mud Flats",
-    "Maritime Cliff and Slope",
-    "Rocky Shorelines",
-    "Salt Marshes",
-    "Sandy Shores/Beaches",
-    "Tidal Pools",
-    "Arable Land",
-    "Pastureland",
-    "Plantations",
-    "Gardens and Parks",
-    "Built-up Areas",
-    "Artificial Exposures (quarries, opencast mines)",
-    "Boundaries (hedges, walls, ditches)",
-    "Power Lines",
-    "Roads/Verges",
-    "Railways",
-    "Waste Tips",
-    "Dams and Reservoirs",
-    "Introduced Vegetation",
-    "Ponds",
-    "Aquaculture Ponds",
-    "Wastewater Treatment Areas",
-    "Canals",
-    "Drainage Channels",
-    "Marine Anthropogenic Structures",
-    "Mariculture Cages",
-    "Mari/Brackish-culture Ponds",
-    "Continental Ice or Glaciers",
+    "Forest & Woodland-Boreal Woodland/Forest",
+    "Forest & Woodland-Subarctic Woodland/Forest",
+    "Forest & Woodland-Subantarctic Woodland/Forest",
+    "Forest & Woodland-Temperate Broadleaf Woodland/Forest",
+    "Forest & Woodland-Temperate Coniferous Woodland/Forest",
+    "Forest & Woodland-Temperate Mixed Woodland/Forest",
+    "Forest & Woodland-Subtropical/Tropical Dry Woodland/Forest",
+    "Forest & Woodland-Subtropical/Tropical Moist Woodland/Lowland Forest",
+    "Forest & Woodland-Subtropical/Tropical Swamp Forest",
+    "Forest & Woodland-Subtropical/Tropical Moist Montane Woodland/Forest",
+    "Forest & Woodland-Mangroves",
+    "Forest & Woodland-Other",
+    "Savanna-Dry Savanna",
+    "Savanna-Moist Savanna",
+    "Shrubland-Subarctic Shrubland",
+    "Shrubland-Subantarctic Shrubland",
+    "Shrubland-Temperate Shrubland",
+    "Shrubland-Heathland",
+    "Shrubland-Moorland",
+    "Shrubland-Subtropical/Tropical Dry Shrubland",
+    "Shrubland-Subtropical/Tropical Moist Shrubland",
+    "Shrubland-Subtropical/Tropical High Altitude Shrubland",
+    "Shrubland-Mediterranean-type Shrubland",
+    "Shrubland-Tundra",
+    "Grassland-Alpine Grasslands and Meadows",
+    "Grassland-Subarctic Grassland",
+    "Grassland-Subantarctic Grassland",
+    "Grassland-Temperate Grassland",
+    "Grassland-Subtropical/Tropical Dry Lowland Grassland",
+    "Grassland-Subtropical/Tropical Seasonally Wet/Flooded Lowland Grassland",
+    "Grassland-Subtropical/Tropical High Altitude Grassland",
+    "Wetlands-Shrub Dominated Wetlands",
+    "Wetlands-Bogs and Peatlands",
+    "Wetlands-Fens",
+    "Wetlands-Reedbeds",
+    "Wetlands-Marshes and Swamps",
+    "Wetlands-Permanent Freshwater Lakes",
+    "Wetlands-Ephemeral Freshwater Lakes",
+    "Wetlands-Permanent Freshwater Marshes/Pools",
+    "Wetlands-Ephemeral Freshwater Marshes/Pools",
+    "Wetlands-Flushes and Springs",
+    "Wetlands-Geothermal Wetlands",
+    "Wetlands-Saline, Brackish or Alkaline Lakes and Flats",
+    "Wetlands-Permanent Saline, Brackish or Alkaline Marshes/Pools",
+    "Wetlands-Ephemeral Saline, Brackish or Alkaline Marshes/Pools",
+    "Wetlands-Karst and Other Subterranean Aquatic Systems",
+    "Rivers, Streams, Creeks-Ephemeral Rivers, Streams, Creeks",
+    "Rivers, Streams, Creeks-Permanent Rivers, Streams, Creeks",
+    "Rivers, Streams, Creeks-Riparian Areas",
+    "Rocky Habitats & Caves-Caves and Subterranean Habitats (dry)",
+    "Rocky Habitats & Caves-Natural Exposures (cliff, scree, limestone pavement, rock outcrop)",
+    "Desert-Desert",
+    "Desert-Semi-desert",
+    "Marine-Benthic Pebbles",
+    "Marine-Benthic Rock",
+    "Marine-Benthic Sand/Mud",
+    "Marine-Coral Reefs",
+    "Marine-Macroalgal/Kelp Beds",
+    "Marine-Pelagic",
+    "Marine-Reefs (other than Coral)",
+    "Marine-Seagrasses",
+    "Coastal-Coastal Brackish/Saline Lagoons",
+    "Coastal-Coastal Caves",
+    "Coastal-Coastal Sand Dunes",
+    "Coastal-Coastal Shingle",
+    "Coastal-Estuaries",
+    "Coastal-Intertidal Mud Flats",
+    "Coastal-Maritime Cliff and Slope",
+    "Coastal-Rocky Shorelines",
+    "Coastal-Salt Marshes",
+    "Coastal-Sandy Shores/Beaches",
+    "Coastal-Tidal Pools",
+    "Artificial Habitats-Arable Land",
+    "Artificial Habitats-Pastureland",
+    "Artificial Habitats-Plantations",
+    "Artificial Habitats-Gardens and Parks",
+    "Artificial Habitats-Built-up Areas",
+    "Artificial Habitats-Artificial Exposures (quarries, opencast mines)",
+    "Artificial Habitats-Boundaries (hedges, walls, ditches)",
+    "Artificial Habitats-Power Lines",
+    "Artificial Habitats-Roads/Verges",
+    "Artificial Habitats-Railways",
+    "Artificial Habitats-Waste Tips",
+    "Artificial Habitats-Dams and Reservoirs",
+    "Artificial Habitats-Ponds",
+    "Artificial Habitats-Aquaculture Ponds",
+    "Artificial Habitats-Wastewater Treatment Areas",
+    "Artificial Habitats-Canals",
+    "Artificial Habitats-Drainage Channels",
+    "Artificial Habitats-Marine Anthropogenic Structures",
+    "Artificial Habitats-Mariculture Cages",
+    "Artificial Habitats-Mari/Brackish-culture Ponds",
+    "Other-Continental Ice or Glaciers",
 ]
 
 IUCN_HABITAT_CHOICES = [(tag, tag) for tag in IUCN_HABITAT_TAGS]
 IUCN_HABITAT_CHOICE_SET = set(IUCN_HABITAT_TAGS)
 IUCN_HABITAT_TAG_ALIASES = {
-    "Forest - Boreal": "Boreal Woodland/Forest",
-    "Forest - Subarctic": "Subarctic Woodland/Forest",
-    "Forest - Subantarctic": "Subantarctic Woodland/Forest",
-    "Forest - Subtropical/Tropical Dry": "Subtropical/Tropical Dry Woodland/Forest",
-    "Forest - Subtropical/Tropical Moist Lowland": "Subtropical/Tropical Moist Woodland/Lowland Forest",
-    "Forest - Subtropical/Tropical Swamp": "Subtropical/Tropical Swamp Forest",
-    "Forest - Subtropical/Tropical Moist Montane": "Subtropical/Tropical Moist Montane Woodland/Forest",
-    "Forest - Subtropical/Tropical Mangrove Vegetation Above High Tide Level": "Mangroves",
-    "Wetlands (inland) - Shrub Dominated Wetlands": "Shrub Dominated Wetlands",
-    "Wetlands (inland) - Bogs, Marshes, Swamps, Fens, Peatlands": "Bogs and Peatlands (general/unspecified)",
-    "Wetlands (inland) - Permanent Freshwater Lakes": "Permanent Freshwater Lakes",
-    "Wetlands (inland) - Seasonal/Intermittent Freshwater Lakes (over 8ha)": "Ephemeral Freshwater Lakes",
-    "Wetlands (inland) - Permanent Freshwater Marshes/Pools (under 8ha)": "Permanent Freshwater Marshes/Pools",
-    "Wetlands (inland) - Seasonal/Intermittent Freshwater Marshes/Pools (under 8ha)": "Ephemeral Freshwater Marshes/Pools",
-    "Wetlands (inland) - Freshwater Springs and Oases": "Flushes and Springs",
-    "Wetlands (inland) - Geothermal Wetlands": "Geothermal Wetlands",
-    "Wetlands (inland) - Permanent Saline, Brackish or Alkaline Lakes": "Saline, Brackish or Alkaline Lakes and Flats",
-    "Wetlands (inland) - Seasonal/Intermittent Saline, Brackish or Alkaline Lakes and Flats": "Saline, Brackish or Alkaline Lakes and Flats",
-    "Wetlands (inland) - Permanent Saline, Brackish or Alkaline Marshes/Pools": "Permanent Saline, Brackish or Alkaline Marshes/Pools",
-    "Wetlands (inland) - Seasonal/Intermittent Saline, Brackish or Alkaline Marshes/Pools": "Ephemeral Saline, Brackish or Alkaline Marshes/Pools",
-    "Wetlands (inland) - Karst and Other Subterranean Hydrological Systems": "Karst and Other Subterranean Aquatic Systems",
-    "Wetlands (inland) - Permanent Rivers/Streams/Creeks": "Permanent Rivers, Streams, Creeks",
-    "Wetlands (inland) - Seasonal/Intermittent/Irregular Rivers/Streams/Creeks": "Ephemeral Rivers, Streams, Creeks",
-    "Rocky Areas - Inland Cliffs, Rock Outcrops and Caves": "Natural Exposures (cliff, scree, limestone pavement, rock outcrop)",
-    "Caves and Subterranean Habitats (non-aquatic)": "Caves and Subterranean Habitats (dry)",
-    "Marine Coral Reefs": "Coral Reefs",
-    "Marine Seagrass (submerged)": "Seagrasses",
-    "Marine Pelagic": "Pelagic",
-    "Marine Estuarine": "Estuaries",
-    "Marine Coastal Lagoon": "Coastal Brackish/Saline Lagoons",
-    "Marine Rocky Shores": "Rocky Shorelines",
-    "Marine Salt Marshes": "Salt Marshes",
-    "Marine Tidepools": "Tidal Pools",
-    "Artificial - Arable Land": "Arable Land",
-    "Artificial - Pastureland": "Pastureland",
-    "Artificial - Plantations": "Plantations",
-    "Artificial - Rural Gardens": "Gardens and Parks",
-    "Artificial - Urban Areas": "Built-up Areas",
-    "Artificial - Introduced Vegetation": "Introduced Vegetation",
-    "Artificial - Aquatic - Ponds": "Ponds",
-    "Artificial - Aquatic - Aquaculture Ponds": "Aquaculture Ponds",
-    "Artificial - Aquatic - Dams and Reservoirs": "Dams and Reservoirs",
-    "Artificial - Aquatic - Wastewater Treatment Areas": "Wastewater Treatment Areas",
-    "Artificial - Aquatic - Excavations": "Artificial Exposures (quarries, opencast mines)",
+    tag.split("-", 1)[1]: tag for tag in IUCN_HABITAT_TAGS
 }
+IUCN_HABITAT_TAG_ALIASES.update(
+    {
+        "Forest - Boreal": "Forest & Woodland-Boreal Woodland/Forest",
+        "Forest - Subarctic": "Forest & Woodland-Subarctic Woodland/Forest",
+        "Forest - Subantarctic": "Forest & Woodland-Subantarctic Woodland/Forest",
+        "Forest - Subtropical/Tropical Dry": "Forest & Woodland-Subtropical/Tropical Dry Woodland/Forest",
+        "Forest - Subtropical/Tropical Moist Lowland": "Forest & Woodland-Subtropical/Tropical Moist Woodland/Lowland Forest",
+        "Forest - Subtropical/Tropical Swamp": "Forest & Woodland-Subtropical/Tropical Swamp Forest",
+        "Forest - Subtropical/Tropical Moist Montane": "Forest & Woodland-Subtropical/Tropical Moist Montane Woodland/Forest",
+        "Forest - Subtropical/Tropical Mangrove Vegetation Above High Tide Level": "Forest & Woodland-Mangroves",
+        "Wetlands (inland) - Shrub Dominated Wetlands": "Wetlands-Shrub Dominated Wetlands",
+        "Wetlands (inland) - Bogs, Marshes, Swamps, Fens, Peatlands": "Wetlands-Bogs and Peatlands",
+        "Wetlands (inland) - Permanent Freshwater Lakes": "Wetlands-Permanent Freshwater Lakes",
+        "Wetlands (inland) - Seasonal/Intermittent Freshwater Lakes (over 8ha)": "Wetlands-Ephemeral Freshwater Lakes",
+        "Wetlands (inland) - Permanent Freshwater Marshes/Pools (under 8ha)": "Wetlands-Permanent Freshwater Marshes/Pools",
+        "Wetlands (inland) - Seasonal/Intermittent Freshwater Marshes/Pools (under 8ha)": "Wetlands-Ephemeral Freshwater Marshes/Pools",
+        "Wetlands (inland) - Freshwater Springs and Oases": "Wetlands-Flushes and Springs",
+        "Wetlands (inland) - Geothermal Wetlands": "Wetlands-Geothermal Wetlands",
+        "Wetlands (inland) - Permanent Saline, Brackish or Alkaline Lakes": "Wetlands-Saline, Brackish or Alkaline Lakes and Flats",
+        "Wetlands (inland) - Seasonal/Intermittent Saline, Brackish or Alkaline Lakes and Flats": "Wetlands-Saline, Brackish or Alkaline Lakes and Flats",
+        "Wetlands (inland) - Permanent Saline, Brackish or Alkaline Marshes/Pools": "Wetlands-Permanent Saline, Brackish or Alkaline Marshes/Pools",
+        "Wetlands (inland) - Seasonal/Intermittent Saline, Brackish or Alkaline Marshes/Pools": "Wetlands-Ephemeral Saline, Brackish or Alkaline Marshes/Pools",
+        "Wetlands (inland) - Karst and Other Subterranean Hydrological Systems": "Wetlands-Karst and Other Subterranean Aquatic Systems",
+        "Wetlands (inland) - Permanent Rivers/Streams/Creeks": "Rivers, Streams, Creeks-Permanent Rivers, Streams, Creeks",
+        "Wetlands (inland) - Seasonal/Intermittent/Irregular Rivers/Streams/Creeks": "Rivers, Streams, Creeks-Ephemeral Rivers, Streams, Creeks",
+        "Rocky Areas - Inland Cliffs, Rock Outcrops and Caves": "Rocky Habitats & Caves-Natural Exposures (cliff, scree, limestone pavement, rock outcrop)",
+        "Caves and Subterranean Habitats (non-aquatic)": "Rocky Habitats & Caves-Caves and Subterranean Habitats (dry)",
+        "Marine Coral Reefs": "Marine-Coral Reefs",
+        "Marine Seagrass (submerged)": "Marine-Seagrasses",
+        "Marine Pelagic": "Marine-Pelagic",
+        "Marine Estuarine": "Coastal-Estuaries",
+        "Marine Coastal Lagoon": "Coastal-Coastal Brackish/Saline Lagoons",
+        "Marine Rocky Shores": "Coastal-Rocky Shorelines",
+        "Marine Salt Marshes": "Coastal-Salt Marshes",
+        "Marine Tidepools": "Coastal-Tidal Pools",
+        "Artificial - Arable Land": "Artificial Habitats-Arable Land",
+        "Artificial - Pastureland": "Artificial Habitats-Pastureland",
+        "Artificial - Plantations": "Artificial Habitats-Plantations",
+        "Artificial - Rural Gardens": "Artificial Habitats-Gardens and Parks",
+        "Artificial - Urban Areas": "Artificial Habitats-Built-up Areas",
+        "Artificial - Aquatic - Ponds": "Artificial Habitats-Ponds",
+        "Artificial - Aquatic - Aquaculture Ponds": "Artificial Habitats-Aquaculture Ponds",
+        "Artificial - Aquatic - Dams and Reservoirs": "Artificial Habitats-Dams and Reservoirs",
+        "Artificial - Aquatic - Wastewater Treatment Areas": "Artificial Habitats-Wastewater Treatment Areas",
+        "Artificial - Aquatic - Excavations": "Artificial Habitats-Artificial Exposures (quarries, opencast mines)",
+        "Bogs and Peatlands (general/unspecified)": "Wetlands-Bogs and Peatlands",
+        "Swamps": "Wetlands-Marshes and Swamps",
+        "Marshes and Swamps": "Wetlands-Marshes and Swamps",
+    }
+)
 
 
 def _normalize_habitat_tag(tag):
@@ -373,6 +392,46 @@ def _normalize_habitat_tag(tag):
     if not cleaned:
         return ""
     return IUCN_HABITAT_TAG_ALIASES.get(cleaned, cleaned)
+
+
+def _normalize_action_tag(tag):
+    cleaned = (tag or "").strip()
+    if not cleaned:
+        return ""
+    return IUCN_ACTION_TAG_ALIASES.get(cleaned, cleaned)
+
+
+def _tag_values(tags):
+    if not tags:
+        return []
+    if isinstance(tags, str):
+        return [part.strip() for part in tags.split(",") if part.strip()]
+    return list(tags)
+
+
+def normalize_action_tags(tags):
+    normalized = []
+    seen = set()
+    for tag in _tag_values(tags):
+        cleaned = _normalize_action_tag(tag)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+    return normalized
+
+
+def normalize_habitat_tags(tags):
+    normalized = []
+    seen = set()
+    for tag in _tag_values(tags):
+        cleaned = _normalize_habitat_tag(tag)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+    return normalized
+
 
 class TagCommaField(forms.CharField):
     """Render list-like values as comma-separated strings and back."""
@@ -2412,14 +2471,31 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         self.fields["action_choice"].choices = action_choices
         self._existing_status = instance.status if instance else None
         if instance and instance.pk:
+            action_tag_choices = list(self.fields["action_tags"].choices)
+            current_action_tags = list(instance.action_tags or [])
+            legacy_action_tags = []
+            normalized_action_tags = normalize_action_tags(current_action_tags)
+            for tag in current_action_tags:
+                normalized = _normalize_action_tag(tag)
+                if (
+                    normalized not in IUCN_ACTION_CHOICE_SET
+                    and tag not in IUCN_ACTION_CHOICE_SET
+                ):
+                    legacy_action_tags.append(tag)
+            if legacy_action_tags:
+                for tag in legacy_action_tags:
+                    if tag not in {value for value, _label in action_tag_choices}:
+                        action_tag_choices.append((tag, f"{tag} (legacy saved value)"))
+                self.fields["action_tags"].choices = action_tag_choices
+            if not self.is_bound and normalized_action_tags:
+                self.initial["action_tags"] = normalized_action_tags
+
             habitat_choices = list(self.fields["habitat_tags"].choices)
             current_habitat_tags = list(instance.habitat_tags or [])
             legacy_habitat_tags = []
-            normalized_habitat_tags = []
+            normalized_habitat_tags = normalize_habitat_tags(current_habitat_tags)
             for tag in current_habitat_tags:
                 normalized = _normalize_habitat_tag(tag)
-                if normalized:
-                    normalized_habitat_tags.append(normalized)
                 if normalized not in IUCN_HABITAT_CHOICE_SET and tag not in IUCN_HABITAT_CHOICE_SET:
                     legacy_habitat_tags.append(tag)
             if legacy_habitat_tags:
@@ -2428,14 +2504,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                         habitat_choices.append((tag, f"{tag} (legacy saved value)"))
                 self.fields["habitat_tags"].choices = habitat_choices
             if not self.is_bound and normalized_habitat_tags:
-                deduped_tags = []
-                seen_habitat_tags = set()
-                for tag in normalized_habitat_tags:
-                    if tag in seen_habitat_tags:
-                        continue
-                    seen_habitat_tags.add(tag)
-                    deduped_tags.append(tag)
-                self.initial["habitat_tags"] = deduped_tags
+                self.initial["habitat_tags"] = normalized_habitat_tags
         if not self.is_bound and instance and instance.research_design:
             self.initial["research_design"] = self._split_research_design_value(
                 instance.research_design
@@ -2634,7 +2703,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         )
 
     def clean_action_tags(self):
-        return self._split_tags("action_tags")
+        return normalize_action_tags(self._split_tags("action_tags"))
 
     def clean_threat_tags(self):
         return self._split_tags("threat_tags")
@@ -2643,15 +2712,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         return self._split_tags("taxon_tags")
 
     def clean_habitat_tags(self):
-        normalized = []
-        seen = set()
-        for tag in self._split_tags("habitat_tags"):
-            cleaned = _normalize_habitat_tag(tag)
-            if not cleaned or cleaned in seen:
-                continue
-            seen.add(cleaned)
-            normalized.append(cleaned)
-        return normalized
+        return normalize_habitat_tags(self._split_tags("habitat_tags"))
 
     @staticmethod
     def _split_research_design_value(value):
