@@ -9986,7 +9986,6 @@ def _structured_summary_paragraph(
         c_val = _clean(row.get("comparator_value", ""))
         unit = _clean(row.get("unit", ""))
         notes = _clean(row.get("notes", ""))
-        p_val = _clean(row.get("p_value", ""))
         stats = _clean(row.get("stats", ""))
 
         parts = []
@@ -10008,8 +10007,6 @@ def _structured_summary_paragraph(
             parts.append(f"({value_text})")
         if stats:
             parts.append(f"Stats: {stats}")
-        if p_val:
-            parts.append(f"p={p_val}")
         if notes:
             parts.append(notes)
         sentence = " ".join([p for p in parts if p]).strip()

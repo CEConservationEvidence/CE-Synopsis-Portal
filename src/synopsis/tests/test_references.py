@@ -1842,27 +1842,7 @@ class ReferenceSummaryFormTests(TestCase):
             ],
         )
 
-    def test_research_design_accepts_up_to_four_tags(self):
-        form = ReferenceSummaryUpdateForm(
-            data={
-                "status": ReferenceSummary.STATUS_TODO,
-                "research_design": [
-                    "Replicated",
-                    "Randomized",
-                    "Controlled*",
-                    "Before-and-after",
-                ],
-            },
-            project=self.project,
-        )
-
-        self.assertTrue(form.is_valid())
-        self.assertEqual(
-            form.cleaned_data["research_design"],
-            "Replicated; Randomized; Controlled*; Before-and-after",
-        )
-
-    def test_research_design_rejects_more_than_four_tags(self):
+    def test_research_design_accepts_all_selected_tags(self):
         form = ReferenceSummaryUpdateForm(
             data={
                 "status": ReferenceSummary.STATUS_TODO,
@@ -1877,8 +1857,11 @@ class ReferenceSummaryFormTests(TestCase):
             project=self.project,
         )
 
-        self.assertFalse(form.is_valid())
-        self.assertIn("Select up to 4 research design tags", str(form.errors))
+        self.assertTrue(form.is_valid())
+        self.assertEqual(
+            form.cleaned_data["research_design"],
+            "Replicated; Randomized; Paired sites; Controlled*; Before-and-after",
+        )
 
     def test_research_design_initial_splits_saved_tags(self):
         summary = ReferenceSummary(research_design="Replicated; Controlled*")
@@ -2378,6 +2361,71 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertIn("Outcome notes has invalid inline formatting", str(form.errors))
         self.assertIn("matching closing tag", str(form.errors))
 
+    def test_outcomes_raw_accepts_legacy_p_value_column_without_storing_it(self):
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "outcomes_raw": "Abundance | 12 | Treatment | 4 | Control | pairs | Higher | t=2.3 | 0.04 | Significant increase",
+            },
+            project=self.project,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.cleaned_data["outcomes_raw"],
+            [
+                {
+                    "outcome": "Abundance",
+                    "treatment_value": "12",
+                    "treatment": "Treatment",
+                    "comparator_value": "4",
+                    "comparator": "Control",
+                    "unit": "pairs",
+                    "difference": "Higher",
+                    "stats": "t=2.3",
+                    "notes": "Significant increase",
+                }
+            ],
+        )
+
+    def test_outcomes_raw_initial_omits_legacy_p_value_column(self):
+        batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Legacy outcomes batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=batch,
+            hash_key="p" * 40,
+            title="Legacy outcomes reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            outcome_rows=[
+                {
+                    "outcome": "Abundance",
+                    "treatment_value": "12",
+                    "treatment": "Treatment",
+                    "comparator_value": "4",
+                    "comparator": "Control",
+                    "unit": "pairs",
+                    "difference": "Higher",
+                    "stats": "t=2.3",
+                    "p_value": "0.04",
+                    "notes": "Significant increase",
+                }
+            ]
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
+
+        self.assertEqual(
+            form["outcomes_raw"].value(),
+            "Abundance | 12 | Treatment | 4 | Control | pairs | Higher | t=2.3 | Significant increase",
+        )
+
     def test_structured_summary_paragraph_uses_free_text_outcome_notes(self):
         summary = ReferenceSummary(
             study_design="replicated study",
@@ -2425,6 +2473,26 @@ class ReferenceSummaryFormTests(TestCase):
         )
 
         self.assertIn("in UK (3) (12 sites) found that", paragraph)
+
+    def test_structured_summary_paragraph_omits_legacy_p_value_text(self):
+        summary = ReferenceSummary(
+            study_design="replicated study",
+            outcome_rows=[
+                {
+                    "outcome": "Abundance",
+                    "difference": "Higher",
+                    "treatment": "treatment plots",
+                    "comparator": "control plots",
+                    "p_value": "0.04",
+                    "notes": "Significant increase",
+                }
+            ],
+        )
+
+        paragraph = _structured_summary_paragraph(summary)
+
+        self.assertNotIn("p=0.04", paragraph)
+        self.assertIn("Significant increase.", paragraph)
 
     def test_quality_scores_accept_boundary_values(self):
         form = ReferenceSummaryUpdateForm(
@@ -2728,6 +2796,10 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Outcome notes")
         self.assertContains(response, "Main findings summary")
         self.assertContains(response, "More optional detail boxes")
+        self.assertContains(response, "Select all study design terms that apply.")
+        self.assertContains(response, "0 selected")
+        self.assertNotContains(response, "up to four")
+        self.assertNotContains(response, "0 of 4 selected")
 
     def test_detail_page_shows_inline_formatting_preview_and_editor_hook(self):
         self.summary.synopsis_draft = (

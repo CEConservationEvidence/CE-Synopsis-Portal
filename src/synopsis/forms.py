@@ -131,7 +131,6 @@ RESEARCH_DESIGN_CHOICES = [
 RESEARCH_DESIGN_TAG_CHOICES = [
     (value, label) for value, label in RESEARCH_DESIGN_CHOICES if value
 ]
-MAX_RESEARCH_DESIGN_TAGS = 4
 
 IUCN_ACTION_TAGS = [
     "Land/water protection - 1.1 Site/area protection",
@@ -2422,7 +2421,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             attrs={
                 "class": "form-control",
                 "rows": 5,
-                "placeholder": "Use one free-text result sentence per line, or a structured line like: Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes",
+                "placeholder": "Use one free-text result sentence per line, or a structured line like: Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | Notes",
             }
         ),
         label="Outcome notes",
@@ -2527,7 +2526,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                     row.get("unit", ""),
                     row.get("difference", ""),
                     row.get("stats", ""),
-                    row.get("p_value", ""),
                     row.get("notes", ""),
                 ]
                 if any(part.strip() for part in parts):
@@ -2724,10 +2722,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
 
     def clean_research_design(self):
         values = self.cleaned_data.get("research_design") or []
-        if len(values) > MAX_RESEARCH_DESIGN_TAGS:
-            raise forms.ValidationError(
-                f"Select up to {MAX_RESEARCH_DESIGN_TAGS} research design tags."
-            )
         return "; ".join(values)
 
     @staticmethod
@@ -2797,9 +2791,11 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                 continue
             parts = re.split(r"(?<!\\)\|", line)
             parts = [part.replace("\\|", "|").strip() for part in parts]
-            # Pad to 10 fields
-            while len(parts) < 10:
+            # Accept both the current 9-column format and older 10-column rows
+            # that included a dedicated p-value slot.
+            while len(parts) < 9:
                 parts.append("")
+            notes = parts[9] if len(parts) > 9 else parts[8]
             if any(parts):
                 parsed.append(
                     {
@@ -2811,8 +2807,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                         "unit": parts[5],
                         "difference": parts[6],
                         "stats": parts[7],
-                        "p_value": parts[8],
-                        "notes": parts[9],
+                        "notes": notes,
                     }
                 )
         try:
