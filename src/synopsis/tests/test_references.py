@@ -1683,25 +1683,28 @@ class ReferenceSummaryFormTests(TestCase):
 
     def test_habitat_tags_use_detailed_iucn_choices(self):
         values = [value for value, _label in IUCN_HABITAT_CHOICES]
-        self.assertEqual(len(values), 94)
-        self.assertIn("Boreal Woodland/Forest", values)
+        self.assertEqual(len(values), 93)
+        self.assertIn("Forest & Woodland-Boreal Woodland/Forest", values)
         self.assertIn(
-            "Permanent Freshwater Lakes",
+            "Wetlands-Permanent Freshwater Lakes",
             values,
         )
         self.assertIn(
-            "Dams and Reservoirs",
+            "Artificial Habitats-Dams and Reservoirs",
             values,
         )
-        self.assertIn("Marine Anthropogenic Structures", values)
-        self.assertIn("Continental Ice or Glaciers", values)
+        self.assertIn("Artificial Habitats-Marine Anthropogenic Structures", values)
+        self.assertIn("Other-Continental Ice or Glaciers", values)
+        self.assertIn("Wetlands-Marshes and Swamps", values)
+        self.assertNotIn("Introduced Vegetation", values)
+        self.assertNotIn("Coral Reefs", values)
 
         form = ReferenceSummaryUpdateForm(
             data={
                 "status": ReferenceSummary.STATUS_TODO,
                 "habitat_tags": [
-                    "Coral Reefs",
-                    "Dams and Reservoirs",
+                    "Marine-Coral Reefs",
+                    "Artificial Habitats-Dams and Reservoirs",
                 ],
             },
             project=self.project,
@@ -1710,8 +1713,8 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertEqual(
             form.cleaned_data["habitat_tags"],
             [
-                "Coral Reefs",
-                "Dams and Reservoirs",
+                "Marine-Coral Reefs",
+                "Artificial Habitats-Dams and Reservoirs",
             ],
         )
 
@@ -1737,24 +1740,32 @@ class ReferenceSummaryFormTests(TestCase):
 
         self.assertEqual(
             form.initial["habitat_tags"],
-            ["Coral Reefs", "Built-up Areas"],
+            [
+                "Marine-Coral Reefs",
+                "Artificial Habitats-Built-up Areas",
+            ],
         )
 
     def test_action_tags_use_detailed_iucn_choices(self):
         values = [value for value, _label in IUCN_ACTION_CHOICES]
-        self.assertEqual(len(values), 37)
-        self.assertIn("Land/water protection-Area protection", values)
+        self.assertEqual(len(values), 31)
+        self.assertIn("Land/water protection - 1.1 Site/area protection", values)
         self.assertIn(
-            "Livelihood, economic & other incentives-Conservation payments", values
+            "Livelihood, economic & other incentives - 6.4 Conservation payments",
+            values,
         )
-        self.assertIn("Research & monitoring-Other", values)
+        self.assertIn(
+            "Law & policy - 5.4 Compliance and enforcement - 5.4.4 Scale unspecified",
+            values,
+        )
+        self.assertNotIn("Research & monitoring-Other", values)
 
         form = ReferenceSummaryUpdateForm(
             data={
                 "status": ReferenceSummary.STATUS_TODO,
                 "action_tags": [
-                    "Land/water management-Site/area management",
-                    "Research & monitoring-Conservation planning",
+                    "Land/water management - 2.1 Site/area management",
+                    "Law & policy - 5.2 Policies and regulations",
                 ],
             },
             project=self.project,
@@ -1763,10 +1774,43 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertEqual(
             form.cleaned_data["action_tags"],
             [
+                "Land/water management - 2.1 Site/area management",
+                "Law & policy - 5.2 Policies and regulations",
+            ],
+        )
+
+    def test_action_tags_normalize_and_preserve_legacy_saved_values_when_editing(self):
+        batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Legacy action batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=batch,
+            hash_key="a" * 40,
+            title="Legacy action reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            action_tags=[
                 "Land/water management-Site/area management",
                 "Research & monitoring-Conservation planning",
             ],
         )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
+
+        self.assertEqual(
+            form.initial["action_tags"],
+            [
+                "Land/water management - 2.1 Site/area management",
+                "Research & monitoring-Conservation planning",
+            ],
+        )
+        choice_values = [value for value, _label in form.fields["action_tags"].choices]
+        self.assertIn("Research & monitoring-Conservation planning", choice_values)
 
     def test_threat_tags_use_detailed_iucn_choices(self):
         values = [value for value, _label in IUCN_THREAT_CHOICES]
@@ -3308,6 +3352,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.summary.summary_author = "Existing Author"
         self.summary.keywords = ["boxes", "occupancy"]
         self.summary.action_tags = ["Land/water protection-Area protection"]
+        self.summary.habitat_tags = ["Marine Coral Reefs", "Artificial - Urban Areas"]
         self.summary.research_design = "Replicated; Controlled*"
         self.summary.citation = "Author (2024)"
         self.summary.save()
@@ -3361,7 +3406,14 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(new_summary.keywords, ["boxes", "occupancy"])
         self.assertEqual(
             new_summary.action_tags,
-            ["Land/water protection-Area protection"],
+            ["Land/water protection - 1.1 Site/area protection"],
+        )
+        self.assertEqual(
+            new_summary.habitat_tags,
+            [
+                "Marine-Coral Reefs",
+                "Artificial Habitats-Built-up Areas",
+            ],
         )
         self.assertEqual(new_summary.research_design, "Replicated; Controlled*")
         self.assertEqual(new_summary.citation, "Author (2024)")

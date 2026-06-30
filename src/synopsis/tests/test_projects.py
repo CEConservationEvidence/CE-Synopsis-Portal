@@ -1213,6 +1213,72 @@ class SynopsisStructureTests(TestCase):
             ).exists()
         )
 
+    def test_synopsis_structure_csv_export_normalizes_legacy_taxonomy_tags(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Install nest boxes",
+            position=1,
+        )
+        self.reference.title = "Assigned legacy taxonomy ref"
+        self.reference.hash_key = "hash-assigned-legacy-taxonomy"
+        self.reference.screening_status = "included"
+        self.reference.save(
+            update_fields=["title", "hash_key", "screening_status", "updated_at"]
+        )
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.action_tags = [
+            "Land/water protection-Area protection",
+            "Research & monitoring-Conservation planning",
+        ]
+        self.summary.habitat_tags = [
+            "Marine Coral Reefs",
+            "Artificial - Urban Areas",
+        ]
+        self.summary.save(
+            update_fields=[
+                "status",
+                "action_tags",
+                "habitat_tags",
+                "updated_at",
+            ]
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:project_synopsis_export_structure_csv",
+                args=[self.project.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8"))))
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(
+            row["action_tags"],
+            "Land/water protection - 1.1 Site/area protection | Research & monitoring-Conservation planning",
+        )
+        self.assertEqual(
+            row["habitat_tags"],
+            "Marine-Coral Reefs | Artificial Habitats-Built-up Areas",
+        )
+
     def test_synopsis_structure_csv_export_sanitizes_formula_like_cells(self):
         self.reference.title = "=Dangerous title"
         self.reference.authors = "@Author"
@@ -1800,9 +1866,9 @@ class SynopsisStructureTests(TestCase):
         self.assertTrue(
             all(category.kind == IUCNCategory.KIND_ACTION for category in context_categories)
         )
-        self.assertIn(
-            "Land/water protection-Area protection",
+        self.assertEqual(
             [category.name for category in context_categories],
+            [value for value, _label in IUCN_ACTION_CHOICES],
         )
         self.assertNotIn(
             "Residential & commercial development",
@@ -1815,6 +1881,10 @@ class SynopsisStructureTests(TestCase):
         self.assertTrue(form_categories)
         self.assertTrue(
             all(category.kind == IUCNCategory.KIND_ACTION for category in form_categories)
+        )
+        self.assertEqual(
+            [category.name for category in form_categories],
+            [value for value, _label in IUCN_ACTION_CHOICES],
         )
 
     def test_update_intervention_metadata_rejects_threat_category(self):
@@ -1928,6 +1998,87 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(
             list(intervention.iucn_actions.order_by("position", "name").values_list("id", flat=True)),
             [category.id for category in action_categories],
+        )
+
+    def test_evidence_workspace_keeps_linked_legacy_iucn_action_visible_in_editor(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        legacy_category = IUCNCategory.objects.get(
+            kind=IUCNCategory.KIND_ACTION,
+            name="Research & monitoring-Conservation planning",
+        )
+        intervention.iucn_actions.add(legacy_category)
+
+        response = self.client.get(url)
+
+        rendered_chapter = response.context["chapters"][0]
+        rendered_subheading = list(rendered_chapter.subheadings.all())[0]
+        rendered_intervention = list(rendered_subheading.interventions.all())[0]
+        edit_names = [
+            category.name for category in rendered_intervention.edit_iucn_categories
+        ]
+        self.assertIn(
+            "Research & monitoring-Conservation planning",
+            edit_names,
+        )
+        self.assertIn(
+            "Land/water protection - 1.1 Site/area protection",
+            edit_names,
+        )
+
+    def test_update_intervention_metadata_allows_existing_inactive_iucn_action(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        legacy_category = IUCNCategory.objects.get(
+            kind=IUCNCategory.KIND_ACTION,
+            name="Research & monitoring-Conservation planning",
+        )
+        intervention.iucn_actions.add(legacy_category)
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-intervention-metadata",
+                "intervention_id": intervention.id,
+                "iucn_actions": [str(legacy_category.id)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        intervention.refresh_from_db()
+        self.assertEqual(
+            list(intervention.iucn_actions.values_list("name", flat=True)),
+            ["Research & monitoring-Conservation planning"],
         )
 
     def test_update_intervention_metadata_allows_title_rename(self):
