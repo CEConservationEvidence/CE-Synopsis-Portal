@@ -2609,14 +2609,6 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Active author")
         self.assertContains(response, "You + Co Author")
         self.assertContains(response, "Co Author")
-        self.assertContains(
-            response,
-            "This summary page is not a live shared document.",
-        )
-        self.assertContains(
-            response,
-            "Another active author right now: Co Author.",
-        )
         self.assertContains(response, 'name="summary_revision_token"', html=False)
         self.assertContains(
             response,
@@ -2627,7 +2619,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             html=False,
         )
 
-    def test_detail_page_warns_when_summary_is_assigned_to_another_author(self):
+    def test_detail_page_does_not_show_removed_assignment_warning_text(self):
         other_author = User.objects.create_user(
             username="assigned-author",
             password="pass123",
@@ -2646,8 +2638,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             )
         )
 
-        self.assertContains(response, "This summary page is not a live shared document.")
-        self.assertContains(
+        self.assertNotContains(
             response,
             "This summary is currently assigned to Assigned Author.",
         )

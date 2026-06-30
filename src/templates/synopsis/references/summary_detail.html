@@ -192,16 +192,6 @@
         </div>
     </div>
 </div>
-<div class="alert {% if summary_editor_presence.has_other_participants or summary.assigned_to and summary.assigned_to_id != request.user.id %}alert-warning{% else %}alert-info{% endif %} small mb-4">
-    <div class="fw-semibold mb-1">This summary page is not a live shared document.</div>
-    <div>If another author saves this summary before you do, your page becomes out of date and you will need to reload it before your own save can be accepted.</div>
-    {% if summary_editor_presence.has_other_participants %}
-    <div class="mt-1">Another active author right now: {{ summary_editor_presence.other_participants|join:", " }}.</div>
-    {% endif %}
-    {% if summary.assigned_to and summary.assigned_to_id != request.user.id %}
-    <div class="mt-1">This summary is currently assigned to {{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}.</div>
-    {% endif %}
-</div>
 <div class="card mb-4">
     <div class="card-body">
         <h4 class="mb-1">{{ reference.canonical.title }}</h4>
