@@ -2730,6 +2730,8 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Clear saved custom paragraph")
         self.assertContains(response, "Internal notes on this paragraph")
         self.assertContains(response, "Save paragraph notes")
+        self.assertContains(response, "Word count:")
+        self.assertContains(response, 'data-summary-word-count', html=False)
         self.assertContains(response, "Use these tags to organise, filter and group summaries across the synopsis.")
         self.assertContains(response, "Stored separately for internal use. These scores are not inserted into the generated summary paragraph.")
         self.assertContains(response, "Outcome notes")

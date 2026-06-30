@@ -832,6 +832,10 @@
                         <label class="form-label" for="{{ draft_form.synopsis_draft.id_for_label }}">Summary paragraph</label>
                         {{ draft_form.synopsis_draft }}
                         <div class="form-text">{{ draft_form.synopsis_draft.help_text }}</div>
+                        <div class="form-text mt-1">
+                            Word count:
+                            <span class="fw-semibold" data-summary-word-count>0</span>
+                        </div>
                         {% if draft_form.synopsis_draft.errors %}
                         <div class="text-danger small">{{ draft_form.synopsis_draft.errors|join:", " }}</div>
                         {% endif %}
@@ -1035,6 +1039,30 @@
 {{ summary_editor_presence|json_script:"summary-editor-presence-data" }}
 <script>
     (() => {
+        const draftField = document.getElementById("{{ draft_form.synopsis_draft.id_for_label }}");
+        const wordCountEl = document.querySelector("[data-summary-word-count]");
+        const countWords = (value) => {
+            const stripped = (value || "")
+                .replace(/<[^>]*>/g, " ")
+                .replace(/&nbsp;/gi, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+            if (!stripped) {
+                return 0;
+            }
+            return stripped.split(" ").length;
+        };
+        const updateWordCount = () => {
+            if (!draftField || !wordCountEl) {
+                return;
+            }
+            wordCountEl.textContent = String(countWords(draftField.value));
+        };
+        if (draftField && wordCountEl) {
+            updateWordCount();
+            draftField.addEventListener("input", updateWordCount);
+        }
+
         document.querySelectorAll("[data-tag-picker]").forEach((picker) => {
             const filter = picker.querySelector("[data-tag-filter]");
             const clearButton = picker.querySelector("[data-tag-clear]");
