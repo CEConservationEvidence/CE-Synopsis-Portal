@@ -23,31 +23,34 @@
         }
         .dashboard-stat-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(6.75rem, 8.5rem));
-            gap: 0.55rem;
+            grid-template-columns: repeat(3, auto);
+            gap: 0.4rem;
             justify-content: end;
         }
         .dashboard-stat {
             background: #f8fafc;
             border: 1px solid #e2e8f0;
             border-radius: 0.6rem;
-            padding: 0.65rem 0.75rem;
+            padding: 0.34rem 0.5rem;
             min-width: 0;
+            display: inline-flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 0.4rem;
+            white-space: nowrap;
         }
         .dashboard-stat-label {
-            display: block;
             color: #6b7280;
-            font-size: 0.68rem;
-            line-height: 1.25;
+            font-size: 0.58rem;
+            line-height: 1.05;
             text-transform: uppercase;
-            margin-bottom: 0.2rem;
+            margin-bottom: 0;
         }
         .dashboard-stat-value {
-            display: block;
             color: #1f2937;
-            font-size: 1.08rem;
+            font-size: 0.8rem;
             font-weight: 600;
-            line-height: 1.05;
+            line-height: 1;
         }
         .dashboard-section {
             background: #fff;
@@ -165,8 +168,8 @@
                 grid-template-columns: 1fr;
             }
             .dashboard-stat-grid {
-                grid-template-columns: repeat(3, minmax(6.25rem, 1fr));
-                justify-content: stretch;
+                grid-template-columns: repeat(3, auto);
+                justify-content: start;
             }
             .dashboard-section-header {
                 flex-direction: column;
@@ -183,6 +186,10 @@
             }
             .dashboard-actions {
                 justify-content: flex-start;
+            }
+            .dashboard-stat-grid {
+                grid-template-columns: repeat(3, auto);
+                justify-content: start;
             }
         }
     </style>
