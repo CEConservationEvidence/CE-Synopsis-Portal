@@ -491,7 +491,7 @@
                                             <div class="col-12 col-lg-4">
                                                 <label class="form-label small text-muted mb-1">IUCN actions</label>
                                                 <select name="iucn_actions" class="form-select form-select-sm" multiple size="5">
-                                                    {% for category in iucn_categories %}
+                                                    {% for category in intervention.edit_iucn_categories %}
                                                         {% if category.id in intervention.iucn_action_ids %}
                                                             <option value="{{ category.id }}" selected>{{ category.name }}</option>
                                                         {% else %}
