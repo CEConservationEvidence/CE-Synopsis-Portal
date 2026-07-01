@@ -28,6 +28,7 @@ from .utils import (
     normalize_reference_summary_citation,
     project_action_name_values,
     reference_summary_effective_citation,
+    validate_inline_markup_structure,
 )
 
 MAX_LOCATION_LINE_LENGTH = 200
@@ -82,6 +83,17 @@ def _validate_not_same_day_datetime(value, field_label):
         )
     return value
 
+
+def _clean_inline_markup_text(value, field_label):
+    cleaned = (value or "").strip()
+    try:
+        validate_inline_markup_structure(cleaned)
+    except ValueError as exc:
+        raise forms.ValidationError(
+            f"{field_label} has invalid inline formatting. {exc}"
+        ) from exc
+    return cleaned
+
 from .models import (
     ActionList,
     AdvisoryBoardMember,
@@ -119,49 +131,61 @@ RESEARCH_DESIGN_CHOICES = [
 RESEARCH_DESIGN_TAG_CHOICES = [
     (value, label) for value, label in RESEARCH_DESIGN_CHOICES if value
 ]
-MAX_RESEARCH_DESIGN_TAGS = 4
 
 IUCN_ACTION_TAGS = [
-    "Land/water protection-Area protection",
-    "Land/water protection-Site/area stewardship",
-    "Land/water management-Site/area management",
-    "Land/water management-Invasive/problematic species control",
-    "Land/water management-Habitat & natural process restoration",
-    "Land/water management-Natural process regeneration",
-    "Species management-Species recovery",
-    "Species management-Species re-introduction",
-    "Species management-Ex situ conservation",
-    "Species management-Conservation translocation",
-    "Species management-Disease/pathogen treatment",
-    "Species management-Biological resource use management",
-    "Education & awareness-Formal education",
-    "Education & awareness-Training",
-    "Education & awareness-Awareness & communications",
-    "Law & policy-Legislation",
-    "Law & policy-Regulations",
-    "Law & policy-Incentives",
-    "Law & policy-Private sector standards & codes",
-    "Law & policy-Policies & regulations",
-    "Law & policy-Law enforcement & prosecution",
-    "Livelihood, economic & other incentives-Linked enterprises & livelihood alternatives",
-    "Livelihood, economic & other incentives-Incentives/subsidies",
-    "Livelihood, economic & other incentives-Market forces",
-    "Livelihood, economic & other incentives-Conservation payments",
-    "Livelihood, economic & other incentives-Non-monetary values",
-    "External capacity building-Institutional development",
-    "External capacity building-Alliance & partnership development",
-    "External capacity building-Conservation finance",
-    "External capacity building-Capacity building",
-    "External capacity building-Technology transfer",
-    "Research & monitoring-Basic research & status monitoring",
-    "Research & monitoring-Resource & habitat management",
-    "Research & monitoring-Species management",
-    "Research & monitoring-Socio-economics",
-    "Research & monitoring-Conservation planning",
-    "Research & monitoring-Other",
+    "Land/water protection - 1.1 Site/area protection",
+    "Land/water protection - 1.2 Resource & habitat protection",
+    "Land/water management - 2.1 Site/area management",
+    "Land/water management - 2.2 Invasive/problematic species control",
+    "Land/water management - 2.3 Habitat & natural process restoration",
+    "Species management - 3.1 Species management - 3.1.1 Harvest management",
+    "Species management - 3.1 Species management - 3.1.2 Trade management",
+    "Species management - 3.1 Species management - 3.1.3 Limiting population growth",
+    "Species management - 3.2 Species recovery",
+    "Species management - 3.3 Species re-introduction - 3.3.1 Reintroduction",
+    "Species management - 3.3 Species re-introduction - 3.3.1 Re-introduction",
+    "Species management - 3.3 Species re-introduction - 3.3.2 Benign introduction",
+    "Species management - 3.4 Ex-situ conservation - 3.4.1 Captive breeding/artificial propagation",
+    "Species management - 3.4 Ex-situ conservation - 3.4.2 Genome resource bank",
+    "Education & awareness - 4.1 Formal education",
+    "Education & awareness - 4.2 Training",
+    "Education & awareness - 4.3 Awareness & communications",
+    "Law & policy - 5.1 Legislation - 5.1.1 International level",
+    "Law & policy - 5.1 Legislation - 5.1.2 National level",
+    "Law & policy - 5.1 Legislation - 5.1.3 Sub-national level",
+    "Law & policy - 5.1 Legislation - 5.1.4 Scale unspecified",
+    "Law & policy - 5.2 Policies and regulations",
+    "Law & policy - 5.3 Private sector standards & codes",
+    "Law & policy - 5.4 Compliance and enforcement - 5.4.1 International level",
+    "Law & policy - 5.4 Compliance and enforcement - 5.4.3 Sub-national level",
+    "Law & policy - 5.4 Compliance and enforcement - 5.4.4 Scale unspecified",
+    "Livelihood, economic & other incentives - 6.1 Linked enterprises & livelihood alternatives",
+    "Livelihood, economic & other incentives - 6.2 Substitution",
+    "Livelihood, economic & other incentives - 6.3 Market forces",
+    "Livelihood, economic & other incentives - 6.4 Conservation payments",
+    "Livelihood, economic & other incentives - 6.5 Non-monetary values",
 ]
 
 IUCN_ACTION_CHOICES = [(tag, tag) for tag in IUCN_ACTION_TAGS]
+IUCN_ACTION_CHOICE_SET = set(IUCN_ACTION_TAGS)
+IUCN_ACTION_TAG_ALIASES = {
+    "Land/water protection-Area protection": "Land/water protection - 1.1 Site/area protection",
+    "Land/water protection-Site/area stewardship": "Land/water protection - 1.2 Resource & habitat protection",
+    "Land/water management-Site/area management": "Land/water management - 2.1 Site/area management",
+    "Land/water management-Invasive/problematic species control": "Land/water management - 2.2 Invasive/problematic species control",
+    "Land/water management-Habitat & natural process restoration": "Land/water management - 2.3 Habitat & natural process restoration",
+    "Species management-Species recovery": "Species management - 3.2 Species recovery",
+    "Education & awareness-Formal education": "Education & awareness - 4.1 Formal education",
+    "Education & awareness-Training": "Education & awareness - 4.2 Training",
+    "Education & awareness-Awareness & communications": "Education & awareness - 4.3 Awareness & communications",
+    "Law & policy-Private sector standards & codes": "Law & policy - 5.3 Private sector standards & codes",
+    "Law & policy-Policies & regulations": "Law & policy - 5.2 Policies and regulations",
+    "Law & policy-Regulations": "Law & policy - 5.2 Policies and regulations",
+    "Livelihood, economic & other incentives-Linked enterprises & livelihood alternatives": "Livelihood, economic & other incentives - 6.1 Linked enterprises & livelihood alternatives",
+    "Livelihood, economic & other incentives-Market forces": "Livelihood, economic & other incentives - 6.3 Market forces",
+    "Livelihood, economic & other incentives-Conservation payments": "Livelihood, economic & other incentives - 6.4 Conservation payments",
+    "Livelihood, economic & other incentives-Non-monetary values": "Livelihood, economic & other incentives - 6.5 Non-monetary values",
+}
 
 IUCN_THREAT_TAGS = [
     "Residential & commercial development-Housing/urban areas",
@@ -210,72 +234,203 @@ IUCN_THREAT_TAGS = [
 IUCN_THREAT_CHOICES = [(tag, tag) for tag in IUCN_THREAT_TAGS]
 
 IUCN_HABITAT_TAGS = [
-    "Marine Neritic",
-    "Marine Oceanic",
-    "Marine Deep Ocean Floor",
-    "Marine Intertidal",
-    "Marine Coastal/Supratidal",
-    "Marine Rocky Shores",
-    "Marine Coral Reefs",
-    "Marine Seagrass (submerged)",
-    "Marine Pelagic",
-    "Marine Estuarine",
-    "Marine Coastal Lagoon",
-    "Marine Salt Marshes",
-    "Marine Saline Reedbeds",
-    "Marine Tidepools",
-    "Savanna",
-    "Shrubland",
-    "Grassland",
-    "Wetlands (inland)",
-    "Rocky Areas",
-    "Caves and Subterranean Habitats (non-aquatic)",
-    "Desert",
-    "Artificial - Terrestrial",
-    "Forest - Boreal",
-    "Forest - Subarctic",
-    "Forest - Subantarctic",
-    "Forest - Temperate",
-    "Forest - Subtropical/Tropical Dry",
-    "Forest - Subtropical/Tropical Moist Lowland",
-    "Forest - Subtropical/Tropical Mangrove Vegetation Above High Tide Level",
-    "Forest - Subtropical/Tropical Swamp",
-    "Forest - Subtropical/Tropical Moist Montane",
-    "Wetlands (inland) - Permanent Rivers/Streams/Creeks",
-    "Wetlands (inland) - Seasonal/Intermittent/Irregular Rivers/Streams/Creeks",
-    "Wetlands (inland) - Shrub Dominated Wetlands",
-    "Wetlands (inland) - Bogs, Marshes, Swamps, Fens, Peatlands",
-    "Wetlands (inland) - Permanent Freshwater Lakes",
-    "Wetlands (inland) - Seasonal/Intermittent Freshwater Lakes (over 8ha)",
-    "Wetlands (inland) - Permanent Freshwater Marshes/Pools (under 8ha)",
-    "Wetlands (inland) - Seasonal/Intermittent Freshwater Marshes/Pools (under 8ha)",
-    "Wetlands (inland) - Freshwater Springs and Oases",
-    "Wetlands (inland) - Tundra Wetlands",
-    "Wetlands (inland) - Alpine Wetlands",
-    "Wetlands (inland) - Geothermal Wetlands",
-    "Wetlands (inland) - Permanent Inland Deltas",
-    "Wetlands (inland) - Permanent Saline, Brackish or Alkaline Lakes",
-    "Wetlands (inland) - Seasonal/Intermittent Saline, Brackish or Alkaline Lakes and Flats",
-    "Wetlands (inland) - Permanent Saline, Brackish or Alkaline Marshes/Pools",
-    "Wetlands (inland) - Seasonal/Intermittent Saline, Brackish or Alkaline Marshes/Pools",
-    "Wetlands (inland) - Karst and Other Subterranean Hydrological Systems",
-    "Rocky Areas - Inland Cliffs, Rock Outcrops and Caves",
-    "Rocky Areas - Scree, Rocky Fields, Lava Flows",
-    "Rocky Areas - Geothermal Fields",
-    "Desert - Hot",
-    "Desert - Temperate",
-    "Desert - Cold",
-    "Artificial - Arable Land",
-    "Artificial - Pastureland",
-    "Artificial - Plantations",
-    "Artificial - Rural Gardens",
-    "Artificial - Urban Areas",
-    "Artificial - Heavily Degraded Former Forest",
-    "Artificial - Introduced Vegetation",
-    "Artificial - Subtropical/Tropical Heavily Degraded Former Forest",
+    "Forest & Woodland-Boreal Woodland/Forest",
+    "Forest & Woodland-Subarctic Woodland/Forest",
+    "Forest & Woodland-Subantarctic Woodland/Forest",
+    "Forest & Woodland-Temperate Broadleaf Woodland/Forest",
+    "Forest & Woodland-Temperate Coniferous Woodland/Forest",
+    "Forest & Woodland-Temperate Mixed Woodland/Forest",
+    "Forest & Woodland-Subtropical/Tropical Dry Woodland/Forest",
+    "Forest & Woodland-Subtropical/Tropical Moist Woodland/Lowland Forest",
+    "Forest & Woodland-Subtropical/Tropical Swamp Forest",
+    "Forest & Woodland-Subtropical/Tropical Moist Montane Woodland/Forest",
+    "Forest & Woodland-Mangroves",
+    "Forest & Woodland-Other",
+    "Savanna-Dry Savanna",
+    "Savanna-Moist Savanna",
+    "Shrubland-Subarctic Shrubland",
+    "Shrubland-Subantarctic Shrubland",
+    "Shrubland-Temperate Shrubland",
+    "Shrubland-Heathland",
+    "Shrubland-Moorland",
+    "Shrubland-Subtropical/Tropical Dry Shrubland",
+    "Shrubland-Subtropical/Tropical Moist Shrubland",
+    "Shrubland-Subtropical/Tropical High Altitude Shrubland",
+    "Shrubland-Mediterranean-type Shrubland",
+    "Shrubland-Tundra",
+    "Grassland-Alpine Grasslands and Meadows",
+    "Grassland-Subarctic Grassland",
+    "Grassland-Subantarctic Grassland",
+    "Grassland-Temperate Grassland",
+    "Grassland-Subtropical/Tropical Dry Lowland Grassland",
+    "Grassland-Subtropical/Tropical Seasonally Wet/Flooded Lowland Grassland",
+    "Grassland-Subtropical/Tropical High Altitude Grassland",
+    "Wetlands-Shrub Dominated Wetlands",
+    "Wetlands-Bogs and Peatlands",
+    "Wetlands-Fens",
+    "Wetlands-Reedbeds",
+    "Wetlands-Marshes and Swamps",
+    "Wetlands-Permanent Freshwater Lakes",
+    "Wetlands-Ephemeral Freshwater Lakes",
+    "Wetlands-Permanent Freshwater Marshes/Pools",
+    "Wetlands-Ephemeral Freshwater Marshes/Pools",
+    "Wetlands-Flushes and Springs",
+    "Wetlands-Geothermal Wetlands",
+    "Wetlands-Saline, Brackish or Alkaline Lakes and Flats",
+    "Wetlands-Permanent Saline, Brackish or Alkaline Marshes/Pools",
+    "Wetlands-Ephemeral Saline, Brackish or Alkaline Marshes/Pools",
+    "Wetlands-Karst and Other Subterranean Aquatic Systems",
+    "Rivers, Streams, Creeks-Ephemeral Rivers, Streams, Creeks",
+    "Rivers, Streams, Creeks-Permanent Rivers, Streams, Creeks",
+    "Rivers, Streams, Creeks-Riparian Areas",
+    "Rocky Habitats & Caves-Caves and Subterranean Habitats (dry)",
+    "Rocky Habitats & Caves-Natural Exposures (cliff, scree, limestone pavement, rock outcrop)",
+    "Desert-Desert",
+    "Desert-Semi-desert",
+    "Marine-Benthic Pebbles",
+    "Marine-Benthic Rock",
+    "Marine-Benthic Sand/Mud",
+    "Marine-Coral Reefs",
+    "Marine-Macroalgal/Kelp Beds",
+    "Marine-Pelagic",
+    "Marine-Reefs (other than Coral)",
+    "Marine-Seagrasses",
+    "Coastal-Coastal Brackish/Saline Lagoons",
+    "Coastal-Coastal Caves",
+    "Coastal-Coastal Sand Dunes",
+    "Coastal-Coastal Shingle",
+    "Coastal-Estuaries",
+    "Coastal-Intertidal Mud Flats",
+    "Coastal-Maritime Cliff and Slope",
+    "Coastal-Rocky Shorelines",
+    "Coastal-Salt Marshes",
+    "Coastal-Sandy Shores/Beaches",
+    "Coastal-Tidal Pools",
+    "Artificial Habitats-Arable Land",
+    "Artificial Habitats-Pastureland",
+    "Artificial Habitats-Plantations",
+    "Artificial Habitats-Gardens and Parks",
+    "Artificial Habitats-Built-up Areas",
+    "Artificial Habitats-Artificial Exposures (quarries, opencast mines)",
+    "Artificial Habitats-Boundaries (hedges, walls, ditches)",
+    "Artificial Habitats-Power Lines",
+    "Artificial Habitats-Roads/Verges",
+    "Artificial Habitats-Railways",
+    "Artificial Habitats-Waste Tips",
+    "Artificial Habitats-Dams and Reservoirs",
+    "Artificial Habitats-Ponds",
+    "Artificial Habitats-Aquaculture Ponds",
+    "Artificial Habitats-Wastewater Treatment Areas",
+    "Artificial Habitats-Canals",
+    "Artificial Habitats-Drainage Channels",
+    "Artificial Habitats-Marine Anthropogenic Structures",
+    "Artificial Habitats-Mariculture Cages",
+    "Artificial Habitats-Mari/Brackish-culture Ponds",
+    "Other-Continental Ice or Glaciers",
 ]
 
 IUCN_HABITAT_CHOICES = [(tag, tag) for tag in IUCN_HABITAT_TAGS]
+IUCN_HABITAT_CHOICE_SET = set(IUCN_HABITAT_TAGS)
+IUCN_HABITAT_TAG_ALIASES = {
+    tag.split("-", 1)[1]: tag for tag in IUCN_HABITAT_TAGS
+}
+IUCN_HABITAT_TAG_ALIASES.update(
+    {
+        "Forest - Boreal": "Forest & Woodland-Boreal Woodland/Forest",
+        "Forest - Subarctic": "Forest & Woodland-Subarctic Woodland/Forest",
+        "Forest - Subantarctic": "Forest & Woodland-Subantarctic Woodland/Forest",
+        "Forest - Subtropical/Tropical Dry": "Forest & Woodland-Subtropical/Tropical Dry Woodland/Forest",
+        "Forest - Subtropical/Tropical Moist Lowland": "Forest & Woodland-Subtropical/Tropical Moist Woodland/Lowland Forest",
+        "Forest - Subtropical/Tropical Swamp": "Forest & Woodland-Subtropical/Tropical Swamp Forest",
+        "Forest - Subtropical/Tropical Moist Montane": "Forest & Woodland-Subtropical/Tropical Moist Montane Woodland/Forest",
+        "Forest - Subtropical/Tropical Mangrove Vegetation Above High Tide Level": "Forest & Woodland-Mangroves",
+        "Wetlands (inland) - Shrub Dominated Wetlands": "Wetlands-Shrub Dominated Wetlands",
+        "Wetlands (inland) - Bogs, Marshes, Swamps, Fens, Peatlands": "Wetlands-Bogs and Peatlands",
+        "Wetlands (inland) - Permanent Freshwater Lakes": "Wetlands-Permanent Freshwater Lakes",
+        "Wetlands (inland) - Seasonal/Intermittent Freshwater Lakes (over 8ha)": "Wetlands-Ephemeral Freshwater Lakes",
+        "Wetlands (inland) - Permanent Freshwater Marshes/Pools (under 8ha)": "Wetlands-Permanent Freshwater Marshes/Pools",
+        "Wetlands (inland) - Seasonal/Intermittent Freshwater Marshes/Pools (under 8ha)": "Wetlands-Ephemeral Freshwater Marshes/Pools",
+        "Wetlands (inland) - Freshwater Springs and Oases": "Wetlands-Flushes and Springs",
+        "Wetlands (inland) - Geothermal Wetlands": "Wetlands-Geothermal Wetlands",
+        "Wetlands (inland) - Permanent Saline, Brackish or Alkaline Lakes": "Wetlands-Saline, Brackish or Alkaline Lakes and Flats",
+        "Wetlands (inland) - Seasonal/Intermittent Saline, Brackish or Alkaline Lakes and Flats": "Wetlands-Saline, Brackish or Alkaline Lakes and Flats",
+        "Wetlands (inland) - Permanent Saline, Brackish or Alkaline Marshes/Pools": "Wetlands-Permanent Saline, Brackish or Alkaline Marshes/Pools",
+        "Wetlands (inland) - Seasonal/Intermittent Saline, Brackish or Alkaline Marshes/Pools": "Wetlands-Ephemeral Saline, Brackish or Alkaline Marshes/Pools",
+        "Wetlands (inland) - Karst and Other Subterranean Hydrological Systems": "Wetlands-Karst and Other Subterranean Aquatic Systems",
+        "Wetlands (inland) - Permanent Rivers/Streams/Creeks": "Rivers, Streams, Creeks-Permanent Rivers, Streams, Creeks",
+        "Wetlands (inland) - Seasonal/Intermittent/Irregular Rivers/Streams/Creeks": "Rivers, Streams, Creeks-Ephemeral Rivers, Streams, Creeks",
+        "Rocky Areas - Inland Cliffs, Rock Outcrops and Caves": "Rocky Habitats & Caves-Natural Exposures (cliff, scree, limestone pavement, rock outcrop)",
+        "Caves and Subterranean Habitats (non-aquatic)": "Rocky Habitats & Caves-Caves and Subterranean Habitats (dry)",
+        "Marine Coral Reefs": "Marine-Coral Reefs",
+        "Marine Seagrass (submerged)": "Marine-Seagrasses",
+        "Marine Pelagic": "Marine-Pelagic",
+        "Marine Estuarine": "Coastal-Estuaries",
+        "Marine Coastal Lagoon": "Coastal-Coastal Brackish/Saline Lagoons",
+        "Marine Rocky Shores": "Coastal-Rocky Shorelines",
+        "Marine Salt Marshes": "Coastal-Salt Marshes",
+        "Marine Tidepools": "Coastal-Tidal Pools",
+        "Artificial - Arable Land": "Artificial Habitats-Arable Land",
+        "Artificial - Pastureland": "Artificial Habitats-Pastureland",
+        "Artificial - Plantations": "Artificial Habitats-Plantations",
+        "Artificial - Rural Gardens": "Artificial Habitats-Gardens and Parks",
+        "Artificial - Urban Areas": "Artificial Habitats-Built-up Areas",
+        "Artificial - Aquatic - Ponds": "Artificial Habitats-Ponds",
+        "Artificial - Aquatic - Aquaculture Ponds": "Artificial Habitats-Aquaculture Ponds",
+        "Artificial - Aquatic - Dams and Reservoirs": "Artificial Habitats-Dams and Reservoirs",
+        "Artificial - Aquatic - Wastewater Treatment Areas": "Artificial Habitats-Wastewater Treatment Areas",
+        "Artificial - Aquatic - Excavations": "Artificial Habitats-Artificial Exposures (quarries, opencast mines)",
+        "Bogs and Peatlands (general/unspecified)": "Wetlands-Bogs and Peatlands",
+        "Swamps": "Wetlands-Marshes and Swamps",
+        "Marshes and Swamps": "Wetlands-Marshes and Swamps",
+    }
+)
+
+
+def _normalize_habitat_tag(tag):
+    cleaned = (tag or "").strip()
+    if not cleaned:
+        return ""
+    return IUCN_HABITAT_TAG_ALIASES.get(cleaned, cleaned)
+
+
+def _normalize_action_tag(tag):
+    cleaned = (tag or "").strip()
+    if not cleaned:
+        return ""
+    return IUCN_ACTION_TAG_ALIASES.get(cleaned, cleaned)
+
+
+def _tag_values(tags):
+    if not tags:
+        return []
+    if isinstance(tags, str):
+        return [part.strip() for part in tags.split(",") if part.strip()]
+    return list(tags)
+
+
+def normalize_action_tags(tags):
+    normalized = []
+    seen = set()
+    for tag in _tag_values(tags):
+        cleaned = _normalize_action_tag(tag)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+    return normalized
+
+
+def normalize_habitat_tags(tags):
+    normalized = []
+    seen = set()
+    for tag in _tag_values(tags):
+        cleaned = _normalize_habitat_tag(tag)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        normalized.append(cleaned)
+    return normalized
+
 
 class TagCommaField(forms.CharField):
     """Render list-like values as comma-separated strings and back."""
@@ -914,6 +1069,19 @@ class SynopsisChapterForm(forms.Form):
         return (self.cleaned_data.get("title") or "").strip()
 
 
+class SynopsisTitleForm(forms.Form):
+    title = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Title"}
+        ),
+        label="Title",
+    )
+
+    def clean_title(self):
+        return (self.cleaned_data.get("title") or "").strip()
+
+
 class SynopsisSubheadingForm(forms.Form):
     title = forms.CharField(
         max_length=255,
@@ -948,17 +1116,6 @@ class SynopsisInterventionForm(forms.Form):
         widget=forms.SelectMultiple(attrs={"class": "form-select", "size": 5}),
         label="IUCN actions",
     )
-    is_cross_reference = forms.BooleanField(
-        required=False,
-        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
-        label="Cross-reference only",
-    )
-    primary_intervention = forms.ModelChoiceField(
-        queryset=SynopsisIntervention.objects.none(),
-        required=False,
-        widget=forms.Select(attrs={"class": "form-select"}),
-        label="Primary intervention",
-    )
 
     def __init__(self, *args, project=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -967,32 +1124,9 @@ class SynopsisInterventionForm(forms.Form):
             is_active=True,
         ).order_by("position", "name")
         self.fields["iucn_actions"].label_from_instance = lambda obj: obj.name
-        interventions = SynopsisIntervention.objects.none()
-        if project:
-            interventions = (
-                SynopsisIntervention.objects.filter(
-                    subheading__chapter__project=project
-                )
-                .select_related("subheading__chapter")
-                .order_by("title")
-            )
-        self.fields["primary_intervention"].queryset = interventions
 
     def clean_title(self):
         return (self.cleaned_data.get("title") or "").strip()
-
-    def clean(self):
-        cleaned = super().clean()
-        is_cross_ref = cleaned.get("is_cross_reference")
-        primary = cleaned.get("primary_intervention")
-        if is_cross_ref and not primary:
-            self.add_error(
-                "primary_intervention",
-                "Select the main intervention that holds the full evidence summary.",
-            )
-        if primary and not is_cross_ref:
-            cleaned["is_cross_reference"] = True
-        return cleaned
 
 
 class SynopsisBackgroundForm(forms.Form):
@@ -1002,10 +1136,15 @@ class SynopsisBackgroundForm(forms.Form):
             attrs={
                 "class": "form-control",
                 "rows": 4,
+                "data-inline-markup": "true",
                 "placeholder": "Brief background (<200 words): description, context, related literature/harms.",
             }
         ),
         label="Background",
+        help_text=(
+            "Formatting supported: italics, subscript, superscript, and inserted symbols. "
+            "This formatting is preserved in the portal and DOCX export."
+        ),
     )
     background_references = forms.CharField(
         required=False,
@@ -1019,6 +1158,12 @@ class SynopsisBackgroundForm(forms.Form):
         label="Background references",
         help_text="Optional. Use any relevant contextual references here. They do not need to be published before the search end date.",
     )
+
+    def clean_background_text(self):
+        return _clean_inline_markup_text(
+            self.cleaned_data.get("background_text"),
+            "Background",
+        )
 
 
 class ProjectActionNameBankForm(forms.Form):
@@ -1090,10 +1235,15 @@ class SynopsisKeyMessageForm(forms.Form):
             attrs={
                 "class": "form-control form-control-sm",
                 "rows": 3,
+                "data-inline-markup": "true",
                 "placeholder": "Key message statement.",
             }
         ),
         label="Statement",
+        help_text=(
+            "Formatting supported: italics, subscript, superscript, and inserted symbols. "
+            "This formatting is preserved in the portal and DOCX export."
+        ),
     )
     supporting_summaries = forms.ModelMultipleChoiceField(
         queryset=ReferenceSummary.objects.none(),
@@ -1125,7 +1275,10 @@ class SynopsisKeyMessageForm(forms.Form):
         return (self.cleaned_data.get("outcome_label") or "").strip()
 
     def clean_statement(self):
-        return (self.cleaned_data.get("statement") or "").strip()
+        return _clean_inline_markup_text(
+            self.cleaned_data.get("statement"),
+            "Statement",
+        )
 
 
 class SynopsisAssignmentForm(forms.Form):
@@ -2217,7 +2370,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         required=False,
         choices=IUCN_HABITAT_CHOICES,
         widget=forms.CheckboxSelectMultiple(attrs={"class": "tag-choice-input"}),
-        label="Habitat (IUCN)",
+        label="Habitat (Conservation Evidence)",
     )
     taxon_tags = TagCommaField(
         required=False,
@@ -2268,7 +2421,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             attrs={
                 "class": "form-control",
                 "rows": 5,
-                "placeholder": "Use one free-text result sentence per line, or a structured line like: Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | p value | Notes",
+                "placeholder": "Use one free-text result sentence per line, or a structured line like: Outcome | Treatment value(s) | Treatment | Comparator value(s) | Comparator | Unit | Difference | Stats | Notes",
             }
         ),
         label="Outcome notes",
@@ -2316,6 +2469,41 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         action_choices.append((self.ACTION_CUSTOM_VALUE, "Other / enter custom action"))
         self.fields["action_choice"].choices = action_choices
         self._existing_status = instance.status if instance else None
+        if instance and instance.pk:
+            action_tag_choices = list(self.fields["action_tags"].choices)
+            current_action_tags = list(instance.action_tags or [])
+            legacy_action_tags = []
+            normalized_action_tags = normalize_action_tags(current_action_tags)
+            for tag in current_action_tags:
+                normalized = _normalize_action_tag(tag)
+                if (
+                    normalized not in IUCN_ACTION_CHOICE_SET
+                    and tag not in IUCN_ACTION_CHOICE_SET
+                ):
+                    legacy_action_tags.append(tag)
+            if legacy_action_tags:
+                for tag in legacy_action_tags:
+                    if tag not in {value for value, _label in action_tag_choices}:
+                        action_tag_choices.append((tag, f"{tag} (legacy saved value)"))
+                self.fields["action_tags"].choices = action_tag_choices
+            if not self.is_bound and normalized_action_tags:
+                self.initial["action_tags"] = normalized_action_tags
+
+            habitat_choices = list(self.fields["habitat_tags"].choices)
+            current_habitat_tags = list(instance.habitat_tags or [])
+            legacy_habitat_tags = []
+            normalized_habitat_tags = normalize_habitat_tags(current_habitat_tags)
+            for tag in current_habitat_tags:
+                normalized = _normalize_habitat_tag(tag)
+                if normalized not in IUCN_HABITAT_CHOICE_SET and tag not in IUCN_HABITAT_CHOICE_SET:
+                    legacy_habitat_tags.append(tag)
+            if legacy_habitat_tags:
+                for tag in legacy_habitat_tags:
+                    if tag not in {value for value, _label in habitat_choices}:
+                        habitat_choices.append((tag, f"{tag} (legacy saved value)"))
+                self.fields["habitat_tags"].choices = habitat_choices
+            if not self.is_bound and normalized_habitat_tags:
+                self.initial["habitat_tags"] = normalized_habitat_tags
         if not self.is_bound and instance and instance.research_design:
             self.initial["research_design"] = self._split_research_design_value(
                 instance.research_design
@@ -2338,7 +2526,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                     row.get("unit", ""),
                     row.get("difference", ""),
                     row.get("stats", ""),
-                    row.get("p_value", ""),
                     row.get("notes", ""),
                 ]
                 if any(part.strip() for part in parts):
@@ -2459,8 +2646,62 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
             return [part.strip() for part in value.split(",") if part.strip()]
         return []
 
+    def _clean_structured_markup_field(self, field_name, field_label):
+        return _clean_inline_markup_text(
+            self.cleaned_data.get(field_name),
+            field_label,
+        )
+
+    def clean_study_design(self):
+        return self._clean_structured_markup_field("study_design", "Study design")
+
+    def clean_sites_replications(self):
+        return self._clean_structured_markup_field(
+            "sites_replications",
+            "Sites / replications",
+        )
+
+    def clean_year_range(self):
+        return self._clean_structured_markup_field("year_range", "Year range")
+
+    def clean_habitat_and_sites(self):
+        return self._clean_structured_markup_field(
+            "habitat_and_sites",
+            "Habitat and sites",
+        )
+
+    def clean_region(self):
+        return self._clean_structured_markup_field("region", "Region")
+
+    def clean_country(self):
+        return self._clean_structured_markup_field("country", "Country")
+
+    def clean_summary_of_results(self):
+        return self._clean_structured_markup_field(
+            "summary_of_results",
+            "Summary of results",
+        )
+
+    def clean_site_context_details(self):
+        return self._clean_structured_markup_field(
+            "site_context_details",
+            "Site context details",
+        )
+
+    def clean_sampling_methods_details(self):
+        return self._clean_structured_markup_field(
+            "sampling_methods_details",
+            "Sampling methods details",
+        )
+
+    def clean_methods_and_design(self):
+        return self._clean_structured_markup_field(
+            "methods_and_design",
+            "Methods, design and context notes",
+        )
+
     def clean_action_tags(self):
-        return self._split_tags("action_tags")
+        return normalize_action_tags(self._split_tags("action_tags"))
 
     def clean_threat_tags(self):
         return self._split_tags("threat_tags")
@@ -2469,7 +2710,7 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
         return self._split_tags("taxon_tags")
 
     def clean_habitat_tags(self):
-        return self._split_tags("habitat_tags")
+        return normalize_habitat_tags(self._split_tags("habitat_tags"))
 
     @staticmethod
     def _split_research_design_value(value):
@@ -2481,10 +2722,6 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
 
     def clean_research_design(self):
         values = self.cleaned_data.get("research_design") or []
-        if len(values) > MAX_RESEARCH_DESIGN_TAGS:
-            raise forms.ValidationError(
-                f"Select up to {MAX_RESEARCH_DESIGN_TAGS} research design tags."
-            )
         return "; ".join(values)
 
     @staticmethod
@@ -2554,9 +2791,11 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                 continue
             parts = re.split(r"(?<!\\)\|", line)
             parts = [part.replace("\\|", "|").strip() for part in parts]
-            # Pad to 10 fields
-            while len(parts) < 10:
+            # Accept both the current 9-column format and older 10-column rows
+            # that included a dedicated p-value slot.
+            while len(parts) < 9:
                 parts.append("")
+            notes = parts[9] if len(parts) > 9 else parts[8]
             if any(parts):
                 parsed.append(
                     {
@@ -2568,10 +2807,17 @@ class ReferenceSummaryUpdateForm(forms.ModelForm):
                         "unit": parts[5],
                         "difference": parts[6],
                         "stats": parts[7],
-                        "p_value": parts[8],
-                        "notes": parts[9],
+                        "notes": notes,
                     }
                 )
+        try:
+            for row in parsed:
+                for value in row.values():
+                    validate_inline_markup_structure(value or "")
+        except ValueError as exc:
+            raise forms.ValidationError(
+                f"Outcome notes has invalid inline formatting. {exc}"
+            ) from exc
         return parsed
 
     def _clean_score_in_range(self, field_name):
@@ -2654,7 +2900,10 @@ class ReferenceSummaryDraftForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields["synopsis_draft"].required = False
         self.fields["synopsis_draft"].help_text = (
-            "Saving here tells the system to use this paragraph for compilation and export. Switch back to the auto-generated paragraph if you want changes in the structured fields above to flow through again."
+            "Saving here tells the system to use this paragraph for compilation and export. "
+            "Switch back to the auto-generated paragraph if you want changes in the structured fields above to flow through again. "
+            "Formatting supported: <i>...</i> or <em>...</em> for italics, <sub>...</sub> for subscript, "
+            "and <sup>...</sup> for superscript. Pasted symbols are preserved."
         )
         if (
             not self.is_bound
@@ -2677,10 +2926,17 @@ class ReferenceSummaryDraftForm(forms.ModelForm):
                 attrs={
                     "class": "form-control",
                     "rows": 8,
+                    "data-inline-markup": "true",
                     "placeholder": "Edit the generated paragraph here, or leave blank to fall back to the auto-generated text.",
                 }
             )
         }
+
+    def clean_synopsis_draft(self):
+        return _clean_inline_markup_text(
+            self.cleaned_data.get("synopsis_draft"),
+            "Summary paragraph",
+        )
 
 
 class ReferenceSummaryParagraphNotesForm(forms.ModelForm):

@@ -1,0 +1,159 @@
+<style>
+    .ce-inline-markup-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.35rem;
+        align-items: center;
+        margin: 0 0 0.5rem;
+    }
+    .ce-inline-markup-toolbar .btn {
+        min-width: 2.4rem;
+        padding: 0.15rem 0.45rem;
+    }
+    .ce-inline-markup-toolbar .ce-inline-markup-symbols {
+        width: auto;
+        min-width: 10rem;
+        flex: 0 0 auto;
+    }
+    .ce-inline-markup-rendered sub,
+    .ce-inline-markup-rendered sup,
+    .ce-inline-markup-toolbar sub,
+    .ce-inline-markup-toolbar sup {
+        position: relative;
+        font-size: 0.75em;
+        line-height: 0;
+        vertical-align: baseline;
+    }
+    .ce-inline-markup-rendered sub,
+    .ce-inline-markup-toolbar sub {
+        bottom: -0.3em;
+    }
+    .ce-inline-markup-rendered sup,
+    .ce-inline-markup-toolbar sup {
+        top: -0.55em;
+    }
+</style>
+<script>
+    (() => {
+        if (window.ceInlineMarkupToolbarInitialized) {
+            return;
+        }
+        window.ceInlineMarkupToolbarInitialized = true;
+
+        const symbolChoices = [
+            ["°", "degree °"],
+            ["±", "plus/minus ±"],
+            ["×", "times ×"],
+            ["µ", "micro µ"],
+            ["α", "alpha α"],
+            ["β", "beta β"],
+            ["≤", "less/equal ≤"],
+            ["≥", "greater/equal ≥"],
+            ["≈", "approx ≈"],
+            ["→", "arrow →"],
+        ];
+
+        const dispatchInput = (textarea) => {
+            textarea.dispatchEvent(new Event("input", { bubbles: true }));
+            textarea.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+
+        const replaceSelection = (textarea, replacement, selectionStartOffset, selectionEndOffset) => {
+            const start = textarea.selectionStart ?? textarea.value.length;
+            const end = textarea.selectionEnd ?? start;
+            textarea.focus();
+            if (typeof textarea.setRangeText === "function") {
+                textarea.setRangeText(replacement, start, end, "end");
+            } else {
+                textarea.value = `${textarea.value.slice(0, start)}${replacement}${textarea.value.slice(end)}`;
+            }
+            const nextStart = start + selectionStartOffset;
+            const nextEnd = start + selectionEndOffset;
+            if (typeof textarea.setSelectionRange === "function") {
+                textarea.setSelectionRange(nextStart, nextEnd);
+            }
+            dispatchInput(textarea);
+        };
+
+        const wrapSelection = (textarea, openTag, closeTag) => {
+            const start = textarea.selectionStart ?? textarea.value.length;
+            const end = textarea.selectionEnd ?? start;
+            const selected = textarea.value.slice(start, end);
+            const replacement = `${openTag}${selected}${closeTag}`;
+            replaceSelection(
+                textarea,
+                replacement,
+                openTag.length,
+                openTag.length + selected.length,
+            );
+        };
+
+        const insertText = (textarea, text) => {
+            replaceSelection(textarea, text, text.length, text.length);
+        };
+
+        const buildButton = (label, title, onClick, extraClasses = "") => {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = `btn btn-outline-secondary btn-sm ${extraClasses}`.trim();
+            button.textContent = label;
+            button.title = title;
+            button.setAttribute("aria-label", title);
+            button.addEventListener("click", onClick);
+            return button;
+        };
+
+        const attachToolbar = (textarea) => {
+            if (!textarea || textarea.dataset.inlineMarkupReady === "1") {
+                return;
+            }
+            textarea.dataset.inlineMarkupReady = "1";
+
+            const toolbar = document.createElement("div");
+            toolbar.className = "ce-inline-markup-toolbar";
+
+            toolbar.appendChild(
+                buildButton("I", "Italic", () => wrapSelection(textarea, "<i>", "</i>"), "fw-semibold fst-italic")
+            );
+            toolbar.appendChild(
+                buildButton("x₂", "Subscript", () => wrapSelection(textarea, "<sub>", "</sub>"))
+            );
+            toolbar.appendChild(
+                buildButton("x²", "Superscript", () => wrapSelection(textarea, "<sup>", "</sup>"))
+            );
+
+            const symbolPicker = document.createElement("select");
+            symbolPicker.className = "form-select form-select-sm ce-inline-markup-symbols";
+            symbolPicker.setAttribute("aria-label", "Insert symbol");
+            symbolPicker.innerHTML = '<option value="">Insert symbol</option>';
+            symbolChoices.forEach(([value, label]) => {
+                const option = document.createElement("option");
+                option.value = value;
+                option.textContent = label;
+                symbolPicker.appendChild(option);
+            });
+            symbolPicker.addEventListener("change", () => {
+                if (!symbolPicker.value) {
+                    return;
+                }
+                insertText(textarea, symbolPicker.value);
+                symbolPicker.value = "";
+            });
+            toolbar.appendChild(symbolPicker);
+
+            textarea.insertAdjacentElement("beforebegin", toolbar);
+        };
+
+        const init = () => {
+            document
+                .querySelectorAll("textarea[data-inline-markup='true']")
+                .forEach((textarea) => attachToolbar(textarea));
+        };
+
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", init);
+            return;
+        }
+        init();
+    })();
+</script>

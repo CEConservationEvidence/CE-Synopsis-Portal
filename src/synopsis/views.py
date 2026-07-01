@@ -37,7 +37,7 @@ from django.core.mail import EmailMultiAlternatives
 from django.db import connection, transaction
 from collections import Counter, defaultdict
 
-from django.db.models import Count, Max, Prefetch, Q
+from django.db.models import Count, F, Max, Prefetch, Q
 from django.http import (
     HttpResponseBadRequest,
     Http404,
@@ -107,6 +107,7 @@ from .forms import (
     ReferenceDocumentForm,
     ProjectActionNameBankForm,
     SynopsisChapterForm,
+    SynopsisTitleForm,
     SynopsisSubheadingForm,
     SynopsisInterventionForm,
     SynopsisBackgroundForm,
@@ -115,6 +116,8 @@ from .forms import (
     SynopsisAssignmentForm,
     ReferenceActionSummaryForm,
     FunderContactFormSet,
+    normalize_action_tags,
+    normalize_habitat_tags,
 )
 from .models import (
     Project,
@@ -176,7 +179,7 @@ from .utils import (
     reference_summary_seed_citation,
     reply_to_list,
     reference_hash,
-    split_inline_italic_markup,
+    split_inline_markup,
 )
 
 
@@ -899,6 +902,13 @@ def _history_iucn_action_names(categories):
     if not names:
         return "None"
     return _history_safe_text(", ".join(names), max_length=220)
+
+
+def _flat_form_error_text(form, fallback="Invalid data."):
+    messages_list = []
+    for errors in form.errors.values():
+        messages_list.extend(str(error) for error in errors if str(error).strip())
+    return "; ".join(messages_list) or fallback
 
 
 def _history_key_message_label(key_message):
@@ -8766,15 +8776,23 @@ def _reference_ris_record(reference):
     return record
 
 
-def _add_docx_inline_markup_paragraph(doc, prefix: str, text: str):
-    paragraph = doc.add_paragraph()
+def _append_docx_inline_markup_runs(paragraph, text: str):
+    for segment in split_inline_markup(text or ""):
+        run = paragraph.add_run(segment.text)
+        if segment.italic:
+            run.italic = True
+        if segment.subscript:
+            run.font.subscript = True
+        if segment.superscript:
+            run.font.superscript = True
+    return paragraph
+
+
+def _add_docx_inline_markup_paragraph(doc, prefix: str, text: str, style=None):
+    paragraph = doc.add_paragraph(style=style)
     if prefix:
         paragraph.add_run(prefix)
-    for segment, italic in split_inline_italic_markup(text or ""):
-        run = paragraph.add_run(segment)
-        if italic:
-            run.italic = True
-    return paragraph
+    return _append_docx_inline_markup_runs(paragraph, text)
 
 
 def _intervention_reference_numbering(assignments):
@@ -8811,6 +8829,25 @@ def _key_message_supporting_numbers(key_message, summary_numbers):
 
 def _format_reference_number_list(numbers):
     return "; ".join(str(number) for number in numbers)
+
+
+_INLINE_MARKUP_TRAILING_PUNCTUATION_RE = re.compile(
+    r"^(?P<body>.*)(?P<punct>[.!?])(?P<closing>(?:</(?:i|em|sub|sup)>)*)$",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _append_citation_before_terminal_punctuation(text: str, citation: str) -> str:
+    stripped = (text or "").rstrip()
+    if not stripped:
+        return citation
+    match = _INLINE_MARKUP_TRAILING_PUNCTUATION_RE.match(stripped)
+    if match:
+        return (
+            f"{match.group('body')}{match.group('closing')} "
+            f"{citation}{match.group('punct')}"
+        )
+    return f"{stripped} {citation}"
 
 
 def _summarised_synopsis_references(project):
@@ -8960,9 +8997,13 @@ def _synopsis_structure_export_rows(project):
                 "study_type": (summary.study_type or "").strip(),
                 "research_design": (summary.research_design or "").strip(),
                 "broad_category": (summary.broad_category or "").strip(),
-                "action_tags": _export_join_values(summary.action_tags),
+                "action_tags": _export_join_values(
+                    normalize_action_tags(summary.action_tags)
+                ),
                 "threat_tags": _export_join_values(summary.threat_tags),
-                "habitat_tags": _export_join_values(summary.habitat_tags),
+                "habitat_tags": _export_join_values(
+                    normalize_habitat_tags(summary.habitat_tags)
+                ),
                 "taxon_tags": _export_join_values(summary.taxon_tags),
                 "location_tags": _export_join_values(summary.location_tags),
                 "assignment_count": str(summary.synopsis_assignments.count()),
@@ -9462,10 +9503,14 @@ def _duplicate_reference_summary(source_summary, user=None):
         keywords=copy.deepcopy(source_summary.keywords or []),
         source_url=source_summary.source_url,
         crop_type=source_summary.crop_type,
-        action_tags=copy.deepcopy(source_summary.action_tags or []),
+        action_tags=normalize_action_tags(
+            copy.deepcopy(source_summary.action_tags or [])
+        ),
         threat_tags=copy.deepcopy(source_summary.threat_tags or []),
         taxon_tags=copy.deepcopy(source_summary.taxon_tags or []),
-        habitat_tags=copy.deepcopy(source_summary.habitat_tags or []),
+        habitat_tags=normalize_habitat_tags(
+            copy.deepcopy(source_summary.habitat_tags or [])
+        ),
         location_tags=copy.deepcopy(source_summary.location_tags or []),
         research_design=source_summary.research_design,
         citation=reference_summary_custom_citation(source_summary),
@@ -9487,14 +9532,258 @@ def _next_chapter_position(project):
     return max_pos + 1
 
 
+def _chapter_insertion_index(chapters, chapter_type):
+    if chapter_type == SynopsisChapter.TYPE_APPENDIX:
+        return len(chapters)
+    if chapter_type == SynopsisChapter.TYPE_TEXT:
+        return next(
+            (
+                idx
+                for idx, chapter in enumerate(chapters)
+                if chapter.chapter_type != SynopsisChapter.TYPE_TEXT
+            ),
+            len(chapters),
+        )
+    return next(
+        (
+            idx
+            for idx, chapter in enumerate(chapters)
+            if chapter.chapter_type == SynopsisChapter.TYPE_APPENDIX
+        ),
+        len(chapters),
+    )
+
+
+def _chapter_insert_position(project, chapter_type):
+    chapters = list(
+        SynopsisChapter.objects.filter(project=project).order_by("position", "id")
+    )
+    if not chapters:
+        return 1
+    insert_index = _chapter_insertion_index(chapters, chapter_type)
+    if insert_index >= len(chapters):
+        return len(chapters) + 1
+    return chapters[insert_index].position
+
+
+def _create_synopsis_chapter(project, title, chapter_type):
+    position = _chapter_insert_position(project, chapter_type)
+    with transaction.atomic():
+        SynopsisChapter.objects.filter(project=project, position__gte=position).update(
+            position=F("position") + 1
+        )
+        return SynopsisChapter.objects.create(
+            project=project,
+            title=title,
+            chapter_type=chapter_type,
+            position=position,
+        )
+
+
+_NUMBERED_CHAPTER_TITLE_RE = re.compile(
+    r"^(?P<number>\d+)(?P<separator>\.\s+)(?P<body>.+)$"
+)
+_RESERVED_NARRATIVE_CHAPTER_BODIES = {
+    "about this book",
+    "about the book",
+}
+
+
+def _split_numbered_chapter_title(title):
+    title = (title or "").strip()
+    title_match = _NUMBERED_CHAPTER_TITLE_RE.match(title)
+    if not title_match:
+        return None, title
+    return int(title_match.group("number")), title_match.group("body").strip()
+
+
+def _normalized_chapter_body_text(title):
+    _number, body = _split_numbered_chapter_title(title)
+    return re.sub(r"\s+", " ", body).strip().casefold()
+
+
+def _is_reserved_narrative_intro_title(title):
+    number, _body = _split_numbered_chapter_title(title)
+    return (
+        number == 1
+        and _normalized_chapter_body_text(title) in _RESERVED_NARRATIVE_CHAPTER_BODIES
+    )
+
+
+def _project_has_reserved_narrative_intro(project, exclude_chapter_id=None):
+    chapters = SynopsisChapter.objects.filter(
+        project=project,
+        chapter_type=SynopsisChapter.TYPE_TEXT,
+    ).order_by("position", "id")
+    if exclude_chapter_id is not None:
+        chapters = chapters.exclude(pk=exclude_chapter_id)
+    return any(_is_reserved_narrative_intro_title(chapter.title) for chapter in chapters)
+
+
+def _about_this_book_reserved_number(project):
+    if _project_has_reserved_narrative_intro(project):
+        return 1
+    return 0
+
+
+def _next_evidence_chapter_number(project):
+    reserved_number = _about_this_book_reserved_number(project)
+    evidence_numbers = []
+    evidence_count = 0
+    for chapter in SynopsisChapter.objects.filter(
+        project=project,
+        chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+    ):
+        evidence_count += 1
+        number, _body = _split_numbered_chapter_title(chapter.title)
+        if number is not None:
+            evidence_numbers.append(number)
+    highest_existing_number = max(
+        [reserved_number, reserved_number + evidence_count, *evidence_numbers]
+    )
+    return highest_existing_number + 1 if highest_existing_number else 1
+
+
+def _evidence_numbering_start(project):
+    reserved_number = _about_this_book_reserved_number(project)
+    return reserved_number + 1 if reserved_number else 1
+
+
+def _evidence_number_for_chapter(chapter):
+    next_evidence_number = _evidence_numbering_start(chapter.project)
+    for existing in SynopsisChapter.objects.filter(project=chapter.project).order_by(
+        "position", "id"
+    ):
+        if existing.chapter_type != SynopsisChapter.TYPE_EVIDENCE:
+            continue
+        if existing.id == chapter.id:
+            return next_evidence_number
+        next_evidence_number += 1
+    return next_evidence_number
+
+
+def _normalized_chapter_title_for_save(
+    chapter, submitted_title, *, target_chapter_type=None
+):
+    title = (submitted_title or "").strip()
+    _submitted_number, submitted_body = _split_numbered_chapter_title(title)
+    current_number, _current_body = _split_numbered_chapter_title(chapter.title)
+    chapter_type = target_chapter_type or chapter.chapter_type
+
+    if chapter_type == SynopsisChapter.TYPE_EVIDENCE:
+        evidence_number = current_number or _evidence_number_for_chapter(chapter)
+        return f"{evidence_number}. {submitted_body}"
+
+    if chapter_type == SynopsisChapter.TYPE_TEXT:
+        if (
+            submitted_body
+            and _normalized_chapter_body_text(submitted_body)
+            in _RESERVED_NARRATIVE_CHAPTER_BODIES
+            and (
+                _is_reserved_narrative_intro_title(chapter.title)
+                or not _project_has_reserved_narrative_intro(
+                    chapter.project,
+                    exclude_chapter_id=chapter.id,
+                )
+            )
+        ):
+            return f"1. {submitted_body}"
+        return submitted_body
+
+    if chapter_type == SynopsisChapter.TYPE_APPENDIX and current_number is not None:
+        return submitted_body
+
+    return title
+
+
+def _auto_number_new_chapter_title(project, title, chapter_type):
+    title = (title or "").strip()
+    if chapter_type != SynopsisChapter.TYPE_EVIDENCE:
+        return title
+    next_number = _next_evidence_chapter_number(project)
+    _number, body = _split_numbered_chapter_title(title)
+    return f"{next_number}. {body}"
+
+
 def _resequence_chapter_positions(project):
+    next_evidence_number = _evidence_numbering_start(project)
     for idx, chapter in enumerate(
         SynopsisChapter.objects.filter(project=project).order_by("position", "id"),
         start=1,
     ):
+        update_fields = []
         if chapter.position != idx:
             chapter.position = idx
-            chapter.save(update_fields=["position"])
+            update_fields.append("position")
+        if chapter.chapter_type == SynopsisChapter.TYPE_EVIDENCE:
+            _number, body = _split_numbered_chapter_title(chapter.title)
+            new_title = f"{next_evidence_number}. {body}"
+            if chapter.title != new_title:
+                chapter.title = new_title
+                update_fields.extend(["title", "updated_at"])
+            next_evidence_number += 1
+        if update_fields:
+            chapter.save(update_fields=list(dict.fromkeys(update_fields)))
+
+
+def _reposition_synopsis_chapter(chapter, chapter_type):
+    remaining_chapters = list(
+        SynopsisChapter.objects.filter(project=chapter.project)
+        .exclude(pk=chapter.pk)
+        .order_by("position", "id")
+    )
+    insert_index = _chapter_insertion_index(remaining_chapters, chapter_type)
+    reordered_chapters = (
+        remaining_chapters[:insert_index] + [chapter] + remaining_chapters[insert_index:]
+    )
+
+    normalized_title = _normalized_chapter_title_for_save(
+        chapter,
+        chapter.title,
+        target_chapter_type=chapter_type,
+    )
+    with transaction.atomic():
+        for position, item in enumerate(reordered_chapters, start=1):
+            update_fields = []
+            if item.pk == chapter.pk:
+                if item.chapter_type != chapter_type:
+                    item.chapter_type = chapter_type
+                    update_fields.extend(["chapter_type", "updated_at"])
+                if item.title != normalized_title:
+                    item.title = normalized_title
+                    update_fields.extend(["title", "updated_at"])
+            if item.position != position:
+                item.position = position
+                update_fields.append("position")
+            if update_fields:
+                item.save(update_fields=list(dict.fromkeys(update_fields)))
+
+
+def _chapter_move_queryset(project, chapter_type):
+    return SynopsisChapter.objects.filter(
+        project=project,
+        chapter_type=chapter_type,
+    ).order_by("position", "id")
+
+
+def _chapter_swap_candidate(chapter, direction):
+    chapter_qs = _chapter_move_queryset(chapter.project, chapter.chapter_type)
+    if direction == "up":
+        return chapter_qs.filter(position__lt=chapter.position).order_by(
+            "-position", "-id"
+        ).first()
+    if direction == "down":
+        return chapter_qs.filter(position__gt=chapter.position).order_by(
+            "position", "id"
+        ).first()
+    return None
+
+
+def _annotate_chapter_move_flags(chapters):
+    chapter_list = list(chapters)
+    for index, chapter in enumerate(chapter_list):
+        chapter.can_move_up = index > 0
+        chapter.can_move_down = index < len(chapter_list) - 1
 
 
 def _next_subheading_position(chapter):
@@ -9662,13 +9951,13 @@ def _structured_summary_paragraph(
         intro_parts.append("(year not stated)")
     if habitat:
         intro_parts.append(f"in {habitat}")
-    if location:
-        intro_parts.append(f"in {location}")
-    if sites:
-        intro_parts.append(f"({sites})")
     intro_line = " ".join(intro_parts).strip()
+    if location:
+        intro_line = f"{intro_line} in {location}"
     if ref_id:
         intro_line = f"{intro_line} ({ref_id})"
+    if sites:
+        intro_line = f"{intro_line} ({sites})"
     intro_line = f"{intro_line} found that"
 
     results = _clean(summary.summary_of_results) or _clean(summary.summary_text)
@@ -9697,7 +9986,6 @@ def _structured_summary_paragraph(
         c_val = _clean(row.get("comparator_value", ""))
         unit = _clean(row.get("unit", ""))
         notes = _clean(row.get("notes", ""))
-        p_val = _clean(row.get("p_value", ""))
         stats = _clean(row.get("stats", ""))
 
         parts = []
@@ -9719,8 +10007,6 @@ def _structured_summary_paragraph(
             parts.append(f"({value_text})")
         if stats:
             parts.append(f"Stats: {stats}")
-        if p_val:
-            parts.append(f"p={p_val}")
         if notes:
             parts.append(notes)
         sentence = " ".join([p for p in parts if p]).strip()
@@ -10719,7 +11005,10 @@ def reference_summary_detail(request, project_id, summary_id):
                     project_id=project.id,
                     summary_id=summary.id,
                 )
-            messages.error(request, "Could not save the summary paragraph draft.")
+            messages.error(
+                request,
+                f"Could not save the summary paragraph draft. {_flat_form_error_text(draft_form)}",
+            )
         if action == "save-paragraph-notes" and not summary_edit_stale:
             previous_notes = (summary.paragraph_notes or "").strip()
             if paragraph_notes_form.is_valid():
@@ -11269,11 +11558,19 @@ def _project_synopsis_workspace(
         raise PermissionDenied
     if workspace_mode not in {"evidence", "narrative"}:
         workspace_mode = "evidence"
-    chapter_form = SynopsisChapterForm()
     if workspace_mode == "narrative":
-        chapter_form.fields["chapter_type"].initial = SynopsisChapter.TYPE_TEXT
+        workspace_chapter_type_choices = [
+            choice
+            for choice in SynopsisChapter.TYPE_CHOICES
+            if choice[0] in {SynopsisChapter.TYPE_TEXT, SynopsisChapter.TYPE_APPENDIX}
+        ]
     else:
-        chapter_form.fields["chapter_type"].initial = SynopsisChapter.TYPE_EVIDENCE
+        workspace_chapter_type_choices = [
+            (SynopsisChapter.TYPE_EVIDENCE, dict(SynopsisChapter.TYPE_CHOICES)[SynopsisChapter.TYPE_EVIDENCE])
+        ]
+    chapter_form = SynopsisChapterForm()
+    chapter_form.fields["chapter_type"].choices = workspace_chapter_type_choices
+    chapter_form.fields["chapter_type"].initial = workspace_chapter_type_choices[0][0]
     subheading_form = SynopsisSubheadingForm()
     intervention_form = SynopsisInterventionForm(project=project)
     intervention_details_form = SynopsisInterventionDetailsForm()
@@ -11282,15 +11579,20 @@ def _project_synopsis_workspace(
     project_action_name_suggestions = project_action_name_values(
         project, include_intervention_titles=True
     )
+    active_action_categories = list(
+        IUCNCategory.objects.filter(
+            kind=IUCNCategory.KIND_ACTION,
+            is_active=True,
+        ).order_by("position", "name")
+    )
+    active_action_category_ids = {category.id for category in active_action_categories}
     redirect_url = reverse(
         f"synopsis:{redirect_name}", kwargs={"project_id": project.id}
     )
 
     interventions_prefetch = Prefetch(
         "interventions",
-        queryset=SynopsisIntervention.objects.select_related("primary_intervention")
-        .order_by("position", "id")
-        .prefetch_related(
+        queryset=SynopsisIntervention.objects.order_by("position", "id").prefetch_related(
             "iucn_actions",
             Prefetch(
                 "key_messages",
@@ -11353,18 +11655,23 @@ def _project_synopsis_workspace(
             )
             return intervention
 
-        def _action_categories_from_post(field_name="iucn_actions"):
+        def _action_categories_from_post(field_name="iucn_actions", intervention=None):
             action_ids = {
                 value.strip()
                 for value in request.POST.getlist(field_name)
                 if value and value.strip()
             }
+            category_filters = Q(is_active=True)
+            if intervention is not None:
+                category_filters |= Q(synopsis_interventions=intervention)
             categories = list(
                 IUCNCategory.objects.filter(
                     pk__in=action_ids,
                     kind=IUCNCategory.KIND_ACTION,
-                    is_active=True,
-                ).order_by("position", "name")
+                )
+                .filter(category_filters)
+                .distinct()
+                .order_by("position", "name")
             )
             if len(categories) != len(action_ids):
                 return None
@@ -11379,16 +11686,19 @@ def _project_synopsis_workspace(
             return key_message
 
         if action == "create-chapter":
-            chapter_form = SynopsisChapterForm(request.POST)
+            chapter_data = request.POST.copy()
+            if not (chapter_data.get("chapter_type") or "").strip():
+                chapter_data["chapter_type"] = workspace_chapter_type_choices[0][0]
+            chapter_form = SynopsisChapterForm(chapter_data)
+            chapter_form.fields["chapter_type"].choices = workspace_chapter_type_choices
             if chapter_form.is_valid():
-                title = chapter_form.cleaned_data["title"] or "Untitled chapter"
                 chapter_type = chapter_form.cleaned_data["chapter_type"]
-                chapter = SynopsisChapter.objects.create(
-                    project=project,
-                    title=title,
-                    chapter_type=chapter_type,
-                    position=_next_chapter_position(project),
+                title = _auto_number_new_chapter_title(
+                    project,
+                    chapter_form.cleaned_data["title"],
+                    chapter_type,
                 )
+                chapter = _create_synopsis_chapter(project, title, chapter_type)
                 _log_structure_history(
                     project,
                     request.user,
@@ -11401,6 +11711,12 @@ def _project_synopsis_workspace(
             messages.error(request, "Please fix the problems below.")
         elif action == "delete-chapter":
             chapter = _chapter_from_post()
+            if request.POST.get("confirm_delete_chapter") != "1":
+                messages.error(
+                    request,
+                    "Please confirm chapter deletion before removing it.",
+                )
+                return redirect(redirect_url)
             removed_subheading_count = SynopsisSubheading.objects.filter(
                 chapter=chapter
             ).count()
@@ -11437,6 +11753,46 @@ def _project_synopsis_workspace(
             )
             messages.success(request, f"Removed chapter “{chapter.title}”.")
             return redirect(redirect_url)
+        elif action == "update-chapter-title":
+            chapter = _chapter_from_post()
+            title_form = SynopsisTitleForm(request.POST)
+            if title_form.is_valid():
+                previous_title = chapter.title
+                was_reserved_intro = (
+                    chapter.chapter_type == SynopsisChapter.TYPE_TEXT
+                    and _is_reserved_narrative_intro_title(chapter.title)
+                )
+                chapter.title = _normalized_chapter_title_for_save(
+                    chapter,
+                    title_form.cleaned_data["title"],
+                )
+                chapter.save(update_fields=["title", "updated_at"])
+                if chapter.chapter_type == SynopsisChapter.TYPE_TEXT:
+                    is_reserved_intro = _is_reserved_narrative_intro_title(
+                        chapter.title
+                    )
+                    if was_reserved_intro != is_reserved_intro:
+                        _resequence_chapter_positions(project)
+                        chapter.refresh_from_db(fields=["title"])
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Chapter title updated",
+                    chapter=chapter,
+                    extra_details=[
+                        (
+                            f"Title: {previous_title} → {chapter.title}"
+                            if previous_title != chapter.title
+                            else f"Title: {chapter.title}"
+                        )
+                    ],
+                )
+                messages.success(request, "Chapter title updated.")
+            else:
+                messages.error(
+                    request, "Enter a chapter title of 255 characters or fewer."
+                )
+            return redirect(redirect_url)
         elif action == "update-chapter-background":
             chapter = _chapter_from_post()
             bg_form = SynopsisBackgroundForm(request.POST)
@@ -11458,28 +11814,41 @@ def _project_synopsis_workspace(
                 )
                 messages.success(request, "Chapter background saved.")
             else:
-                messages.error(request, "Please check the background fields.")
+                messages.error(
+                    request,
+                    f"Please check the background fields. {_flat_form_error_text(bg_form)}",
+                )
             return redirect(redirect_url)
         elif action == "update-chapter-type":
             chapter = _chapter_from_post()
             previous_chapter_type = chapter.chapter_type
             chapter_type = (request.POST.get("chapter_type") or "").strip()
-            allowed_types = {choice[0] for choice in SynopsisChapter.TYPE_CHOICES}
+            allowed_types = {choice[0] for choice in workspace_chapter_type_choices}
             if chapter_type not in allowed_types:
-                messages.error(request, "Invalid chapter type selected.")
+                messages.error(
+                    request,
+                    "Selected chapter type is not available in this workspace.",
+                )
                 return redirect(redirect_url)
             if (
                 chapter.chapter_type != chapter_type
                 and chapter_type != SynopsisChapter.TYPE_EVIDENCE
                 and chapter.subheadings.exists()
             ):
+                target_label = dict(SynopsisChapter.TYPE_CHOICES).get(
+                    chapter_type, "Selected chapter type"
+                )
                 messages.error(
                     request,
-                    "Remove subheadings and interventions before changing this chapter to text-only mode.",
+                    f"{target_label} cannot contain intervention groups or interventions. "
+                    "Remove or move them before changing the chapter type.",
                 )
                 return redirect(redirect_url)
-            chapter.chapter_type = chapter_type
-            chapter.save(update_fields=["chapter_type", "updated_at"])
+            previous_title = chapter.title
+            previous_position = chapter.position
+            _reposition_synopsis_chapter(chapter, chapter_type)
+            _resequence_chapter_positions(project)
+            chapter.refresh_from_db(fields=["chapter_type", "position", "title"])
             _log_structure_history(
                 project,
                 request.user,
@@ -11490,7 +11859,17 @@ def _project_synopsis_workspace(
                         f"Type change: {dict(SynopsisChapter.TYPE_CHOICES).get(previous_chapter_type, previous_chapter_type)} → {chapter.get_chapter_type_display()}"
                         if previous_chapter_type != chapter.chapter_type
                         else f"Type: {chapter.get_chapter_type_display()}"
-                    )
+                    ),
+                    (
+                        f"Title normalized: {previous_title} → {chapter.title}"
+                        if previous_title != chapter.title
+                        else ""
+                    ),
+                    (
+                        f"New position: {chapter.position}"
+                        if previous_position != chapter.position
+                        else ""
+                    ),
                 ],
             )
             messages.success(request, "Chapter type updated.")
@@ -11501,15 +11880,13 @@ def _project_synopsis_workspace(
             if direction not in {"up", "down"}:
                 messages.error(request, "Unknown move direction.")
             else:
-                qs = list(_chapter_qs())
-                if direction == "up":
-                    swap = next((c for c in reversed(qs) if c.position < chapter.position), None)
-                else:
-                    swap = next((c for c in qs if c.position > chapter.position), None)
+                swap = _chapter_swap_candidate(chapter, direction)
                 if swap:
                     chapter.position, swap.position = swap.position, chapter.position
                     chapter.save(update_fields=["position"])
                     swap.save(update_fields=["position"])
+                    _resequence_chapter_positions(project)
+                    chapter.refresh_from_db(fields=["position", "title"])
                     _log_structure_history(
                         project,
                         request.user,
@@ -11533,7 +11910,7 @@ def _project_synopsis_workspace(
                 return redirect(redirect_url)
             subheading_form = SynopsisSubheadingForm(request.POST)
             if subheading_form.is_valid():
-                title = subheading_form.cleaned_data["title"] or "Untitled subheading"
+                title = subheading_form.cleaned_data["title"]
                 subheading = SynopsisSubheading.objects.create(
                     chapter=chapter,
                     title=title,
@@ -11577,6 +11954,34 @@ def _project_synopsis_workspace(
                 messages.success(request, "Subheading reordered.")
             else:
                 messages.info(request, "Already at the edge.")
+            return redirect(redirect_url)
+        elif action == "update-subheading-title":
+            subheading = _subheading_from_post()
+            title_form = SynopsisTitleForm(request.POST)
+            if title_form.is_valid():
+                previous_title = subheading.title
+                subheading.title = title_form.cleaned_data["title"]
+                subheading.save(update_fields=["title", "updated_at"])
+                _log_structure_history(
+                    project,
+                    request.user,
+                    "Intervention group title updated",
+                    chapter=subheading.chapter,
+                    subheading=subheading,
+                    extra_details=[
+                        (
+                            f"Title: {previous_title} → {subheading.title}"
+                            if previous_title != subheading.title
+                            else f"Title: {subheading.title}"
+                        )
+                    ],
+                )
+                messages.success(request, "Intervention group title updated.")
+            else:
+                messages.error(
+                    request,
+                    "Enter an intervention group title of 255 characters or fewer.",
+                )
             return redirect(redirect_url)
         elif action == "delete-subheading":
             subheading = _subheading_from_post()
@@ -11634,16 +12039,10 @@ def _project_synopsis_workspace(
                 request.POST, project=project
             )
             if intervention_form.is_valid():
-                title = intervention_form.cleaned_data["title"] or "Untitled intervention"
+                title = intervention_form.cleaned_data["title"]
                 intervention = SynopsisIntervention.objects.create(
                     subheading=subheading,
                     title=title,
-                    is_cross_reference=intervention_form.cleaned_data.get(
-                        "is_cross_reference", False
-                    ),
-                    primary_intervention=intervention_form.cleaned_data.get(
-                        "primary_intervention"
-                    ),
                     position=_next_intervention_position(subheading),
                 )
                 action_categories = list(
@@ -11662,12 +12061,6 @@ def _project_synopsis_workspace(
                         (
                             f"IUCN actions: {_history_iucn_action_names(action_categories)}"
                             if action_categories
-                            else ""
-                        ),
-                        (
-                            f"Cross-reference: {_history_intervention_title(intervention.primary_intervention)}"
-                            if intervention.is_cross_reference
-                            and intervention.primary_intervention
                             else ""
                         ),
                     ],
@@ -11797,7 +12190,10 @@ def _project_synopsis_workspace(
                 )
                 messages.success(request, "Intervention background saved.")
             else:
-                messages.error(request, "Please check the background fields.")
+                messages.error(
+                    request,
+                    f"Please check the background fields. {_flat_form_error_text(bg_form)}",
+                )
             return redirect(redirect_url)
         elif action == "update-intervention-details":
             intervention = _intervention_from_post()
@@ -11876,7 +12272,10 @@ def _project_synopsis_workspace(
                 )
                 messages.success(request, "Key message added.")
             else:
-                messages.error(request, "Could not add key message.")
+                messages.error(
+                    request,
+                    f"Could not add key message. {_flat_form_error_text(key_message_form)}",
+                )
             return redirect(redirect_url)
         elif action == "update-key-message":
             key_message = _key_message_from_post()
@@ -11932,7 +12331,10 @@ def _project_synopsis_workspace(
                 )
                 messages.success(request, "Key message updated.")
             else:
-                messages.error(request, "Could not update key message.")
+                messages.error(
+                    request,
+                    f"Could not update key message. {_flat_form_error_text(key_message_form)}",
+                )
             return redirect(redirect_url)
         elif action == "move-key-message":
             key_message = _key_message_from_post()
@@ -12000,7 +12402,7 @@ def _project_synopsis_workspace(
             return redirect(redirect_url)
         elif action == "update-intervention-metadata":
             intervention = _intervention_from_post()
-            categories = _action_categories_from_post()
+            categories = _action_categories_from_post(intervention=intervention)
             if categories is None:
                 messages.error(request, "Invalid IUCN action selected.")
                 return redirect(redirect_url)
@@ -12015,41 +12417,10 @@ def _project_synopsis_workspace(
                 return redirect(redirect_url)
             previous_title = intervention.title
 
-            primary = None
-            primary_id = (request.POST.get("primary_intervention") or "").strip()
-            if primary_id:
-                primary = SynopsisIntervention.objects.filter(
-                    pk=primary_id,
-                    subheading__chapter__project=project,
-                ).first()
-                if not primary:
-                    messages.error(request, "Invalid primary intervention selected.")
-                    return redirect(redirect_url)
-                if primary.id == intervention.id:
-                    messages.error(
-                        request,
-                        "An intervention cannot cross-reference itself.",
-                    )
-                    return redirect(redirect_url)
-
-            is_cross_reference = bool(request.POST.get("is_cross_reference"))
-            if primary and not is_cross_reference:
-                is_cross_reference = True
-            if is_cross_reference and not primary:
-                messages.error(
-                    request,
-                    "Cross-reference interventions must point to a primary intervention.",
-                )
-                return redirect(redirect_url)
-
             intervention.title = title
-            intervention.is_cross_reference = is_cross_reference
-            intervention.primary_intervention = primary
             intervention.save(
                 update_fields=[
                     "title",
-                    "is_cross_reference",
-                    "primary_intervention",
                     "updated_at",
                 ]
             )
@@ -12068,12 +12439,6 @@ def _project_synopsis_workspace(
                         else f"Title: {intervention.title}"
                     ),
                     f"IUCN actions: {_history_iucn_action_names(categories)}",
-                    f"Cross-reference: {'Yes' if intervention.is_cross_reference else 'No'}",
-                    (
-                        f"Primary intervention: {_history_intervention_title(primary)}"
-                        if primary
-                        else ""
-                    ),
                 ],
             )
             messages.success(request, "Intervention metadata saved.")
@@ -12321,6 +12686,17 @@ def _project_synopsis_workspace(
                 intervention.iucn_action_ids = {
                     category.id for category in intervention.iucn_actions.all()
                 }
+                legacy_iucn_actions = sorted(
+                    [
+                        category
+                        for category in intervention.iucn_actions.all()
+                        if category.id not in active_action_category_ids
+                    ],
+                    key=lambda category: (category.position, category.name, category.id),
+                )
+                intervention.edit_iucn_categories = (
+                    active_action_categories + legacy_iucn_actions
+                )
                 assignments = list(intervention.assignments.all())
                 (
                     _,
@@ -12440,8 +12816,13 @@ def _project_synopsis_workspace(
                 intervention.key_message_total = len(key_messages)
                 chapter.assignment_total += intervention.assignment_total
 
+    narrative_chapters = [
+        chapter
+        for chapter in chapters
+        if chapter.chapter_type in {SynopsisChapter.TYPE_TEXT, SynopsisChapter.TYPE_APPENDIX}
+    ]
     text_chapters = [
-        chapter for chapter in chapters if chapter.chapter_type == SynopsisChapter.TYPE_TEXT
+        chapter for chapter in narrative_chapters if chapter.chapter_type == SynopsisChapter.TYPE_TEXT
     ]
     evidence_chapters = [
         chapter
@@ -12450,9 +12831,12 @@ def _project_synopsis_workspace(
     ]
     appendix_chapters = [
         chapter
-        for chapter in chapters
+        for chapter in narrative_chapters
         if chapter.chapter_type == SynopsisChapter.TYPE_APPENDIX
     ]
+    _annotate_chapter_move_flags(text_chapters)
+    _annotate_chapter_move_flags(evidence_chapters)
+    _annotate_chapter_move_flags(appendix_chapters)
     evidence_intervention_total = sum(
         chapter.intervention_total for chapter in evidence_chapters
     )
@@ -12460,17 +12844,7 @@ def _project_synopsis_workspace(
         chapter.assignment_total for chapter in evidence_chapters
     )
     narrative_total = len(text_chapters) + len(appendix_chapters)
-    iucn_categories = IUCNCategory.objects.filter(
-        kind=IUCNCategory.KIND_ACTION,
-        is_active=True,
-    ).order_by(
-        "position", "name"
-    )
-    all_interventions = (
-        SynopsisIntervention.objects.filter(subheading__chapter__project=project)
-        .select_related("subheading__chapter")
-        .order_by("title")
-    )
+    iucn_categories = active_action_categories
     last_export = SynopsisExportLog.objects.filter(project=project).first()
 
     return render(
@@ -12479,6 +12853,7 @@ def _project_synopsis_workspace(
         {
             "project": project,
             "chapters": chapters,
+            "narrative_chapters": narrative_chapters,
             "chapter_form": chapter_form,
             "subheading_form": subheading_form,
             "intervention_form": intervention_form,
@@ -12495,7 +12870,6 @@ def _project_synopsis_workspace(
             "evidence_intervention_total": evidence_intervention_total,
             "evidence_assignment_total": evidence_assignment_total,
             "iucn_categories": iucn_categories,
-            "all_interventions": all_interventions,
             "last_exported": last_export.exported_at if last_export else None,
             "presets": PRESETS.values(),
             "workspace_mode": workspace_mode,
@@ -12582,8 +12956,12 @@ def _generate_synopsis_docx(project):
 
     def _render_chapter(chapter):
         doc.add_heading(chapter.title or "Untitled chapter", level=1)
+        if chapter.supports_evidence_structure and (
+            chapter.background_text or chapter.background_references
+        ):
+            doc.add_paragraph("Background")
         if chapter.background_text:
-            doc.add_paragraph(chapter.background_text)
+            _add_docx_inline_markup_paragraph(doc, "", chapter.background_text)
         if chapter.background_references:
             doc.add_paragraph(f"Background references: {chapter.background_references}")
         if not chapter.supports_evidence_structure:
@@ -12592,21 +12970,23 @@ def _generate_synopsis_docx(project):
             doc.add_heading(subheading.title or "Untitled subheading", level=2)
             for intervention in subheading.interventions.all():
                 doc.add_heading(intervention.title or "Untitled intervention", level=3)
+                if (
+                    intervention.evidence_status
+                    == SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES
+                ):
+                    doc.add_paragraph(
+                        "We found no studies that evaluated the effects of this intervention."
+                    )
                 if intervention.ce_action_url:
                     doc.add_paragraph(f"Conservation Evidence action: {intervention.ce_action_url}")
+                if intervention.background_text or intervention.background_references:
+                    doc.add_paragraph("Background")
                 if intervention.background_text:
-                    doc.add_paragraph(intervention.background_text)
+                    _add_docx_inline_markup_paragraph(doc, "", intervention.background_text)
                 if intervention.background_references:
                     doc.add_paragraph(
                         f"Background references: {intervention.background_references}"
                     )
-
-                if intervention.is_cross_reference and intervention.primary_intervention:
-                    doc.add_paragraph(
-                        f"Cross-reference: Evidence is summarized under "
-                        f"“{intervention.primary_intervention.title}”."
-                    )
-                    continue
 
                 assignments = list(intervention.assignments.all())
                 (
@@ -12635,18 +13015,16 @@ def _generate_synopsis_docx(project):
                             message, summary_numbers
                         )
                         if supporting_numbers:
-                            text = (
-                                f"{text} ({_format_reference_number_list(supporting_numbers)})"
+                            text = _append_citation_before_terminal_punctuation(
+                                text,
+                                f"({_format_reference_number_list(supporting_numbers)})",
                             )
-                        doc.add_paragraph(text, style="List Bullet")
-
-                if (
-                    intervention.evidence_status
-                    == SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES
-                ):
-                    doc.add_paragraph(
-                        "We found no studies that evaluated the effects of this intervention."
-                    )
+                        _add_docx_inline_markup_paragraph(
+                            doc,
+                            "",
+                            text,
+                            style="List Bullet",
+                        )
 
                 for assignment in ordered_assignments:
                     summary = assignment.reference_summary
@@ -12658,7 +13036,7 @@ def _generate_synopsis_docx(project):
                         ),
                     )
                     if paragraph:
-                        doc.add_paragraph(paragraph)
+                        _add_docx_inline_markup_paragraph(doc, "", paragraph)
                     elif summary.reference.canonical.title:
                         if reference_number:
                             doc.add_paragraph(

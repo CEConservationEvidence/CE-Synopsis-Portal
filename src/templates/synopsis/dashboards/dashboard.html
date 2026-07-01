@@ -1,88 +1,366 @@
 {% extends "synopsis/base.html" %}
 {% block title %}Dashboard – CE Portal{% endblock %}
+{% block page_container_class %}container-fluid px-3 px-xl-4 px-xxl-5{% endblock %}
 {% block content %}
-<h1>CE Synopsis Portal</h1>
-<h2 class="mb-3">Synopses</h2>
-<h2 class="h5 mt-4">Active synopses</h2>
-<table class="table table-striped align-middle">
-    <thead>
-        <tr>
-            <th>Synopsis</th>
-            <th>Authors</th>
-            <th>Current Phase</th>
-            <th>Created</th>
-            <th class="text-end">Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for p in active_projects %}
-        <tr>
-            <td>{{ p.title }}</td>
-            <td class="small">
-                {% if p.author_list %}
-                    {% for user in p.author_list %}
-                        {{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}
+{% with active_count=active_projects|length completed_count=completed_projects|length %}
+<div id="dashboard-page" class="pb-4">
+    <style>
+        #dashboard-page {
+            max-width: 1500px;
+            margin: 0 auto;
+        }
+        .dashboard-intro {
+            background: #fff;
+            border: 1px solid #dfe5ec;
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+        }
+        .dashboard-intro-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.9fr) auto;
+            gap: 1.25rem;
+            align-items: start;
+        }
+        .dashboard-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(3, auto);
+            gap: 0.4rem;
+            justify-content: end;
+        }
+        .dashboard-stat {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.6rem;
+            padding: 0.34rem 0.5rem;
+            min-width: 0;
+            display: inline-flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 0.4rem;
+            white-space: nowrap;
+        }
+        .dashboard-stat-label {
+            color: #6b7280;
+            font-size: 0.58rem;
+            line-height: 1.05;
+            text-transform: uppercase;
+            margin-bottom: 0;
+        }
+        .dashboard-stat-value {
+            color: #1f2937;
+            font-size: 0.8rem;
+            font-weight: 600;
+            line-height: 1;
+        }
+        .dashboard-section {
+            background: #fff;
+            border: 1px solid #dfe5ec;
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+        .dashboard-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 1rem;
+            padding: 1.15rem 1.25rem 1rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .dashboard-section-header p {
+            max-width: 44rem;
+        }
+        .dashboard-section-count {
+            flex-shrink: 0;
+        }
+        .dashboard-table {
+            margin-bottom: 0;
+        }
+        .dashboard-table thead th {
+            color: #6b7280;
+            font-size: 0.74rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            white-space: nowrap;
+            border-bottom-width: 1px;
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+        .dashboard-table tbody td {
+            padding-top: 0.95rem;
+            padding-bottom: 0.95rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            vertical-align: top;
+        }
+        .dashboard-table thead th:first-child,
+        .dashboard-table tbody td:first-child {
+            padding-left: 1.25rem;
+        }
+        .dashboard-table thead th:last-child,
+        .dashboard-table tbody td:last-child {
+            padding-right: 1.25rem;
+        }
+        .dashboard-table tbody tr:last-child td {
+            border-bottom: 0;
+        }
+        .dashboard-title-link {
+            color: #1f2937;
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .dashboard-title-link:hover,
+        .dashboard-title-link:focus {
+            color: #24559a;
+            text-decoration: underline;
+        }
+        .dashboard-project-summary,
+        .dashboard-author-summary {
+            color: #6b7280;
+            font-size: 0.84rem;
+            line-height: 1.45;
+            margin-top: 0.3rem;
+        }
+        .dashboard-chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 1.9rem;
+            padding: 0.3rem 0.65rem;
+            border-radius: 999px;
+            border: 1px solid #d4dbe3;
+            background: #f8fafc;
+            color: #334155;
+            font-size: 0.8rem;
+            font-weight: 500;
+            line-height: 1.2;
+        }
+        .dashboard-chip-status-completed {
+            background: #edf8f1;
+            border-color: #b9ddca;
+            color: #1f7a4f;
+        }
+        .dashboard-chip-status-archived {
+            background: #f3f4f6;
+            border-color: #d9dee4;
+            color: #5f6b76;
+        }
+        .dashboard-date {
+            color: #1f2937;
+            font-weight: 500;
+        }
+        .dashboard-date-subtext {
+            color: #6b7280;
+            font-size: 0.82rem;
+            margin-top: 0.15rem;
+        }
+        .dashboard-actions {
+            display: flex;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+        .dashboard-empty {
+            padding: 1.1rem 1.25rem;
+            color: #6b7280;
+        }
+        @media (max-width: 991.98px) {
+            .dashboard-intro-grid {
+                grid-template-columns: 1fr;
+            }
+            .dashboard-stat-grid {
+                grid-template-columns: repeat(3, auto);
+                justify-content: start;
+            }
+            .dashboard-section-header {
+                flex-direction: column;
+            }
+        }
+        @media (max-width: 767.98px) {
+            .dashboard-intro,
+            .dashboard-section-header {
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }
+            .dashboard-table thead th {
+                white-space: normal;
+            }
+            .dashboard-actions {
+                justify-content: flex-start;
+            }
+            .dashboard-stat-grid {
+                grid-template-columns: repeat(3, auto);
+                justify-content: start;
+            }
+        }
+    </style>
+
+    <section class="dashboard-intro mb-4">
+        <div class="dashboard-intro-grid">
+            <div>
+                <p class="text-uppercase text-muted small mb-1">Synopses</p>
+                <h1 class="h3 mb-2">CE Synopsis Portal</h1>
+                <p class="text-muted mb-2">Open active work, revisit archived synopses, and keep track of the synopsis space visible to you.</p>
+            </div>
+            <div class="dashboard-stat-grid">
+                <div class="dashboard-stat">
+                    <span class="dashboard-stat-label">Visible to you</span>
+                    <span class="dashboard-stat-value">{{ active_count|add:completed_count }}</span>
+                </div>
+                <div class="dashboard-stat">
+                    <span class="dashboard-stat-label">Active</span>
+                    <span class="dashboard-stat-value">{{ active_count }}</span>
+                </div>
+                <div class="dashboard-stat">
+                    <span class="dashboard-stat-label">Completed / Archived</span>
+                    <span class="dashboard-stat-value">{{ completed_count }}</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="dashboard-section mb-4" aria-labelledby="active-synopses-heading">
+        <div class="dashboard-section-header">
+            <div>
+                <h2 class="h5 mb-1" id="active-synopses-heading">Active synopses</h2>
+                <p class="small text-muted mb-0">Current synopses in progress. Use this list to jump back into authoring work quickly.</p>
+            </div>
+            <span class="badge text-bg-light border dashboard-section-count">{{ active_count }}</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle dashboard-table">
+                <thead>
+                    <tr>
+                        <th>Synopsis</th>
+                        <th>Authors</th>
+                        <th>Current Phase</th>
+                        <th>Created</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in active_projects %}
+                    <tr>
+                        <td>
+                            <a class="dashboard-title-link" href="{% url 'synopsis:project_hub' p.id %}">{{ p.title }}</a>
+                            <div class="dashboard-project-summary">
+                                {% if p.description %}
+                                {{ p.description|truncatechars:120 }}
+                                {% else %}
+                                No project description added yet.
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td class="small">
+                            {% if p.author_list %}
+                            <div>
+                                {% for user in p.author_list %}
+                                    {{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}
+                                {% endfor %}
+                            </div>
+                            <div class="dashboard-author-summary">{{ p.author_list|length }} author{{ p.author_list|length|pluralize }}</div>
+                            {% else %}
+                            <span class="text-muted">No authors assigned</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="dashboard-chip">{{ p.get_phase_display }}</span>
+                        </td>
+                        <td>
+                            <div class="dashboard-date">{{ p.created_at|date:"Y-m-d" }}</div>
+                            <div class="dashboard-date-subtext">{{ p.created_at|date:"H:i" }}</div>
+                        </td>
+                        <td class="text-end">
+                            <div class="dashboard-actions">
+                                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' p.id %}">Open</a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="dashboard-empty">No active projects yet.</td>
+                    </tr>
                     {% endfor %}
-                {% else %}
-                <span class="text-muted">No authors assigned</span>
-                {% endif %}
-            </td>
-            <td>{{ p.get_phase_display }}</td>
-            <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
-            <td class="text-end">
-                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' p.id %}">Open</a>
-            </td>
-        </tr>
-        {% empty %}
-        <tr>
-            <td colspan="5" class="text-muted">No active projects yet.</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-<h2 class="h5 mt-5">Completed / Archived synopses</h2>
-<table class="table table-striped align-middle">
-    <thead>
-        <tr>
-            <th>Synopsis</th>
-            <th>Authors</th>
-            <th>Status</th>
-            <th>Last Updated</th>
-            <th class="text-end">Actions</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for p in completed_projects %}
-        <tr>
-            <td>{{ p.title }}</td>
-            <td class="small">
-                {% if p.author_list %}
-                    {% for user in p.author_list %}
-                        {{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="dashboard-section" aria-labelledby="completed-synopses-heading">
+        <div class="dashboard-section-header">
+            <div>
+                <h2 class="h5 mb-1" id="completed-synopses-heading">Completed / Archived synopses</h2>
+                <p class="small text-muted mb-0">Finished or parked synopses remain available here and can be reopened when needed.</p>
+            </div>
+            <span class="badge text-bg-light border dashboard-section-count">{{ completed_count }}</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-middle dashboard-table">
+                <thead>
+                    <tr>
+                        <th>Synopsis</th>
+                        <th>Authors</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th class="text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in completed_projects %}
+                    <tr>
+                        <td>
+                            <a class="dashboard-title-link" href="{% url 'synopsis:project_hub' p.id %}">{{ p.title }}</a>
+                            <div class="dashboard-project-summary">
+                                {% if p.description %}
+                                {{ p.description|truncatechars:120 }}
+                                {% else %}
+                                No project description added yet.
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td class="small">
+                            {% if p.author_list %}
+                            <div>
+                                {% for user in p.author_list %}
+                                    {{ user.get_full_name|default:user.username }}{% if not forloop.last %}, {% endif %}
+                                {% endfor %}
+                            </div>
+                            <div class="dashboard-author-summary">{{ p.author_list|length }} author{{ p.author_list|length|pluralize }}</div>
+                            {% else %}
+                            <span class="text-muted">No authors assigned</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="dashboard-chip {% if p.status == 'completed' %}dashboard-chip-status-completed{% else %}dashboard-chip-status-archived{% endif %}">
+                                {{ p.get_status_display|default:p.status|title }}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="dashboard-date">{{ p.created_at|date:"Y-m-d" }}</div>
+                            <div class="dashboard-date-subtext">{{ p.created_at|date:"H:i" }}</div>
+                        </td>
+                        <td class="text-end">
+                            <div class="dashboard-actions">
+                                {% if p.can_manage_project_configuration %}
+                                <form method="post" action="{% url 'synopsis:project_settings' p.id %}" class="d-inline">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="status_action" value="reactivate">
+                                    <input type="hidden" name="return_to" value="dashboard">
+                                    <button class="btn btn-outline-primary btn-sm" type="submit" onclick="return confirm('Move this synopsis back to the active synopses section?');">Move to active</button>
+                                </form>
+                                {% endif %}
+                                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' p.id %}">Open</a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" class="dashboard-empty">No completed or archived projects yet.</td>
+                    </tr>
                     {% endfor %}
-                {% else %}
-                <span class="text-muted">No authors assigned</span>
-                {% endif %}
-            </td>
-            <td>{{ p.get_status_display|default:p.status|title }}</td>
-            <td>{{ p.created_at|date:"Y-m-d H:i" }}</td>
-            <td class="text-end">
-                {% if p.can_manage_project_configuration %}
-                <form method="post" action="{% url 'synopsis:project_settings' p.id %}" class="d-inline">
-                    {% csrf_token %}
-                    <input type="hidden" name="status_action" value="reactivate">
-                    <input type="hidden" name="return_to" value="dashboard">
-                    <button class="btn btn-outline-primary btn-sm" type="submit" onclick="return confirm('Move this synopsis back to the active synopses section?');">Move to active</button>
-                </form>
-                {% endif %}
-                <a class="btn btn-outline-secondary btn-sm" href="{% url 'synopsis:project_hub' p.id %}">Open</a>
-            </td>
-        </tr>
-        {% empty %}
-        <tr>
-            <td colspan="5" class="text-muted">No completed or archived projects yet.</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+{% endwith %}
 {% endblock %}

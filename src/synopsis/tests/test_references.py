@@ -1683,23 +1683,28 @@ class ReferenceSummaryFormTests(TestCase):
 
     def test_habitat_tags_use_detailed_iucn_choices(self):
         values = [value for value, _label in IUCN_HABITAT_CHOICES]
-        self.assertEqual(len(values), 63)
-        self.assertIn("Marine Coral Reefs", values)
+        self.assertEqual(len(values), 93)
+        self.assertIn("Forest & Woodland-Boreal Woodland/Forest", values)
         self.assertIn(
-            "Wetlands (inland) - Permanent Freshwater Lakes",
+            "Wetlands-Permanent Freshwater Lakes",
             values,
         )
         self.assertIn(
-            "Artificial - Subtropical/Tropical Heavily Degraded Former Forest",
+            "Artificial Habitats-Dams and Reservoirs",
             values,
         )
+        self.assertIn("Artificial Habitats-Marine Anthropogenic Structures", values)
+        self.assertIn("Other-Continental Ice or Glaciers", values)
+        self.assertIn("Wetlands-Marshes and Swamps", values)
+        self.assertNotIn("Introduced Vegetation", values)
+        self.assertNotIn("Coral Reefs", values)
 
         form = ReferenceSummaryUpdateForm(
             data={
                 "status": ReferenceSummary.STATUS_TODO,
                 "habitat_tags": [
-                    "Marine Coral Reefs",
-                    "Forest - Temperate",
+                    "Marine-Coral Reefs",
+                    "Artificial Habitats-Dams and Reservoirs",
                 ],
             },
             project=self.project,
@@ -1708,26 +1713,59 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertEqual(
             form.cleaned_data["habitat_tags"],
             [
-                "Marine Coral Reefs",
-                "Forest - Temperate",
+                "Marine-Coral Reefs",
+                "Artificial Habitats-Dams and Reservoirs",
+            ],
+        )
+
+    def test_habitat_tags_normalize_saved_legacy_values_when_editing(self):
+        batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Legacy habitat batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=batch,
+            hash_key="h" * 40,
+            title="Legacy habitat reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            habitat_tags=["Marine Coral Reefs", "Artificial - Urban Areas"],
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
+
+        self.assertEqual(
+            form.initial["habitat_tags"],
+            [
+                "Marine-Coral Reefs",
+                "Artificial Habitats-Built-up Areas",
             ],
         )
 
     def test_action_tags_use_detailed_iucn_choices(self):
         values = [value for value, _label in IUCN_ACTION_CHOICES]
-        self.assertEqual(len(values), 37)
-        self.assertIn("Land/water protection-Area protection", values)
+        self.assertEqual(len(values), 31)
+        self.assertIn("Land/water protection - 1.1 Site/area protection", values)
         self.assertIn(
-            "Livelihood, economic & other incentives-Conservation payments", values
+            "Livelihood, economic & other incentives - 6.4 Conservation payments",
+            values,
         )
-        self.assertIn("Research & monitoring-Other", values)
+        self.assertIn(
+            "Law & policy - 5.4 Compliance and enforcement - 5.4.4 Scale unspecified",
+            values,
+        )
+        self.assertNotIn("Research & monitoring-Other", values)
 
         form = ReferenceSummaryUpdateForm(
             data={
                 "status": ReferenceSummary.STATUS_TODO,
                 "action_tags": [
-                    "Land/water management-Site/area management",
-                    "Research & monitoring-Conservation planning",
+                    "Land/water management - 2.1 Site/area management",
+                    "Law & policy - 5.2 Policies and regulations",
                 ],
             },
             project=self.project,
@@ -1736,10 +1774,43 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertEqual(
             form.cleaned_data["action_tags"],
             [
+                "Land/water management - 2.1 Site/area management",
+                "Law & policy - 5.2 Policies and regulations",
+            ],
+        )
+
+    def test_action_tags_normalize_and_preserve_legacy_saved_values_when_editing(self):
+        batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Legacy action batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=batch,
+            hash_key="a" * 40,
+            title="Legacy action reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            action_tags=[
                 "Land/water management-Site/area management",
                 "Research & monitoring-Conservation planning",
             ],
         )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
+
+        self.assertEqual(
+            form.initial["action_tags"],
+            [
+                "Land/water management - 2.1 Site/area management",
+                "Research & monitoring-Conservation planning",
+            ],
+        )
+        choice_values = [value for value, _label in form.fields["action_tags"].choices]
+        self.assertIn("Research & monitoring-Conservation planning", choice_values)
 
     def test_threat_tags_use_detailed_iucn_choices(self):
         values = [value for value, _label in IUCN_THREAT_CHOICES]
@@ -1771,27 +1842,7 @@ class ReferenceSummaryFormTests(TestCase):
             ],
         )
 
-    def test_research_design_accepts_up_to_four_tags(self):
-        form = ReferenceSummaryUpdateForm(
-            data={
-                "status": ReferenceSummary.STATUS_TODO,
-                "research_design": [
-                    "Replicated",
-                    "Randomized",
-                    "Controlled*",
-                    "Before-and-after",
-                ],
-            },
-            project=self.project,
-        )
-
-        self.assertTrue(form.is_valid())
-        self.assertEqual(
-            form.cleaned_data["research_design"],
-            "Replicated; Randomized; Controlled*; Before-and-after",
-        )
-
-    def test_research_design_rejects_more_than_four_tags(self):
+    def test_research_design_accepts_all_selected_tags(self):
         form = ReferenceSummaryUpdateForm(
             data={
                 "status": ReferenceSummary.STATUS_TODO,
@@ -1806,8 +1857,11 @@ class ReferenceSummaryFormTests(TestCase):
             project=self.project,
         )
 
-        self.assertFalse(form.is_valid())
-        self.assertIn("Select up to 4 research design tags", str(form.errors))
+        self.assertTrue(form.is_valid())
+        self.assertEqual(
+            form.cleaned_data["research_design"],
+            "Replicated; Randomized; Paired sites; Controlled*; Before-and-after",
+        )
 
     def test_research_design_initial_splits_saved_tags(self):
         summary = ReferenceSummary(research_design="Replicated; Controlled*")
@@ -2142,6 +2196,29 @@ class ReferenceSummaryFormTests(TestCase):
 
         self.assertEqual(form["synopsis_draft"].value(), "Author edited paragraph.")
 
+    def test_draft_form_rejects_invalid_supported_inline_markup(self):
+        project = Project.objects.create(title="Invalid markup paragraph")
+        batch = ReferenceSourceBatch.objects.create(
+            project=project,
+            label="Batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=project,
+            batch=batch,
+            hash_key="g" * 40,
+            title="Invalid markup reference",
+        )
+        summary = ReferenceSummary.objects.create(project=project, reference=reference)
+
+        form = ReferenceSummaryDraftForm(
+            data={"synopsis_draft": "A replicated study found that CO<sup>2."},
+            instance=summary,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("matching closing tag", form.errors["synopsis_draft"][0])
+
     def test_citation_field_prefills_with_shared_reference_citation_when_no_local_override_exists(self):
         batch = ReferenceSourceBatch.objects.create(
             project=self.project,
@@ -2273,6 +2350,82 @@ class ReferenceSummaryFormTests(TestCase):
             ],
         )
 
+    def test_outcomes_raw_rejects_invalid_inline_markup(self):
+        data = {
+            "status": ReferenceSummary.STATUS_TODO,
+            "outcomes_raw": "Species richness increased under CO<sup>2.",
+        }
+        form = ReferenceSummaryUpdateForm(data=data, project=self.project)
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Outcome notes has invalid inline formatting", str(form.errors))
+        self.assertIn("matching closing tag", str(form.errors))
+
+    def test_outcomes_raw_accepts_legacy_p_value_column_without_storing_it(self):
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "outcomes_raw": "Abundance | 12 | Treatment | 4 | Control | pairs | Higher | t=2.3 | 0.04 | Significant increase",
+            },
+            project=self.project,
+        )
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(
+            form.cleaned_data["outcomes_raw"],
+            [
+                {
+                    "outcome": "Abundance",
+                    "treatment_value": "12",
+                    "treatment": "Treatment",
+                    "comparator_value": "4",
+                    "comparator": "Control",
+                    "unit": "pairs",
+                    "difference": "Higher",
+                    "stats": "t=2.3",
+                    "notes": "Significant increase",
+                }
+            ],
+        )
+
+    def test_outcomes_raw_initial_omits_legacy_p_value_column(self):
+        batch = ReferenceSourceBatch.objects.create(
+            project=self.project,
+            label="Legacy outcomes batch",
+            source_type="journal_search",
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=batch,
+            hash_key="p" * 40,
+            title="Legacy outcomes reference",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            outcome_rows=[
+                {
+                    "outcome": "Abundance",
+                    "treatment_value": "12",
+                    "treatment": "Treatment",
+                    "comparator_value": "4",
+                    "comparator": "Control",
+                    "unit": "pairs",
+                    "difference": "Higher",
+                    "stats": "t=2.3",
+                    "p_value": "0.04",
+                    "notes": "Significant increase",
+                }
+            ]
+        )
+
+        form = ReferenceSummaryUpdateForm(instance=summary, project=self.project)
+
+        self.assertEqual(
+            form["outcomes_raw"].value(),
+            "Abundance | 12 | Treatment | 4 | Control | pairs | Higher | t=2.3 | Significant increase",
+        )
+
     def test_structured_summary_paragraph_uses_free_text_outcome_notes(self):
         summary = ReferenceSummary(
             study_design="replicated study",
@@ -2305,6 +2458,42 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertNotIn("Reliability:", paragraph)
         self.assertNotIn("Relevance:", paragraph)
 
+    def test_structured_summary_paragraph_places_reference_number_after_country(self):
+        summary = ReferenceSummary(
+            study_design="replicated study",
+            year_range="2018",
+            habitat_and_sites="wetland sites",
+            country="UK",
+            sites_replications="12 sites",
+            summary_of_results="installing nest boxes increased occupancy.",
+        )
+
+        paragraph = _structured_summary_paragraph(
+            summary, reference_identifier_override="3"
+        )
+
+        self.assertIn("in UK (3) (12 sites) found that", paragraph)
+
+    def test_structured_summary_paragraph_omits_legacy_p_value_text(self):
+        summary = ReferenceSummary(
+            study_design="replicated study",
+            outcome_rows=[
+                {
+                    "outcome": "Abundance",
+                    "difference": "Higher",
+                    "treatment": "treatment plots",
+                    "comparator": "control plots",
+                    "p_value": "0.04",
+                    "notes": "Significant increase",
+                }
+            ],
+        )
+
+        paragraph = _structured_summary_paragraph(summary)
+
+        self.assertNotIn("p=0.04", paragraph)
+        self.assertIn("Significant increase.", paragraph)
+
     def test_quality_scores_accept_boundary_values(self):
         form = ReferenceSummaryUpdateForm(
             data={
@@ -2321,6 +2510,19 @@ class ReferenceSummaryFormTests(TestCase):
         self.assertEqual(form.cleaned_data["harms_score"], 100.0)
         self.assertEqual(form.cleaned_data["reliability_score"], 0.0)
         self.assertEqual(form.cleaned_data["relevance_score"], 1.0)
+
+    def test_structured_summary_fields_reject_invalid_inline_markup(self):
+        form = ReferenceSummaryUpdateForm(
+            data={
+                "status": ReferenceSummary.STATUS_TODO,
+                "summary_of_results": "CO<sup>2 increased.",
+            },
+            project=self.project,
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("Summary of results has invalid inline formatting", str(form.errors))
+        self.assertIn("matching closing tag", str(form.errors))
 
     def test_quality_scores_reject_values_outside_ranges(self):
         invalid_cases = [
@@ -2475,14 +2677,6 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Active author")
         self.assertContains(response, "You + Co Author")
         self.assertContains(response, "Co Author")
-        self.assertContains(
-            response,
-            "This summary page is not a live shared document.",
-        )
-        self.assertContains(
-            response,
-            "Another active author right now: Co Author.",
-        )
         self.assertContains(response, 'name="summary_revision_token"', html=False)
         self.assertContains(
             response,
@@ -2493,7 +2687,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             html=False,
         )
 
-    def test_detail_page_warns_when_summary_is_assigned_to_another_author(self):
+    def test_detail_page_does_not_show_removed_assignment_warning_text(self):
         other_author = User.objects.create_user(
             username="assigned-author",
             password="pass123",
@@ -2512,8 +2706,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
             )
         )
 
-        self.assertContains(response, "This summary page is not a live shared document.")
-        self.assertContains(
+        self.assertNotContains(
             response,
             "This summary is currently assigned to Assigned Author.",
         )
@@ -2596,11 +2789,44 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertContains(response, "Clear saved custom paragraph")
         self.assertContains(response, "Internal notes on this paragraph")
         self.assertContains(response, "Save paragraph notes")
+        self.assertContains(response, "Word count:")
+        self.assertContains(response, 'data-summary-word-count', html=False)
         self.assertContains(response, "Use these tags to organise, filter and group summaries across the synopsis.")
         self.assertContains(response, "Stored separately for internal use. These scores are not inserted into the generated summary paragraph.")
         self.assertContains(response, "Outcome notes")
         self.assertContains(response, "Main findings summary")
         self.assertContains(response, "More optional detail boxes")
+        self.assertContains(response, "Select all study design terms that apply.")
+        self.assertContains(response, "0 selected")
+        self.assertNotContains(response, "up to four")
+        self.assertNotContains(response, "0 of 4 selected")
+
+    def test_detail_page_shows_inline_formatting_preview_and_editor_hook(self):
+        self.summary.synopsis_draft = (
+            "A replicated study found that <i>Festuca</i> increased in the 10<sup>th</sup> plot."
+        )
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(
+            update_fields=["synopsis_draft", "use_custom_synopsis_draft", "updated_at"]
+        )
+
+        self.client.login(username="author", password="pass123")
+        response = self.client.get(
+            reverse(
+                "synopsis:reference_summary_detail",
+                args=[self.project.id, self.summary.id],
+            )
+        )
+
+        self.assertContains(response, "Current compiled paragraph")
+        self.assertContains(response, "<i>Festuca</i>", html=False)
+        self.assertContains(response, "10<sup>th</sup> plot.", html=False)
+        self.assertContains(response, 'data-inline-markup="true"', html=False)
+        self.assertContains(
+            response,
+            "&lt;sub&gt;...&lt;/sub&gt; for subscript, and &lt;sup&gt;...&lt;/sup&gt; for superscript.",
+            html=False,
+        )
 
     def test_creating_summary_tab_invalidates_board_presence_summary_id_cache(self):
         self.client.login(username="author", password="pass123")
@@ -3191,6 +3417,7 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.summary.summary_author = "Existing Author"
         self.summary.keywords = ["boxes", "occupancy"]
         self.summary.action_tags = ["Land/water protection-Area protection"]
+        self.summary.habitat_tags = ["Marine Coral Reefs", "Artificial - Urban Areas"]
         self.summary.research_design = "Replicated; Controlled*"
         self.summary.citation = "Author (2024)"
         self.summary.save()
@@ -3244,7 +3471,14 @@ class ReferenceSummaryDetailViewTests(TestCase):
         self.assertEqual(new_summary.keywords, ["boxes", "occupancy"])
         self.assertEqual(
             new_summary.action_tags,
-            ["Land/water protection-Area protection"],
+            ["Land/water protection - 1.1 Site/area protection"],
+        )
+        self.assertEqual(
+            new_summary.habitat_tags,
+            [
+                "Marine-Coral Reefs",
+                "Artificial Habitats-Built-up Areas",
+            ],
         )
         self.assertEqual(new_summary.research_design, "Replicated; Controlled*")
         self.assertEqual(new_summary.citation, "Author (2024)")

@@ -1795,7 +1795,7 @@ class SynopsisChapter(models.Model):
     TYPE_EVIDENCE = "evidence"
     TYPE_APPENDIX = "appendix"
     TYPE_CHOICES = [
-        (TYPE_TEXT, "Text chapter"),
+        (TYPE_TEXT, "Narrative chapter"),
         (TYPE_EVIDENCE, "Evidence chapter"),
         (TYPE_APPENDIX, "Appendix / back matter"),
     ]

@@ -196,6 +196,387 @@ class SynopsisStructureTests(TestCase):
         self.assertIn("Chapter: Ch", change.details)
         self.assertIn("Intervention: Intervention A", change.details)
 
+    def test_structure_workspace_updates_chapter_title(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-chapter-title",
+                "chapter_id": chapter.id,
+                "title": "99. Threat: Renamed",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        chapter.refresh_from_db()
+        self.assertEqual(chapter.title, "2. Threat: Renamed")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Chapter title updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Chapter: 2. Threat: Renamed", change.details)
+        self.assertIn("Title: 2. Threat: Demo → 2. Threat: Renamed", change.details)
+
+    def test_structure_workspace_rejects_blank_chapter_title_update(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-chapter-title",
+                "chapter_id": chapter.id,
+                "title": "   ",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        chapter.refresh_from_db()
+        self.assertEqual(chapter.title, "2. Threat: Demo")
+        self.assertContains(
+            response,
+            "Enter a chapter title of 255 characters or fewer.",
+        )
+
+    def test_structure_workspace_updates_subheading_title(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="General",
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-subheading-title",
+                "subheading_id": subheading.id,
+                "title": "General farmland",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        subheading.refresh_from_db()
+        self.assertEqual(subheading.title, "General farmland")
+        change = ProjectChangeLog.objects.filter(
+            project=self.project,
+            action="Intervention group title updated",
+        ).first()
+        self.assertIsNotNone(change)
+        self.assertIn("Chapter: 2. Threat: Demo", change.details)
+        self.assertIn("Intervention group: General farmland", change.details)
+        self.assertIn("Title: General → General farmland", change.details)
+
+    def test_evidence_workspace_creates_evidence_chapter_without_visible_type_controls(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        response = self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "2. Threat: Demo",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        chapter = SynopsisChapter.objects.get(project=self.project, title="1. Threat: Demo")
+        self.assertEqual(chapter.chapter_type, SynopsisChapter.TYPE_EVIDENCE)
+        self.assertContains(response, 'name="chapter_type" value="evidence"', html=False)
+        self.assertContains(response, "This workspace creates evidence chapters only.")
+        self.assertNotContains(response, 'value="update-chapter-type"', html=False)
+        self.assertNotContains(response, ">Save type<", html=False)
+
+    def test_evidence_workspace_create_chapter_uses_next_numbered_title(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="5. Threat: Existing",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        appendix = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Appendix 1: Sources",
+            chapter_type=SynopsisChapter.TYPE_APPENDIX,
+            position=2,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "Threat: New",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        chapter = SynopsisChapter.objects.get(project=self.project, title="6. Threat: New")
+        self.assertEqual(chapter.chapter_type, SynopsisChapter.TYPE_EVIDENCE)
+        appendix.refresh_from_db()
+        self.assertLess(chapter.position, appendix.position)
+        self.assertContains(response, "Added chapter")
+        self.assertContains(response, "6. Threat: New")
+
+    def test_evidence_workspace_create_chapter_uses_highest_existing_evidence_number(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="1. About this book",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="15. Threat: Existing later",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=2,
+        )
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="13. Threat: Existing earlier",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=3,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "Threat: New",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            SynopsisChapter.objects.filter(
+                project=self.project,
+                title="16. Threat: New",
+                chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            ).exists()
+        )
+        self.assertContains(response, "16. Threat: New")
+
+    def test_evidence_workspace_ignores_non_about_narrative_numbers(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="99. Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="5. Threat: Existing",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=2,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "Threat: New",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            SynopsisChapter.objects.filter(
+                project=self.project,
+                title="6. Threat: New",
+                chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            ).exists()
+        )
+        self.assertContains(response, "6. Threat: New")
+
+    def test_evidence_workspace_does_not_reserve_number_for_non_intro_text_chapter(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="1. Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "Threat: New",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            SynopsisChapter.objects.filter(
+                project=self.project,
+                title="1. Threat: New",
+                chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            ).exists()
+        )
+        self.assertContains(response, "1. Threat: New")
+
+    def test_new_evidence_chapter_can_move_up_when_appendices_exist(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        first = SynopsisChapter.objects.create(
+            project=self.project,
+            title="5. Threat: Existing",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="Appendix 1: Sources",
+            chapter_type=SynopsisChapter.TYPE_APPENDIX,
+            position=2,
+        )
+
+        create_response = self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "Threat: New",
+            },
+        )
+        self.assertEqual(create_response.status_code, 302)
+
+        new_chapter = SynopsisChapter.objects.get(project=self.project, title="6. Threat: New")
+        move_response = self.client.post(
+            url,
+            {
+                "action": "move-chapter",
+                "chapter_id": new_chapter.id,
+                "direction": "up",
+            },
+        )
+
+        self.assertEqual(move_response.status_code, 302)
+        first.refresh_from_db()
+        new_chapter.refresh_from_db()
+        self.assertEqual(new_chapter.position, 1)
+        self.assertEqual(new_chapter.title, "1. Threat: New")
+        self.assertEqual(first.position, 2)
+        self.assertEqual(first.title, "2. Threat: Existing")
+
+    def test_structure_workspace_requires_confirmation_flag_to_delete_chapter(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "delete-chapter",
+                "chapter_id": chapter.id,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(SynopsisChapter.objects.filter(pk=chapter.id).exists())
+        self.assertContains(
+            response,
+            "Please confirm chapter deletion before removing it.",
+        )
+
+    def test_structure_workspace_deletes_chapter_after_confirmation(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "delete-chapter",
+                "chapter_id": chapter.id,
+                "confirm_delete_chapter": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(SynopsisChapter.objects.filter(pk=chapter.id).exists())
+
+    def test_move_chapter_renumbers_evidence_titles_only(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        front_matter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+        about = SynopsisChapter.objects.create(
+            project=self.project,
+            title="1. About this book",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=2,
+        )
+        threat = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=3,
+        )
+        next_threat = SynopsisChapter.objects.create(
+            project=self.project,
+            title="3. Threat: Next",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=4,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "move-chapter",
+                "chapter_id": next_threat.id,
+                "direction": "up",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        front_matter.refresh_from_db()
+        about.refresh_from_db()
+        threat.refresh_from_db()
+        next_threat.refresh_from_db()
+        self.assertEqual(front_matter.title, "Advisory Board")
+        self.assertEqual(about.position, 2)
+        self.assertEqual(about.title, "1. About this book")
+        self.assertEqual(next_threat.position, 3)
+        self.assertEqual(next_threat.title, "2. Threat: Next")
+        self.assertEqual(threat.position, 4)
+        self.assertEqual(threat.title, "3. Threat: Demo")
+
     def test_structure_page_renders_saved_action_name_suggestions(self):
         self.project.saved_action_names = "Install nest boxes\nReduce grazing"
         self.project.save(update_fields=["saved_action_names"])
@@ -324,6 +705,187 @@ class SynopsisStructureTests(TestCase):
         self.assertContains(response, "Vegetation Abundance")
         self.assertContains(response, "Vegetation Structure")
         self.assertContains(response, "Other")
+
+    def test_structure_page_places_no_studies_sentence_before_background_preview(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+            background_text="Chapter background text.",
+            background_references="Chapter Background Ref",
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+            evidence_status=SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES,
+            background_text="Intervention background text.",
+            background_references="Intervention Background Ref",
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        )
+
+        self.assertContains(
+            response,
+            "We found no studies that evaluated the effects of this intervention.",
+        )
+        self.assertContains(response, "Background references: Chapter Background Ref")
+        self.assertContains(
+            response,
+            "Background references: Intervention Background Ref",
+        )
+
+        content = response.content.decode()
+        title_index = content.find("2.1 Demo intervention")
+        no_studies_index = content.find(
+            "We found no studies that evaluated the effects of this intervention."
+        )
+        intervention_background_index = content.find("Intervention background text.")
+
+        self.assertGreaterEqual(title_index, 0)
+        self.assertGreater(no_studies_index, title_index)
+        self.assertGreater(intervention_background_index, no_studies_index)
+
+    def test_structure_page_renders_inline_markup_for_backgrounds_key_messages_and_summaries(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+            background_text="Forest <i>edge</i> with CO<sub>2</sub> buildup.",
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+            background_text="Reached the 10<sup>th</sup> plot.",
+        )
+        self.summary.synopsis_draft = (
+            "A replicated study found that <i>Festuca</i> cover increased at plot 10<sup>th</sup>."
+        )
+        self.summary.use_custom_synopsis_draft = True
+        self.summary.save(update_fields=["synopsis_draft", "use_custom_synopsis_draft"])
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+        SynopsisInterventionKeyMessage.objects.create(
+            intervention=intervention,
+            response_group=SynopsisInterventionKeyMessage.GROUP_RESPONSE,
+            statement="CO<sub>2</sub> uptake improved in the 10<sup>th</sup> plot.",
+            position=1,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        )
+
+        self.assertContains(response, "<i>edge</i>", html=False)
+        self.assertContains(response, "CO<sub>2</sub> buildup.", html=False)
+        self.assertContains(response, "10<sup>th</sup> plot.", html=False)
+        self.assertContains(response, "<i>Festuca</i>", html=False)
+        self.assertContains(response, "CO<sub>2</sub> uptake improved", html=False)
+        self.assertContains(response, 'data-inline-markup="true"', html=False)
+
+    def test_structure_page_includes_distinct_subscript_and_superscript_toolbar_contract(self):
+        response = self.client.get(
+            reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        )
+
+        self.assertContains(response, "x₂", html=False)
+        self.assertContains(response, "x²", html=False)
+        self.assertContains(response, "bottom: -0.3em;", html=False)
+        self.assertContains(response, "top: -0.55em;", html=False)
+
+    def test_structure_page_explains_export_order_and_chapter_delete_impact(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        )
+
+        self.assertContains(response, "How This Compiles to DOCX")
+        self.assertContains(
+            response,
+            "The DOCX follows this page order.",
+        )
+        self.assertContains(
+            response,
+            "Each intervention exports in this order:",
+        )
+        self.assertContains(
+            response,
+            "This removes the chapter and everything inside it from the synopsis outline",
+        )
+        self.assertContains(
+            response,
+            'id="delete-evidence-chapter-modal"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'data-delete-chapter-trigger',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            'name="confirm_delete_chapter" value="1"',
+            html=False,
+        )
+        self.assertContains(response, f'href="#chapter-{chapter.id}"', html=False)
+
+    def test_structure_page_hides_cross_reference_controls(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        primary = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Primary intervention",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.2 Secondary intervention",
+            position=2,
+            is_cross_reference=True,
+            primary_intervention=primary,
+        )
+
+        response = self.client.get(
+            reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        )
+
+        self.assertNotContains(response, 'name="primary_intervention"', html=False)
+        self.assertNotContains(response, 'name="is_cross_reference"', html=False)
+        self.assertNotContains(response, ">Cross-ref<", html=False)
+        self.assertNotContains(response, "Cross-reference:", html=False)
 
     def test_synopsis_ris_export_includes_unique_summarised_references(self):
         chapter = SynopsisChapter.objects.create(
@@ -651,6 +1213,72 @@ class SynopsisStructureTests(TestCase):
             ).exists()
         )
 
+    def test_synopsis_structure_csv_export_normalizes_legacy_taxonomy_tags(self):
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="Install nest boxes",
+            position=1,
+        )
+        self.reference.title = "Assigned legacy taxonomy ref"
+        self.reference.hash_key = "hash-assigned-legacy-taxonomy"
+        self.reference.screening_status = "included"
+        self.reference.save(
+            update_fields=["title", "hash_key", "screening_status", "updated_at"]
+        )
+        self.summary.status = ReferenceSummary.STATUS_DONE
+        self.summary.action_tags = [
+            "Land/water protection-Area protection",
+            "Research & monitoring-Conservation planning",
+        ]
+        self.summary.habitat_tags = [
+            "Marine Coral Reefs",
+            "Artificial - Urban Areas",
+        ]
+        self.summary.save(
+            update_fields=[
+                "status",
+                "action_tags",
+                "habitat_tags",
+                "updated_at",
+            ]
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=self.summary,
+            position=1,
+        )
+
+        response = self.client.get(
+            reverse(
+                "synopsis:project_synopsis_export_structure_csv",
+                args=[self.project.id],
+            )
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8"))))
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(
+            row["action_tags"],
+            "Land/water protection - 1.1 Site/area protection | Research & monitoring-Conservation planning",
+        )
+        self.assertEqual(
+            row["habitat_tags"],
+            "Marine-Coral Reefs | Artificial Habitats-Built-up Areas",
+        )
+
     def test_synopsis_structure_csv_export_sanitizes_formula_like_cells(self):
         self.reference.title = "=Dangerous title"
         self.reference.authors = "@Author"
@@ -786,6 +1414,62 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertFalse(
             SynopsisIntervention.objects.filter(subheading__chapter=text_chapter).exists()
+        )
+
+    def test_structure_workspace_rejects_invalid_inline_markup_in_background(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-chapter-background",
+                "chapter_id": chapter.id,
+                "background_text": "CO<sup>2",
+                "background_references": "",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        chapter.refresh_from_db()
+        self.assertEqual(chapter.background_text, "")
+        self.assertContains(
+            response,
+            "Please check the background fields.",
+        )
+        self.assertContains(response, "matching closing tag")
+
+    def test_structure_workspace_rejects_chapter_type_change_outside_workspace_choices(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-chapter-type",
+                "chapter_id": chapter.id,
+                "chapter_type": SynopsisChapter.TYPE_TEXT,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        chapter.refresh_from_db()
+        self.assertEqual(chapter.chapter_type, SynopsisChapter.TYPE_EVIDENCE)
+        self.assertContains(
+            response,
+            "Selected chapter type is not available in this workspace.",
         )
 
     def test_update_intervention_details_fields(self):
@@ -1182,9 +1866,9 @@ class SynopsisStructureTests(TestCase):
         self.assertTrue(
             all(category.kind == IUCNCategory.KIND_ACTION for category in context_categories)
         )
-        self.assertIn(
-            "Land/water protection-Area protection",
+        self.assertEqual(
             [category.name for category in context_categories],
+            [value for value, _label in IUCN_ACTION_CHOICES],
         )
         self.assertNotIn(
             "Residential & commercial development",
@@ -1197,6 +1881,10 @@ class SynopsisStructureTests(TestCase):
         self.assertTrue(form_categories)
         self.assertTrue(
             all(category.kind == IUCNCategory.KIND_ACTION for category in form_categories)
+        )
+        self.assertEqual(
+            [category.name for category in form_categories],
+            [value for value, _label in IUCN_ACTION_CHOICES],
         )
 
     def test_update_intervention_metadata_rejects_threat_category(self):
@@ -1310,6 +1998,87 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(
             list(intervention.iucn_actions.order_by("position", "name").values_list("id", flat=True)),
             [category.id for category in action_categories],
+        )
+
+    def test_evidence_workspace_keeps_linked_legacy_iucn_action_visible_in_editor(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        legacy_category = IUCNCategory.objects.get(
+            kind=IUCNCategory.KIND_ACTION,
+            name="Research & monitoring-Conservation planning",
+        )
+        intervention.iucn_actions.add(legacy_category)
+
+        response = self.client.get(url)
+
+        rendered_chapter = response.context["chapters"][0]
+        rendered_subheading = list(rendered_chapter.subheadings.all())[0]
+        rendered_intervention = list(rendered_subheading.interventions.all())[0]
+        edit_names = [
+            category.name for category in rendered_intervention.edit_iucn_categories
+        ]
+        self.assertIn(
+            "Research & monitoring-Conservation planning",
+            edit_names,
+        )
+        self.assertIn(
+            "Land/water protection - 1.1 Site/area protection",
+            edit_names,
+        )
+
+    def test_update_intervention_metadata_allows_existing_inactive_iucn_action(self):
+        url = reverse("synopsis:project_synopsis_structure", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        legacy_category = IUCNCategory.objects.get(
+            kind=IUCNCategory.KIND_ACTION,
+            name="Research & monitoring-Conservation planning",
+        )
+        intervention.iucn_actions.add(legacy_category)
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-intervention-metadata",
+                "intervention_id": intervention.id,
+                "iucn_actions": [str(legacy_category.id)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        intervention.refresh_from_db()
+        self.assertEqual(
+            list(intervention.iucn_actions.values_list("name", flat=True)),
+            ["Research & monitoring-Conservation planning"],
         )
 
     def test_update_intervention_metadata_allows_title_rename(self):
@@ -1618,6 +2387,355 @@ class SynopsisStructureTests(TestCase):
         )
         self.assertTrue(any(run.text == "Glipa" and run.italic for run in reference_paragraph.runs))
 
+    def test_generate_docx_places_key_message_citations_before_full_stop(self):
+        from docx import Document
+
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Supporting paper",
+            authors="Gamma G.",
+            publication_year=2009,
+            hash_key="hash-key-message-citation",
+            screening_status="included",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            study_design="replicated study",
+            year_range="2009",
+            summary_of_results="kelp cover improved.",
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=summary,
+            position=1,
+        )
+        key_message = SynopsisInterventionKeyMessage.objects.create(
+            intervention=intervention,
+            response_group=SynopsisInterventionKeyMessage.GROUP_RESPONSE,
+            statement="Kelp cover improved.",
+            position=1,
+        )
+        key_message.supporting_summaries.set([summary])
+
+        payload = _generate_synopsis_docx(self.project)
+        document = Document(io.BytesIO(payload))
+        paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+
+        self.assertIn(
+            "General response: Kelp cover improved (1).",
+            paragraphs,
+        )
+
+    def test_generate_docx_places_formatted_key_message_citation_before_full_stop(self):
+        from docx import Document
+
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Supporting paper",
+            authors="Gamma G.",
+            publication_year=2009,
+            hash_key="hash-key-message-markup-citation",
+            screening_status="included",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            study_design="replicated study",
+            year_range="2009",
+            summary_of_results="kelp cover improved.",
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=summary,
+            position=1,
+        )
+        key_message = SynopsisInterventionKeyMessage.objects.create(
+            intervention=intervention,
+            response_group=SynopsisInterventionKeyMessage.GROUP_RESPONSE,
+            statement="<i>Festuca.</i>",
+            position=1,
+        )
+        key_message.supporting_summaries.set([summary])
+
+        payload = _generate_synopsis_docx(self.project)
+        document = Document(io.BytesIO(payload))
+        paragraph = next(
+            item
+            for item in document.paragraphs
+            if item.text == "General response: Festuca (1)."
+        )
+
+        self.assertTrue(any(run.text == "Festuca" and run.italic for run in paragraph.runs))
+        self.assertFalse(
+            any(run.text == "." and run.italic for run in paragraph.runs)
+        )
+
+    def test_generate_docx_places_no_studies_before_background_and_labels_background(self):
+        from docx import Document
+
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+            background_text="Chapter background text.",
+            background_references="Chapter Background Ref",
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+            evidence_status=SynopsisIntervention.EVIDENCE_STATUS_NO_STUDIES,
+            background_text="Intervention background text.",
+            background_references="Intervention Background Ref",
+        )
+
+        payload = _generate_synopsis_docx(self.project)
+        document = Document(io.BytesIO(payload))
+        paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+
+        self.assertGreaterEqual(paragraphs.count("Background"), 2)
+
+        chapter_title_index = paragraphs.index("2. Threat: Demo")
+        first_background_index = paragraphs.index("Background", chapter_title_index + 1)
+        self.assertEqual(paragraphs[first_background_index + 1], "Chapter background text.")
+        self.assertEqual(
+            paragraphs[first_background_index + 2],
+            "Background references: Chapter Background Ref",
+        )
+
+        intervention_title_index = paragraphs.index("2.1 Demo intervention")
+        no_studies_index = paragraphs.index(
+            "We found no studies that evaluated the effects of this intervention."
+        )
+        intervention_background_index = paragraphs.index(
+            "Background", no_studies_index + 1
+        )
+        self.assertLess(intervention_title_index, no_studies_index)
+        self.assertLess(no_studies_index, intervention_background_index)
+        self.assertEqual(
+            paragraphs[intervention_background_index + 1],
+            "Intervention background text.",
+        )
+        self.assertEqual(
+            paragraphs[intervention_background_index + 2],
+            "Background references: Intervention Background Ref",
+        )
+
+    def test_generate_docx_does_not_label_narrative_chapter_text_as_background(self):
+        from docx import Document
+
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="1. Introduction",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+            background_text="This is the narrative introduction.",
+        )
+
+        payload = _generate_synopsis_docx(self.project)
+        document = Document(io.BytesIO(payload))
+        paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+
+        self.assertIn("1. Introduction", paragraphs)
+        self.assertIn("This is the narrative introduction.", paragraphs)
+        self.assertNotIn("Background", paragraphs)
+
+    def test_generate_docx_preserves_inline_markup_in_backgrounds_key_messages_and_summary_paragraphs(self):
+        from docx import Document
+
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+            background_text="Forest <i>edge</i> with CO<sub>2</sub> buildup.",
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Demo intervention",
+            position=1,
+            background_text="Reached the 10<sup>th</sup> plot.",
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Supporting paper",
+            authors="Gamma G.",
+            publication_year=2009,
+            hash_key="hash-inline-markup-export",
+            screening_status="included",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            synopsis_draft=(
+                "A replicated study found that <i>Festuca</i> cover increased at plot 10<sup>th</sup>."
+            ),
+            use_custom_synopsis_draft=True,
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=summary,
+            position=1,
+        )
+        SynopsisInterventionKeyMessage.objects.create(
+            intervention=intervention,
+            response_group=SynopsisInterventionKeyMessage.GROUP_RESPONSE,
+            statement="CO<sub>2</sub> uptake improved in the 10<sup>th</sup> plot.",
+            position=1,
+        )
+
+        payload = _generate_synopsis_docx(self.project)
+        document = Document(io.BytesIO(payload))
+
+        chapter_background = next(
+            paragraph
+            for paragraph in document.paragraphs
+            if paragraph.text == "Forest edge with CO2 buildup."
+        )
+        intervention_background = next(
+            paragraph
+            for paragraph in document.paragraphs
+            if paragraph.text == "Reached the 10th plot."
+        )
+        key_message_paragraph = next(
+            paragraph
+            for paragraph in document.paragraphs
+            if paragraph.text == "General response: CO2 uptake improved in the 10th plot."
+        )
+        summary_paragraph = next(
+            paragraph
+            for paragraph in document.paragraphs
+            if "Festuca cover increased at plot 10th." in paragraph.text
+        )
+
+        self.assertTrue(any(run.text == "edge" and run.italic for run in chapter_background.runs))
+        self.assertTrue(
+            any(run.text == "2" and run.font.subscript for run in chapter_background.runs)
+        )
+        self.assertTrue(
+            any(run.text == "th" and run.font.superscript for run in intervention_background.runs)
+        )
+        self.assertTrue(
+            any(run.text == "2" and run.font.subscript for run in key_message_paragraph.runs)
+        )
+        self.assertTrue(
+            any(run.text == "th" and run.font.superscript for run in key_message_paragraph.runs)
+        )
+        self.assertTrue(any(run.text == "Festuca" and run.italic for run in summary_paragraph.runs))
+        self.assertTrue(
+            any(run.text == "th" and run.font.superscript for run in summary_paragraph.runs)
+        )
+
+    def test_generate_docx_ignores_legacy_cross_reference_flags(self):
+        from docx import Document
+
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=1,
+        )
+        subheading = SynopsisSubheading.objects.create(
+            chapter=chapter,
+            title="Interventions",
+            position=1,
+        )
+        primary = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.1 Primary intervention",
+            position=1,
+        )
+        intervention = SynopsisIntervention.objects.create(
+            subheading=subheading,
+            title="2.2 Secondary intervention",
+            position=2,
+            is_cross_reference=True,
+            primary_intervention=primary,
+        )
+        reference = Reference.objects.create(
+            project=self.project,
+            batch=self.batch,
+            title="Legacy cross reference study",
+            authors="Delta D.",
+            publication_year=2012,
+            hash_key="hash-legacy-cross-ref",
+            screening_status="included",
+        )
+        summary = ReferenceSummary.objects.create(
+            project=self.project,
+            reference=reference,
+            study_design="replicated study",
+            year_range="2012",
+            summary_of_results="evidence still exports under the intervention.",
+        )
+        SynopsisAssignment.objects.create(
+            intervention=intervention,
+            reference_summary=summary,
+            position=1,
+        )
+
+        payload = _generate_synopsis_docx(self.project)
+        document = Document(io.BytesIO(payload))
+        paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+
+        self.assertIn("2.2 Secondary intervention", paragraphs)
+        self.assertTrue(
+            any(
+                "evidence still exports under the intervention." in paragraph
+                for paragraph in paragraphs
+            )
+        )
+        self.assertFalse(
+            any(paragraph.startswith("Cross-reference: Evidence is summarized under") for paragraph in paragraphs)
+        )
+
     def test_workspace_routes_load(self):
         narrative_url = reverse(
             "synopsis:project_synopsis_narrative", args=[self.project.id]
@@ -1628,9 +2746,23 @@ class SynopsisStructureTests(TestCase):
         structure_url = reverse(
             "synopsis:project_synopsis_structure", args=[self.project.id]
         )
-        self.assertEqual(self.client.get(narrative_url).status_code, 200)
-        self.assertEqual(self.client.get(evidence_url).status_code, 200)
-        self.assertEqual(self.client.get(structure_url).status_code, 200)
+        narrative_response = self.client.get(narrative_url)
+        evidence_response = self.client.get(evidence_url)
+        structure_response = self.client.get(structure_url)
+
+        self.assertEqual(narrative_response.status_code, 200)
+        self.assertEqual(evidence_response.status_code, 200)
+        self.assertEqual(structure_response.status_code, 200)
+        self.assertContains(
+            narrative_response, "synopsis-workspace-container", html=False
+        )
+        self.assertContains(narrative_response, "Back to summary workspace")
+        self.assertContains(
+            evidence_response, "synopsis-workspace-container", html=False
+        )
+        self.assertContains(
+            structure_response, "synopsis-workspace-container", html=False
+        )
 
     def test_narrative_workspace_post_redirects_to_narrative_route(self):
         url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
@@ -1646,6 +2778,58 @@ class SynopsisStructureTests(TestCase):
         self.assertEqual(
             urlparse(response["Location"]).path,
             urlparse(url).path,
+        )
+
+    def test_narrative_workspace_create_chapter_does_not_auto_number(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="5. Existing chapter",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "Executive summary",
+                "chapter_type": SynopsisChapter.TYPE_TEXT,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            SynopsisChapter.objects.filter(
+                project=self.project,
+                title="Executive summary",
+                chapter_type=SynopsisChapter.TYPE_TEXT,
+            ).exists()
+        )
+        self.assertContains(response, "Executive summary")
+
+    def test_narrative_workspace_limits_chapter_type_choices_to_narrative_and_appendix(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        response = self.client.get(url)
+
+        self.assertContains(response, "Narrative chapter")
+        self.assertContains(response, "Appendix / back matter")
+        self.assertContains(response, "Evidence chapters are created in the Evidence workspace.")
+        self.assertNotContains(response, ">Evidence chapter<", html=False)
+
+        invalid_response = self.client.post(
+            url,
+            {
+                "action": "create-chapter",
+                "title": "Should fail",
+                "chapter_type": SynopsisChapter.TYPE_EVIDENCE,
+            },
+        )
+
+        self.assertEqual(invalid_response.status_code, 200)
+        self.assertFalse(
+            SynopsisChapter.objects.filter(project=self.project, title="Should fail").exists()
         )
 
     def test_narrative_workspace_renders_restore_state_hooks(self):
@@ -1665,6 +2849,290 @@ class SynopsisStructureTests(TestCase):
             response,
             f'"synopsis-narrative-state-{self.project.id}"',
             html=False,
+        )
+
+    def test_narrative_workspace_renders_saved_chapter_text_preview(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        SynopsisChapter.objects.create(
+            project=self.project,
+            title="Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            background_text="<i>Italic</i> chapter text",
+            position=1,
+        )
+
+        response = self.client.get(url)
+
+        self.assertContains(response, "Saved preview")
+        self.assertContains(
+            response,
+            '<span class="ce-inline-markup-rendered"><i>Italic</i> chapter text</span>',
+            html=False,
+        )
+
+    def test_narrative_workspace_updates_chapter_title(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-chapter-title",
+                "chapter_id": chapter.id,
+                "title": "3. Editorial Board",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            urlparse(response["Location"]).path,
+            urlparse(url).path,
+        )
+        chapter.refresh_from_db()
+        self.assertEqual(chapter.title, "Editorial Board")
+
+    def test_narrative_workspace_drops_stray_legacy_number_from_non_intro_title(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="1. Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-chapter-title",
+                "chapter_id": chapter.id,
+                "title": "Editorial Board",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        chapter.refresh_from_db()
+        self.assertEqual(chapter.title, "Editorial Board")
+
+    def test_narrative_workspace_renumbers_evidence_when_reserved_intro_is_removed(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="1. About this book",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+        evidence = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=2,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-chapter-title",
+                "chapter_id": chapter.id,
+                "title": "Editorial Board",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        chapter.refresh_from_db()
+        evidence.refresh_from_db()
+        self.assertEqual(chapter.title, "Editorial Board")
+        self.assertEqual(evidence.title, "1. Threat: Demo")
+
+    def test_narrative_workspace_preserves_reserved_intro_number_when_renamed(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="1. About this book",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-chapter-title",
+                "chapter_id": chapter.id,
+                "title": "About the book",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        chapter.refresh_from_db()
+        self.assertEqual(chapter.title, "1. About the book")
+
+    def test_narrative_workspace_rejects_evidence_type_change_posts(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="References",
+            chapter_type=SynopsisChapter.TYPE_APPENDIX,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-chapter-type",
+                "chapter_id": chapter.id,
+                "chapter_type": SynopsisChapter.TYPE_EVIDENCE,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        chapter.refresh_from_db()
+        self.assertEqual(chapter.chapter_type, SynopsisChapter.TYPE_APPENDIX)
+        self.assertContains(
+            response,
+            "Selected chapter type is not available in this workspace.",
+        )
+
+    def test_narrative_workspace_repositions_chapter_when_type_changes(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        front = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+        evidence = SynopsisChapter.objects.create(
+            project=self.project,
+            title="2. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=2,
+        )
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="References",
+            chapter_type=SynopsisChapter.TYPE_APPENDIX,
+            position=3,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "update-chapter-type",
+                "chapter_id": chapter.id,
+                "chapter_type": SynopsisChapter.TYPE_TEXT,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        front.refresh_from_db()
+        evidence.refresh_from_db()
+        chapter.refresh_from_db()
+        self.assertEqual(chapter.chapter_type, SynopsisChapter.TYPE_TEXT)
+        self.assertEqual(front.position, 1)
+        self.assertEqual(chapter.position, 2)
+        self.assertEqual(evidence.position, 3)
+
+    def test_narrative_workspace_move_chapter_does_not_cross_into_evidence_section(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+        evidence = SynopsisChapter.objects.create(
+            project=self.project,
+            title="1. Threat: Demo",
+            chapter_type=SynopsisChapter.TYPE_EVIDENCE,
+            position=2,
+        )
+        appendix = SynopsisChapter.objects.create(
+            project=self.project,
+            title="References",
+            chapter_type=SynopsisChapter.TYPE_APPENDIX,
+            position=3,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "move-chapter",
+                "chapter_id": chapter.id,
+                "direction": "down",
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        chapter.refresh_from_db()
+        evidence.refresh_from_db()
+        appendix.refresh_from_db()
+        self.assertEqual(chapter.position, 1)
+        self.assertEqual(evidence.position, 2)
+        self.assertEqual(appendix.position, 3)
+        self.assertContains(response, "Already at the edge.")
+
+    def test_narrative_workspace_requires_confirmation_to_delete_chapter(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+
+        response = self.client.get(url)
+
+        self.assertContains(
+            response,
+            'id="delete-narrative-chapter-modal"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            f'data-chapter-id="{chapter.id}"',
+            count=1,
+            html=False,
+        )
+        self.assertContains(response, 'value="move-chapter"', count=2, html=False)
+        self.assertContains(response, f'href="#chapter-{chapter.id}"', html=False)
+        self.assertContains(
+            response,
+            'name="confirm_delete_chapter" value="1"',
+            html=False,
+        )
+        self.assertContains(
+            response,
+            "This removes the chapter and its authored text from the synopsis outline and DOCX export.",
+        )
+
+    def test_narrative_workspace_requires_confirmation_flag_to_delete_chapter(self):
+        url = reverse("synopsis:project_synopsis_narrative", args=[self.project.id])
+        chapter = SynopsisChapter.objects.create(
+            project=self.project,
+            title="Advisory Board",
+            chapter_type=SynopsisChapter.TYPE_TEXT,
+            position=1,
+        )
+
+        response = self.client.post(
+            url,
+            {
+                "action": "delete-chapter",
+                "chapter_id": chapter.id,
+            },
+            follow=True,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(SynopsisChapter.objects.filter(pk=chapter.id).exists())
+        self.assertContains(
+            response,
+            "Please confirm chapter deletion before removing it.",
         )
 
 
@@ -1801,6 +3269,67 @@ class ViewHelperTests(TestCase):
                 ("Glipa", True),
                 (" restoration note.", False),
             ],
+        )
+
+    def test_split_inline_markup_supports_subscript_and_superscript(self):
+        segments = split_inline_markup(
+            "CO<sub>2</sub> rose in the 10<sup>th</sup> plot with <i>Festuca</i>."
+        )
+
+        self.assertEqual(
+            segments,
+            [
+                InlineMarkupSegment("CO"),
+                InlineMarkupSegment("2", subscript=True),
+                InlineMarkupSegment(" rose in the 10"),
+                InlineMarkupSegment("th", superscript=True),
+                InlineMarkupSegment(" plot with "),
+                InlineMarkupSegment("Festuca", italic=True),
+                InlineMarkupSegment("."),
+            ],
+        )
+
+    def test_format_inline_markup_html_escapes_unknown_tags_but_keeps_supported_formatting(self):
+        rendered = format_inline_markup_html(
+            "CO<sub>2</sub> and <i>Festuca</i><script>alert(1)</script>"
+        )
+
+        self.assertEqual(
+            rendered,
+            "CO<sub>2</sub> and <i>Festuca</i>&lt;script&gt;alert(1)&lt;/script&gt;",
+        )
+
+    def test_format_inline_markup_html_keeps_entity_escaped_supported_tags_literal(self):
+        rendered = format_inline_markup_html("&lt;sup&gt;literal&lt;/sup&gt;")
+
+        self.assertEqual(rendered, "&lt;sup&gt;literal&lt;/sup&gt;")
+
+    def test_background_form_rejects_unclosed_supported_inline_tag(self):
+        form = SynopsisBackgroundForm(
+            data={"background_text": "CO<sup>2", "background_references": ""}
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "matching closing tag",
+            form.errors["background_text"][0],
+        )
+
+    def test_key_message_form_rejects_nested_subscript_and_superscript(self):
+        form = SynopsisKeyMessageForm(
+            data={
+                "response_group": SynopsisInterventionKeyMessage.GROUP_RESPONSE,
+                "outcome_label": "",
+                "study_count": "",
+                "statement": "<sub><sup>x</sup></sub>",
+                "supporting_summaries": [],
+            }
+        )
+
+        self.assertFalse(form.is_valid())
+        self.assertIn(
+            "cannot be nested inside one another",
+            form.errors["statement"][0],
         )
 
     def test_user_can_confirm_phase(self):

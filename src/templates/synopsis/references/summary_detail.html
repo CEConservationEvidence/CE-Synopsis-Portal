@@ -1,4 +1,5 @@
 {% extends "synopsis/base.html" %}
+{% load synopsis_formatting %}
 {% block title %}Reference summary – {{ project.title }}{% endblock %}
 {% block page_container_class %}container-fluid px-3 px-xl-4 px-xxl-5{% endblock %}
 {% block content %}
@@ -190,16 +191,6 @@
             </div>
         </div>
     </div>
-</div>
-<div class="alert {% if summary_editor_presence.has_other_participants or summary.assigned_to and summary.assigned_to_id != request.user.id %}alert-warning{% else %}alert-info{% endif %} small mb-4">
-    <div class="fw-semibold mb-1">This summary page is not a live shared document.</div>
-    <div>If another author saves this summary before you do, your page becomes out of date and you will need to reload it before your own save can be accepted.</div>
-    {% if summary_editor_presence.has_other_participants %}
-    <div class="mt-1">Another active author right now: {{ summary_editor_presence.other_participants|join:", " }}.</div>
-    {% endif %}
-    {% if summary.assigned_to and summary.assigned_to_id != request.user.id %}
-    <div class="mt-1">This summary is currently assigned to {{ summary.assigned_to.get_full_name|default:summary.assigned_to.username }}.</div>
-    {% endif %}
 </div>
 <div class="card mb-4">
     <div class="card-body">
@@ -720,13 +711,13 @@
                         <div class="small text-muted mb-2">These fields support CE consistency, filtering and later synthesis work.</div>
                         <div class="row g-3">
                             <div class="col-12">
-                                <div class="tag-picker" data-tag-picker data-tag-max-selected="4">
+                                <div class="tag-picker" data-tag-picker>
                                     <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
                                         <div>
                                             <label class="form-label mb-1">Research design tags (CE)</label>
-                                            <div class="form-text mt-0">Select all study design terms that apply, up to four. If the study design phrase above is left blank, it will be built automatically from these tags.</div>
+                                            <div class="form-text mt-0">Select all study design terms that apply. If the study design phrase above is left blank, it will be built automatically from these tags.</div>
                                         </div>
-                                        <span class="badge text-bg-light" data-tag-count>0 of 4 selected</span>
+                                        <span class="badge text-bg-light" data-tag-count>0 selected</span>
                                     </div>
                                     <div class="tag-picker-toolbar">
                                         <input type="search" class="form-control form-control-sm" data-tag-filter placeholder="Filter research design tags">
@@ -735,7 +726,6 @@
                                     <div class="tag-choice-panel">
                                         {{ summary_form.research_design }}
                                     </div>
-                                    <div class="form-text text-primary d-none" data-tag-limit-message>Maximum reached. Clear one selected term to choose another.</div>
                                 </div>
                                 {% if summary_form.research_design.errors %}
                                 <div class="text-danger small mt-1">{{ summary_form.research_design.errors|join:", " }}</div>
@@ -817,6 +807,12 @@
                 {% else %}
                     <p class="text-muted small mb-3">Fill in any of the optional structured fields above to generate a paragraph automatically, or write a custom summary paragraph here.</p>
                 {% endif %}
+                {% if current_summary_paragraph %}
+                <div class="border rounded bg-light p-3 small mb-3">
+                    <div class="fw-semibold small text-uppercase text-muted mb-1">Current compiled paragraph</div>
+                    <div class="text-body">{{ current_summary_paragraph|render_inline_markup }}</div>
+                </div>
+                {% endif %}
                 <form method="post" class="d-flex flex-column gap-3" id="summary-draft-form">
                     {% csrf_token %}
                     <input type="hidden" name="action" value="save-synopsis-draft">
@@ -825,6 +821,10 @@
                         <label class="form-label" for="{{ draft_form.synopsis_draft.id_for_label }}">Summary paragraph</label>
                         {{ draft_form.synopsis_draft }}
                         <div class="form-text">{{ draft_form.synopsis_draft.help_text }}</div>
+                        <div class="form-text mt-1">
+                            Word count:
+                            <span class="fw-semibold" data-summary-word-count>0</span>
+                        </div>
                         {% if draft_form.synopsis_draft.errors %}
                         <div class="text-danger small">{{ draft_form.synopsis_draft.errors|join:", " }}</div>
                         {% endif %}
@@ -1028,6 +1028,30 @@
 {{ summary_editor_presence|json_script:"summary-editor-presence-data" }}
 <script>
     (() => {
+        const draftField = document.getElementById("{{ draft_form.synopsis_draft.id_for_label }}");
+        const wordCountEl = document.querySelector("[data-summary-word-count]");
+        const countWords = (value) => {
+            const stripped = (value || "")
+                .replace(/<[^>]*>/g, " ")
+                .replace(/&nbsp;/gi, " ")
+                .replace(/\s+/g, " ")
+                .trim();
+            if (!stripped) {
+                return 0;
+            }
+            return stripped.split(" ").length;
+        };
+        const updateWordCount = () => {
+            if (!draftField || !wordCountEl) {
+                return;
+            }
+            wordCountEl.textContent = String(countWords(draftField.value));
+        };
+        if (draftField && wordCountEl) {
+            updateWordCount();
+            draftField.addEventListener("input", updateWordCount);
+        }
+
         document.querySelectorAll("[data-tag-picker]").forEach((picker) => {
             const filter = picker.querySelector("[data-tag-filter]");
             const clearButton = picker.querySelector("[data-tag-clear]");
@@ -1429,6 +1453,7 @@
         }
     })();
 </script>
+{% include "synopsis/includes/inline_markup_toolbar_assets.html" %}
 <div class="d-flex justify-content-end my-3">
     <a href="#top" class="btn btn-outline-secondary btn-sm">Back to top</a>
 </div>

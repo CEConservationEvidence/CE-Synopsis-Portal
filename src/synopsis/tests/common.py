@@ -90,20 +90,25 @@ from ..forms import (
     IUCN_THREAT_CHOICES,
     ReferenceSummaryDraftForm,
     ReferenceSummaryUpdateForm,
+    SynopsisBackgroundForm,
+    SynopsisKeyMessageForm,
 )
 from ..email_backends import AttachmentSummaryConsoleEmailBackend
 from ..utils import (
     BRAND,
     GLOBAL_GROUPS,
+    InlineMarkupSegment,
     default_action_list_review_message,
     default_advisory_invitation_message,
     default_protocol_review_message,
     default_synopsis_review_message,
     email_subject,
     ensure_global_groups,
+    format_inline_markup_html,
     reference_summary_effective_citation,
     reference_hash,
     reply_to_list,
+    split_inline_markup,
     split_inline_italic_markup,
 )
 from ..views import (

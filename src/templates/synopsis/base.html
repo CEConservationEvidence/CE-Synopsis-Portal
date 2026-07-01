@@ -107,6 +107,18 @@
             };
         </script>
         <style>
+            :root {
+                --ce-button-primary: #24559a;
+                --ce-button-primary-soft: #bfd0e8;
+                --ce-button-success: #1f7a4f;
+                --ce-button-success-soft: #b9ddca;
+                --ce-button-danger: #b2414b;
+                --ce-button-danger-soft: #e6bcc0;
+                --ce-button-secondary: #5f6b76;
+                --ce-button-secondary-soft: #c8cfd6;
+                --ce-button-warning: #b07a1a;
+                --ce-button-warning-soft: #e7d2a2;
+            }
             .ce-navbar-layout {
                 display: grid;
                 grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -167,6 +179,110 @@
                 color: inherit;
                 font-size: inherit;
                 padding: 0;
+            }
+            .synopsis-workspace-container {
+                max-width: 1600px;
+                margin: 0 auto;
+            }
+            .btn {
+                font-family: inherit;
+                font-weight: 500;
+                white-space: normal;
+                overflow-wrap: anywhere;
+                line-height: 1.2;
+            }
+            .btn-sm {
+                padding: 0.34rem 0.68rem;
+                font-size: 0.79rem;
+            }
+            .synopsis-workspace-container .badge {
+                font-size: 0.72rem;
+                font-weight: 500;
+            }
+            .btn-primary,
+            .btn-primary:hover,
+            .btn-primary:focus,
+            .btn-primary:active,
+            .btn-primary.active,
+            .btn-outline-primary:hover,
+            .btn-outline-primary:focus,
+            .btn-outline-primary.active,
+            .btn-outline-primary:active {
+                background-color: var(--ce-button-primary);
+                border-color: var(--ce-button-primary);
+                color: #fff;
+            }
+            .btn-outline-primary {
+                color: var(--ce-button-primary);
+                border-color: var(--ce-button-primary-soft);
+            }
+            .btn-success,
+            .btn-success:hover,
+            .btn-success:focus,
+            .btn-success:active,
+            .btn-success.active,
+            .btn-outline-success:hover,
+            .btn-outline-success:focus,
+            .btn-outline-success:active,
+            .btn-outline-success.active {
+                background-color: var(--ce-button-success);
+                border-color: var(--ce-button-success);
+                color: #fff;
+            }
+            .btn-outline-success {
+                color: var(--ce-button-success);
+                border-color: var(--ce-button-success-soft);
+            }
+            .btn-danger,
+            .btn-danger:hover,
+            .btn-danger:focus,
+            .btn-danger:active,
+            .btn-danger.active,
+            .btn-outline-danger:hover,
+            .btn-outline-danger:focus,
+            .btn-outline-danger:active,
+            .btn-outline-danger.active {
+                background-color: var(--ce-button-danger);
+                border-color: var(--ce-button-danger);
+                color: #fff;
+            }
+            .btn-outline-danger {
+                color: var(--ce-button-danger);
+                border-color: var(--ce-button-danger-soft);
+            }
+            .btn-secondary,
+            .btn-secondary:hover,
+            .btn-secondary:focus,
+            .btn-secondary:active,
+            .btn-secondary.active,
+            .btn-outline-secondary:hover,
+            .btn-outline-secondary:focus,
+            .btn-outline-secondary:active,
+            .btn-outline-secondary.active {
+                background-color: var(--ce-button-secondary);
+                border-color: var(--ce-button-secondary);
+                color: #fff;
+            }
+            .btn-outline-secondary {
+                color: var(--ce-button-secondary);
+                border-color: var(--ce-button-secondary-soft);
+            }
+            .btn-warning,
+            .btn-warning:hover,
+            .btn-warning:focus,
+            .btn-warning:active,
+            .btn-warning.active,
+            .btn-outline-warning:hover,
+            .btn-outline-warning:focus,
+            .btn-outline-warning:active,
+            .btn-outline-warning.active {
+                background-color: var(--ce-button-warning);
+                border-color: var(--ce-button-warning);
+                color: #fff;
+            }
+            .btn-outline-warning {
+                color: var(--ce-button-warning);
+                border-color: var(--ce-button-warning-soft);
             }
             @media (max-width: 991.98px) {
                 .ce-navbar-layout {

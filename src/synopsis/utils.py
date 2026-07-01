@@ -1,5 +1,6 @@
 """Shared utility functions for permissions, email text, deadlines, and references."""
 
+from dataclasses import dataclass
 import hashlib
 import html
 import re
@@ -321,16 +322,63 @@ def reference_summary_effective_citation(summary) -> str:
     return (getattr(summary, "citation", "") or "").strip()
 
 
-_ITALIC_TAG_RE = re.compile(r"(?i)(</?(?:i|em)>)")
+@dataclass(frozen=True)
+class InlineMarkupSegment:
+    """One text segment plus the inline formatting that applies to it."""
+
+    text: str
+    italic: bool = False
+    subscript: bool = False
+    superscript: bool = False
 
 
-def split_inline_italic_markup(text: str) -> list[tuple[str, bool]]:
-    """Split a text fragment into plain/italic segments using simple <i>/<em> tags."""
+_INLINE_MARKUP_TAG_RE = re.compile(r"(?i)(</?(?:i|em|sub|sup)>)")
 
-    raw_text = html.unescape(text or "")
+
+def _inline_markup_tag_name(tag: str) -> str:
+    """Normalize one supported inline tag name for stack-based validation."""
+
+    name = tag.lower().strip("<>/")
+    if name == "em":
+        return "i"
+    return name
+
+
+def validate_inline_markup_structure(text: str) -> None:
+    """Validate that supported inline markup is balanced and well ordered."""
+
+    stack = []
+    for match in _INLINE_MARKUP_TAG_RE.finditer(text or ""):
+        token = match.group(0)
+        tag_name = _inline_markup_tag_name(token)
+        is_closing = token.lower().startswith("</")
+        if is_closing:
+            if not stack or stack[-1] != tag_name:
+                raise ValueError("Close tags in the order they were opened.")
+            stack.pop()
+            continue
+        if tag_name in {"sub", "sup"} and any(
+            open_tag in {"sub", "sup"} for open_tag in stack
+        ):
+            raise ValueError(
+                "Subscript and superscript cannot be nested inside one another."
+            )
+        stack.append(tag_name)
+    if stack:
+        raise ValueError(
+            "Every <i>, <em>, <sub>, and <sup> tag needs a matching closing tag."
+        )
+
+
+def split_inline_markup(text: str) -> list[InlineMarkupSegment]:
+    """Split a text fragment into segments using a safe subset of inline tags."""
+
+    raw_text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     italic = False
+    subscript = False
+    superscript = False
     segments = []
-    for part in _ITALIC_TAG_RE.split(raw_text):
+    for part in _INLINE_MARKUP_TAG_RE.split(raw_text):
         if not part:
             continue
         lowered = part.lower()
@@ -340,5 +388,52 @@ def split_inline_italic_markup(text: str) -> list[tuple[str, bool]]:
         if lowered in {"</i>", "</em>"}:
             italic = False
             continue
-        segments.append((part, italic))
+        if lowered == "<sub>":
+            subscript = True
+            continue
+        if lowered == "</sub>":
+            subscript = False
+            continue
+        if lowered == "<sup>":
+            superscript = True
+            continue
+        if lowered == "</sup>":
+            superscript = False
+            continue
+        segments.append(
+            InlineMarkupSegment(
+                html.unescape(part),
+                italic=italic,
+                subscript=subscript,
+                superscript=superscript,
+            )
+        )
     return segments
+
+
+def split_inline_italic_markup(text: str) -> list[tuple[str, bool]]:
+    """Split a text fragment into plain/italic segments using simple <i>/<em> tags."""
+
+    return [
+        (segment.text, segment.italic)
+        for segment in split_inline_markup(text)
+    ]
+
+
+def format_inline_markup_html(text: str) -> str:
+    """Render supported inline markup as safe HTML for portal previews."""
+
+    html_parts = []
+    for segment in split_inline_markup(text):
+        rendered = html.escape(segment.text).replace("\n", "<br>")
+        wrappers = []
+        if segment.italic:
+            wrappers.append("i")
+        if segment.subscript:
+            wrappers.append("sub")
+        if segment.superscript:
+            wrappers.append("sup")
+        for tag_name in reversed(wrappers):
+            rendered = f"<{tag_name}>{rendered}</{tag_name}>"
+        html_parts.append(rendered)
+    return "".join(html_parts)
